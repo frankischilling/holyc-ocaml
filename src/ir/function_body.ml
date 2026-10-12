@@ -72,6 +72,7 @@ type definition_binding = {
 }
 
 type t = {
+  execution_identity_ : int;
   function_id_ : Function_id.t;
   symbol_ : Symbol.t;
   function_scope_ : Symbol.Scope_id.t;
@@ -90,6 +91,15 @@ type t = {
 }
 
 let reference_commit = Instruction_sequence.reference_commit
+let next_execution_identity = Atomic.make 1
+
+let rec allocate_execution_identity () =
+  let identity = Atomic.get next_execution_identity in
+  if identity = max_int then
+    invalid_arg "IR function execution identity space exhausted";
+  if Atomic.compare_and_set next_execution_identity identity (identity + 1) then
+    identity
+  else allocate_execution_identity ()
 
 let known_stored_flag_mask =
   List.fold_left
@@ -250,6 +260,7 @@ let create description =
       | [] ->
           Ok
             {
+              execution_identity_ = allocate_execution_identity ();
               function_id_ = description.function_id;
               symbol_ = description.symbol;
               function_scope_ = description.function_scope;
@@ -267,6 +278,7 @@ let create description =
             })
 
 let function_id function_ = function_.function_id_
+let execution_identity function_ = function_.execution_identity_
 let symbol function_ = function_.symbol_
 let function_scope function_ = function_.function_scope_
 let return_type function_ = function_.return_type_

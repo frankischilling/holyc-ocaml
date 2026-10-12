@@ -35,6 +35,14 @@ let create ~lookup ~base_pointer ~pointer_type =
   let member = Members.lookup_member lookup in
   let member_type = Members.member_type member in
   let layout = Members.member_layout member in
+  let callback = Members.member_function_pointer member in
+  let storage_type =
+    match callback with
+    | None -> Some member_type
+    | Some pointer ->
+        Sema.Function_type_resolution.function_pointer_storage_type pointer
+        |> Result.to_option
+  in
   let exact_aggregate =
     Automatic_aggregate_storage.aggregate_pointer base_pointer
     &&
@@ -43,17 +51,31 @@ let create ~lookup ~base_pointer ~pointer_type =
     | _ -> false
   in
   let exact_member =
-    Option.fold ~none:false ~some:(Type.equal pointer_type)
-      (Type.pointer_to member_type |> Result.to_option)
+    Option.fold ~none:false
+      ~some:(fun storage ->
+        Option.fold ~none:false ~some:(Type.equal pointer_type)
+          (Type.pointer_to storage |> Result.to_option))
+      storage_type
     && Type.equal member_type
          (Sema.Type_reference.resolved_type
             (Members.member_type_reference member))
   in
-  let supported_member = supported_member_type member_type in
-  if
-    (not exact_aggregate) || (not exact_member) || (not supported_member)
-    || Members.member_is_function_pointer member
-  then
+  let supported_callback =
+    Option.fold ~none:false
+      ~some:(fun pointer ->
+        List.length
+          (Sema.Function_type_resolution.function_pointer_indirection_origins
+             pointer)
+        = 1
+        && Option.is_some storage_type
+        && layout.element_size = 8L)
+      callback
+  in
+  let supported_member =
+    if Members.member_is_function_pointer member then supported_callback
+    else Option.is_none callback && supported_member_type member_type
+  in
+  if (not exact_aggregate) || (not exact_member) || not supported_member then
     Error
       "member projection does not match its selected aggregate and field type"
   else
@@ -123,3 +145,9 @@ let member_symbol projection =
   match projection.selection with
   | Field lookup -> Members.member_symbol (Members.lookup_member lookup)
   | Backing backing -> Sema.Aggregate_backing_storage.aggregate_symbol backing
+
+let callback_pointer projection =
+  match projection.selection with
+  | Field lookup ->
+      Members.member_function_pointer (Members.lookup_member lookup)
+  | Backing _ -> None

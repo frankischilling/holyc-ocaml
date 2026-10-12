@@ -260,6 +260,8 @@ type reference_access = {
   reference : value;
   scalar : scalar_value;
   offset : value option;
+  callback :
+    (Sema.Function_type_resolution.function_pointer * int list ref) option;
 }
 
 type frame_reference_origin = { access : frame_access; extent_bytes : int }
@@ -331,6 +333,7 @@ type callback_access =
   | Callback_frame of frame_access * int
   | Callback_arena of arena_access * int
   | Callback_indexed of indexed_object_access * reference_table
+  | Callback_field of reference_access * int
 
 type operation =
   | Load_immediate of value * int64
@@ -364,6 +367,8 @@ type operation =
   | Load_pointer_field of reference_access * value
   | Store_reference_value of reference_access * value * value
   | Store_pointer_field of reference_access * value * value
+  | Load_code_field of reference_access * int * value
+  | Store_code_field of reference_access * int * value * value
   | Update_reference_value of
       reference_access
       * frame_update
@@ -2742,6 +2747,62 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position r8 result
+      | Load_code_field (access, table, result)
+      | Store_code_field (access, table, _, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span access.reference rdx;
+          emit
+            (Encoder.Address_frame
+               (Encoder.R8, encoder_frame_slot instruction.span table));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
+            [ 0; 8; 16; 24; 32 ];
+          Option.iter
+            (fun offset ->
+              copy_value_to instruction.span offset rcx;
+              emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx)))
+            access.offset;
+          (match instruction.operation with
+          | Store_code_field (_, _, input, _) ->
+              copy_value_to instruction.span input rax;
+              emit
+                (Encoder.Store_frame
+                   ( encoder_frame_slot instruction.span (table + 40),
+                     Encoder.Rax ));
+              load_owner Encoder.Rax input;
+              emit
+                (Encoder.Store_frame
+                   ( encoder_frame_slot instruction.span (table + 48),
+                     Encoder.Rax ))
+          | _ -> ());
+          emit
+            (Encoder.Address_frame
+               (Encoder.Rdx, encoder_frame_slot instruction.span (table + 40)));
+          reference_service
+            ~site:(Option.get instruction.site)
+            (match instruction.operation with
+            | Load_code_field _ -> 6
+            | _ -> 7)
+            [
+              Reference_service.Register Encoder.R8;
+              Reference_service.Register Encoder.Rdx;
+            ];
+          emit
+            (Encoder.Load_frame
+               (Encoder.Rax, encoder_frame_slot instruction.span (table + 48)));
+          emit
+            (Encoder.Store_frame
+               ( encoder_frame_slot instruction.span
+                   (Option.get result.code_owner_offset),
+                 Encoder.Rax ));
+          emit
+            (Encoder.Load_frame
+               (Encoder.Rax, encoder_frame_slot instruction.span (table + 40)));
+          note_peak ~temporaries:[ rax; rdx; r8 ] ();
+          assign position rax result
       | Load_pointer_field (access, result)
       | Store_pointer_field (access, _, result) ->
           spill_all_registers instruction.span;
@@ -3082,7 +3143,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               ();
             assign position (if old_result then r8 else computed_index) result)
       | Update_callback_value
-          (access, update, input, old_result, result, arithmetic_site) ->
+          (access, update, input, old_result, result, arithmetic_site) -> (
           spill_all_registers instruction.span;
           let site = Option.get instruction.site in
           let owned = fresh_label supply in
@@ -3122,6 +3183,42 @@ let allocate_body ?callable_frame ?(shared_values = [])
                 (Encoder.Load_arena
                    ( Encoder.Rax,
                      encoder_arena_slot instruction.span owner_offset ))
+          | Callback_field (access, table) ->
+              copy_value_to instruction.span access.reference rdx;
+              emit
+                (Encoder.Address_frame
+                   (Encoder.R8, encoder_frame_slot instruction.span table));
+              List.iter
+                (fun offset ->
+                  emit
+                    (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+                  emit
+                    (Encoder.Store_indirect_offset
+                       (Encoder.R8, offset, Encoder.Rax)))
+                [ 0; 8; 16; 24; 32 ];
+              Option.iter
+                (fun offset ->
+                  copy_value_to instruction.span offset rcx;
+                  emit
+                    (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx)))
+                access.offset;
+              emit
+                (Encoder.Address_frame
+                   ( Encoder.Rdx,
+                     encoder_frame_slot instruction.span (table + 40) ));
+              reference_service ~site 6
+                [
+                  Reference_service.Register Encoder.R8;
+                  Reference_service.Register Encoder.Rdx;
+                ];
+              emit
+                (Encoder.Load_frame
+                   ( Encoder.Rax,
+                     encoder_frame_slot instruction.span (table + 48) ));
+              if instruction.locked then (
+                emit (Encoder.Load_indirect (Encoder.Rdx, Encoder.R8, 0));
+                emit (Encoder.Load_indirect (Encoder.R8, Encoder.R8, 16));
+                emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.R8)))
           | Callback_indexed (access, home) ->
               let scalar = reference_scalar access.origin in
               copy_value_to instruction.span access.offset rcx;
@@ -3174,7 +3271,15 @@ let allocate_body ?callable_frame ?(shared_values = [])
               (Encoder.Store_indirect_offset
                  (target, 0, registers.(computed_index)));
             note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
-            assign position (if old_result then r8 else computed_index) result)
+            assign position (if old_result then r8 else computed_index) result);
+          match access with
+          | Callback_field (_, table) when not instruction.locked ->
+              reference_service ~site 7
+                [
+                  Reference_service.Frame_address table;
+                  Reference_service.Frame_address (table + 40);
+                ]
+          | _ -> ())
       | Update_arena_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
@@ -6108,6 +6213,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
   (* Static target sets bound dispatch; private dynamic owner words distinguish
      original code from numeric bits through callback cells and parameters. *)
   let code_values = ref Value_map.empty in
+  let field_targets =
+    ref
+      (List.init
+         (Array.length functions + Array.length provider_entries)
+         Fun.id)
+  in
   let zero_values = ref Value_set.empty in
   let word_code_values = ref Value_set.empty in
   let code_cells =
@@ -6208,6 +6319,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
       value.reference_descriptor_offset <-
         Some (reserve_reference_table description)
   in
+  let reserve_code_field_table (description : Sequence.description) =
+    if max_stack_bytes - rbp_bytes - !reference_bytes < 56 then
+      reject ?span:description.span "HCBACK0004"
+        "native callback field snapshot exceeds max_stack_bytes";
+    reference_bytes := !reference_bytes + 56;
+    -(rbp_bytes + !reference_bytes)
+  in
   let frame_reference_origin slot =
     { access = slot.access; extent_bytes = slot.slot_extent_bytes }
   in
@@ -6261,7 +6379,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
         let pointee, scalar =
           checked_reference description reference.declared_type
         in
-        Reference_address ({ reference; scalar; offset = None }, pointee)
+        Reference_address
+          ({ reference; scalar; offset = None; callback = None }, pointee)
   in
   let load_code description raw position result target_type pointer storage_type
       targets operation =
@@ -6449,8 +6568,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             (Value_map.find_opt id !values))
                      description.operands))
           && not
-               (task_dynamic_code_words
-               && description.opcode = Opcode.Ic_return_val
+               (description.opcode = Opcode.Ic_return_val
                && List.for_all
                     (fun id ->
                       match Value_map.find_opt id !values with
@@ -6623,7 +6741,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   in
                   mark_reference description value;
                   ( Materialize_existing_reference
-                      ({ reference = input; scalar; offset = None }, value),
+                      ( {
+                          reference = input;
+                          scalar;
+                          offset = None;
+                          callback = None;
+                        },
+                        value ),
                     None )
               | _ ->
                   malformed description "invalid primitive pointer cast shape")
@@ -8428,6 +8552,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                               reference = base;
                               scalar = source_scalar;
                               offset = None;
+                              callback = None;
                             } )
                   in
                   if
@@ -8452,13 +8577,25 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   in
                   mark_reference description value;
                   let strides = Ir.Aggregate_member_projection.strides proof in
+                  let callback =
+                    Option.map
+                      (fun header -> (header, field_targets))
+                      (Ir.Aggregate_member_projection.callback_pointer proof)
+                  in
+                  let access =
+                    { reference = value; scalar; offset = None; callback }
+                  in
                   if strides <> [] then
                     frame_values :=
                       Value_map.add result.value_id
-                        (Member_array_address
-                           ( { reference = value; scalar; offset = None },
-                             target_type,
-                             strides ))
+                        (Member_array_address (access, target_type, strides))
+                        !frame_values;
+                  if strides = [] && Option.is_some callback then
+                    frame_values :=
+                      Value_map.add result.value_id
+                        (Reference_address
+                           ( access,
+                             Type.dereference target_type |> Result.get_ok ))
                         !frame_values;
                   (Project_reference (source, delta, scalar, value), None)
               | _ -> malformed description "invalid native member projection")
@@ -8693,7 +8830,14 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                               checked_reference description
                                 reference.declared_type
                             in
-                            let access = { reference; scalar; offset = None } in
+                            let access =
+                              {
+                                reference;
+                                scalar;
+                                offset = None;
+                                callback = None;
+                              }
+                            in
                             ( Indexed_reference_root access,
                               Index_reference reference,
                               [
@@ -8834,6 +8978,40 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     address_operand frame_values values description position
                       address_id
                   with
+                  | Reference_address (access, pointee)
+                    when Option.is_some access.callback ->
+                      let header, targets = Option.get access.callback in
+                      let table = reserve_code_field_table description in
+                      load_code description raw position result target_type
+                        header pointee targets (fun value ->
+                          Load_code_field (access, table, value))
+                  | Indexed_address indexed
+                    when indexed.indexed_remaining_strides = []
+                         &&
+                         match indexed.indexed_root with
+                         | Indexed_reference_root access ->
+                             Option.is_some access.callback
+                         | _ -> false ->
+                      let access =
+                        match indexed.indexed_root with
+                        | Indexed_reference_root access -> access
+                        | _ -> assert false
+                      in
+                      let header, targets = Option.get access.callback in
+                      let table = reserve_code_field_table description in
+                      let pointee =
+                        Type.dereference indexed.indexed_pointer_type
+                        |> Result.get_ok
+                      in
+                      load_code description raw position result target_type
+                        header pointee targets (fun value ->
+                          Load_code_field
+                            ( {
+                                access with
+                                offset = Some indexed.indexed_offset;
+                              },
+                              table,
+                              value ))
                   | Frame_address slot
                     when Option.is_some slot.callback
                          && slot.slot_dimensions = [] ->
@@ -9084,25 +9262,63 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       let input =
                         operand values description position input_id
                       in
-                      checked_copy description target_type input.declared_type;
-                      let value =
-                        define values description position result target_type
-                          (Computation.forward target_type)
+                      if Option.is_some access.callback then
+                        let _, targets = Option.get access.callback in
+                        let table = reserve_code_field_table description in
+                        store_code description position result target_type
+                          input_id targets (fun input value ->
+                            Store_code_field (access, table, input, value))
+                      else (
+                        checked_copy description target_type input.declared_type;
+                        let value =
+                          define values description position result target_type
+                            (Computation.forward target_type)
+                        in
+                        if
+                          Ir.Aggregate_member_projection.pointer_member_type
+                            target_type
+                        then (
+                          if
+                            Option.is_none input.reference_descriptor_offset
+                            || Option.is_some input.code_owner_offset
+                          then
+                            malformed description
+                              "pointer field store requires an owned data \
+                               reference";
+                          mark_reference description value;
+                          (Store_pointer_field (access, input, value), None))
+                        else (Store_reference_value (access, input, value), None))
+                  | Indexed_address indexed
+                    when indexed.indexed_remaining_strides = []
+                         &&
+                         match indexed.indexed_root with
+                         | Indexed_reference_root access ->
+                             Option.is_some access.callback
+                         | _ -> false ->
+                      let access =
+                        match indexed.indexed_root with
+                        | Indexed_reference_root access -> access
+                        | _ -> assert false
                       in
                       if
-                        Ir.Aggregate_member_projection.pointer_member_type
-                          target_type
-                      then (
-                        if
-                          Option.is_none input.reference_descriptor_offset
-                          || Option.is_some input.code_owner_offset
-                        then
-                          malformed description
-                            "pointer field store requires an owned data \
-                             reference";
-                        mark_reference description value;
-                        (Store_pointer_field (access, input, value), None))
-                      else (Store_reference_value (access, input, value), None)
+                        Type.dereference indexed.indexed_pointer_type
+                        |> Result.to_option <> Some target_type
+                      then
+                        malformed description
+                          "indexed callback field store changes its selected \
+                           type";
+                      let _, targets = Option.get access.callback in
+                      let table = reserve_code_field_table description in
+                      store_code description position result target_type
+                        input_id targets (fun input value ->
+                          Store_code_field
+                            ( {
+                                access with
+                                offset = Some indexed.indexed_offset;
+                              },
+                              table,
+                              input,
+                              value ))
                   | Indexed_address indexed
                     when indexed.indexed_remaining_strides = [] -> (
                       let input =
@@ -9345,56 +9561,87 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         None )
                   | Reference_address (access, pointee)
                     when Type.equal target_type pointee ->
-                      let update, old_result, expects_operand =
-                        Option.get
-                          (callable_frame_update description.opcode
-                             access.scalar.word_type)
+                      if Option.is_some access.callback then
+                        let table = reserve_code_field_table description in
+                        update_callback description position result target_type
+                          pointee
+                          (Callback_field (access, table))
+                          operands site arithmetic_sites
+                      else
+                        let update, old_result, expects_operand =
+                          Option.get
+                            (callable_frame_update description.opcode
+                               access.scalar.word_type)
+                        in
+                        let input =
+                          match (expects_operand, operands) with
+                          | true, [ input_id ] ->
+                              let input =
+                                operand values description position input_id
+                              in
+                              check_update_operand description input;
+                              Some input
+                          | false, [] -> None
+                          | _ ->
+                              malformed description
+                                "invalid scalar update operands"
+                        in
+                        let value =
+                          define values description position result target_type
+                            (Computation.forward target_type)
+                        in
+                        let arithmetic_site =
+                          match update with
+                          | Update_division arithmetic_operation ->
+                              let fault_site =
+                                {
+                                  site;
+                                  operation = arithmetic_operation;
+                                  instruction_id =
+                                    Sequence.Instruction_id.to_int
+                                      description.instruction_id;
+                                  position;
+                                  span = description.span;
+                                  signed = access.scalar.word_type = I64;
+                                }
+                              in
+                              arithmetic_sites :=
+                                fault_site :: !arithmetic_sites;
+                              Some fault_site
+                          | Update_binary _ | Update_shift _ -> None
+                        in
+                        ( Update_reference_value
+                            ( access,
+                              update,
+                              input,
+                              old_result,
+                              value,
+                              access.scalar.word_type,
+                              arithmetic_site ),
+                          None )
+                  | Indexed_address indexed
+                    when indexed.indexed_remaining_strides = []
+                         &&
+                         match indexed.indexed_root with
+                         | Indexed_reference_root access ->
+                             Option.is_some access.callback
+                         | _ -> false ->
+                      let access =
+                        match indexed.indexed_root with
+                        | Indexed_reference_root access -> access
+                        | _ -> assert false
                       in
-                      let input =
-                        match (expects_operand, operands) with
-                        | true, [ input_id ] ->
-                            let input =
-                              operand values description position input_id
-                            in
-                            check_update_operand description input;
-                            Some input
-                        | false, [] -> None
-                        | _ ->
-                            malformed description
-                              "invalid scalar update operands"
+                      let pointee =
+                        Type.dereference indexed.indexed_pointer_type
+                        |> Result.get_ok
                       in
-                      let value =
-                        define values description position result target_type
-                          (Computation.forward target_type)
-                      in
-                      let arithmetic_site =
-                        match update with
-                        | Update_division arithmetic_operation ->
-                            let fault_site =
-                              {
-                                site;
-                                operation = arithmetic_operation;
-                                instruction_id =
-                                  Sequence.Instruction_id.to_int
-                                    description.instruction_id;
-                                position;
-                                span = description.span;
-                                signed = access.scalar.word_type = I64;
-                              }
-                            in
-                            arithmetic_sites := fault_site :: !arithmetic_sites;
-                            Some fault_site
-                        | Update_binary _ | Update_shift _ -> None
-                      in
-                      ( Update_reference_value
-                          ( access,
-                            update,
-                            input,
-                            old_result,
-                            value,
-                            access.scalar.word_type,
-                            arithmetic_site ),
-                        None )
+                      let table = reserve_code_field_table description in
+                      update_callback description position result target_type
+                        pointee
+                        (Callback_field
+                           ( { access with offset = Some indexed.indexed_offset },
+                             table ))
+                        operands site arithmetic_sites
                   | Indexed_address indexed
                     when indexed.indexed_remaining_strides = [] -> (
                       let word, operation =
@@ -9669,9 +9916,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       unsupported description
                         "U0 source functions cannot return a word value"
                   | Callable_word_return _ ->
-                      if
-                        not (task_dynamic_code_words && has_code_word_view input)
-                      then
+                      if not (has_code_word_view input) then
                         ignore
                           (checked_scalar ~allow_public:true description
                              input.declared_type);
@@ -10153,6 +10398,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Update_callback_value (Callback_arena _, _, _, _, _, _)
               | Update_callback_value (Callback_indexed _, _, _, _, _, _) ->
                   true
+              | Update_callback_value (Callback_field _, _, _, _, _, _) -> true
               | Load_arena_value _
               | Load_code_arena _
               | Update_arena_value _
@@ -10161,6 +10407,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Update_indexed_object_value _
               | Load_reference_value _
               | Load_pointer_field _
+              | Load_code_field _
               | Update_reference_value _
               | Internal_mod_u64 _
               | Internal_bit _
@@ -10183,13 +10430,15 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ -> false);
             address_bounds_site =
               (match operation with
-              | Update_callback_value (Callback_indexed _, _, _, _, _, _) ->
-                  true
+              | Update_callback_value (Callback_indexed _, _, _, _, _, _)
+              | Update_callback_value (Callback_field _, _, _, _, _, _) -> true
               | Materialize_reference (_, _, Some _, _)
               | Project_reference _
               | Materialize_existing_reference ({ offset = Some _; _ }, _)
               | Load_reference_value _
               | Load_pointer_field _
+              | Load_code_field _
+              | Store_code_field _
               | Store_reference_value _
               | Store_pointer_field _
               | Update_reference_value _
@@ -10232,8 +10481,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ -> false);
             reference_ownership_site =
               (match operation with
+              | Update_callback_value (Callback_field _, _, _, _, _, _) -> true
               | Load_pointer_field _
               | Store_pointer_field _
+              | Load_code_field _
+              | Store_code_field _
               | Load_reference_value _
               | Store_reference_value _
               | Update_reference_value _
@@ -10251,7 +10503,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ -> false);
             reference_shadow_store_site =
               (match operation with
-              | Store_pointer_field _ -> true
+              | Store_pointer_field _ | Store_code_field _ -> true
               | _ -> false);
             output_site =
               (match operation with

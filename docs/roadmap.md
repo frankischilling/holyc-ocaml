@@ -39,8 +39,10 @@ layouts while preserving exact types, function identities and retained JIT
 contexts. Member access, nested and inherited objects, arrays and class pointer
 operations share the existing IR and native storage paths. See
 [function-local objects](function-local-aggregate-objects.md).
-General object copies, callback fields and class
+General object copies and class
 pointer returns remain part of the broader work under #686.
+One-level [callback fields](callback-fields.md) now use their selected headers
+and executable ownership through IR and both native targets.
 See [owned aggregate members](aggregate-members.md) and
 [automatic aggregate byte views](automatic-aggregate-byte-views.md).
 
@@ -308,7 +310,7 @@ the same cells for calls, reads, assignments and numeric updates. Arithmetic
 after an update preserves eight-byte scaling and its I64 or U64 computation
 class. Supported global initializer regions and top-level calls also execute.
 Native source-session scheduling and shared task storage remain under #704;
-callback members, effectful defaults, owned-address arithmetic, remaining
+effectful defaults, owned-address arithmetic, remaining
 indirections and broader executable return domains keep #801 open.
 
 This file does not mark planned work as implemented. Current support is listed in the README and generated compatibility reports.

@@ -503,6 +503,7 @@ let ast_errors (ast : Ast.module_) =
                 match call.call_callee with
                 | Ast.Identifier_expression _
                 | Ast.Index_expression _
+                | Ast.Member_expression _
                 | Ast.Parenthesized_expression _ ->
                     work :=
                       Gate_expression (in_function, call.call_callee)

@@ -1,5 +1,6 @@
 open Holyc_lib
 module Cases = Aggregate_member_cases
+module Callbacks = Callback_field_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
 module Casts = Aggregate_cast_cases
@@ -65,10 +66,10 @@ let faults () =
     (fun mode ->
       List.iter
         (fun (_, source, code, output) -> failure code output (run mode source))
-        (Cases.faults @ Cases.pointer_faults @ Arrays.faults @ Pointers.faults
-       @ Inherited.faults @ Backed.faults @ Default.faults @ Parameters.faults
-       @ Returns.faults @ Persistent.faults @ Persistent.pointer_faults
-       @ Casts.faults);
+        (Callbacks.faults @ Cases.faults @ Cases.pointer_faults @ Arrays.faults
+       @ Pointers.faults @ Inherited.faults @ Backed.faults @ Default.faults
+       @ Parameters.faults @ Returns.faults @ Persistent.faults
+       @ Persistent.pointer_faults @ Casts.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -245,6 +246,7 @@ let field_proofs () =
   List.iter check
     [
       Aggregate_member_fixture.contents;
+      Callbacks.proof_source;
       Cases.pointer_proof_source;
       Cases.pointer_local_proof_source;
       Aggregate_member_fixture.local_contents;
@@ -513,7 +515,8 @@ let () =
                 List.iter
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
-          (Cases.values @ Cases.pointer_values @ Cases.pointer_width_matrix
+          (Callbacks.values @ Callbacks.width_values @ Cases.values
+         @ Cases.pointer_values @ Cases.pointer_width_matrix
          @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
          @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
          @ Inherited.values @ Inherited.view_matrix @ Backed.values

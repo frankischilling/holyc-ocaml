@@ -14522,7 +14522,7 @@ issue = 686
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 model = "Original nominal extent, source element counts and strides, independent physical byte cells, static padding charge, retained declaration identities and existing owned pointer shadows."
 evidence_limit = "Source audit and hosted execution; unknown-byte tracking and root bounds are hosted policy. No original TempleOS runtime or machine-byte comparison."
-remaining = ["native pointer and callback fields", "persistent pointer cells and reference returns", "general copies and remaining aggregate acceptance"]
+remaining = ["remaining data and callback signatures", "reference returns", "general copies and remaining aggregate acceptance"]
 
 [[feature]]
 id = "HC-PERSISTENT-AGGREGATE-INITIALIZERS"
@@ -14552,7 +14552,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 model = "Ungrouped integer storage casts select their final owned address class and load or update its raw width. Grouped and immediate class values preserve register bits and nominal computation class without granting a byte root. Existing class view proofs bind selected layouts to the exact function owner. Root bounds, initialization, lifetime, member offsets and captured destinations remain original."
 verification = "A nine-by-nine backing/read matrix accompanies all integer cast targets, grouped and immediate values, selected class members, consecutive casts, parameter and return words, prefix and postfix updates, unions, inheritance, nested and persistent storage, local types and retained replacements. Faults and exact limits retain original roots and initialized bytes. Raw IR rejects foreign, missing and other-function class proofs; native graph mutations reject before image creation. Public source fixtures run through IR, native programs and native source tasks."
 evidence_limit = "Pinned source audit and hosted execution only; no new TempleOS runtime captures or emitted machine-byte comparison. Invalid-memory faults are hosted policy."
-remaining = ["F64, pointer and callback class backings", "numeric reference construction and reference returns", "callable callback fields and general aggregate copies", "inline backed local declaration mode", "full aggregate and compiler acceptance under #686/#682"]
+remaining = ["F64, pointer and callback class backings", "numeric reference construction and reference returns", "general aggregate copies", "inline backed local declaration mode", "full aggregate and compiler acceptance under #686/#682"]
 
 [[feature]]
 id = "HC-NATIVE-AGGREGATE-POINTER-FIELDS"
@@ -14567,4 +14567,19 @@ issue = 686
 model = "The source field remains an eight-byte RT_PTR value. Native shadows retain the selected pointee identity and complete descriptor. Automatic targets carry non-repeating activation identities; descriptor copies and fixed arguments preserve them. Returning retires the activation and its own fields, without extending targets retained in caller or persistent objects. Scalar/byte/atomic/internal stores and compiler copies remove overlapping ownership even when visible bytes match. Source fragments share persistent shadows through the original task arena."
 verification = "Shared independent words cover integer/Bool and nominal class pointees, packed/inherited/nested members, multidimensional member/root arrays, copies, captured destinations, pointer updates, unions, persistent storage and retained replacements. Faults preserve reached effects for expiration, activation reuse, restored numeric bytes, overlap, nominal mismatches, unknown bytes and bounds. Graph seals, selected field proofs, both ABIs and exact/one-below frame, work, stack and image limits accompany source and public CLI execution."
 evidence_limit = "Pinned source audit and hosted native execution; no original TempleOS runtime capture or emitted machine-byte comparison. Activation tracking, invalid-memory faults and the 64 MiB native shadow limit are hosted policy."
-remaining = ["F64/U0/callback/multiple-layer pointer fields", "numeric pointer construction and pointer returns", "general aggregate copies and the remaining #686/#682 requirements"]
+remaining = ["F64/U0/multiple-layer data pointer fields", "numeric pointer construction and pointer returns", "general aggregate copies and the remaining #686/#682 requirements"]
+
+[[feature]]
+id = "HC-OWNED-AGGREGATE-CALLBACK-FIELDS"
+description = "Callback members retain their selected headers, byte storage and executable ownership."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:285-372 complete PrsType", "Compiler/PrsStmt.HC:62-140 complete PrsFunJoin", "Compiler/PrsExp.HC:383-591 complete PrsFunCall", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/callback_source.ml", "src/ir/aggregate_member_projection.ml", "src/ir/direct_call_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/function_body.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/driver/native_parameter_defaults.ml", "src/hosted/native_program.ml", "src/native_reference_shadow.h"]
+tests = ["test/callback_field_cases.ml", "test/provider_callback_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml"]
+documentation = ["docs/callback-fields.md", "docs/aggregate-members.md", "docs/callback-updates.md", "docs/testing.md", "docs/architecture.md", "docs/compiler-status.md"]
+status = "implemented"
+issue = 686
+model = "One-level member callbacks use their original immutable lookup and anonymous header. Typed assignment stores eight visible address bytes and separate executable ownership; member arrays preserve all dimensions. The callee is captured before argument effects. Scalar and byte overwrites remove ownership even when bits match. Numeric words do not gain executable ownership; original code owners and signature matching remain mandatory for dispatch."
+verification = "Independent words cover integer/Bool returns, U0 effects, variadic calls, fixed defaults, nested/inherited/unaligned fields, arrays, copies, caller storage, persistent fields and retained class replacement. Faults cover unknown bytes, numeric words, restored address bytes, overlap, signature mismatch, opaque updates and bounds. Projection controls and exact/one-below semantic frame, work, physical frame and image limits accompany IR and native execution."
+evidence_limit = "Pinned source audit and hosted execution without a new TempleOS runtime capture or machine-byte comparison. Virtual IR code tokens, native owner shadows, invalid-memory checks and rejection of numeric function-address arithmetic are hosted policy."
+remaining = ["extra callback indirection and reference returns", "F64 and wider ABI execution", "existing local callback declaration-initializer boundary", "member metadata consumers and remaining #686/#682 acceptance"]

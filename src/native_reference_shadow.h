@@ -6,6 +6,7 @@
 
 #define NATIVE_REFERENCE_SHADOW_BYTES (64u * 1024u * 1024u)
 #define NATIVE_REFERENCE_BUCKETS 4096u
+#define NATIVE_REFERENCE_CODE_TYPE UINT64_C(0x8000000000000000)
 
 struct native_reference_descriptor {
   uint64_t data, flags, offset, extent, epoch;
@@ -205,11 +206,11 @@ static uint64_t native_reference_service(uint64_t *context)
     if (!native_reference_live((struct native_reference_descriptor *)first)) fault = 34;
   } else if (operation == 3) {
     native_reference_invalidate(state, first, (size_t)second);
-  } else if (operation == 4 || operation == 5) {
+  } else if (operation >= 4 && operation <= 7) {
     const struct native_reference_descriptor *field = (struct native_reference_descriptor *)first;
     uintptr_t address;
     fault = native_reference_window(field, 8, &address);
-    if (fault == 0 && operation == 4) {
+    if (fault == 0 && (operation == 4 || operation == 6)) {
       /* A load checks known bytes before consulting ownership. */
       if (field->flags != 0) {
         const uint8_t *flags = (const uint8_t *)(uintptr_t)(field->flags - field->offset);
@@ -220,13 +221,33 @@ static uint64_t native_reference_service(uint64_t *context)
         struct native_reference_entry *entry = state->count == 0 ? NULL : *native_reference_find(state, address);
         uint64_t bits;
         memcpy(&bits, (void *)address, 8);
-        if (entry == NULL || entry->owner_epoch != field->epoch || entry->type != third ||
+        if (operation == 6) {
+          uint64_t pair[2] = {bits, 0};
+          if (entry != NULL && entry->owner_epoch == field->epoch &&
+              entry->type == NATIVE_REFERENCE_CODE_TYPE && bits == entry->target.data)
+            pair[1] = entry->target.flags;
+          memcpy((void *)second, pair, sizeof(pair));
+        } else if (entry == NULL || entry->owner_epoch != field->epoch || entry->type != third ||
             bits != entry->target.data + entry->target.offset) fault = 34;
         else memcpy((void *)second, &entry->target, sizeof(entry->target));
       }
     } else if (fault == 0) {
       struct native_reference_descriptor target;
-      memcpy(&target, (void *)second, sizeof(target));
+      if (operation == 7) {
+        uint64_t pair[2];
+        memcpy(pair, (void *)second, sizeof(pair));
+        target = (struct native_reference_descriptor){ .data = pair[0], .flags = pair[1] };
+        third = NATIVE_REFERENCE_CODE_TYPE;
+        if (pair[1] == 0) {
+          native_reference_invalidate(state, address, 8);
+          memcpy((void *)address, &pair[0], 8);
+          if (field->flags != 0) {
+            uint8_t *flags = (uint8_t *)(uintptr_t)(field->flags - field->offset);
+            for (size_t byte = 0; byte < 8; ++byte) flags[-(intptr_t)byte] = 1;
+          }
+          return 0;
+        }
+      } else memcpy(&target, (void *)second, sizeof(target));
       struct native_reference_entry *entry = NULL;
       if (state->count != 0) {
         uintptr_t start = address > 7 ? address - 7 : 0;

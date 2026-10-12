@@ -156,12 +156,17 @@ Partial inherited bases and bases without their original completed compilation
 or retained-context proof cannot authorize object storage. Zero-sized automatic
 objects, automatic root pointer arrays, inferred initializer dimensions,
 floating whole-value postfix casts, callback class
-parameters, general aggregate copies, callback
-fields, numeric/null casts to class pointers and pointer returns remain unfinished
+parameters, general aggregate copies,
+numeric/null casts to class pointers and pointer returns remain unfinished
 under [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 Defaults containing references remain unsupported in AOT IR and ordinary native
 compilation. Local and member size queries use their separate metadata paths;
 compiler position queries for aggregate-valued frames remain gated.
+
+[Owned callback fields](callback-fields.md) retain their original signature and
+executable owner through direct access, inherited and nested members, arrays,
+typed copies and fixed callback arguments. Numeric and byte stores preserve
+their eight-byte storage without granting calls.
 
 Functions can return supported integers, U0 or qualified class-value words. A
 class-value return grants no addressable object extent. The checks use the

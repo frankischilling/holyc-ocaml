@@ -47,6 +47,10 @@ type description = {
 type member
 type t
 
+val execution_identity : t -> int
+(** Process-unique identity of an original immutable body. This observation
+    grants no executable or declaration authority. *)
+
 val reference_commit : string
 val known_stored_flag_mask : int64
 val known_compiler_option_mask : int64

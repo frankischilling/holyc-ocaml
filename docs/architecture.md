@@ -24,6 +24,10 @@ and frame retirement invalidates saved addresses while releasing storage.
 Native descriptors also carry activation identities. Separate native field
 shadows preserve pointee identities, while scalar writes remove overlapping
 ownership. Shared task arenas retain persistent shadows across source fragments.
+Callback fields keep their code-address word and executable owner separately.
+IR byte storage and the native shadow service both invalidate that owner on
+overlapping writes. Field calls use the selected header and a callee snapshot
+taken before argument evaluation. See [callback fields](callback-fields.md).
 See [owned aggregate members](aggregate-members.md) and
 [pointer fields](aggregate-pointer-fields.md).
 

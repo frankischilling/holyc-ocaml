@@ -161,6 +161,7 @@ and runtime_address = {
   pointer_extent_bytes : int64;
   pointer_offset : int64;
   pointer_pointee : Type.t;
+  pointer_callback : Sema.Function_type_resolution.function_pointer option;
 }
 
 and runtime_storage = {
@@ -169,6 +170,7 @@ and runtime_storage = {
      A cell enters [cells] only when all of its original bytes are known. *)
   partial_words : (int, int64 * int) Hashtbl.t;
   pointer_cells : (int64, Type.t * runtime_address * int64) Hashtbl.t;
+  code_cells : (int64, int64 * runtime_value * int64) Hashtbl.t;
   address_base : int64;
   mutable live : bool;
   unknown_message : string;
@@ -220,7 +222,13 @@ and prepared_operation =
   | Scale_index of prepared_operand * int64 * Value_id.t
   | Index_address of
       binary_operation * storage_location * Value_id.t * Value_id.t * Type.t
-  | Project_member of storage_location * int64 * Value_id.t * Type.t * Type.t
+  | Project_member of
+      storage_location
+      * int64
+      * Value_id.t
+      * Type.t
+      * Type.t
+      * Sema.Function_type_resolution.function_pointer option
   | Materialize_address of storage_location * Value_id.t * Type.t
   | Load_slot of storage_location * Value_id.t
   | Store_slot of storage_location * prepared_value * Value_id.t * stored_type
@@ -292,6 +300,7 @@ and prepared = {
 }
 
 and callee = {
+  code_address : int64;
   callee_index : int;
   callee_symbol : Sema.Symbol.t;
   callee_definition : Sema.Function_resolution.resolved_declaration option;
@@ -720,18 +729,26 @@ let retire_runtime_storage storage =
     storage.live <- false;
     storage.cells <- [||];
     Hashtbl.reset storage.partial_words;
+    Hashtbl.reset storage.code_cells;
     Hashtbl.reset storage.pointer_cells)
 
 let invalidate_pointer_cells storage first last =
   (* A pointer spans eight original bytes, whose canonical keys are at most
      eight positions apart. Scalar stores therefore need a bounded lookup
      window, independently of the number of pointer fields in the object. *)
-  if Hashtbl.length storage.pointer_cells <> 0 then
+  if
+    Hashtbl.length storage.pointer_cells <> 0
+    || Hashtbl.length storage.code_cells <> 0
+  then
     let key = ref (Int64.sub first 63L) in
     while !key <= last do
       (match Hashtbl.find_opt storage.pointer_cells !key with
       | Some (_, _, end_key) when end_key >= first ->
           Hashtbl.remove storage.pointer_cells !key
+      | _ -> ());
+      (match Hashtbl.find_opt storage.code_cells !key with
+      | Some (_, _, end_key) when end_key >= first ->
+          Hashtbl.remove storage.code_cells !key
       | _ -> ());
       key := Int64.succ !key
     done
@@ -759,6 +776,7 @@ let new_exception_storage () =
       cells = Array.make Task_exception_layout.byte_count None;
       partial_words = Hashtbl.create 0;
       pointer_cells = Hashtbl.create 0;
+      code_cells = Hashtbl.create 0;
       address_base = storage_address Task_exception_layout.byte_count;
       live = true;
       unknown_message =
@@ -3241,6 +3259,7 @@ let admit_declared_global task declaration =
            cells = Array.make (Integer_globals.cell_count globals) None;
            partial_words = Hashtbl.create 0;
            pointer_cells = Hashtbl.create 0;
+           code_cells = Hashtbl.create 0;
            address_base = storage_address (Integer_globals.cell_count globals);
            live = true;
            unknown_message =
@@ -3294,6 +3313,7 @@ let admit_static_allocation task allocation =
             cells = Array.make (Integer_globals.cell_count globals) None;
             partial_words = Hashtbl.create 0;
             pointer_cells = Hashtbl.create 0;
+            code_cells = Hashtbl.create 0;
             address_base = storage_address (Integer_globals.cell_count globals);
             live = true;
             unknown_message =
@@ -5627,6 +5647,11 @@ type declared_type =
       * int64 list
   | Callback_initializer_address of
       Integer_globals.storage_slot * Type.t * int64 list
+  | Callback_field_address of
+      Sema.Function_type_resolution.function_pointer
+      * Sema.Symbol.t
+      * Type.t
+      * int64 list
   | Unsupported
 
 let reference_commit = Sequence.reference_commit
@@ -6427,6 +6452,7 @@ let indexed_address frame types (description : Sequence.description) =
           when Type.equal expected pointer -> Some strides
         | Some (Callback_array_address (_, _, expected, strides))
         | Some (Callback_initializer_address (_, expected, strides))
+        | Some (Callback_field_address (_, _, expected, strides))
           when Type.equal expected pointer -> Some strides
         | Some (Pointer_value expected) when Type.equal expected pointer -> (
             match selected_stride pointer with
@@ -6452,7 +6478,11 @@ let indexed_address frame types (description : Sequence.description) =
               match initializer_root with
               | Some slot ->
                   Callback_initializer_address (slot, pointer, remaining)
-              | None -> Indexed_address (pointer, remaining)))
+              | None -> (
+                  match Value_map.find_opt base types with
+                  | Some (Callback_field_address (header, symbol, _, _)) ->
+                      Callback_field_address (header, symbol, pointer, remaining)
+                  | _ -> Indexed_address (pointer, remaining))))
       | _ -> Unsupported)
   | _ -> Unsupported
 
@@ -6501,7 +6531,17 @@ let member_address frame types (description : Sequence.description) =
                        (fun context -> Frame.function_item_index context.layout)
                        frame)
                   proof ~base_pointer:source ~pointer_type:pointer ~offset:delta
-        -> Indexed_address (pointer, Aggregate_member_projection.strides proof)
+        -> (
+          match Aggregate_member_projection.callback_pointer proof with
+          | None ->
+              Indexed_address
+                (pointer, Aggregate_member_projection.strides proof)
+          | Some header ->
+              Callback_field_address
+                ( header,
+                  Aggregate_member_projection.member_symbol proof,
+                  pointer,
+                  Aggregate_member_projection.strides proof ))
       | _ -> Unsupported)
   | _ -> Unsupported
 
@@ -6545,6 +6585,9 @@ let declared_types ?frame ?globals ?literals ?initialization
                    && Integer_globals.storage_dimensions slot = []
                    && Type.equal type_ (Integer_globals.storage_type slot)
                | Some (Callback_array_address (_, _, pointer, [])) ->
+                   Option.fold ~none:false ~some:(Type.equal type_)
+                     (Type.dereference pointer |> Result.to_option)
+               | Some (Callback_field_address (_, _, pointer, [])) ->
                    Option.fold ~none:false ~some:(Type.equal type_)
                      (Type.dereference pointer |> Result.to_option)
                | Some (Callback_initializer_address (slot, pointer, [])) ->
@@ -6686,13 +6729,15 @@ let declared_types ?frame ?globals ?literals ?initialization
                              match indexed_address frame types description with
                              | ( Indexed_address _
                                | Callback_array_address _
-                               | Callback_initializer_address _ ) as indexed ->
+                               | Callback_initializer_address _
+                               | Callback_field_address _ ) as indexed ->
                                  indexed
                              | _ -> (
                                  match
                                    member_address frame types description
                                  with
-                                 | Indexed_address _ as projected -> projected
+                                 | (Indexed_address _ | Callback_field_address _)
+                                   as projected -> projected
                                  | _ -> (
                                      match frame with
                                      | Some context ->
@@ -6748,6 +6793,7 @@ let operand_of_value types value_id =
       | Indexed_address _
       | Callback_array_address _
       | Callback_initializer_address _
+      | Callback_field_address _
       | Global_address _ )
   | None -> None
 
@@ -6811,6 +6857,7 @@ let storage_operand ?(allow_array = false) frame initialization types
       | Error _ -> None)
   | _, Some (Callback_array_address (_, _, pointer_type, remaining))
   | _, Some (Callback_initializer_address (_, pointer_type, remaining))
+  | _, Some (Callback_field_address (_, _, pointer_type, remaining))
     when allow_array || remaining = [] ->
       Option.bind
         (Type.dereference pointer_type |> Result.to_option)
@@ -7061,14 +7108,15 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
            | _ -> false -> Some Scale_index_kind
     | _, (Opcode.Ic_add | Opcode.Ic_sub)
       when match member_address frame types description with
-           | Indexed_address _ -> true
+           | Indexed_address _ | Callback_field_address _ -> true
            | _ -> false -> Some Member_address_kind
     | _, (Opcode.Ic_add | Opcode.Ic_sub)
       when match produced with
            | Some
                ( Indexed_address _
                | Callback_array_address _
-               | Callback_initializer_address _ ) -> true
+               | Callback_initializer_address _
+               | Callback_field_address _ ) -> true
            | _ -> false -> Some Index_address_kind
     | _, Opcode.Ic_addr when memory_enabled -> Some Pointer_address_kind
     | _, (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
@@ -7164,7 +7212,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   Some
                     ( Indexed_address (pointer, _)
                     | Callback_array_address (_, _, pointer, _)
-                    | Callback_initializer_address (_, pointer, _) ) ) -> (
+                    | Callback_initializer_address (_, pointer, _)
+                    | Callback_field_address (_, _, pointer, _) ) ) -> (
                   match
                     ( storage_operand ~allow_array:true frame initialization
                         types description.instruction_id base,
@@ -7212,7 +7261,16 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                     when Type.equal pointer expected ->
                       Ok
                         (Project_member
-                           (location, delta, result.value_id, source, pointee))
+                           ( location,
+                             delta,
+                             result.value_id,
+                             source,
+                             pointee,
+                             match description.payload with
+                             | Some (Sequence.Member_projection proof) ->
+                                 Aggregate_member_projection.callback_pointer
+                                   proof
+                             | _ -> None ))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
           | Pointer_address_kind -> (
@@ -7930,6 +7988,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
             else
               Some
                 {
+                  code_address = 0L;
                   callee_index = -1;
                   callee_symbol = Runtime.symbol site;
                   callee_definition = None;
@@ -8020,11 +8079,24 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 in
                 match local with
                 | Some _ -> local
-                | None ->
-                    Option.bind globals (fun globals ->
-                        Integer_globals.persistent_callback_storage globals
-                          callback.callback_pointer
-                        |> Option.map Integer_globals.storage_symbol)
+                | None -> (
+                    let global =
+                      Option.bind globals (fun globals ->
+                          Integer_globals.persistent_callback_storage globals
+                            callback.callback_pointer
+                          |> Option.map Integer_globals.storage_symbol)
+                    in
+                    match global with
+                    | Some _ -> global
+                    | None ->
+                        Value_map.fold
+                          (fun _ value found ->
+                            match (found, value) with
+                            | None, Callback_field_address (header, symbol, _, _)
+                              when header == callback.callback_pointer ->
+                                Some symbol
+                            | _ -> found)
+                          types None)
               in
               match
                 ( symbol,
@@ -8039,6 +8111,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                      | _ -> false ->
                   let callee =
                     {
+                      code_address = 0L;
                       callee_index = -1;
                       callee_symbol = symbol;
                       callee_definition = None;
@@ -8860,6 +8933,22 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   with
                   | Some callback -> (
                       match (frame, description.operands) with
+                      | _, [ address ]
+                        when match Value_map.find_opt address types with
+                             | Some (Callback_field_address (header, _, _, []))
+                               -> header == callback.callback_pointer
+                             | _ -> false ->
+                          let pointer_type =
+                            match Value_map.find address types with
+                            | Callback_field_address (_, _, pointer, _) ->
+                                pointer
+                            | _ -> assert false
+                          in
+                          call_instruction description
+                            (Load_slot
+                               ( Indexed_slot
+                                   { pointer_value = address; pointer_type },
+                                 callback.callback_capture_value ))
                       | None, [ address ] -> (
                           let owns slot =
                             (match Integer_globals.storage_frame slot with
@@ -9414,6 +9503,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
       cells = Array.copy cells;
       partial_words = Hashtbl.create 0;
       pointer_cells = Hashtbl.create 0;
+      code_cells = Hashtbl.create 0;
       address_base = storage_address (Array.length cells);
       live = true;
       unknown_message;
@@ -9520,6 +9610,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
       cells;
       partial_words = Hashtbl.create 0;
       pointer_cells = Hashtbl.create 0;
+      code_cells = Hashtbl.create 0;
       address_base = storage_address (Array.length cells);
       live = true;
       unknown_message =
@@ -10071,6 +10162,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 (Int64.of_int pointer_element_bytes);
             pointer_offset = 0L;
             pointer_pointee;
+            pointer_callback = None;
           })
         (scalar_element_bytes pointer_storage_pointee)
     in
@@ -10255,8 +10347,31 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     | None ->
         location_error block instruction "HCIRVM0012" storage.unknown_message
   in
+  let code_bits = function
+    | Runtime_word word -> Some word.bits
+    | Runtime_undefined_code _ -> Some Int64.min_int
+    | Runtime_code { code_entry = Source_entry (callee, _, _); _ } ->
+        Some callee.code_address
+    | Runtime_code { code_entry = Provider_entry receipt; _ } ->
+        let symbol =
+          Runtime.function_slot_address_declaration receipt
+          |> Sema.Function_resolution.resolved_declaration_identity_symbol
+        in
+        Some
+          (Int64.logor 0xc000000000000000L
+             (Int64.of_int (Sema.Symbol.execution_identity symbol)))
+    | _ -> None
+  in
   let read_location block instruction = function
     | `Cell (storage, index) -> read_cell block instruction storage index
+    | `View address when Option.is_some address.pointer_callback -> (
+        match read_view_bits address 8 with
+        | Error (code, message) -> location_error block instruction code message
+        | Ok bits -> (
+            let key = byte_key address address.pointer_offset in
+            match Hashtbl.find_opt address.pointer_storage.code_cells key with
+            | Some (expected, value, _) when expected = bits -> Some value
+            | _ -> Some (Runtime_word { type_ = I64; bits })))
     | `View address
       when Aggregate_member_projection.pointer_member_type
              address.pointer_pointee
@@ -10309,6 +10424,29 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     in
     match location with
     | `Cell (storage, index) -> write_cell storage index
+    | `View address when Option.is_some address.pointer_callback -> (
+        match code_bits value with
+        | None ->
+            ignore
+              (location_error block instruction "HCIRVM0008"
+                 "callback field requires a code value or scalar word");
+            false
+        | Some bits -> (
+            match write_view_bits address 8 bits with
+            | Error (code, message) ->
+                ignore (location_error block instruction code message);
+                false
+            | Ok () ->
+                (match value with
+                | Runtime_code _ | Runtime_undefined_code _ ->
+                    Hashtbl.replace address.pointer_storage.code_cells
+                      (byte_key address address.pointer_offset)
+                      ( bits,
+                        value,
+                        byte_key address (Int64.add address.pointer_offset 7L)
+                      )
+                | _ -> ());
+                true))
     | `View address
       when Aggregate_member_projection.pointer_member_type
              address.pointer_pointee
@@ -10856,6 +10994,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                           pointer_offset = 0L;
                           pointer_pointee =
                             Type.dereference type_ |> Result.get_ok;
+                          pointer_callback = None;
                         }
                       in
                       calls :=
@@ -11535,8 +11674,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                         Some
                           (runtime_error ~instruction block !steps "HCIRVM0008"
                              "prepared index offset is unavailable"))
-              | Project_member (location, delta, result, source, pointer_pointee)
-                -> (
+              | Project_member
+                  ( location,
+                    delta,
+                    result,
+                    source,
+                    pointer_pointee,
+                    pointer_callback ) -> (
                   match resolve_address block instruction location source with
                   | None -> ()
                   | Some address ->
@@ -11561,6 +11705,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                             pointer_offset =
                               Int64.add address.pointer_offset delta;
                             pointer_pointee;
+                            pointer_callback;
                           }
                         in
                         if
@@ -12899,6 +13044,9 @@ let execute_program_with_output ?task ?isolated_budget
             in
             let callee =
               {
+                code_address =
+                  Int64.logor Int64.min_int
+                    (Int64.of_int (Function.execution_identity body));
                 callee_index = index;
                 callee_symbol = symbol;
                 callee_definition = Function.definition_declaration body;
@@ -13702,6 +13850,7 @@ let save_default_data task ~destination ~entry ~executed_steps address =
                      { type_ = U64; bits = Int64.of_int (Char.code bytes.[i]) }));
           partial_words = Hashtbl.create 0;
           pointer_cells = Hashtbl.create 0;
+          code_cells = Hashtbl.create 0;
           address_base = storage_address count;
           live = true;
           unknown_message = "saved string default byte is uninitialized";
@@ -13724,6 +13873,7 @@ let save_default_data task ~destination ~entry ~executed_steps address =
           pointer_extent_bytes = Int64.of_int count;
           pointer_offset = 0L;
           pointer_pointee = pointee;
+          pointer_callback = None;
         }
   in
   let source =

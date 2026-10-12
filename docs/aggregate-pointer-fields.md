@@ -106,13 +106,15 @@ its declaration and command fragments:
 holyc run --target=host-jit-task --code-byte-limit=524288 examples/aggregate-pointer-fields.hc
 ```
 
-F64, U0, callback and multiple-layer pointer fields remain outside this execution
+F64, U0 and multiple-layer data pointer fields remain outside this execution
 path. Automatic root pointer arrays, numeric pointer construction, general class
 copies and class pointer returns retain their
 existing gates. Explicit address-taking of a pointer field through `&object.p`
 also needs the general extra-indirection path; member-array indexing retains its
 own authenticated addresses. Full compiler parity remains under
 [issue #682](https://github.com/frankischilling/holyc-ocaml/issues/682).
+
+Callback members use their own [executable ownership path](callback-fields.md).
 
 The source audit uses TempleOS commit
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`:

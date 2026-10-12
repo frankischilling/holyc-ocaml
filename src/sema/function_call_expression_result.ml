@@ -4226,12 +4226,21 @@ and type_top_level_call table members policies ~before_item_index
                         ~before_item_index ~intrinsic_conversion state id source
                         call callee binding
                   | _, Outer_environment.Object_global ->
-                      Ok
-                        (make_result ~intrinsic_conversion state ~id ~source
-                           ~source_type:None ~category:Unavailable
-                           ~top_level_outer_occurrence:callee
-                           ~outer_binding:binding
-                           ~result_class:Unresolved_actual_class)))))
+                      if
+                        Function_call_resolution.call_callee_form
+                          (Top_level_expression_tree.call_source call)
+                        = Function_call_resolution.Member_callee
+                      then
+                        type_top_level_outer_callback_call table members
+                          policies ~before_item_index ~intrinsic_conversion
+                          state id source call callee binding
+                      else
+                        Ok
+                          (make_result ~intrinsic_conversion state ~id ~source
+                             ~source_type:None ~category:Unavailable
+                             ~top_level_outer_occurrence:callee
+                             ~outer_binding:binding
+                             ~result_class:Unresolved_actual_class)))))
 
 and type_top_level_direct_call table members policies ~before_item_index
     ~intrinsic_conversion state id source call outer_binding declaration =
@@ -4504,7 +4513,43 @@ and type_top_level_outer_callback_metadata table members policies =
   let invalid message = Error (invalid_top_level_input ~origin message) in
   match Outer_environment.global_declarator_kind metadata with
   | Outer_environment.Object_global ->
-      invalid "top-level outer global has no function-pointer signature"
+      let ( let* ) = Result.bind in
+      let callee_expression =
+        Top_level_expression_tree.call_callee_expression call
+      in
+      let* base_expression =
+        Function_call_resolution.member_callable_base_expression
+          callee_expression
+        |> Result.map_error (fun error ->
+            invalid_top_level_input
+              ?origin:(Function_call_resolution.error_origin error)
+              (Function_call_resolution.error_message error))
+      in
+      let* base_result, _ =
+        type_expression table members policies ~before_item_index
+          ~context:Value_context state base_expression
+      in
+      let* lookup =
+        match base_result.member_lookup with
+        | Some lookup -> Ok lookup
+        | None ->
+            invalid "retained member callback lacks its exact selected lookup"
+      in
+      let* callable =
+        Function_call_resolution.validate_member_callable callee_expression
+          lookup
+        |> Result.map_error (fun error ->
+            invalid_top_level_input
+              ?origin:(Function_call_resolution.error_origin error)
+              (Function_call_resolution.error_message error))
+      in
+      let* callee_result, state =
+        type_expression table members policies ~before_item_index
+          ~context:Value_context state callee_expression
+      in
+      type_top_level_outer_callback_arguments table members policies
+        ~before_item_index ~intrinsic_conversion state id source call occurrence
+        binding source_call origin callable ~callee_result:(Some callee_result)
   | Outer_environment.Function_pointer_global function_pointer ->
       let callable =
         Function_call_resolution.make_callable

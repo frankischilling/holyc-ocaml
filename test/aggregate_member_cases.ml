@@ -399,9 +399,6 @@ let unsupported =
     ( "class pointer return",
       {|class Box{U8 byte;};Box *Get(Box *p){return p;}I64 F(){Box o;return Get(&o)->byte;}F();|}
     );
-    ( "callback field has no executable owner",
-      {|class Box{I64 (*call)(I64 value);};I64 Id(I64 value){return value;}I64 F(){Box o;o.call=&Id;return o.call(42);}F();|}
-    );
     ( "numeric bits cannot become an owned class pointer",
       {|class Box{U8 byte;};I64 F(){Box *p=42(Box*);return p->byte;}F();|} );
   ]

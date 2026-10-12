@@ -1040,6 +1040,17 @@ let lower_callback ?frame ?globals ?lower_call ?optimize_shifts
           (Integer_globals.persistent_callback_storage globals pointer))
       globals
   in
+  let original_member_cell =
+    Option.fold ~none:false
+      ~some:(fun callee ->
+        Option.fold ~none:false
+          ~some:(fun lookup ->
+            Option.fold ~none:false ~some:(( == ) pointer)
+              (Sema.Aggregate_member_index.member_function_pointer
+                 (Sema.Aggregate_member_index.lookup_member lookup)))
+          (Result.result_member_lookup callee))
+      (Callback_source.callee call)
+  in
   let fixed = Callback_source.fixed_arguments call in
   let provided =
     List.filter_map
@@ -1056,7 +1067,8 @@ let lower_callback ?frame ?globals ?lower_call ?optimize_shifts
   let matches = Callback_source.matches_result call result in
   if
     (not matches)
-    || (not (original_frame_cell || original_global_cell))
+    || (not
+          (original_frame_cell || original_global_cell || original_member_cell))
     || List.length (Headers.function_pointer_indirection_origins pointer) <> 1
     || List.length provided <> List.length fixed
   then Ok Unsupported_call

@@ -5343,6 +5343,7 @@
  (modules
   automatic_aggregate_cases
   aggregate_member_cases
+  callback_field_cases
   aggregate_array_cases
   aggregate_pointer_cases
   aggregate_cast_cases

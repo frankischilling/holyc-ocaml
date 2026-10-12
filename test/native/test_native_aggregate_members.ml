@@ -1,5 +1,6 @@
 open Holyc_lib
 module Cases = Aggregate_member_cases
+module Callbacks = Callback_field_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
 module Casts = Aggregate_cast_cases
@@ -85,10 +86,10 @@ let faults () =
           Alcotest.(check string)
             "native fault preserves reached output" output
             (Native_program.output_bytes report))
-        (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
-       @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults
-       @ Persistent.faults @ Casts.faults @ Cases.pointer_faults
-       @ Persistent.pointer_faults
+        (Callbacks.faults @ Cases.faults @ Arrays.faults @ Pointers.faults
+       @ Inherited.faults @ Backed.faults @ Default.faults @ Parameters.faults
+       @ Returns.faults @ Persistent.faults @ Casts.faults
+       @ Cases.pointer_faults @ Persistent.pointer_faults
         @ if mode = Preprocessor.Jit then Persistent.jit_faults else []);
       List.iter
         (fun (definition, bytes) ->
@@ -147,6 +148,13 @@ let quotas () =
               |> Int64.to_int)
           |> List.fold_left max 0
         in
+        let frame =
+          if source_contents = Callbacks.quota_source then
+            (* The active Box's eight bytes and Add's eight-byte parameter
+               coexist across the callback. *)
+            16
+          else frame
+        in
         ignore
           (value 42L ""
              (run ~max_frame_bytes:frame ~max_steps:steps mode source_contents));
@@ -166,6 +174,7 @@ let quotas () =
   List.iter check
     [
       Cases.quota_source;
+      Callbacks.quota_source;
       Cases.pointer_quota_source;
       Arrays.quota_source;
       Pointers.quota_source;
@@ -221,6 +230,7 @@ let images () =
   List.iter check
     [
       Cases.quota_source;
+      Callbacks.quota_source;
       Cases.pointer_quota_source;
       Arrays.quota_source;
       Pointers.quota_source;
@@ -275,6 +285,7 @@ let field_proofs () =
   List.iter check
     [
       Aggregate_member_fixture.contents;
+      Callbacks.proof_source;
       Cases.pointer_proof_source;
       Cases.pointer_local_proof_source;
       Aggregate_member_fixture.local_contents;
@@ -576,6 +587,12 @@ let task_aot_cast_values () =
       task_value expected output (run_task ~mode:Preprocessor.Aot contents))
     Casts.values
 
+let task_aot_callback_values () =
+  List.iter
+    (fun (_, contents, expected, output) ->
+      task_value expected output (run_task ~mode:Preprocessor.Aot contents))
+    (Callbacks.values @ Callbacks.width_values)
+
 let persistent_storage () =
   List.iter
     (fun mode ->
@@ -611,7 +628,8 @@ let persistent_storage () =
     Persistent.aot_values
 
 let task_values =
-  Cases.values @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
+  Callbacks.values @ Callbacks.width_values @ Callbacks.retained_values
+  @ Cases.values @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
   @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
   @ Inherited.values @ Inherited.view_matrix @ Inherited.retained_values
   @ Pointers.retained_view_values @ Backed.values @ Default.values
@@ -637,12 +655,17 @@ let pointer_field_boundaries () =
           Alcotest.(check string)
             "reached pointer fault output" output
             (Native_source_execution.output_bytes report))
-        (Cases.pointer_faults @ Persistent.pointer_faults))
+        (Callbacks.faults @ Cases.pointer_faults @ Persistent.pointer_faults))
     modes
 
 let () =
   Alcotest.run "native aggregate members"
     [
+      ( "callback fields",
+        List.map
+          (fun (name, contents, expected, output) ->
+            Alcotest.test_case name `Quick (case contents expected output))
+          (Callbacks.values @ Callbacks.width_values) );
       ( "pointer fields",
         List.map
           (fun (name, contents, expected, output) ->
@@ -668,6 +691,8 @@ let () =
             `Quick task_cast_faults;
           Alcotest.test_case "AOT class cast words and storage" `Quick
             task_aot_cast_values;
+          Alcotest.test_case "AOT callback field owners, headers and updates"
+            `Quick task_aot_callback_values;
           Alcotest.test_case "earlier prototype ABI remains bounded" `Quick
             task_boundaries;
         ] );

@@ -204,6 +204,10 @@ field proofs and strides, builtin member sizes and type replacement. Faults
 cover expired callee locals, overlapping writes, numeric reconstruction and
 incompatible pointees. Native public and retained targets preserve those
 ownership and activation checks. See [pointer fields](aggregate-pointer-fields.md).
+Callback fixtures also cover direct, inherited and nested fields, full array
+indexing, fixed defaults, variadic calls, callee capture and typed owner copies.
+Numeric updates, signature mismatches, byte overwrites, exact budgets and
+foreign projection proofs accompany those cases. See [callback fields](callback-fields.md).
 General aggregate copies and partial
 or out-of-compilation inherited bases remain unsupported. Retained JIT imports
 require the original completed class and command evidence.

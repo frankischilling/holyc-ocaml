@@ -478,7 +478,9 @@ let pointer_element_size ?frame ?result type_ =
 
 let array_storage_address result =
   Semantic_result.result_is_array_address result
-  || Semantic_result.result_category result = Semantic_result.Array_value
+  || (Semantic_result.result_category result = Semantic_result.Array_value
+     || Semantic_result.result_category result = Semantic_result.Callback_value
+     )
      && Semantic_result.result_array_rank result > 0
      && Option.is_some (Semantic_result.result_callback_pointer result)
 
@@ -1786,10 +1788,8 @@ let checked_member_projection result member =
   let invalid message =
     Error [ metadata_error ?span:(result_span result) message ]
   in
-  if
-    Option.is_some (Semantic_result.result_aggregate_offset_path result)
-    || Option.is_some (Semantic_result.result_callback_pointer result)
-  then Ok None
+  if Option.is_some (Semantic_result.result_aggregate_offset_path result) then
+    Ok None
   else
     match Semantic_result.result_storage_type result with
     | None -> invalid "member expression has no checked storage type"
@@ -1816,6 +1816,16 @@ let checked_member_projection result member =
           in
           let indexed = Sema.Aggregate_member_index.lookup_member lookup in
           let layout = Sema.Aggregate_member_index.member_layout indexed in
+          let selected_storage =
+            match
+              Sema.Aggregate_member_index.member_function_pointer indexed
+            with
+            | None -> Some (Sema.Aggregate_member_index.member_type indexed)
+            | Some pointer ->
+                Sema.Function_type_resolution.function_pointer_storage_type
+                  pointer
+                |> Result.to_option
+          in
           let* base_type =
             match Semantic_result.result_storage_type base with
             | Some type_ -> Ok type_
@@ -1852,16 +1862,23 @@ let checked_member_projection result member =
           if
             (not exact_aggregate)
             || (not
-                  (Type.equal member_type
-                     (Sema.Aggregate_member_index.member_type indexed)))
+                  (Option.fold ~none:false ~some:(Type.equal member_type)
+                     selected_storage))
             || (not
-                  (Type.equal member_type
-                     (Type_reference.resolved_type
-                        (Sema.Aggregate_member_index.member_type_reference
-                           indexed))))
+                  (Option.fold ~none:false
+                     ~some:(fun source ->
+                       Type.equal source
+                         (Type_reference.resolved_type
+                            (Sema.Aggregate_member_index.member_type_reference
+                               indexed)))
+                     (Semantic_result.result_type result)))
             || List.length layout.dimensions
                <> Semantic_result.result_array_rank result
-            || Sema.Aggregate_member_index.member_is_function_pointer indexed
+            || (not
+                  (Option.equal ( == )
+                     (Semantic_result.result_callback_pointer result)
+                     (Sema.Aggregate_member_index.member_function_pointer
+                        indexed)))
             || not
                  (String.equal
                     (Semantic_source.member_name member)
@@ -2145,6 +2162,12 @@ let rec prepare_index_address ?frame ?globals result =
                             if expected_rank > 0 then
                               Semantic_result.result_category result
                               <> Semantic_result.Array_value
+                              && not
+                                   (Semantic_result.result_category result
+                                    = Semantic_result.Callback_value
+                                   && Option.is_some
+                                        (Semantic_result.result_callback_pointer
+                                           result))
                             else
                               Semantic_result.result_category result
                               <> Semantic_result.Object_value

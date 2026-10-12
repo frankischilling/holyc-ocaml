@@ -1,5 +1,6 @@
 open Yojson.Safe.Util
 module Cases = Aggregate_member_cases
+module Callbacks = Callback_field_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
 module Casts = Aggregate_cast_cases
@@ -249,12 +250,13 @@ let () =
                      Returns.warning_values)
                 word output
                 (invoke target mode source))
-            (Cases.values @ Cases.nested_values @ Cases.view_matrix
-           @ Arrays.values @ Arrays.view_matrix @ Pointers.values
-           @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
-           @ Backed.values @ Default.values @ Parameters.values
-           @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
-           @ Returns.warning_values @ Persistent.values @ Casts.values);
+            (Callbacks.values @ Callbacks.width_values @ Cases.values
+           @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
+           @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
+           @ Inherited.values @ Inherited.view_matrix @ Backed.values
+           @ Default.values @ Parameters.values @ Parameters.view_matrix
+           @ Returns.values @ Returns.view_matrix @ Returns.warning_values
+           @ Persistent.values @ Casts.values);
           value 42L "AB" (invoke target mode (read Sys.argv.(13)));
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "AB" (invoke target mode (read Sys.argv.(3)));
@@ -323,9 +325,10 @@ let () =
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
-            (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
-           @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults
-           @ Casts.faults @ Persistent.faults
+            (Callbacks.faults @ Cases.faults @ Arrays.faults @ Pointers.faults
+           @ Inherited.faults @ Backed.faults @ Default.faults
+           @ Parameters.faults @ Returns.faults @ Casts.faults
+           @ Persistent.faults
             @ if mode = "jit" then Persistent.jit_faults else []);
           List.iter
             (fun (definition, bytes) ->
@@ -433,6 +436,10 @@ let () =
         value expected output (invoke_task ~mode:"aot" source))
       Casts.values;
     List.iter
+      (fun (_, source, expected, output) ->
+        value expected output (invoke_task ~mode:"aot" source))
+      (Callbacks.values @ Callbacks.width_values);
+    List.iter
       (fun (_, source, code, output) ->
         error ~code output (invoke_task ~mode:"aot" ~status:1 source))
       Casts.faults;
@@ -447,7 +454,8 @@ let () =
     value 42L "" (invoke_task (read Sys.argv.(11)));
     nested_limits "host-jit-task";
     let task_values =
-      Cases.values @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
+      Callbacks.values @ Callbacks.width_values @ Callbacks.retained_values
+      @ Cases.values @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
       @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
       @ Inherited.values @ Inherited.view_matrix @ Inherited.retained_values
       @ Pointers.retained_view_values @ Backed.values @ Default.values
