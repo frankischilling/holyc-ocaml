@@ -7,6 +7,7 @@ module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
 module Parameters = Class_parameter_cases
 module Returns = Class_return_cases
+module Persistent = Persistent_aggregate_cases
 module Defaults = Class_default_cases
 
 let require condition message = if not condition then failwith message
@@ -30,11 +31,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 13 || Array.length Sys.argv = 14)
-    "expected compiler and eleven aggregate examples, optionally --native"
+    (Array.length Sys.argv = 14 || Array.length Sys.argv = 15)
+    "expected compiler and twelve aggregate examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 14 && Sys.argv.(13) = "--native"
+let native = Array.length Sys.argv = 15 && Sys.argv.(14) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -196,18 +197,20 @@ let () =
             List.iter
               (fun (_, source, expected, output) ->
                 value expected output (invoke target mode source))
-              (Cases.pointer_values @ Cases.pointer_width_matrix);
+              (Cases.pointer_values @ Cases.pointer_width_matrix
+             @ Persistent.pointer_values);
             value 42L "AB" (invoke target mode (read Sys.argv.(12)));
             List.iter
               (fun (_, source, code, output) ->
                 error ~code output (invoke ~status:1 target mode source))
-              Cases.pointer_faults)
+              (Cases.pointer_faults @ Persistent.pointer_faults))
           else
             List.iter
               (fun (_, source, _, _) ->
                 error ~code:"HCBACK0002" ""
                   (invoke ~status:1 target mode source))
-              (Cases.pointer_values @ Cases.pointer_width_matrix);
+              (Cases.pointer_values @ Cases.pointer_width_matrix
+             @ Persistent.pointer_values);
           List.iter
             (fun (name, source, word, output) ->
               value ~warnings:(value_warnings name)
@@ -223,7 +226,8 @@ let () =
            @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
            @ Backed.values @ Default.values @ Parameters.values
            @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
-           @ Returns.warning_values);
+           @ Returns.warning_values @ Persistent.values);
+          value 42L "AB" (invoke target mode (read Sys.argv.(13)));
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "AB" (invoke target mode (read Sys.argv.(3)));
           value 42L "AB" (invoke target mode (read Sys.argv.(4)));
@@ -286,13 +290,14 @@ let () =
                 value expected output (invoke target mode source))
               (Defaults.jit_values @ Inherited.retained_values
              @ Pointers.retained_view_values @ Cases.retained_nested_values
-             @ Cases.pointer_retained_values));
+             @ Cases.pointer_retained_values @ Persistent.retained_values));
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
             (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
            @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults
-            );
+           @ Persistent.faults
+            @ if mode = "jit" then Persistent.jit_faults else []);
           List.iter
             (fun (definition, bytes) ->
               value 42L ""
@@ -310,6 +315,21 @@ let () =
                 (invoke ~status:1 target mode
                    (Arrays.extent_source extent bytes)))
             Arrays.extents;
+          value 42L ""
+            (invoke
+               ~options:[ "--global-byte-limit=14" ]
+               target mode Persistent.quota_source);
+          error
+            ~code:(if target = "ir" then "HCIRVM0016" else "HCBACK0001")
+            ""
+            (invoke ~status:1
+               ~options:[ "--global-byte-limit=13" ]
+               target mode Persistent.quota_source);
+          if mode = "aot" then
+            List.iter
+              (fun (_, source, expected, output) ->
+                value expected output (invoke target mode source))
+              Persistent.aot_values;
           List.iter
             (fun (quota_source, frame_bytes) ->
               let baseline = invoke target mode quota_source in
@@ -349,7 +369,7 @@ let () =
             @ (if target = "ir" && mode = "jit" then Inherited.unsupported
                else Inherited.source_unsupported)
             @ Backed.unsupported @ Default.unsupported @ Parameters.unsupported
-            @ Returns.unsupported))
+            @ Returns.unsupported @ Persistent.unsupported))
         (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
     [ "jit"; "aot" ];
   if native then (
@@ -361,7 +381,9 @@ let () =
     List.iter
       (fun (_, source, _, _) ->
         error ~code:"HCBACK0002" "" (invoke_task ~status:1 source))
-      (Cases.pointer_values @ Cases.pointer_retained_values);
+      (Cases.pointer_values @ Cases.pointer_retained_values
+     @ Persistent.pointer_values);
+    value 42L "AB" (invoke_task (read Sys.argv.(13)));
     value 42L "" (invoke_task (read Sys.argv.(11)));
     nested_limits "host-jit-task";
     let task_values =
@@ -371,7 +393,8 @@ let () =
       @ Pointers.retained_view_values @ Backed.values @ Default.values
       @ Parameters.values @ Parameters.view_matrix @ Returns.values
       @ Returns.view_matrix @ Returns.warning_values @ Defaults.native_values
-      @ Defaults.jit_values @ Cases.retained_nested_values
+      @ Defaults.jit_values @ Cases.retained_nested_values @ Persistent.values
+      @ Persistent.retained_values
     in
     List.iter
       (fun (name, source, expected, output) ->
@@ -381,6 +404,21 @@ let () =
             (List.exists (fun (n, _, _, _) -> n = name) Returns.warning_values)
           expected output (invoke_task source))
       task_values;
+    value 42L ""
+      (invoke_task
+         ~options:[ "--global-byte-limit=14" ]
+         Persistent.quota_source);
+    error ~code:"HCIRVM0016" ""
+      (invoke_task ~status:1
+         ~options:[ "--global-byte-limit=13" ]
+         Persistent.quota_source);
+    List.iter
+      (fun (_, source, code, output) ->
+        error ~code output (invoke_task ~status:1 source))
+      (Persistent.faults @ Persistent.jit_faults);
+    List.iter
+      (fun (_, source) -> error "" (invoke_task ~status:1 source))
+      Persistent.unsupported;
     let _, prototype, expected, output = List.hd Defaults.prototype_values in
     value
       ~warnings:

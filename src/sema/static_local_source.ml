@@ -91,6 +91,21 @@ let bind_selected ~selected_aggregate ~allocation ~frame ~location =
             when Type.equal
                    (Type_reference.resolved_type reference)
                    (Frame.location_checked_type location) -> Ok ()
+          | Error _
+            when Option.is_some (Record.static_allocation_aggregate allocation)
+            ->
+              let aggregate =
+                Option.get (Record.static_allocation_aggregate allocation)
+              in
+              Record.validate_automatic_aggregate
+                ~table:(Record.static_allocation_table allocation)
+                ~parent:
+                  (Declaration_collection.namespace_scope
+                     (Record.static_allocation_namespace allocation))
+                ~function_symbol:(Frame.function_symbol frame)
+                ~local_symbol:symbol ~local_name:source.local_name
+                ~checked_type:(Frame.location_checked_type location)
+                aggregate
           | Error _ when Option.is_some source.local_function_pointer -> (
               match selected_aggregate source.local_type_specifier with
               | None ->

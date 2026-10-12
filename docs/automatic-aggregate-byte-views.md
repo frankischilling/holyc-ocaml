@@ -70,7 +70,7 @@ retain separate ownership shadows; overlapping scalar stores invalidate those
 shadows. Native execution of data pointer fields remains gated with `HCBACK0002`.
 
 Local and member size queries use their own original metadata. Zero-sized
-automatic objects, persistent aggregate objects, general aggregate copies,
+automatic objects, general aggregate copies,
 callback fields, native data pointer fields, pointer returns and compiler
 position queries for aggregate-valued frames remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).

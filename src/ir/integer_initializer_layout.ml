@@ -83,83 +83,86 @@ let initial_progress dimensions =
 
 let advance_tokens ~shape ~final ~expression_of_leaf ~make_entry progress input
     =
-  let width = Shape.byte_size shape / Shape.element_count shape in
-  let entry leaf cell_offset operation =
-    make_entry leaf cell_offset (cell_offset * width) operation
-  in
-  let rec run work offset reversed input =
-    match (work, input) with
-    | [], [] -> Ok ({ pending = []; next_cell = offset }, List.rev reversed)
-    | [], _ -> invalid "has extra expressions or unmatched delimiters"
-    | _, [] when not final ->
-        Ok ({ pending = work; next_cell = offset }, List.rev reversed)
-    | Consume [] :: rest, Expression leaf :: input ->
-        if offset >= Shape.element_count shape then
-          invalid "scalar destination exceeds its declared object"
-        else
-          run rest (offset + 1)
-            (entry leaf offset Scalar_store :: reversed)
-            input
-    | Consume [] :: _, _ ->
-        invalid "requires an expression for each scalar element"
-    | Consume (count :: _) :: rest, Expression leaf :: input
-      when width = 1
-           &&
-           match expression_of_leaf leaf with
-           | Frontend.Ast.String_literal _ -> true
-           | _ -> false -> (
-        match expression_of_leaf leaf with
-        | Frontend.Ast.String_literal
-            { literal_value = Frontend.Ast.Bytes_value bytes; _ } ->
-            let count = Int64.to_int count in
-            if count > String.length bytes + 1 then
-              invalid "string copy extends beyond its source-owned terminator"
-            else if count > Shape.element_count shape - offset then
-              invalid "string copy extends beyond its declared object"
-            else
-              let copied =
-                if count <= String.length bytes then String.sub bytes 0 count
-                else bytes ^ "\000"
-              in
-              run rest (offset + count)
-                (entry leaf offset (Copy_bytes copied) :: reversed)
-                input
-        | _ -> invalid "has inconsistent string source evidence")
-    | Consume (count :: tail) :: rest, _ ->
-        run
-          (Array_start (Int64.to_int count, tail) :: rest)
-          offset reversed input
-    | Array_start (count, tail) :: rest, _ ->
-        let input =
-          match input with
-          | Open :: rest -> rest
-          | _ -> input
-        in
-        run (Array_next (count, tail, 0) :: rest) offset reversed input
-    | Array_next (count, _, index) :: rest, _ when count = index ->
-        run (Optional_close :: rest) offset reversed input
-    | Array_next (count, tail, index) :: rest, _ ->
-        run
-          (Consume tail :: Optional_comma count
-          :: Array_next (count, tail, index + 1)
-          :: rest)
-          offset reversed input
-    | Optional_comma count :: rest, _ ->
-        let input =
-          match input with
-          | Comma :: rest when count > 1 -> rest
-          | _ -> input
-        in
-        run rest offset reversed input
-    | Optional_close :: rest, _ ->
-        let input =
-          match input with
-          | Close :: rest -> rest
-          | _ -> input
-        in
-        run rest offset reversed input
-  in
-  run progress.pending progress.next_cell [] input
+  if Shape.is_aggregate shape then
+    invalid "requires its original aggregate member leaf layout"
+  else
+    let width = Shape.byte_size shape / Shape.element_count shape in
+    let entry leaf cell_offset operation =
+      make_entry leaf cell_offset (cell_offset * width) operation
+    in
+    let rec run work offset reversed input =
+      match (work, input) with
+      | [], [] -> Ok ({ pending = []; next_cell = offset }, List.rev reversed)
+      | [], _ -> invalid "has extra expressions or unmatched delimiters"
+      | _, [] when not final ->
+          Ok ({ pending = work; next_cell = offset }, List.rev reversed)
+      | Consume [] :: rest, Expression leaf :: input ->
+          if offset >= Shape.element_count shape then
+            invalid "scalar destination exceeds its declared object"
+          else
+            run rest (offset + 1)
+              (entry leaf offset Scalar_store :: reversed)
+              input
+      | Consume [] :: _, _ ->
+          invalid "requires an expression for each scalar element"
+      | Consume (count :: _) :: rest, Expression leaf :: input
+        when width = 1
+             &&
+             match expression_of_leaf leaf with
+             | Frontend.Ast.String_literal _ -> true
+             | _ -> false -> (
+          match expression_of_leaf leaf with
+          | Frontend.Ast.String_literal
+              { literal_value = Frontend.Ast.Bytes_value bytes; _ } ->
+              let count = Int64.to_int count in
+              if count > String.length bytes + 1 then
+                invalid "string copy extends beyond its source-owned terminator"
+              else if count > Shape.element_count shape - offset then
+                invalid "string copy extends beyond its declared object"
+              else
+                let copied =
+                  if count <= String.length bytes then String.sub bytes 0 count
+                  else bytes ^ "\000"
+                in
+                run rest (offset + count)
+                  (entry leaf offset (Copy_bytes copied) :: reversed)
+                  input
+          | _ -> invalid "has inconsistent string source evidence")
+      | Consume (count :: tail) :: rest, _ ->
+          run
+            (Array_start (Int64.to_int count, tail) :: rest)
+            offset reversed input
+      | Array_start (count, tail) :: rest, _ ->
+          let input =
+            match input with
+            | Open :: rest -> rest
+            | _ -> input
+          in
+          run (Array_next (count, tail, 0) :: rest) offset reversed input
+      | Array_next (count, _, index) :: rest, _ when count = index ->
+          run (Optional_close :: rest) offset reversed input
+      | Array_next (count, tail, index) :: rest, _ ->
+          run
+            (Consume tail :: Optional_comma count
+            :: Array_next (count, tail, index + 1)
+            :: rest)
+            offset reversed input
+      | Optional_comma count :: rest, _ ->
+          let input =
+            match input with
+            | Comma :: rest when count > 1 -> rest
+            | _ -> input
+          in
+          run rest offset reversed input
+      | Optional_close :: rest, _ ->
+          let input =
+            match input with
+            | Close :: rest -> rest
+            | _ -> input
+          in
+          run rest offset reversed input
+    in
+    run progress.pending progress.next_cell [] input
 
 let advance ~shape ~final work input =
   advance_tokens ~shape ~final ~expression_of_leaf:Source.leaf_expression_ast

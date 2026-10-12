@@ -209,7 +209,9 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     |> List.map Frame.dimension_value
                   in
                   let checked_shape =
-                    Shape.create ~type_:shape_type ~dimensions
+                    if Option.is_none callback then
+                      Shape.create_static ~frame ~location
+                    else Shape.create ~type_:shape_type ~dimensions
                   in
                   let* shape =
                     match checked_shape with
@@ -225,6 +227,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                   in
                   if
                     Option.is_none scalar_bytes
+                    && not (Shape.is_aggregate shape)
                     || dimensions <> []
                        && not
                             (Frame.location_source_dimensions_checked location)
@@ -236,7 +239,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     || Frame.location_allocated_size location
                        <> Int64.of_int (Shape.byte_size shape)
                     || Frame.location_element_size location
-                       <> Int64.of_int (Option.get scalar_bytes)
+                       <> Int64.of_int (Shape.element_size shape)
                     || Frame.location_alignment location <> 8
                     || Option.is_some (Frame.location_frame_slot location)
                   then
@@ -244,7 +247,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                       "static execution requires public nonzero integer \
                        objects without frame slots"
                   else if
-                    Shape.element_count shape > Sys.max_array_length - index
+                    Shape.cell_count shape > Sys.max_array_length - index
                     || Option.is_none (Shape.padded_byte_size shape)
                   then
                     invalid ~at ~code:"HCIRL0005"
@@ -266,6 +269,13 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                           |> Source.initializer_local |> Local.local_symbol
                           |> fun owner -> owner == symbol)
                         remaining
+                    in
+                    let* () =
+                      if Shape.is_aggregate shape && owned <> [] then
+                        invalid ~at ~code:"HCRUN0006"
+                          "aggregate initializer requires its original member \
+                           leaf layout"
+                      else Ok ()
                     in
                     let* () =
                       List.fold_left
@@ -349,7 +359,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                       | Resolution.Aot -> (Opcode.Ic_abs_addr, Some 0L)
                     in
                     locals
-                      (index + Shape.element_count shape)
+                      (index + Shape.cell_count shape)
                       ({
                          source_allocation = None;
                          index;

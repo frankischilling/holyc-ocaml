@@ -36,6 +36,13 @@ view without widening the object or converting numeric bits into ownership.
 Inherited and retained layouts require their original checked imports before
 they can supply storage. See [automatic aggregate byte views](automatic-aggregate-byte-views.md).
 
+`Ir.Integer_storage_shape` also retains aggregate global and static geometry.
+It keeps source element counts and strides separate from physical byte cells.
+Original global and static allocation receipts supply the nominal class layout;
+foreign symbols or later metadata cannot replace that owner. Native arena layouts
+cover every declared byte with its own initialization flag. See
+[persistent aggregates](persistent-aggregates.md).
+
 The executable expression parser checks an operand identifier's original
 lexer selection before consuming it or invoking reference consumers. An absent
 local/hash selection issues the private counted `Compiler` cause at

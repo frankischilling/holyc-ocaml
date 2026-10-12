@@ -105,7 +105,8 @@ let original_allocation_authority () =
         in
         let allocation =
           if
-            receipt.allocation_storage = Ast.Automatic_local
+            (receipt.allocation_storage = Ast.Automatic_local
+            || receipt.allocation_storage = Ast.Static_local)
             && local.local_pointer_layers = []
           then (
             reject "foreign table cannot lend a class allocation"
@@ -133,7 +134,7 @@ let original_allocation_authority () =
             Some (capture selected.current |> checked))
           else (
             incr excluded;
-            reject "pointer or static storage is not an automatic class object"
+            reject "pointer storage is not a class object allocation"
               (capture selected.current);
             None)
         in
@@ -218,8 +219,8 @@ let original_allocation_authority () =
          second;B third;A *pointer;static A stored;};"
   in
   ignore (parse session Preprocessor.Jit source (sink declaration));
-  Alcotest.(check int) "three real object allocations" 3 (List.length !saved);
-  Alcotest.(check int) "pointer and static refusals were reached" 2 !excluded;
+  Alcotest.(check int) "four real object allocations" 4 (List.length !saved);
+  Alcotest.(check int) "pointer refusal was reached" 1 !excluded;
   List.iter
     (fun (function_, receipt, selected_type, record, _) ->
       reject "expired allocation cannot mint another class receipt"
@@ -310,7 +311,23 @@ let source_allocation_and_reference_timing mode () =
       Alcotest.(check bool)
         "non-object storage has no aggregate allocation authority" true
         (Option.is_none (resolve identifier)))
-    [ "pointer"; "held" ];
+    [ "pointer" ];
+  let held = saved "held" in
+  Alcotest.(check int64)
+    "static retains its original class size" 2L
+    (Record.automatic_aggregate_size held);
+  (match
+     (mode, Record.static_allocation (D.compiler_positions ledger) (find "held"))
+   with
+  | Preprocessor.Jit, Some original ->
+      Alcotest.(check bool)
+        "JIT static allocation carries its exact class receipt" true
+        (Option.fold ~none:false ~some:(( == ) held)
+           (Record.static_allocation_aggregate original))
+  | Preprocessor.Aot, None -> ()
+  | _ ->
+      Alcotest.fail
+        "static allocation has the wrong native or output source authority");
   let late_source = find "late" in
   let late_name, late_specifier, late_pointers = local late_source in
   let clone =

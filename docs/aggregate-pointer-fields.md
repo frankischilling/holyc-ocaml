@@ -1,5 +1,9 @@
 # Owned data pointer fields in IR
 
+[Persistent class globals and statics](persistent-aggregates.md) also supply
+owned byte roots for the IR pointer-field path. Their shadows retain the target's
+lifetime; a persistent field cannot keep a retired activation alive.
+
 `holyc run --target=ir` reads, assigns and updates one-level integer or class
 pointers stored in automatic class and union fields. Direct access, inherited
 fields, nested objects and multidimensional pointer member arrays retain their
@@ -82,7 +86,7 @@ execution tests require the explicit gate.
 
 F64, U0, callback and multiple-layer pointer fields remain outside this execution
 path. Automatic root pointer arrays, numeric pointer construction, general class
-copies, persistent aggregate storage and class pointer returns retain their
+copies and class pointer returns retain their
 existing gates. Explicit address-taking of a pointer field through `&object.p`
 also needs the general extra-indirection path; member-array indexing retains its
 own authenticated addresses. Full compiler parity remains under

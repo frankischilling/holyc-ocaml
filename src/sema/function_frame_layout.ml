@@ -814,7 +814,10 @@ let local_location table aggregate_layouts ~parent ~function_symbol
       match
         (automatic_aggregates, kind, declarator_shape, Type.base checked_type)
       with
-      | Some receipts, Automatic_local, Object, Type.Aggregate aggregate
+      | ( Some receipts,
+          (Automatic_local | Static_local),
+          Object,
+          Type.Aggregate aggregate )
         when Type.pointer_depth checked_type = 0 -> (
           match
             List.find_opt (fun (owned, _, _) -> owned == local) receipts

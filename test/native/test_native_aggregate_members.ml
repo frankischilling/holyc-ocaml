@@ -7,6 +7,7 @@ module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
 module Parameters = Class_parameter_cases
 module Returns = Class_return_cases
+module Persistent = Persistent_aggregate_cases
 module Defaults = Class_default_cases
 module Saved_default = Holyc_lib__Ir.Prepared_parameter_default
 module Default_preparation = Holyc_lib__Driver.Native_default_preparation
@@ -34,9 +35,11 @@ let checked = function
   | Ok value -> value
   | Error errors -> Alcotest.fail (describe errors)
 
-let run ?max_frame_bytes ?(max_steps = 100_000) mode contents =
+let run ?max_global_bytes ?max_frame_bytes ?(max_steps = 100_000) mode contents
+    =
   let session, config, source = inputs mode contents in
-  Native_program.evaluate ?max_frame_bytes session ~config ~source ~max_steps
+  Native_program.evaluate ?max_global_bytes ?max_frame_bytes session ~config
+    ~source ~max_steps
 
 let value expected output report =
   let native = (Native_program.outcome report |> checked).value in
@@ -82,7 +85,9 @@ let faults () =
             "native fault preserves reached output" output
             (Native_program.output_bytes report))
         (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
-       @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults);
+       @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults
+       @ Persistent.faults
+        @ if mode = Preprocessor.Jit then Persistent.jit_faults else []);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -272,6 +277,7 @@ let field_proofs () =
       Inherited.proof_source;
       Backed.proof_source;
       Default.proof_source;
+      Persistent.quota_source;
     ]
 
 let boundaries () =
@@ -294,7 +300,7 @@ let boundaries () =
         (Cases.unsupported @ Cases.pointer_unsupported @ Arrays.unsupported
        @ Pointers.unsupported @ Inherited.source_unsupported
        @ Backed.unsupported @ Default.unsupported @ Parameters.unsupported
-       @ Returns.unsupported);
+       @ Returns.unsupported @ Persistent.unsupported);
       let original =
         Aggregate_member_fixture.compile ~contents:Returns.quota_source mode
       in
@@ -406,11 +412,12 @@ let class_default_proofs () =
               ~path:"class-default-quota.hc" ~contents:Defaults.quota_source ())))
     modes
 
-let run_task ?max_code_bytes ?max_ir_instructions ?max_initializer_steps
-    ?max_default_bytes ?max_frame_bytes ?max_steps contents =
+let run_task ?max_global_bytes ?max_code_bytes ?max_ir_instructions
+    ?max_initializer_steps ?max_default_bytes ?max_frame_bytes ?max_steps
+    contents =
   let session, config, source = inputs Preprocessor.Jit contents in
-  Native_source_execution.evaluate ?max_ir_instructions ?max_initializer_steps
-    ?max_default_bytes ?max_frame_bytes
+  Native_source_execution.evaluate ?max_global_bytes ?max_ir_instructions
+    ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
     ~max_code_bytes:(Option.value ~default:524_288 max_code_bytes)
     ~max_steps:(Option.value ~default:100_000 max_steps)
     session ~config ~source
@@ -523,6 +530,40 @@ let task_view_limits () =
   task_storage_limits ~expect_preparation:false
     ("#exe {0;}" ^ Pointers.quota_source)
 
+let persistent_storage () =
+  List.iter
+    (fun mode ->
+      ignore
+        (value 42L "" (run ~max_global_bytes:14 mode Persistent.quota_source));
+      match
+        Native_program.outcome
+          (run ~max_global_bytes:13 mode Persistent.quota_source)
+      with
+      | Ok _ -> Alcotest.fail "aggregate bytes escaped the native global quota"
+      | Error errors ->
+          Alcotest.(check bool)
+            (describe errors) true
+            (List.exists
+               (fun (d : Diagnostic.t) -> d.code = "HCBACK0001")
+               errors))
+    modes;
+  task_value 42L "" (run_task ~max_global_bytes:14 Persistent.quota_source);
+  task_failure "HCIRVM0016"
+    (run_task ~max_global_bytes:13 Persistent.quota_source);
+  List.iter
+    (fun (_, source, code, _) -> task_failure code (run_task source))
+    (Persistent.faults @ Persistent.jit_faults);
+  List.iter
+    (fun (_, source) ->
+      Alcotest.(check bool)
+        "native aggregate initializer remains gated" true
+        (Result.is_error (Native_source_execution.outcome (run_task source))))
+    Persistent.unsupported;
+  List.iter
+    (fun (_, source, expected, output) ->
+      ignore (value expected output (run Preprocessor.Aot source)))
+    Persistent.aot_values
+
 let task_values =
   Cases.values @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
   @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
@@ -531,7 +572,8 @@ let task_values =
   @ Parameters.values @ Parameters.view_matrix @ Returns.values
   @ Returns.view_matrix @ Returns.warning_values @ Defaults.native_values
   @ [ List.hd Defaults.prototype_values ]
-  @ Defaults.jit_values @ Cases.retained_nested_values
+  @ Defaults.jit_values @ Cases.retained_nested_values @ Persistent.values
+  @ Persistent.retained_values
 
 let task_boundaries () =
   let _, original_prototype_call, _, _ = List.nth Defaults.prototype_values 1 in
@@ -552,11 +594,13 @@ let pointer_field_boundaries () =
                 (List.exists
                    (fun (d : Diagnostic.t) -> d.code = "HCBACK0002")
                    errors))
-        (Cases.pointer_values @ Cases.pointer_width_matrix))
+        (Cases.pointer_values @ Cases.pointer_width_matrix
+       @ Persistent.pointer_values))
     modes;
   List.iter
     (fun (_, contents, _, _) -> task_failure "HCBACK0002" (run_task contents))
-    (Cases.pointer_values @ Cases.pointer_retained_values)
+    (Cases.pointer_values @ Cases.pointer_retained_values
+   @ Persistent.pointer_values)
 
 let () =
   Alcotest.run "native aggregate members"
@@ -591,12 +635,15 @@ let () =
          @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
          @ Backed.values @ Default.values @ Parameters.values
          @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
-         @ Returns.warning_values) );
+         @ Returns.warning_values @ Persistent.values) );
       ( "storage",
         [
           Alcotest.test_case
             "original class defaults, quotas and source boundaries" `Quick
             class_default_proofs;
+          Alcotest.test_case
+            "persistent byte roots, initialization and exact storage limits"
+            `Quick persistent_storage;
           Alcotest.test_case "unknown bytes, bounds and independent activations"
             `Quick faults;
           Alcotest.test_case "exact runtime frame and instruction limits" `Quick

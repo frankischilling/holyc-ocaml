@@ -69,6 +69,7 @@ module Ir_integer_globals : sig
   val has_unprepared_statics : t -> bool
 
   val create :
+    ?members:Sema.Aggregate_member_index.t ->
     ?initializers:Sema.Function_call_expression_result.top_level_t ->
     span:Common.Span.t ->
     Sema.Global_record_classification.t ->

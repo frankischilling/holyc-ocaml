@@ -7,6 +7,7 @@ module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
 module Parameters = Class_parameter_cases
 module Returns = Class_return_cases
+module Persistent = Persistent_aggregate_cases
 module Defaults = Class_default_cases
 module VM = Ir_integer_interpreter
 
@@ -31,11 +32,11 @@ let checked = function
   | Ok value -> value
   | Error errors -> Alcotest.fail (describe errors)
 
-let run ?max_frame_bytes ?max_initializer_steps ?(max_steps = 100_000) mode
-    contents =
+let run ?max_global_bytes ?max_frame_bytes ?max_initializer_steps
+    ?(max_steps = 100_000) mode contents =
   let session, config, source = inputs mode contents in
-  run_integer_program_report ?max_frame_bytes ?max_initializer_steps session
-    ~config ~source ~max_steps
+  run_integer_program_report ?max_global_bytes ?max_frame_bytes
+    ?max_initializer_steps session ~config ~source ~max_steps
 
 let value expected output report =
   let result = (integer_program_report_outcome report |> checked).value in
@@ -65,7 +66,7 @@ let faults () =
         (fun (_, source, code, output) -> failure code output (run mode source))
         (Cases.faults @ Cases.pointer_faults @ Arrays.faults @ Pointers.faults
        @ Inherited.faults @ Backed.faults @ Default.faults @ Parameters.faults
-       @ Returns.faults);
+       @ Returns.faults @ Persistent.faults @ Persistent.pointer_faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -135,6 +136,23 @@ let quotas () =
     ];
   check ~modes:[ Preprocessor.Jit ] Cases.retained_nested_limits
 
+let persistent_storage () =
+  List.iter
+    (fun mode ->
+      ignore
+        (value 42L "" (run ~max_global_bytes:14 mode Persistent.quota_source));
+      failure "HCIRVM0016" ""
+        (run ~max_global_bytes:13 mode Persistent.quota_source))
+    modes;
+  List.iter
+    (fun (_, source, code, output) ->
+      failure code output (run Preprocessor.Jit source))
+    Persistent.jit_faults;
+  List.iter
+    (fun (_, source, expected, output) ->
+      ignore (value expected output (run Preprocessor.Aot source)))
+    Persistent.aot_values
+
 let foreign_frame () =
   let check source_contents =
     List.iter
@@ -179,6 +197,7 @@ let foreign_frame () =
       Default.quota_source;
       Parameters.quota_source;
       Returns.quota_source;
+      Persistent.quota_source;
     ]
 
 let field_proofs () =
@@ -233,6 +252,78 @@ let field_proofs () =
       Backed.proof_source;
       Default.proof_source;
     ]
+
+let persistent_ownership () =
+  let module Globals = Holyc_lib__Ir.Integer_globals in
+  let module Shape = Holyc_lib__Ir.Integer_storage_shape in
+  let module Frame = Semantic_function_frame_layout in
+  List.iter
+    (fun mode ->
+      let compile () =
+        Aggregate_member_fixture.compile ~contents:Persistent.quota_source mode
+      in
+      let original, foreign = (compile (), compile ()) in
+      let globals = integer_program_globals original in
+      let slot = List.hd (Globals.slots globals) in
+      let storage = Globals.global_storage slot in
+      let shape = Globals.slot_shape slot in
+      Alcotest.(check int) "source object count" 2 (Shape.element_count shape);
+      Alcotest.(check int) "physical byte cell count" 6 (Shape.cell_count shape);
+      Alcotest.(check int) "selected class stride" 3 (Shape.element_size shape);
+      Alcotest.(check bool)
+        "exact global shape owner" true
+        (Shape.matches shape
+           ~symbol:(Globals.storage_symbol storage)
+           ~type_:(Globals.storage_type storage)
+           ~dimensions:[ 2L ]);
+      Alcotest.(check bool)
+        "foreign equal-looking shape owner" false
+        (Shape.matches shape
+           ~symbol:
+             (Globals.slot_symbol
+                (List.hd (Globals.slots (integer_program_globals foreign))))
+           ~type_:(Globals.storage_type storage)
+           ~dimensions:[ 2L ]);
+      Alcotest.(check bool)
+        "another source extent cannot reuse the shape" false
+        (Shape.matches shape
+           ~symbol:(Globals.storage_symbol storage)
+           ~type_:(Globals.storage_type storage)
+           ~dimensions:[ 3L ]);
+      let definition = Aggregate_member_fixture.first_definition original in
+      let foreign_definition =
+        Aggregate_member_fixture.first_definition foreign
+      in
+      let location =
+        Frame.function_locations definition.frame
+        |> List.find (fun location ->
+            Frame.location_kind location = Frame.Static_local)
+      in
+      Alcotest.(check bool)
+        "original static location supplies a byte shape" true
+        (Result.is_ok (Shape.create_static ~frame:definition.frame ~location));
+      Alcotest.(check bool)
+        "another frame cannot claim the static location" true
+        (Result.is_error
+           (Shape.create_static ~frame:foreign_definition.frame ~location));
+      match
+        VM.execute_program
+          ~globals:(integer_program_globals foreign)
+          ~initialization:(integer_program_initialization original)
+          ~runtime_calls:(integer_program_runtime_calls original)
+          ~max_steps:100_000 ~max_frame_bytes:1024 ~max_call_depth:16
+          ~functions:(integer_program_functions original)
+          (integer_program_entry original)
+      with
+      | Ok _ ->
+          Alcotest.fail "foreign persistent roots acquired source authority"
+      | Error errors ->
+          List.iter
+            (fun (e : VM.error) ->
+              Alcotest.(check int)
+                "foreign persistent root rejects before work" 0 e.executed_steps)
+            errors)
+    modes
 
 let class_parameter_ownership () =
   let module Body = Ir_function_body in
@@ -374,7 +465,8 @@ let boundaries () =
         @ (if mode = Preprocessor.Aot then
              [ List.hd Inherited.source_unsupported ]
            else [])
-        @ Parameters.unsupported @ Returns.unsupported))
+        @ Parameters.unsupported @ Returns.unsupported @ Persistent.unsupported
+        ))
     modes
 
 let class_default_boundaries () =
@@ -407,7 +499,7 @@ let () =
                 ignore (value expected output (run Preprocessor.Jit source))))
           (Defaults.jit_values @ Inherited.retained_values
          @ Pointers.retained_view_values @ Cases.retained_nested_values
-         @ Cases.pointer_retained_values) );
+         @ Cases.pointer_retained_values @ Persistent.retained_values) );
       ( "values",
         List.map
           (fun (name, source, expected, output) ->
@@ -420,16 +512,22 @@ let () =
          @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
          @ Inherited.values @ Inherited.view_matrix @ Backed.values
          @ Default.values @ Parameters.values @ Parameters.view_matrix
-         @ Returns.values @ Returns.view_matrix @ Returns.warning_values) );
+         @ Returns.values @ Returns.view_matrix @ Returns.warning_values
+         @ Persistent.values @ Persistent.pointer_values) );
       ( "storage",
         [
           Alcotest.test_case "source class default boundaries" `Quick
             class_default_boundaries;
+          Alcotest.test_case
+            "persistent byte roots, initialization and exact storage limits"
+            `Quick persistent_storage;
           Alcotest.test_case "unknown bytes, extents and fresh activations"
             `Quick faults;
           Alcotest.test_case "exact frame and instruction limits" `Quick quotas;
           Alcotest.test_case "foreign frame rejected before touching bytes"
             `Quick foreign_frame;
+          Alcotest.test_case "persistent shapes require exact source owners"
+            `Quick persistent_ownership;
           Alcotest.test_case
             "class parameter slot requires its original ABI owner" `Quick
             class_parameter_ownership;

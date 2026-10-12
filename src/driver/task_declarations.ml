@@ -116,6 +116,7 @@ type storage_boundary = {
   storage_predecessor : Parser.completed_command option;
   storage_previous_global : Sema.Symbol.t option;
   mutable storage_declaration : Sema.Compiler_record.declared_global option;
+  storage_aggregate : Sema.Compiler_record.global_aggregate_allocation option;
   mutable storage_completion : Parser.declaration_event option;
 }
 
@@ -1930,7 +1931,8 @@ let automatic_aggregate_allocation ledger function_publication selected
     (receipt : Parser.function_local_allocation) =
   match (receipt.allocation_local.local_source, selected) with
   | Parser.Local_variable local, Some selected
-    when receipt.allocation_storage = Ast.Automatic_local
+    when (receipt.allocation_storage = Ast.Automatic_local
+         || receipt.allocation_storage = Ast.Static_local)
          && Option.is_none local.local_function_pointer
          && local.local_pointer_layers = [] ->
       let record =
@@ -1969,6 +1971,38 @@ let automatic_aggregate_allocation ledger function_publication selected
             ~namespace:ledger.namespace ~function_publication
             ~selected_aggregate:selected receipt record
           |> checked receipt.allocation_lookahead.span)
+        record
+  | _ -> None
+
+let global_aggregate_allocation ledger assigned selected
+    (source : Parser.global_publication) =
+  match (selected, source.global_header.declaration_type_selection) with
+  | Some selected, Some selection
+    when source.global_pointer_layers = []
+         && Option.is_none source.global_function_pointer ->
+      let current =
+        Option.bind (Entries.find_opt ledger.entries selection.entry)
+          (fun assigned ->
+            Collection.current_aggregate_publication ledger.namespace
+              assigned.publication)
+      in
+      let record =
+        Option.bind current (fun current ->
+            Entries.fold
+              (fun _ assigned found ->
+                if assigned.publication != current then found
+                else
+                  match assigned.source with
+                  | Aggregate { record = Some (Ok record); _ } -> Some record
+                  | _ -> None)
+              ledger.entries None)
+      in
+      Option.map
+        (fun record ->
+          Sema.Compiler_record.select_global_aggregate ~table:ledger.table
+            ~namespace:ledger.namespace ~publication:assigned.publication
+            ~selected_aggregate:selected record
+          |> checked source.global_name.location.span)
         record
   | _ -> None
 
@@ -2043,8 +2077,13 @@ let read_sizeof ledger (root : Parser.query_root) target =
         | Selected_source
             { publication; stage = Global_selection (source, _); _ } ->
             Some
-              (Sema.Compiler_record.published_scalar ~table:ledger.table
-                 ~namespace:ledger.namespace
+              (Sema.Compiler_record.published_scalar
+                 ?aggregate_allocation:
+                   (Option.bind
+                      (Names.find_opt ledger.storage_boundaries
+                         source.global_name) (fun boundary ->
+                        boundary.storage_aggregate))
+                 ~table:ledger.table ~namespace:ledger.namespace
                  ~dimensions:
                    (selected_dimensions ledger source.global_dimensions)
                  publication)
@@ -3057,6 +3096,11 @@ let observe ?offset_runtime ledger event =
           assign ledger publication.global_name Sema.Symbol.Global_variable
             (Global { publication; completed = None; initializing = None })
             publication.global_entry;
+          let storage_aggregate =
+            global_aggregate_allocation ledger
+              (find ledger publication.global_name)
+              selected publication
+          in
           let family =
             source_root
               publication.global_header.declaration_command.command_context
@@ -3076,6 +3120,7 @@ let observe ?offset_runtime ledger event =
               storage_predecessor = predecessor;
               storage_previous_global = ledger.last_storage_global;
               storage_declaration = None;
+              storage_aggregate;
               storage_completion = None;
             };
           ledger.last_storage_global <-
@@ -3839,6 +3884,7 @@ let admit_global ledger ~runtime (publication : Parser.global_publication) =
             in
             let declaration =
               Sema.Compiler_record.declare_global ?callback
+                ?aggregate_allocation:boundary.storage_aggregate
                 ~selected_aggregate:(selected_aggregate_for ledger)
                 ~dimensions:
                   (selected_dimensions ledger publication.global_dimensions)
@@ -4051,7 +4097,7 @@ let seal ledger (ast : Ast.module_) =
                     let assigned = find ledger name in
                     match assigned.source with
                     | Aggregate { completed = Some receipt; record; _ }
-                      when receipt.aggregate_item == item ->
+                      when receipt.aggregate_item == item -> (
                         (match (ledger.authority, record) with
                         | Task_runtime _, Some (Error message) ->
                             fail ~code:"HCRUN0001" name.location.span message
@@ -4059,7 +4105,56 @@ let seal ledger (ast : Ast.module_) =
                             fail name.location.span
                               "aggregate has no original preparation"
                         | _ -> ());
-                        add item_index kind name assigned
+                        add item_index kind name assigned;
+                        match item with
+                        | Ast.Aggregate_definition definition ->
+                            List.iteri
+                              (fun declarator_index
+                                   (declarator : Ast.global_declarator) ->
+                                let global = find ledger declarator.name in
+                                match global.source with
+                                | Global
+                                    {
+                                      publication;
+                                      completed = Some completed;
+                                      _;
+                                    }
+                                  when completed == declarator ->
+                                    let header = publication.global_header in
+                                    if
+                                      header.modifiers != definition.modifiers
+                                      || Option.is_some header.binding
+                                      || (not
+                                            (match header.type_specifier with
+                                            | Ast.Named_type_specifier original
+                                              -> original == definition.name
+                                            | _ -> false))
+                                      || not
+                                           (Option.fold ~none:false
+                                              ~some:(fun selection ->
+                                                selection.Parser.entry
+                                                == receipt.aggregate_publication
+                                                     .aggregate_entry
+                                                && selection.identifier
+                                                   == definition.name
+                                                && selection.environment
+                                                   == receipt
+                                                        .aggregate_publication
+                                                        .aggregate_environment)
+                                              header.declaration_type_selection)
+                                    then
+                                      fail declarator.location.span
+                                        "attached global replaced its original \
+                                         aggregate header";
+                                    add item_index ~declarator_index
+                                      Collection.Aggregate_attached_global
+                                      declarator.name global
+                                | _ ->
+                                    fail declarator.location.span
+                                      "attached global lacks its original \
+                                       completed declarator")
+                              definition.attached_declarators
+                        | _ -> ())
                     | _ ->
                         fail name.location.span
                           "aggregate command lacks its original completed \
@@ -4658,6 +4753,7 @@ let native_initializer_source ledger ~runtime ~closed receipt =
             in
             let declaration =
               Sema.Compiler_record.declare_global ?callback
+                ?aggregate_allocation:boundary.storage_aggregate
                 ~selected_aggregate:(selected_aggregate_for ledger)
                 ~dimensions ~table:ledger.table ~namespace:ledger.namespace
                 ~predecessor:boundary.storage_predecessor

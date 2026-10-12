@@ -135,7 +135,6 @@ I64 F(){Child object;return 42;}F();|}
     );
     ( "whole-object copy",
       {|class Box{U8 byte;};I64 F(){Box a,b=a;return 42;}F();|} );
-    ("persistent aggregate storage", {|class Box{U8 byte;};Box object;42;|});
     ( "numeric bits do not grant aggregate ownership",
       {|class Box{U8 byte;};I64 F(){U8 *p=42(Box*)(U8*);return *p;}F();|} );
     ( "later forward completion cannot resize an earlier frame",

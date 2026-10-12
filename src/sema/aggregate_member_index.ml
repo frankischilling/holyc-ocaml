@@ -466,6 +466,7 @@ let build ~table ~parent inputs =
 
 let aggregates result = result.aggregates
 let owns_table result table = result.table == table
+let owns_symbol result symbol = Symbol_table.owns_symbol result.table symbol
 let owns_parent result parent = result.parent == parent
 let parent_scope result = result.parent
 let aggregate_symbol (aggregate : aggregate) = aggregate.symbol

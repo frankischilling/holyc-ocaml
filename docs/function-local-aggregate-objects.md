@@ -83,7 +83,9 @@ index suffix also remains gated. The current proof records the original base
 reference; admitting a later completion at the suffix needs a separate parser
 receipt. This boundary is narrower than the pinned member lookup path.
 
-Persistent aggregate objects, general object copies, native data pointer fields,
+[Persistent class globals and statics](persistent-aggregates.md) now retain
+original byte roots, including function-local static classes. General object
+copies, native data pointer fields,
 callback fields and class pointer returns retain their separate implementation
 boundaries. Runtime AOT layout expressions still require their relocation
 support. This feature is tracked by

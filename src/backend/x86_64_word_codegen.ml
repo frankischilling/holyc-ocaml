@@ -8173,6 +8173,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           Member_object
                             (Frame_reference (frame_reference_origin slot), None)
                         )
+                    | Some (Global_address slot) ->
+                        ( Type.pointer_to (Global_storage.type_ slot)
+                          |> Result.get_ok,
+                          Member_object
+                            (Arena_reference (arena_access slot), None) )
                     | Some (Indexed_address indexed) -> (
                         touch_indexed position indexed;
                         match indexed.indexed_root with

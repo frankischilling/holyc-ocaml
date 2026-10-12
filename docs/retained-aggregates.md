@@ -280,8 +280,9 @@ frame metadata.
 ## Remaining work
 
 Ordinary AOT runtime offset relocation and runtime F64 layout values remain
-unsupported. Stored callback invocation, member metadata and attached aggregate
-storage require their own consumers. Inherited storage and runtime member
+unsupported. Stored callback invocation and remaining member metadata require
+their own consumers. [Persistent aggregate storage](persistent-aggregates.md)
+now admits attached globals through their original declarations and task commands. Inherited storage and runtime member
 bounds require original completed layouts and successful execution dependencies;
 a partial size record alone cannot authorize member access or object storage.
 Native extern-record reuse still needs its own phase-aware admission.

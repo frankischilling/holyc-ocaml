@@ -10,7 +10,7 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-AOT IR and ordinary native defaults containing references, callback class parameters and persistent objects still need
+AOT IR and ordinary native defaults containing references, callback class parameters still need
 their own implementation.
 
 Completed earlier class and union definitions can supply inherited automatic

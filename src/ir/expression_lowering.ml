@@ -2483,6 +2483,9 @@ let plan ?frame ?globals ~allow_calls root =
             | _ when array_storage_address result ->
                 array_value result result conversion
             | Semantic_source.Bound_identifier_expression _
+            | Semantic_source.Top_level_bound_identifier_expression _
+            | Semantic_source.Unresolved_expression
+                Semantic_source.Identifier_expression
             | Semantic_source.Member_access_expression _
             | Semantic_source.Index_expression _
             | Semantic_source.Prefix_expression _

@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
+and union globals and statics their original byte roots in IR and native execution.
+Integer fields, arrays, scalar prefixes and member size queries retain the selected
+layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
+Aggregate initializers and the remaining aggregate execution families stay open.
+
 [Class pointer views](class-pointer-views.md) retain owned bytes through casts
 between supported integer and class pointers. IR and native paths preserve
 original source selections, target strides and root bounds, including local
@@ -147,14 +153,14 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-class defaults, callback class parameters and persistent objects still need
+class defaults and callback class parameters still need
 their own implementation.
 
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) support
 nonempty class and union objects from completed earlier layouts in isolated IR
 and native programs, in both modes. Explicit integer views retain overlap,
 padding, initialized bytes and the original extent. Partial inherited
-metadata, retained JIT imports, persistent objects, whole-value postfix casts,
+metadata, retained JIT imports, whole-value postfix casts,
 class defaults and callback parameters and general aggregate copies, pointer
 fields and pointer returns remain outside this slice of #686. [Owned aggregate
 members](aggregate-members.md) support direct and pointer integer fields,

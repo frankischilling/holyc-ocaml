@@ -401,6 +401,15 @@ let contains_global command ~(publication : Parser.global_publication)
           Option.fold ~none:false ~some:(( == ) completed)
             (List.nth_opt declaration.declarators index))
         declarator_index
+  | Some (Aggregate_definition definition) ->
+      (match publication.global_header.type_specifier with
+        | Named_type_specifier original -> original == definition.name
+        | _ -> false)
+      && Option.fold ~none:false
+           ~some:(fun index ->
+             Option.fold ~none:false ~some:(( == ) completed)
+               (List.nth_opt definition.attached_declarators index))
+           declarator_index
   | Some (Global_variable variable) ->
       Option.is_none declarator_index
       && variable.name == completed.name

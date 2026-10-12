@@ -76,7 +76,7 @@ native JIT/AOT source compilation. Completed
 [function-local classes](function-local-aggregate-objects.md) also retain their
 default signed word view and original object size. Whole-value postfix casts, aggregate
 initializers, AOT IR and ordinary native defaults containing references and
-callback parameter ABI paths, persistent objects and
+callback parameter ABI paths and
 zero-sized automatic objects, pointer and callback backings, F64 execution and
 general aggregate copies remain
 open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686)

@@ -15,8 +15,9 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-callback class parameters and persistent objects still need their own
-implementation. Defaults containing references remain unsupported in AOT IR
+callback class parameters still need their own implementation.
+[Persistent class storage](persistent-aggregates.md) retains global and static
+byte roots through the same member and scalar-prefix paths. Defaults containing references remain unsupported in AOT IR
 and ordinary native compilation.
 
 [Data pointer fields](aggregate-pointer-fields.md) add IR reads, assignments
@@ -148,7 +149,7 @@ allocation and expression receipts preserve layout timing and function ownership
 Partial inherited bases and bases without their original completed compilation
 or retained-context proof cannot authorize object storage. Zero-sized automatic
 objects, automatic root pointer arrays, aggregate array initializers,
-persistent aggregate objects, whole-value postfix casts, callback class
+whole-value postfix casts, callback class
 parameters, general aggregate copies, native data pointer fields, callback
 fields, numeric/null casts to class pointers and pointer returns remain unfinished
 under [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).

@@ -1,5 +1,11 @@
 # Classes and layout
 
+[Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
+and union globals and statics their original byte roots in IR and native execution.
+Integer fields, arrays, scalar prefixes and member size queries retain the selected
+layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
+Aggregate initializers and the remaining aggregate execution families stay open.
+
 [Class pointer views](class-pointer-views.md) select a complete earlier class
 layout over existing owned bytes. Primitive and class views share the original
 allocation, offset, initialization state and extent; the target supplies field
@@ -30,7 +36,7 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
 AOT IR and ordinary native defaults containing references, callback class
-parameters and persistent objects still need their own implementation.
+parameters still need their own implementation.
 
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) now
 connect nonempty, completed earlier class and union layouts to isolated IR and

@@ -157,6 +157,15 @@ let automatic_aggregate_size allocation = allocation.automatic_size
 let automatic_aggregate_source allocation = allocation.automatic_source
 let automatic_aggregate_local_name allocation = allocation.automatic_name
 
+let automatic_aggregate_type allocation =
+  Type_reference.resolved_type allocation.automatic_type
+
+let automatic_aggregate_runtime_dependencies allocation =
+  allocation.automatic_record.runtime_dimensions
+
+let automatic_aggregate_offset_dependencies allocation =
+  allocation.automatic_record.runtime_offsets
+
 type aggregate_reference_visibility = {
   reference_table : Symbol_table.t;
   reference_namespace : Declaration_collection.namespace;
@@ -255,6 +264,7 @@ type static_allocation = {
   static_publication : Declaration_collection.publication;
   static_receipt : Parser.function_local_allocation;
   static_dimensions : declared_dimension list;
+  static_aggregate : automatic_aggregate_allocation option;
 }
 
 type compiler_positions = {
@@ -290,6 +300,7 @@ let static_allocation_namespace value = value.static_namespace
 let static_allocation_publication value = value.static_publication
 let static_allocation_receipt value = value.static_receipt
 let static_allocation_dimensions value = value.static_dimensions
+let static_allocation_aggregate value = value.static_aggregate
 let compiler_position_value position = position.position_value
 let compiler_position_dependencies position = position.position_dependencies
 
@@ -383,7 +394,17 @@ type declared_global = {
     * Function_type_resolution.function_pointer)
     option;
   declared_dimensions : declared_dimension list;
+  declared_aggregate : global_aggregate_allocation option;
   mutable declared_completion : Ast.global_declarator option;
+}
+
+and global_aggregate_allocation = {
+  global_object_table : Symbol_table.t;
+  global_object_namespace : Declaration_collection.namespace;
+  global_object_publication : Declaration_collection.publication;
+  global_object_source : Parser.global_publication;
+  global_object_type : Type_reference.t;
+  global_object_record : t;
 }
 
 let ( let* ) = Result.bind
@@ -616,6 +637,7 @@ let record_local_allocation ?automatic_aggregate ~table ~namespace ~dimensions
           static_publication = Function_record_phase.publication snapshot;
           static_receipt = receipt;
           static_dimensions = dimensions;
+          static_aggregate = automatic_aggregate;
         };
     Ok ()
 
@@ -835,6 +857,7 @@ let select_automatic_aggregate ~table ~namespace ~function_publication
   if
     (not (Parser.function_local_allocation_is_current receipt))
     || receipt.allocation_storage <> Ast.Automatic_local
+       && receipt.allocation_storage <> Ast.Static_local
   then Error "automatic class layout requires its original live allocation"
   else if
     (not (Declaration_collection.namespace_owns_table namespace table))
@@ -1697,7 +1720,73 @@ let rebind_primitive ~table ~symbol record =
 let sizeof_class_of_type type_ =
   if Type.pointer_depth type_ > 0 then Pointer_class else Declared_class type_
 
-let published_scalar ?(dimensions = []) ~table ~namespace publication =
+let select_global_aggregate ~table ~namespace ~publication ~selected_aggregate
+    (record : t) =
+  let* source =
+    match Declaration_collection.publication_source_global publication with
+    | Some source
+      when Parser.global_publication_is_current source
+           && Declaration_collection.namespace_owns_table namespace table
+           && Declaration_collection.namespace_owns_publication namespace
+                publication -> Ok source
+    | _ ->
+        Error "global class allocation requires its original live publication"
+  in
+  let* () =
+    Source_type_reference.validate_selected_aggregate ~table ~namespace
+      selected_aggregate
+  in
+  let* type_ =
+    Source_type_reference.selected_header_class selected_aggregate
+      source.global_header.type_specifier source.global_pointer_layers
+  in
+  if
+    Type.pointer_depth (Type_reference.resolved_type type_) <> 0
+    || Option.is_some source.global_function_pointer
+  then Error "global class allocation requires an object value"
+  else
+    match record.aggregate_owner with
+    | Some (owner, selected, _)
+      when owner == namespace && record.table == table
+           && record.symbol
+              == Declaration_collection.publication_symbol selected
+           && aggregate_snapshot_is_current record
+           && Declaration_collection.namespace_owns_publication namespace
+                selected
+           && Option.fold ~none:false ~some:(( == ) selected)
+                (Declaration_collection.current_aggregate_publication namespace
+                   selected)
+           && Option.fold ~none:false
+                ~some:
+                  (( == )
+                     (Source_type_reference.selected_base_symbol
+                        selected_aggregate))
+                (Declaration_collection.publication_aggregate_identity selected)
+           && Option.fold ~none:false
+                ~some:(fun original ->
+                  original.Parser.aggregate_entry == record.entry
+                  && original.aggregate_environment == source.global_environment)
+                (Declaration_collection.publication_source_aggregate selected)
+      ->
+        Ok
+          {
+            global_object_table = table;
+            global_object_namespace = namespace;
+            global_object_publication = publication;
+            global_object_source = source;
+            global_object_type = type_;
+            global_object_record = record;
+          }
+    | _ ->
+        Error "global class allocation lacks its exact selected class snapshot"
+
+let global_aggregate_size allocation = allocation.global_object_record.byte_size
+
+let global_aggregate_type allocation =
+  Type_reference.resolved_type allocation.global_object_type
+
+let published_scalar ?aggregate_allocation ?(dimensions = []) ~table ~namespace
+    publication =
   if
     (not (Declaration_collection.namespace_owns_table namespace table))
     || not
@@ -1712,15 +1801,29 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
           match source.global_function_pointer with
           | Some _ ->
               Ok (Int64.of_int Primitive_type.pointer_byte_size, Pointer_class)
-          | None ->
-              let* type_reference =
-                Source_type_reference.builtin
-                  source.global_header.type_specifier
-                  source.global_pointer_layers
-              in
-              let type_ = Type_reference.resolved_type type_reference in
-              let* byte_size = scalar_size type_ in
-              Ok (byte_size, sizeof_class_of_type type_)
+          | None -> (
+              match aggregate_allocation with
+              | Some allocation
+                when allocation.global_object_table == table
+                     && allocation.global_object_namespace == namespace
+                     && allocation.global_object_publication == publication
+                     && allocation.global_object_source == source ->
+                  Ok
+                    ( global_aggregate_size allocation,
+                      Declared_class (global_aggregate_type allocation) )
+              | Some _ ->
+                  Error
+                    "global allocation snapshot belongs to another original \
+                     object"
+              | None ->
+                  let* type_reference =
+                    Source_type_reference.builtin
+                      source.global_header.type_specifier
+                      source.global_pointer_layers
+                  in
+                  let type_ = Type_reference.resolved_type type_reference in
+                  let* byte_size = scalar_size type_ in
+                  Ok (byte_size, sizeof_class_of_type type_))
         in
         let* byte_size =
           declared_array_size ~table ~namespace
@@ -1738,20 +1841,31 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
             byte_size;
             internal = false;
             runtime_dimensions =
-              List.concat_map dimension_runtime_dependencies dimensions;
+              Option.fold ~none:[]
+                ~some:(fun allocation ->
+                  allocation.global_object_record.runtime_dimensions)
+                aggregate_allocation
+              @ List.concat_map dimension_runtime_dependencies dimensions;
             runtime_offsets =
-              List.concat_map dimension_offset_dependencies dimensions;
+              Option.fold ~none:[]
+                ~some:(fun allocation ->
+                  allocation.global_object_record.runtime_offsets)
+                aggregate_allocation
+              @ List.concat_map dimension_offset_dependencies dimensions;
             aggregate_owner = None;
             aggregate_stamp = None;
             aggregate_base_snapshot = None;
             aggregate_fields = None;
           }
 
-let declare_global ?callback
+let declare_global ?aggregate_allocation ?callback
     ?(selected_aggregate : Function_type_resolution.selected_aggregate_resolver =
       fun _ -> None) ~dimensions ~table ~namespace ~predecessor ~previous_global
     publication =
-  let* _ = published_scalar ~dimensions ~table ~namespace publication in
+  let* _ =
+    published_scalar ?aggregate_allocation ~dimensions ~table ~namespace
+      publication
+  in
   let source =
     Option.get (Declaration_collection.publication_source_global publication)
   in
@@ -1792,9 +1906,12 @@ let declare_global ?callback
           Source_type_reference.callback_return ~table ~namespace
             ~selected_aggregate ~header source.global_header.type_specifier
             source.global_pointer_layers
-      | None ->
-          Source_type_reference.builtin source.global_header.type_specifier
-            source.global_pointer_layers
+      | None -> (
+          match aggregate_allocation with
+          | Some allocation -> Ok allocation.global_object_type
+          | None ->
+              Source_type_reference.builtin source.global_header.type_specifier
+                source.global_pointer_layers)
     in
     Ok
       {
@@ -1807,6 +1924,7 @@ let declare_global ?callback
         declared_type;
         declared_callback;
         declared_dimensions = dimensions;
+        declared_aggregate = aggregate_allocation;
         declared_completion = None;
       }
 
@@ -1815,6 +1933,7 @@ let declared_global_symbol declaration =
 
 let declared_global_source declaration = declaration.declared_source
 let declared_global_type declaration = declaration.declared_type
+let declared_global_aggregate declaration = declaration.declared_aggregate
 
 let declared_global_callback_pointer declaration =
   Option.map snd declaration.declared_callback
@@ -1834,14 +1953,20 @@ let declared_global_dimensions declaration =
 let declared_dimension_preparation dimension = dimension.prepared
 
 let declared_global_runtime_dependencies declaration =
-  List.concat_map
-    (fun dimension -> dimension.prepared.runtime_dependencies)
-    declaration.declared_dimensions
+  Option.fold ~none:[]
+    ~some:(fun allocation -> allocation.global_object_record.runtime_dimensions)
+    declaration.declared_aggregate
+  @ List.concat_map
+      (fun dimension -> dimension.prepared.runtime_dependencies)
+      declaration.declared_dimensions
 
 let declared_global_offset_dependencies declaration =
-  List.concat_map
-    (fun dimension -> dimension.prepared.offset_dependencies)
-    declaration.declared_dimensions
+  Option.fold ~none:[]
+    ~some:(fun allocation -> allocation.global_object_record.runtime_offsets)
+    declaration.declared_aggregate
+  @ List.concat_map
+      (fun dimension -> dimension.prepared.offset_dependencies)
+      declaration.declared_dimensions
 
 let declared_global_owns_table declaration table =
   declaration.declared_table == table

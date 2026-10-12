@@ -3256,6 +3256,14 @@ let admit_declared_global task declaration =
 let admit_static_allocation task allocation =
   let ( let* ) = Result.bind in
   let* () =
+    validate_dimension_dependencies (Some task)
+      (Integer_static_allocation.runtime_dependencies allocation)
+  in
+  let* () =
+    validate_offset_dependencies (Some task)
+      (Integer_static_allocation.offset_dependencies allocation)
+  in
+  let* () =
     Integer_globals.check_static_allocation ?activation:task.source_activation
       task.catalog allocation
   in
@@ -3305,6 +3313,15 @@ let require_initializer_namespace task namespace =
   else Error "initializer operation belongs to another task source namespace"
 
 let check_native_static_allocation task allocation view =
+  let ( let* ) = Result.bind in
+  let* () =
+    validate_dimension_dependencies (Some task)
+      (Integer_static_allocation.runtime_dependencies allocation)
+  in
+  let* () =
+    validate_offset_dependencies (Some task)
+      (Integer_static_allocation.offset_dependencies allocation)
+  in
   let source = Integer_static_allocation.source allocation in
   let receipt = Sema.Compiler_record.static_allocation_receipt source in
   if
@@ -6460,6 +6477,9 @@ let member_address frame types (description : Sequence.description) =
             Option.bind frame (fun context ->
                 Type.pointer_to context.slots.(index).slot_type
                 |> Result.to_option)
+        | Some (Global_address slot) ->
+            Type.pointer_to (Integer_globals.storage_type slot)
+            |> Result.to_option
         | Some (Pointer_value source | Indexed_address (source, [])) ->
             Some source
         | _ -> None
@@ -6775,7 +6795,7 @@ let storage_operand ?(allow_array = false) frame initialization types
       Option.map
         (fun kind -> (Global_slot slot, type_, kind))
         (if Integer_globals.storage_is_callback slot then Some (Stored_word I64)
-         else stored_type type_)
+         else address_storage type_)
   | _, Some (Indexed_address (pointer_type, remaining))
     when allow_array || remaining = [] -> (
       match Type.dereference pointer_type with
@@ -9336,6 +9356,9 @@ and exception_handler = {
 }
 
 let storage_word slot bits =
+  let physical =
+    Integer_storage_shape.scalar (Integer_globals.storage_shape slot)
+  in
   let type_ =
     match
       scalar_value_type ~allow_byte:true ~allow_public:true
@@ -9343,9 +9366,12 @@ let storage_word slot bits =
     with
     | Some type_ -> type_
     | None when Integer_globals.storage_is_callback slot -> I64
+    | None
+      when Integer_storage_shape.is_aggregate
+             (Integer_globals.storage_shape slot) -> U64
     | None -> assert false
   in
-  { type_; bits = Scalar.narrow_bits (Integer_globals.storage_type slot) bits }
+  { type_; bits = Scalar.normalize physical bits }
 
 let publish_array_payload ~slot ~cell_offset payload write =
   let base = Integer_globals.storage_index slot + cell_offset in
@@ -10047,7 +10073,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     | Frame_slot (base, count) -> root !slots base count
     | Global_slot slot ->
         let storage, base = global_region slot in
-        root storage base (Integer_globals.storage_element_count slot)
+        root storage base (Integer_globals.storage_cell_count slot)
     | Literal_slot (base, count) -> root !owner.owner_literals base count
     | Indirect_slot operand -> require_pointer block instruction operand
     | Indexed_slot operand ->
@@ -13065,7 +13091,7 @@ let execute_program_with_output ?task ?isolated_budget
           in
           Array.fill cells
             (Integer_globals.storage_index slot)
-            (Integer_globals.storage_element_count slot)
+            (Integer_globals.storage_cell_count slot)
             initial;
           if Integer_globals.storage_opcode slot = Opcode.Ic_abs_addr then
             Integer_globals.storage_array_image slot

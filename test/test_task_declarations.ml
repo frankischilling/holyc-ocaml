@@ -3541,11 +3541,41 @@ let retained_aggregate_context () =
   reject "admitted commands cannot turn self completion into a child import"
     (Holyc_lib__Sema.Task_command_order.aggregate_import_prefix
        ~admitted:[ earlier ] ~scope:(C.scope declarations) ~imports earlier);
-  let session, _, ledger = runtime_setup () in
-  let output, _ = parse session ledger "class Box{I64 word;} attached;" in
+  let session, runtime, ledger = runtime_setup () in
+  let output, events = parse session ledger "class Box{I64 word;} attached;" in
   let attached = Test_parser.expect_ast output in
-  reject "metadata imports cannot admit attached aggregate storage"
-    (D.seal ledger attached)
+  let table = Session.semantic_symbols session in
+  let command = D.seal ledger attached |> expect in
+  let declarations = D.collection ~table ~ast:attached command |> expect in
+  Alcotest.(check (list string))
+    "attached declarations retain their source order" [ "Box"; "attached" ]
+    (C.entries declarations
+    |> List.map (fun entry -> C.entry_symbol entry |> Semantic_symbol.name));
+  let publication, completed =
+    List.find_map
+      (function
+        | Parser.Global_completed (publication, completed) ->
+            Some (publication, completed)
+        | _ -> None)
+      events
+    |> Option.get
+  in
+  let order = D.command_order ~runtime ~table ~ast:attached command |> expect in
+  let contains item_index declarator_index =
+    Holyc_lib__Sema.Task_command_order.contains_global order ~publication
+      ~completed ~item_index ~declarator_index
+  in
+  Alcotest.(check bool)
+    "attached root belongs to its original completed command" true
+    (contains 0 (Some 0));
+  Alcotest.(check bool)
+    "attached root cannot omit its source declarator index" false
+    (contains 0 None);
+  Alcotest.(check bool)
+    "attached root cannot borrow another source index" false
+    (contains 0 (Some 1));
+  reject "copied attached source cannot borrow its sealed declarations"
+    (D.collection ~table ~ast:(copy_module attached attached.items) command)
 
 let tests =
   [

@@ -176,9 +176,6 @@ let unsupported =
       {|F64 class Box{F64 word;};I64 Take(Box o){return o.word;}Take(42);|} );
     ( "pointer-backed class parameter ABI",
       {|I64* class Box{I64 word;};I64 Take(Box o){return o.word;}Take(42);|} );
-    ( "persistent class parameter copy",
-      {|class Box{I64 word;};Box saved;I64 Take(Box o){saved=o;return o;}Take(42);|}
-    );
     ( "class callback parameter requires separate signature admission",
       {|class Box{I64 word;};I64 Take(Box o){return o;}I64 (*p)(Box o);p=&Take;p(42);|}
     );

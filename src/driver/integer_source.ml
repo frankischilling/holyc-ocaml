@@ -9,6 +9,7 @@ type prepared = {
   records_ : Sema.Function_record_classification.t;
   global_records_ : Sema.Global_record_classification.t;
   global_layouts_ : Sema.Global_array_layout.t;
+  aggregate_members_ : Sema.Aggregate_member_index.t;
   initializers_ : Sema.Global_initializer_binding.t option;
   function_outputs_ : Sema.Implicit_output_argument_binding.t;
   top_level_outputs_ : Sema.Top_level_implicit_output_argument_binding.t;
@@ -23,6 +24,7 @@ let frames prepared = prepared.frames_
 let records prepared = prepared.records_
 let global_records prepared = prepared.global_records_
 let global_layouts prepared = prepared.global_layouts_
+let aggregate_members prepared = prepared.aggregate_members_
 let initializers prepared = prepared.initializers_
 let function_outputs prepared = prepared.function_outputs_
 let top_level_outputs prepared = prepared.top_level_outputs_
@@ -652,6 +654,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
       semantic_ast_ = ast;
       global_records_ = global_records;
       global_layouts_;
+      aggregate_members_ = members;
       initializers_;
       top_level_ = typed;
       functions_ = function_results;

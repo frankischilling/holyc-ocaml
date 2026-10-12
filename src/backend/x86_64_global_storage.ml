@@ -261,9 +261,12 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
     List.fold_left
       (fun checked (storage, _, _) ->
         let* total = checked in
-        if Globals.storage_dimensions storage = [] then Ok total
+        if
+          Globals.storage_dimensions storage = []
+          && not (Shape.is_aggregate (Globals.storage_shape storage))
+        then Ok total
         else
-          let elements = Globals.storage_element_count storage in
+          let elements = Globals.storage_cell_count storage in
           if elements <= 0 || elements > (hard_max_arena_bytes - total) / 8 then
             resource
               (Printf.sprintf
@@ -280,7 +283,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         if Option.is_none (Globals.storage_callback_pointer storage) then
           Ok total
         else
-          let elements = Globals.storage_element_count storage in
+          let elements = Globals.storage_cell_count storage in
           if elements <= 0 || elements > (hard_max_arena_bytes - total) / 8 then
             resource
               "private callback ownership exceeds the arena allocation bound"
@@ -389,7 +392,15 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let* shape_type = storage_shape_type ?span source_slot in
         let dimensions = Globals.storage_dimensions storage in
         let* shape =
-          match Shape.create ~type_:shape_type ~dimensions with
+          match
+            if
+              Shape.is_aggregate (Globals.storage_shape storage)
+              && Shape.matches
+                   (Globals.storage_shape storage)
+                   ~symbol ~type_ ~dimensions
+            then Ok (Globals.storage_shape storage)
+            else Shape.create ~type_:shape_type ~dimensions
+          with
           | Ok shape -> Ok shape
           | Error Shape.Unsupported_type ->
               unsupported ?span
@@ -400,14 +411,15 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let scalar = Shape.scalar shape in
         let width = Scalar.byte_size scalar in
         let strides = Shape.strides shape in
-        let element_count = Shape.element_count shape in
+        let element_count = Shape.cell_count shape in
         let extent_bytes = Shape.byte_size shape in
         let is_array = dimensions <> [] in
+        let byte_flags = is_array || Shape.is_aggregate shape in
         let* () =
           if
             dimensions <> Shape.dimensions shape
             || strides <> Globals.storage_strides storage
-            || element_count <> Globals.storage_element_count storage
+            || element_count <> Globals.storage_cell_count storage
           then
             invalid ?span
               "native storage shape disagrees with its sealed layout"
@@ -469,7 +481,8 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                    && not (Frame.location_source_dimensions_checked location)
                 || Frame.location_allocated_size location
                    <> Int64.of_int extent_bytes
-                || Frame.location_element_size location <> Int64.of_int width
+                || Frame.location_element_size location
+                   <> Int64.of_int (Shape.element_size shape)
                 || Frame.location_alignment location <> 8
                 || (match Frame.location_register_selection location with
                   | Sema.Register_request.Unspecified
@@ -513,7 +526,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           else Ok ()
         in
         let flag_offset, next_array_flag_cursor =
-          if is_array then
+          if byte_flags then
             ( array_flag_cursor + ((element_count - 1) * 8),
               array_flag_cursor + (element_count * 8) )
           else (declared_bytes + (ordinal * 8), array_flag_cursor)
@@ -851,7 +864,15 @@ let append_task_globals layout ~globals =
               let* shape_type = storage_shape_type ?span storage in
               let dimensions = Globals.storage_dimensions storage in
               let* shape =
-                match Shape.create ~type_:shape_type ~dimensions with
+                match
+                  if
+                    Shape.is_aggregate (Globals.storage_shape storage)
+                    && Shape.matches
+                         (Globals.storage_shape storage)
+                         ~symbol ~type_ ~dimensions
+                  then Ok (Globals.storage_shape storage)
+                  else Shape.create ~type_:shape_type ~dimensions
+                with
                 | Ok shape -> Ok shape
                 | Error Shape.Unsupported_type ->
                     unsupported ?span
@@ -864,13 +885,13 @@ let append_task_globals layout ~globals =
               let scalar = Shape.scalar shape in
               let width = Scalar.byte_size scalar in
               let strides = Shape.strides shape in
-              let element_count = Shape.element_count shape in
+              let element_count = Shape.cell_count shape in
               let extent_bytes = Shape.byte_size shape in
-              let is_array = dimensions <> [] in
+              let is_array = dimensions <> [] || Shape.is_aggregate shape in
               let* () =
                 if
                   strides <> Globals.storage_strides storage
-                  || element_count <> Globals.storage_element_count storage
+                  || element_count <> Globals.storage_cell_count storage
                 then
                   invalid ?span
                     "native task storage shape disagrees with its original \
@@ -1121,7 +1142,7 @@ let reserve_static layout request =
     | None ->
         let shape = Ir.Integer_static_allocation.shape allocation in
         let scalar = Shape.scalar shape in
-        let elements = Shape.element_count shape in
+        let elements = Shape.cell_count shape in
         let dimensions = Shape.dimensions shape in
         let* padded =
           match Shape.padded_byte_size shape with

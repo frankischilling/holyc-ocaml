@@ -321,6 +321,8 @@ val global_storage : slot -> storage_slot
 val storage_slots : t -> storage_slot list
 val storage_index : storage_slot -> int
 val storage_element_count : storage_slot -> int
+val storage_shape : storage_slot -> Integer_storage_shape.t
+val storage_cell_count : storage_slot -> int
 val storage_dimensions : storage_slot -> int64 list
 val storage_strides : storage_slot -> int64 list
 val cell_count : t -> int
@@ -363,6 +365,7 @@ val has_initializers : t -> bool
 val has_unprepared_statics : t -> bool
 
 val create :
+  ?members:Sema.Aggregate_member_index.t ->
   ?initializers:Sema.Function_call_expression_result.top_level_t ->
   span:Common.Span.t ->
   Sema.Global_record_classification.t ->
@@ -373,6 +376,7 @@ val create :
     contains immutable metadata, not mutable execution storage. *)
 
 val create_with_layout :
+  ?members:Sema.Aggregate_member_index.t ->
   layout:Sema.Global_array_layout.t ->
   ?initializers:Sema.Function_call_expression_result.top_level_t ->
   span:Common.Span.t ->

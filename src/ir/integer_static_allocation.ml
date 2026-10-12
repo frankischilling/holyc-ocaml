@@ -22,6 +22,19 @@ let type_ value = value.type_
 let callback_source value = value.callback_
 let callback_pointer value = Option.map snd value.callback_
 let shape value = value.shape_
+
+let runtime_dependencies value =
+  Option.fold ~none:[] ~some:Record.automatic_aggregate_runtime_dependencies
+    (Record.static_allocation_aggregate value.source_)
+  @ List.concat_map Record.dimension_runtime_dependencies
+      (Record.static_allocation_dimensions value.source_)
+
+let offset_dependencies value =
+  Option.fold ~none:[] ~some:Record.automatic_aggregate_offset_dependencies
+    (Record.static_allocation_aggregate value.source_)
+  @ List.concat_map Record.dimension_offset_dependencies
+      (Record.static_allocation_dimensions value.source_)
+
 let cursor value = value.cursor_
 
 let native_leaf_executed value root =
@@ -137,10 +150,13 @@ let create ?activation ?callback
       when local.local_pointer_layers = []
            && Option.is_none local.local_function_pointer
            && Option.is_none callback ->
-        let* reference =
-          Sema.Source_type_reference.builtin local.local_type_specifier []
+        let* type_ =
+          match Record.static_allocation_aggregate source_ with
+          | Some aggregate -> Ok (Record.automatic_aggregate_type aggregate)
+          | None ->
+              Sema.Source_type_reference.builtin local.local_type_specifier []
+              |> Result.map Sema.Type_reference.resolved_type
         in
-        let type_ = Sema.Type_reference.resolved_type reference in
         Ok (type_, None, type_)
     | Parser.Local_variable local -> (
         let module Headers = Sema.Function_type_resolution in
@@ -180,7 +196,10 @@ let create ?activation ?callback
     |> List.map Record.dimension_count
   in
   let* shape_ =
-    Shape.create ~type_:shape_type ~dimensions
+    (if Option.is_some (Record.static_allocation_aggregate source_) then
+       Shape.create_static_allocation ~allocation:source_ ~symbol:symbol_
+         ~dimensions
+     else Shape.create ~type_:shape_type ~dimensions)
     |> Result.map_error (function
       | Shape.Unsupported_type ->
           "HCRUN0001: retained static storage requires nonzero integer types"

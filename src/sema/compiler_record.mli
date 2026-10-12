@@ -21,6 +21,7 @@ val runtime_dimension_work : runtime_dimension_proposal -> int
 type t
 type declared_dimension
 type declared_global
+type global_aggregate_allocation
 type declared_function
 
 val declare_function :
@@ -44,6 +45,7 @@ val declared_function_owns_namespace :
   declared_function -> Declaration_collection.namespace -> bool
 
 val declare_global :
+  ?aggregate_allocation:global_aggregate_allocation ->
   ?callback:
     Frontend.Parser.completed_callback_signature
     * Function_type_resolution.function_pointer ->
@@ -62,6 +64,20 @@ val declared_global_source :
   declared_global -> Frontend.Parser.global_publication
 
 val declared_global_type : declared_global -> Type_reference.t
+
+val declared_global_aggregate :
+  declared_global -> global_aggregate_allocation option
+
+val select_global_aggregate :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  publication:Declaration_collection.publication ->
+  selected_aggregate:Source_type_reference.selected_aggregate ->
+  t ->
+  (global_aggregate_allocation, string) result
+
+val global_aggregate_size : global_aggregate_allocation -> int64
+val global_aggregate_type : global_aggregate_allocation -> Type.t
 
 val declared_global_callback_pointer :
   declared_global -> Function_type_resolution.function_pointer option
@@ -130,6 +146,7 @@ val rebind_primitive :
     spelling lookup. *)
 
 val published_scalar :
+  ?aggregate_allocation:global_aggregate_allocation ->
   ?dimensions:declared_dimension list ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
@@ -209,6 +226,9 @@ val static_allocation_receipt :
   static_allocation -> Frontend.Parser.function_local_allocation
 
 val static_allocation_dimensions : static_allocation -> declared_dimension list
+
+val static_allocation_aggregate :
+  static_allocation -> automatic_aggregate_allocation option
 
 val record_function_position :
   compiler_positions ->
@@ -290,13 +310,20 @@ val select_automatic_aggregate :
   Frontend.Parser.function_local_allocation ->
   t ->
   (automatic_aggregate_allocation, string) result
-(** Capture the selected class size after the original automatic local's name
-    and dimension lookahead. The exact function, local occurrence, selected
-    class identity and current source record must agree. Pointers and statics
+(** Capture the selected class size after the original automatic or static
+    local's name and dimension lookahead. The exact function, local occurrence,
+    selected class identity and current source record must agree. Pointers
     reject. A zero class size is retained and cannot be enlarged by later class
     completion. The receipt does not grant storage or executable authority. *)
 
 val automatic_aggregate_size : automatic_aggregate_allocation -> int64
+val automatic_aggregate_type : automatic_aggregate_allocation -> Type.t
+
+val automatic_aggregate_runtime_dependencies :
+  automatic_aggregate_allocation -> runtime_dimension_proposal list
+
+val automatic_aggregate_offset_dependencies :
+  automatic_aggregate_allocation -> aggregate_offset list
 
 val automatic_aggregate_source :
   automatic_aggregate_allocation -> Frontend.Parser.function_local_allocation

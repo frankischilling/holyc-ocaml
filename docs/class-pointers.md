@@ -10,7 +10,7 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-AOT IR and ordinary native defaults containing references, callback class parameters and persistent objects still need
+AOT IR and ordinary native defaults containing references, callback class parameters still need
 their own implementation.
 
 One-level pointers to completed earlier, nonempty class and union layouts
@@ -113,8 +113,7 @@ another retained function cannot borrow it by reusing a numeric source index.
 [Class pointer views](class-pointer-views.md) select complete earlier layouts
 over existing owned integer or class storage while retaining the root's extent.
 Partial or out-of-compilation bases,
-zero-sized objects, persistent aggregate
-storage, pointer arrays, aggregate initializers, whole-value postfix casts,
+zero-sized objects, pointer arrays, aggregate initializers, whole-value postfix casts,
 AOT IR and ordinary native defaults containing references, callback parameters and general aggregate copies, pointer
 and callback fields, numeric/null class pointer casts, pointer returns and deeper
 indirection remain separate work under

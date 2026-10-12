@@ -5345,6 +5345,7 @@
   aggregate_member_cases
   aggregate_array_cases
   aggregate_pointer_cases
+  persistent_aggregate_cases
   inherited_aggregate_cases
   backed_aggregate_cases
   default_aggregate_cases
@@ -5382,7 +5383,8 @@
   ../examples/class-value-returns.hc
   ../examples/class-default-words.hc
   ../examples/retained-nested-members.hc
-  ../examples/aggregate-pointer-fields.hc)
+  ../examples/aggregate-pointer-fields.hc
+  ../examples/persistent-aggregates.hc)
  (action
   (run
    %{test}
@@ -5397,7 +5399,8 @@
    %{dep:../examples/class-value-returns.hc}
    %{dep:../examples/class-default-words.hc}
    %{dep:../examples/retained-nested-members.hc}
-   %{dep:../examples/aggregate-pointer-fields.hc})))
+   %{dep:../examples/aggregate-pointer-fields.hc}
+   %{dep:../examples/persistent-aggregates.hc})))
 
 (test
  (name test_automatic_aggregate_storage)

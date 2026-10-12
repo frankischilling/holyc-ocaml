@@ -183,8 +183,6 @@ let source_unsupported =
     ( "whole inherited object copy",
       {|class B{U8 tag;};class Box:B{U16 value;};I64 F(){Box a,b=a;return 42;}F();|}
     );
-    ( "persistent inherited object",
-      {|class B{U8 tag;};class Box:B{U16 value;};Box o;42;|} );
   ]
 
 let unsupported = List.filteri (fun index _ -> index > 0) source_unsupported

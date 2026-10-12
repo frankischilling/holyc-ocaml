@@ -36,9 +36,9 @@ recover the same bytes, and another class view can select a different layout
 over them. Reference copies and call arguments retain separate snapshots before
 later operands rebind a pointer.
 
-Owned primitive globals, statics and literal bytes can also supply class views.
-Their existing storage and lifetime rules still apply; the view does not create
-a persistent class declaration or a new allocation.
+Owned globals, statics and literal bytes can also supply class views.
+[Persistent class declarations](persistent-aggregates.md) now retain their own
+byte roots. Casts preserve the selected root and its existing lifetime.
 
 An interior cast can index backward within its original allocation. One-past
 references can be cast or moved back; they cannot access a field outside that

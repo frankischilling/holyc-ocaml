@@ -1,5 +1,11 @@
 # Native scalar globals and statics
 
+[Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
+and union globals and statics their original byte roots in IR and native execution.
+Integer fields, arrays, scalar prefixes and member size queries retain the selected
+layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
+Aggregate initializers and the remaining aggregate execution families stay open.
+
 `holyc run --target=host-jit examples/native-scalar-globals.hc` returns I64 42
 in JIT and AOT preprocessing modes. Generated entry code and direct functions
 share ordinary I8/U8/I16/U16/I32/U32/I64/U64 globals, including closed scalar
@@ -125,9 +131,10 @@ Global and static payloads count toward the global-byte quota, not `--default-by
 The native API tests compare exact runtime meters with fresh isolated checked
 interpreter execution; public source tests independently check values.
 
-JIT effectful or call-dependent initializers, persistent pointers, aggregates,
-aliases, extern/import/data-heap storage and retained task storage remain
-unsupported. Defaults still prepare closed numeric expressions in a separate
+Aggregate initializers, persistent pointers, aliases and extern/import/data-heap
+storage remain unsupported by this isolated path. Nonempty aggregate storage
+uses [its original byte roots](persistent-aggregates.md). Retained tasks have
+separate source preparation and ownership checks. Defaults still prepare closed numeric expressions in a separate
 empty fragment at their original declaration boundary; admitting globals does
 not authorize a default to read them. Full memory/runtime support, object/BIN
 output, loader acceptance and bootstrap remain open.

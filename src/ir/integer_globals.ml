@@ -514,17 +514,17 @@ let storage_shape = function
   | Static slot -> Integer_statics.shape slot
 
 let storage_element_count slot = Shape.element_count (storage_shape slot)
+let storage_cell_count slot = Shape.cell_count (storage_shape slot)
 let storage_strides slot = Shape.strides (storage_shape slot)
 let storage_dimensions slot = Shape.dimensions (storage_shape slot)
 
 let cell_count globals =
   (match globals.fragment_kind_ with
     | Some (Static_allocation_context allocation) ->
-        Shape.element_count (Integer_static_allocation.shape allocation)
+        Shape.cell_count (Integer_static_allocation.shape allocation)
     | _ -> globals.global_cell_count_)
   + List.fold_left
-      (fun total slot ->
-        total + Shape.element_count (Integer_statics.shape slot))
+      (fun total slot -> total + Shape.cell_count (Integer_statics.shape slot))
       0 globals.statics_
 
 let storage_index = function
@@ -742,7 +742,7 @@ let find_allocated_storage globals symbol =
     (fun slot -> storage_symbol slot == symbol)
     (allocated_storage_slots globals)
 
-let create_impl ?layout ?initializers ~span:unit_span records =
+let create_impl ?members ?layout ?initializers ~span:unit_span records =
   let ( let* ) = Result.bind in
   let invalid message =
     Error
@@ -875,6 +875,13 @@ let create_impl ?layout ?initializers ~span:unit_span records =
             "global declaration initializer execution is not implemented"
         else if
           Option.is_none (Scalar.public_byte_size shape_type)
+          && not
+               (Option.is_some members
+               && Type.pointer_depth shape_type = 0
+               &&
+               match Type.base shape_type with
+               | Type.Aggregate _ -> true
+               | _ -> false)
           || Global.global_declarator_kind global <> Global.Object
              && Option.is_none callback
         then
@@ -906,7 +913,12 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                        extents")
           in
           let* shape =
-            match Shape.create ~type_:shape_type ~dimensions with
+            match
+              match members with
+              | Some members when Option.is_none callback ->
+                  Shape.create_global ~members ~global ~dimensions
+              | _ -> Shape.create ~type_:shape_type ~dimensions
+            with
             | Ok shape -> Ok shape
             | Error Shape.Overflow ->
                 fail "HCIRL0005"
@@ -917,7 +929,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           in
           let* () =
             if
-              Shape.element_count shape > Sys.max_array_length - index
+              Shape.cell_count shape > Sys.max_array_length - index
               || Shape.byte_size shape > Int.max_int - byte_size
             then
               fail "HCIRL0005"
@@ -928,6 +940,15 @@ let create_impl ?layout ?initializers ~span:unit_span records =
             Option.map
               (fun (owner, roots) -> (owner, List.rev roots))
               (Symbols.find_opt (Symbol.id symbol) roots)
+          in
+          let* () =
+            if
+              Shape.is_aggregate shape
+              && Option.is_some (Global.global_initializer global)
+            then
+              fail "HCRUN0006"
+                "aggregate initializer requires its original member leaf layout"
+            else Ok ()
           in
           let* array_initializers =
             if dimensions = [] then Ok None
@@ -1056,7 +1077,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                 }
               in
               collect
-                (index + Shape.element_count shape)
+                (index + Shape.cell_count shape)
                 (byte_size + Shape.byte_size shape)
                 (Symbols.add (Symbol.id symbol) slot symbols)
                 (slot :: reversed)
@@ -1065,10 +1086,11 @@ let create_impl ?layout ?initializers ~span:unit_span records =
   in
   collect 0 0 Symbols.empty [] roots (Records.records records)
 
-let create ?initializers ~span records = create_impl ?initializers ~span records
+let create ?members ?initializers ~span records =
+  create_impl ?members ?initializers ~span records
 
-let create_with_layout ~layout ?initializers ~span records =
-  create_impl ~layout ?initializers ~span records
+let create_with_layout ?members ~layout ?initializers ~span records =
+  create_impl ~layout ?members ?initializers ~span records
 
 let create_task_catalog ~table =
   {
@@ -1717,8 +1739,11 @@ let prepare_declared catalog declaration =
     in
     let* declared_shape =
       match
-        Shape.create ~type_
-          ~dimensions:(Declared.declared_global_dimensions declaration)
+        if Option.is_some (Declared.declared_global_aggregate declaration) then
+          Shape.create_declared_global declaration
+        else
+          Shape.create ~type_
+            ~dimensions:(Declared.declared_global_dimensions declaration)
       with
       | Ok shape -> Ok shape
       | Error Shape.Overflow ->
@@ -1747,7 +1772,7 @@ let prepare_declared catalog declaration =
           statics_ = [];
           mode = Resolution.Jit;
           global_byte_size_ = bytes;
-          global_cell_count_ = Shape.element_count declared_shape;
+          global_cell_count_ = Shape.cell_count declared_shape;
           byte_size_ = bytes;
           task_view = None;
           function_publications_ = [];
@@ -1799,7 +1824,7 @@ let join_declared view globals =
         match prior with
         | None ->
             collect
-              (index + Shape.element_count slot.shape)
+              (index + Shape.cell_count slot.shape)
               (bytes + Shape.byte_size slot.shape)
               ({ slot with index } :: rev)
               rest
@@ -2559,8 +2584,7 @@ let array_human globals =
               (Symbol.name symbol) (storage_index slot)
               (numbers (Shape.dimensions shape))
               (numbers (Shape.strides shape))
-              (Shape.element_count shape)
-              (Shape.byte_size shape)
+              (Shape.cell_count shape) (Shape.byte_size shape)
               (storage_preparation_steps slot)
             ^ values)
         |> String.concat "")

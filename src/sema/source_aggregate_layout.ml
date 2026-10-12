@@ -78,8 +78,6 @@ let layout ?(members = fun _ _ -> None) ?(callbacks = fun _ -> None)
     (definition : Ast.aggregate_definition) =
   if Option.is_some definition.base <> Option.is_some initial_size then
     Error "retained aggregate bases require original selected layout metadata"
-  else if definition.attached_declarators <> [] then
-    Error "retained aggregate attached storage is not implemented"
   else
     let* () =
       match definition.backing with

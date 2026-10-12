@@ -291,9 +291,8 @@ let local_source_error (declaration : Ast.local_declaration) =
     Some (source_error declaration.local_declaration_location.span message)
   in
   let is_static = declaration.local_storage = Ast.Static_local in
-  let automatic_aggregate =
-    (not is_static)
-    && (match declaration.local_type_specifier with
+  let aggregate_object =
+    (match declaration.local_type_specifier with
       | Ast.Named_type_specifier _ -> true
       | _ -> false)
     && List.for_all
@@ -310,7 +309,7 @@ let local_source_error (declaration : Ast.local_declaration) =
   if
     not
       (scalar_word_type declaration.local_type_specifier
-      || automatic_aggregate
+      || aggregate_object
       || List.for_all
            (fun local -> Option.is_some local.Ast.local_function_pointer)
            declaration.local_declarators)
@@ -370,7 +369,13 @@ let global_source_error ~span ~modifiers ~binding ~type_specifier
       "native globals require ordinary integer or callback declarations \
        without aliases or unsupported calling modifiers"
   else if
-    not (scalar_word_type type_specifier || Option.is_some function_pointer)
+    not
+      (scalar_word_type type_specifier
+      || Option.is_some function_pointer
+      ||
+      match type_specifier with
+      | Ast.Named_type_specifier _ -> true
+      | _ -> false)
   then reject "native globals require nonzero scalar integer types"
   else if
     match function_pointer with
@@ -411,8 +416,19 @@ let ast_errors (ast : Ast.module_) =
                || print_provider_prototype prototype
                || internal_prototype prototype -> ()
         | Gate_item (Ast.Aggregate_forward_declaration _) -> ()
-        | Gate_item (Ast.Aggregate_definition definition)
-          when definition.attached_declarators = [] -> ()
+        | Gate_item (Ast.Aggregate_definition definition) ->
+            List.find_map
+              (fun (variable : Ast.global_declarator) ->
+                global_source_error ~span:variable.location.span
+                  ~modifiers:definition.modifiers ~binding:None
+                  ~type_specifier:(Ast.Named_type_specifier definition.name)
+                  ~pointer_layers:variable.pointer_layers
+                  ~function_pointer:variable.function_pointer
+                  ~array_dimensions:variable.array_dimensions
+                  ~has_initializer:
+                    (Option.is_some variable.global_initial_value))
+              definition.attached_declarators
+            |> Option.iter reject
         | Gate_item (Ast.Global_variable variable) ->
             Option.iter reject
               (global_source_error ~span:variable.location.span

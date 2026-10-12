@@ -10,10 +10,10 @@ val create :
   header:Sema.Function_collection.collected_function ->
   Sema.Compiler_record.static_allocation ->
   (t, string) result
-(** Retain the original live allocation, checked integer or one-star callback
-    shape, anonymous header and exact symbol already inserted in the declaring
-    partial header. This contains no initial values, interpreter cells, native
-    address or execution permission. *)
+(** Retain the original live allocation, checked integer, aggregate or one-star
+    callback shape, original class layout or anonymous header, and exact symbol
+    already inserted in the declaring partial header. This contains no initial
+    values, interpreter cells, native address or execution permission. *)
 
 val source : t -> Sema.Compiler_record.static_allocation
 val symbol : t -> Sema.Symbol.t
@@ -31,6 +31,11 @@ val callback_pointer :
   t -> Sema.Function_type_resolution.function_pointer option
 
 val shape : t -> Integer_storage_shape.t
+
+val runtime_dependencies :
+  t -> Sema.Compiler_record.runtime_dimension_proposal list
+
+val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list
 val cursor : t -> Integer_initializer_layout.stream
 
 val record_native_leaf :

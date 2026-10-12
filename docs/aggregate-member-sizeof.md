@@ -145,10 +145,9 @@ This increment includes no TempleOS runtime capture or machine-byte comparison.
 
 ## Remaining work
 
-Persistent class and union objects still require their own storage admission.
-`sizeof(static_obj.field)` and `sizeof(module_global.field)` are valid HolyC
-metadata queries that the current hosted storage path still refuses; the
-fixtures check those boundaries explicitly. General object copies and the
+[Persistent class and union storage](persistent-aggregates.md) now admits
+`sizeof(static_obj.field)` and `sizeof(module_global.field)` through their
+original metadata. These queries perform no object-byte read. General object copies and the
 remaining `offset` and relocation paths keep their existing boundaries.
 
 [Issue #822](https://github.com/frankischilling/holyc-ocaml/issues/822) tracks
