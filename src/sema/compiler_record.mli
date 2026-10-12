@@ -252,6 +252,7 @@ val aggregate_offset_work : aggregate_offset -> int
 val begin_aggregate :
   ?compiler_positions:compiler_positions ->
   ?backing_record:t ->
+  ?initializer_records:(Type.t -> t option) ->
   ?selected_aggregate:Function_type_resolution.selected_aggregate_resolver ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
@@ -291,6 +292,12 @@ val aggregate_field_callback :
 
 val aggregate_initializer_backing :
   t -> (Type_reference.t * t option) option option
+
+val aggregate_initializer_record : t -> Type.t -> t option
+(** Read the reached record for the exact canonical class identity. The source
+    declaration ledger supplies this metadata lookup; it grants no allocation or
+    execution authority. The initializer consumer must retain its original
+    table, namespace and class selection. *)
 
 val aggregate_record_matches : owner:t -> type_:Type.t -> t -> bool
 

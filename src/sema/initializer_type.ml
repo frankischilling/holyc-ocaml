@@ -84,7 +84,10 @@ let callback ?type_ source =
             (Int64.of_int Primitive_type.pointer_byte_size));
   }
 
-let of_record ?(resolve = fun _ -> None) ~type_ original =
+let of_record ?resolve ~type_ original =
+  let resolve =
+    Option.value resolve ~default:(Record.aggregate_initializer_record original)
+  in
   let rec node seen type_ saved =
     {
       read =

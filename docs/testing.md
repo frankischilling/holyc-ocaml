@@ -2255,5 +2255,8 @@ foreign callback headers fail the leaf identity check, and a numeric initializer
 cannot authorize a stored field call.
 
 This evidence covers completed selected classes and supported integer leaves.
-Live forward completion, other leaf families and full aggregate parity remain
+Forward-selection fixtures complete original members before traversal, preserve
+fixed array counts and reject same-name retargeting. Shared cases cover all nine
+integer widths and static objects; JIT cases complete a member during initializer
+lookahead. Changes during a leaf, other leaf families and full aggregate parity remain
 open. No TempleOS runtime or emitted-byte capture is included.

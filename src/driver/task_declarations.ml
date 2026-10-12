@@ -2054,6 +2054,13 @@ let local_sizeof_aggregate ledger (root : Parser.query_root) =
       sizeof_aggregate_record ledger symbol
       |> Option.map (fun record -> (selected, record)))
 
+let initializer_record ledger type_ =
+  if Sema.Type.pointer_depth type_ <> 0 then None
+  else
+    match Sema.Type.base type_ with
+    | Sema.Type.Aggregate symbol -> sizeof_aggregate_record ledger symbol
+    | _ -> None
+
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
   | Parser.Defined_target _ | Parser.Offset_target _ -> None
@@ -2921,6 +2928,7 @@ let observe ?offset_runtime ledger event =
           | Aggregate state ->
               let progress =
                 Sema.Compiler_record.begin_aggregate ~table:ledger.table
+                  ~initializer_records:(initializer_record ledger)
                   ?backing_record:(selected_backing_record ledger publication)
                   ~selected_aggregate:(selected_aggregate_for ledger)
                   ~compiler_positions:ledger.compiler_positions

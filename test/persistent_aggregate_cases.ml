@@ -23,8 +23,43 @@ let callback_initializer_values =
       "I64 *";
     ]
 
+let forward_initializer_values =
+  List.map
+    (fun (type_, minus_one) ->
+      ( "initializer reads the completed selected member " ^ type_,
+        Printf.sprintf
+          {|extern class Item;class Box{Item item;$$=16;};class Item{U8 tag;%s value;};Box object={{7,-1}};I64 F(){if(object.item.tag!=7 || object.item.value!=%s)return -1;object.item.value=42;return object.item.value;}F();|}
+          type_ minus_one,
+        42L,
+        "" ))
+    [
+      ("Bool", "-1");
+      ("I8", "-1");
+      ("U8", "255");
+      ("I16", "-1");
+      ("U16", "65535");
+      ("I32", "-1");
+      ("U32", "4294967295");
+      ("I64", "-1");
+      ("U64", "-1");
+    ]
+  @ [
+      ( "completed forward members keep original fixed array counts",
+        {|extern class Item;class Box{Item items[2];$$=16;};class Item{U16 value;};Box object={{{40},{42}}};I64 F(){return ((&object)(U8*))[2];}F();|},
+        42L,
+        "" );
+      ( "completed forward metadata supplies static initializer leaves",
+        {|extern class Item;class Box{Item item;$$=16;};class Item{U16 value;};I64 F(){static Box object={{42}};return object.item.value;}F();|},
+        42L,
+        "" );
+      ( "later same-name class cannot retarget an initializer member",
+        {|class Item{U8 value;};class Box{Item item;$$=8;};class Item{U16 value;};Box object={{42}};I64 F(){return object.item.value;}F();|},
+        42L,
+        "" );
+    ]
+
 let initializer_values =
-  callback_initializer_values
+  forward_initializer_values @ callback_initializer_values
   @ [
       ( "callback member arrays retain the sequential eight-byte cursor",
         {|class Box{U8 tag;U16 (*values)(I64)[2];U8 tail;};Box object={7,{0x1002a,0x20028},9};I64 F(){U8 *p=(&object)(U8*);if(p[2]!=0 || p[3]!=1 || p[8]!=0 || p[9]!=40 || p[10]!=0 || p[11]!=2 || p[16]!=0 || p[17]!=9)return -1;return p[1];}F();|},
@@ -250,6 +285,10 @@ let values =
 
 let retained_values =
   [
+    ( "initializer lookahead completes its exact selected forward member",
+      {|extern class Item;class Box{Item item;$$=8;};Box object={#exe{class Item{U16 value;};} {42}};I64 F(){return object.item.value;}F();|},
+      42L,
+      "" );
     ( "aggregate initializer calls retain their original leaf order",
       {|I64 Count=0;I64 Next(){return 40+(++Count);}class Box{U8 tag;U16 value;};Box object={Next(),Next()};I64 F(){if(Count!=2 || object.tag!=41)return -1;return object.value;}F();|},
       42L,

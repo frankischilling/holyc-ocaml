@@ -71,10 +71,17 @@ three global bytes and eight charged static bytes: 11 succeeds and 10 rejects.
 Tests also check exact preparation and execution budgets, one below each budget,
 foreign equal-looking class headers and output retained before a later failure.
 
-Selected class bodies must already be complete. Attached globals retain the
-original body-completion receipt before the enclosing statement finishes.
-Completing a forward-selected member or backing class during initializer
-traversal needs additional live parser receipts and remains gated. Floating,
+Initializer traversal reads the reached record for each selected class identity.
+A forward-selected member can complete after its containing class declaration
+and before its initializer is consumed. Its direct members and fixed counts then
+supply the initializer leaves. Later same-name classes cannot replace that
+selection, and completion cannot enlarge the object's original allocation.
+JIT lookahead can complete the selected member through a `#exe` directive before
+its nested braces are consumed. AOT directives use the task's separate JIT table;
+an unrelated task class cannot complete an assembler-selected forward class.
+Attached globals retain the original body-completion receipt before the enclosing
+statement finishes. Incomplete selections and changes during an executing leaf
+still need their own phase support. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under
@@ -95,6 +102,9 @@ The audit covers complete `PrsVarInit`, `PrsVarInit2`, `PrsGlblInit` and
 `Compiler/PrsStmt.HC:209-463`. `OptClassFwd` at `Compiler/OptLib.HC:9-15`
 selects backing before traversal. Complete `MemberAdd` at
 `Compiler/LexLib.HC:103-148` explains the direct source member chain.
+`PrsClass` at `Compiler/PrsStmt.HC:1-60` reuses the selected extern class record
+on completion. `PrsStreamBlk` at `Compiler/PrsStmt.HC:805-840` switches `#exe`
+input to the task table and JIT flags before restoring the enclosing context.
 
 Allocation, byte roots and persistent lifetimes are described in
 [persistent aggregate storage](persistent-aggregates.md).

@@ -5,8 +5,9 @@ and union globals and statics their original byte roots in IR and native executi
 Integer fields, arrays, scalar prefixes and member size queries retain the selected
 layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
 [Aggregate initializers](aggregate-initializers.md) cover completed selected class
-records, integer leaves, nested fixed arrays and byte strings. Live forward
-completion and the remaining aggregate execution families stay open.
+records, integer leaves, nested fixed arrays and byte strings. Original forward
+members can complete before traversal, including through JIT lookahead. Changes
+during a leaf and the remaining aggregate execution families stay open.
 
 [Class pointer views](class-pointer-views.md) retain owned bytes through casts
 between supported integer and class pointers. IR and native paths preserve

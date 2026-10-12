@@ -6,8 +6,9 @@ Integer fields, arrays, scalar prefixes and member size queries retain the selec
 layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
 [Aggregate initializers](aggregate-initializers.md) traverse completed selected
 classes, nested fixed arrays and byte strings. Integer leaves use their original
-widths and sequential byte cursor. Other leaf families and completion of selected
-forward classes during traversal remain unfinished.
+widths and sequential byte cursor. Selected forward members retain their reached
+completion at traversal, including through JIT lookahead. Other leaf families
+and changes during a leaf remain unfinished.
 
 [Class pointer views](class-pointer-views.md) select a complete earlier class
 layout over existing owned bytes. Primitive and class views share the original

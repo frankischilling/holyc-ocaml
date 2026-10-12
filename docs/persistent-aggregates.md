@@ -65,7 +65,8 @@ path continues to reject data pointer fields with `HCBACK0002`.
 
 [Aggregate initializers](aggregate-initializers.md) now traverse completed selected
 classes, integer leaves, nested fixed arrays and strings with the original source
-byte cursor. Forward completion during traversal and other leaf families remain
+byte cursor. Selected forward members can complete before their leaves are
+consumed. Changes during a leaf and other leaf families remain
 open.
 Callback fields, native data pointer fields, reference returns, persistent pointer
 cells, general aggregate copies and whole-value casts remain unfinished under

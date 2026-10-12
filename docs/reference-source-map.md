@@ -2330,5 +2330,10 @@ and invalid grammar. Shared source fixtures exercise integer leaves, fixed
 arrays, numeric callback words and strings through IR and native execution.
 [The testing notes](testing.md)
 describe ownership controls, resource limits and retained output on failure.
-Live forward completion, other leaf families and full aggregate parity remain
+`PrsClass` at `Compiler/PrsStmt.HC:1-60` completes the original extern record.
+Initializer metadata reads that exact canonical class at traversal, preserving
+earlier containing-object extents and unrelated same-name definitions. JIT
+lookahead can complete a member through the task table selected by `PrsStreamBlk`
+at `Compiler/PrsStmt.HC:805-840`. AOT directives retain their separate JIT table.
+Changes during a leaf, other leaf families and full aggregate parity remain
 open. This evidence includes no TempleOS runtime or emitted-byte capture.

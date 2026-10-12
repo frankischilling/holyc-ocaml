@@ -136,6 +136,7 @@ and t = {
   aggregate_fields : aggregate_field list option;
   aggregate_initializer_backing : (Type_reference.t * t option) option option;
   aggregate_initializer_body : Parser.aggregate_phase option;
+  aggregate_initializer_records : (Type.t -> t option) option;
 }
 
 type aggregate_member = {
@@ -686,6 +687,7 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           aggregate_fields = None;
           aggregate_initializer_backing = None;
           aggregate_initializer_body = None;
+          aggregate_initializer_records = None;
         }
 
 let seed_public_union ~table ~entry ~symbol
@@ -734,6 +736,7 @@ let seed_public_union ~table ~entry ~symbol
               aggregate_fields = None;
               aggregate_initializer_backing = None;
               aggregate_initializer_body = None;
+              aggregate_initializer_records = None;
             }
 
 let aggregate_snapshot_is_current record =
@@ -1097,7 +1100,7 @@ let runtime_aggregate_offset_dimension_dependencies preparation =
 let runtime_aggregate_offset_dependencies preparation =
   preparation.runtime_offset_dependencies
 
-let begin_aggregate ?compiler_positions ?backing_record
+let begin_aggregate ?compiler_positions ?backing_record ?initializer_records
     ?(selected_aggregate : Function_type_resolution.selected_aggregate_resolver =
       fun _ -> None) ~table ~namespace publication =
   match Declaration_collection.publication_source_aggregate publication with
@@ -1203,6 +1206,7 @@ let begin_aggregate ?compiler_positions ?backing_record
                 aggregate_fields = Some [];
                 aggregate_initializer_backing = initializer_backing;
                 aggregate_initializer_body = None;
+                aggregate_initializer_records = initializer_records;
               };
         }
   | _ ->
@@ -1237,6 +1241,10 @@ let aggregate_field_callback field =
   | _ -> assert false
 
 let aggregate_initializer_backing record = record.aggregate_initializer_backing
+
+let aggregate_initializer_record record type_ =
+  Option.bind record.aggregate_initializer_records (fun resolve ->
+      resolve type_)
 
 let aggregate_record_matches ~(owner : t) ~type_ (record : t) =
   record.table == owner.table
@@ -1726,6 +1734,11 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
               match progress.progress_record with
               | Ok record -> record.aggregate_initializer_body
               | Error _ -> None);
+        aggregate_initializer_records =
+          Option.bind progress (fun progress ->
+              match progress.progress_record with
+              | Ok record -> record.aggregate_initializer_records
+              | Error _ -> None);
       }
 
 let retain_inherited_metadata ~table ~namespace definition record =
@@ -1980,6 +1993,7 @@ let published_scalar ?aggregate_allocation ?(dimensions = []) ~table ~namespace
             aggregate_fields = None;
             aggregate_initializer_backing = None;
             aggregate_initializer_body = None;
+            aggregate_initializer_records = None;
           }
 
 let declare_global ?aggregate_allocation ?callback
@@ -2195,6 +2209,7 @@ let bind_retained_scalar ~table ~entry global =
         aggregate_fields = None;
         aggregate_initializer_backing = None;
         aggregate_initializer_body = None;
+        aggregate_initializer_records = None;
       }
 
 let return_class_size ~table ~namespace ~type_ ~(aggregate : t option) =
@@ -3524,6 +3539,7 @@ let bind_retained_global ~table ~entry ~record ~extent =
             aggregate_fields = None;
             aggregate_initializer_backing = None;
             aggregate_initializer_body = None;
+            aggregate_initializer_records = None;
           }
 
 let record_callback_position positions ~parameters receipt =
