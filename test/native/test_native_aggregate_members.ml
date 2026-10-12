@@ -87,7 +87,8 @@ let faults () =
             (Native_program.output_bytes report))
         (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
        @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults
-       @ Persistent.faults @ Casts.faults
+       @ Persistent.faults @ Casts.faults @ Cases.pointer_faults
+       @ Persistent.pointer_faults
         @ if mode = Preprocessor.Jit then Persistent.jit_faults else []);
       List.iter
         (fun (definition, bytes) ->
@@ -165,6 +166,7 @@ let quotas () =
   List.iter check
     [
       Cases.quota_source;
+      Cases.pointer_quota_source;
       Arrays.quota_source;
       Pointers.quota_source;
       Inherited.quota_source;
@@ -219,6 +221,7 @@ let images () =
   List.iter check
     [
       Cases.quota_source;
+      Cases.pointer_quota_source;
       Arrays.quota_source;
       Pointers.quota_source;
       Inherited.quota_source;
@@ -272,6 +275,8 @@ let field_proofs () =
   List.iter check
     [
       Aggregate_member_fixture.contents;
+      Cases.pointer_proof_source;
+      Cases.pointer_local_proof_source;
       Aggregate_member_fixture.local_contents;
       Aggregate_member_fixture.local_pointer_contents;
       Aggregate_member_fixture.local_backing_contents;
@@ -615,6 +620,8 @@ let task_values =
   @ [ List.hd Defaults.prototype_values ]
   @ Defaults.jit_values @ Cases.retained_nested_values @ Persistent.values
   @ Persistent.retained_values @ Casts.values @ Casts.retained_values
+  @ Cases.pointer_values @ Cases.pointer_width_matrix
+  @ Cases.pointer_retained_values @ Persistent.pointer_values
 
 let task_boundaries () =
   let _, original_prototype_call, _, _ = List.nth Defaults.prototype_values 1 in
@@ -624,28 +631,24 @@ let pointer_field_boundaries () =
   List.iter
     (fun mode ->
       List.iter
-        (fun (_, contents, _, _) ->
-          let report = run mode contents in
-          match Native_program.outcome report with
-          | Ok _ ->
-              Alcotest.fail "native pointer field escaped its ownership gate"
-          | Error errors ->
-              Alcotest.(check bool)
-                (describe errors) true
-                (List.exists
-                   (fun (d : Diagnostic.t) -> d.code = "HCBACK0002")
-                   errors))
-        (Cases.pointer_values @ Cases.pointer_width_matrix
-       @ Persistent.pointer_values))
-    modes;
-  List.iter
-    (fun (_, contents, _, _) -> task_failure "HCBACK0002" (run_task contents))
-    (Cases.pointer_values @ Cases.pointer_retained_values
-   @ Persistent.pointer_values)
+        (fun (_, contents, code, output) ->
+          let report = run_task ~mode contents in
+          task_failure code report;
+          Alcotest.(check string)
+            "reached pointer fault output" output
+            (Native_source_execution.output_bytes report))
+        (Cases.pointer_faults @ Persistent.pointer_faults))
+    modes
 
 let () =
   Alcotest.run "native aggregate members"
     [
+      ( "pointer fields",
+        List.map
+          (fun (name, contents, expected, output) ->
+            Alcotest.test_case name `Quick (case contents expected output))
+          (Cases.pointer_values @ Cases.pointer_width_matrix
+         @ Persistent.pointer_values) );
       ( "retained classes",
         List.map
           (fun (name, contents, expected, output) ->
@@ -701,7 +704,8 @@ let () =
             `Quick field_proofs;
           Alcotest.test_case "metadata and numeric bits do not grant storage"
             `Quick boundaries;
-          Alcotest.test_case "pointer fields require native descriptor storage"
-            `Quick pointer_field_boundaries;
+          Alcotest.test_case
+            "pointer field lifetimes and reached source effects" `Quick
+            pointer_field_boundaries;
         ] );
     ]

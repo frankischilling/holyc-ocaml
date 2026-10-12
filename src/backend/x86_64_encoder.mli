@@ -75,13 +75,13 @@ type instruction =
   | Address_arena of register * arena_slot
       (** Materialize an address relative to the private R9 arena base. *)
   | Load_indirect of register * register * int
-      (** Qword reference field load at displacement zero, eight, sixteen or
-          twenty-four. Callable preflight owns the base's reference provenance.
-      *)
+      (** Qword reference field load at an aligned displacement from zero
+          through thirty-two. Callable preflight owns the base's reference
+          provenance. *)
   | Store_indirect of register * register
   | Store_indirect_offset of register * int * register
       (** Store one qword to a checked private reference descriptor field. The
-          displacement is one of zero, eight, sixteen or twenty-four. *)
+          displacement is aligned from zero through thirty-two. *)
   | Load_indirect_narrow of
       register * register * narrow_frame_width * frame_extension
   | Store_indirect_narrow of register * narrow_frame_width * register
@@ -105,6 +105,7 @@ type instruction =
       (** Direct CALL with a signed rel32 displacement from the instruction end.
       *)
   | Call_stack of stack_slot
+  | Jump_stack of stack_slot
       (** Indirect CALL through a checked fixed RSP-relative slot. The target
           uses the pinned CALL RM64 form without REX.W. This shape alone grants
           no executable authority; the caller must validate its captured owner.
@@ -159,18 +160,19 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 184. Arena, output, generation, temporary-buffer and
+          from zero through 232. Arena, output, generation, temporary-buffer and
           source callback pointers and generation activity are immutable. Output
           counters occupy offsets 88, 96 and 104; generation counters occupy 120
-          and 128. *)
+          and 128. Native reference requests occupy 208 through 232. *)
   | Store_context of int * register
       (** Store one qword to the private R11 context at an aligned byte offset
           from zero through 64, or at counter offsets 88, 96, 104, 120, 128 and
-          the formatted-source length at 160. *)
+          the formatted-source length at 160, and reference request lanes 208,
+          216, 224 and 232. *)
   | Store_context_imm of int * int
       (** Store a sign-extended imm32 qword to the private R11 context at an
           aligned byte offset from zero through 64, or 88, 96, 104, 120, 128 and
-          160. *)
+          160, 208, 216, 224 and 232. *)
   | Dec of register
       (** Decrement one full-width register with the qword FF /1 form. *)
   | Cmp of register * register

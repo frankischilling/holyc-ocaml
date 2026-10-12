@@ -85,7 +85,7 @@ receipt. This boundary is narrower than the pinned member lookup path.
 
 [Persistent class globals and statics](persistent-aggregates.md) now retain
 original byte roots, including function-local static classes. General object
-copies, native data pointer fields,
+copies,
 callback fields and class pointer returns retain their separate implementation
 boundaries. Runtime AOT layout expressions still require their relocation
 support. This feature is tracked by

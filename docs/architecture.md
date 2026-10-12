@@ -21,7 +21,9 @@ selected width and signedness; whole class values use their checked scalar
 prefix. IR data pointer fields store address bytes and separate ownership
 metadata for the target descriptor. Overlapping writes remove that metadata,
 and frame retirement invalidates saved addresses while releasing storage.
-Native pointer fields require their own storage and lifetime implementation.
+Native descriptors also carry activation identities. Separate native field
+shadows preserve pointee identities, while scalar writes remove overlapping
+ownership. Shared task arenas retain persistent shadows across source fragments.
 See [owned aggregate members](aggregate-members.md) and
 [pointer fields](aggregate-pointer-fields.md).
 

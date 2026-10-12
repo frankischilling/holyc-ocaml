@@ -39,7 +39,7 @@ layouts while preserving exact types, function identities and retained JIT
 contexts. Member access, nested and inherited objects, arrays and class pointer
 operations share the existing IR and native storage paths. See
 [function-local objects](function-local-aggregate-objects.md).
-Persistent aggregates, general object copies, native pointer fields and class
+General object copies, callback fields and class
 pointer returns remain part of the broader work under #686.
 See [owned aggregate members](aggregate-members.md) and
 [automatic aggregate byte views](automatic-aggregate-byte-views.md).

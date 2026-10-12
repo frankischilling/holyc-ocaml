@@ -1,5 +1,11 @@
 # Compiler status and implementation notes
 
+[Data pointer fields](aggregate-pointer-fields.md) execute through IR, native
+programs and native source tasks in both modes. Separate ownership shadows and
+activation identities preserve caller storage, retained pointer types and
+invalid-memory checks. Callback fields, pointer returns and the remaining
+aggregate requirements under #686 remain open.
+
 [Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
 and union globals and statics their original byte roots in IR and native execution.
 Integer fields, arrays, scalar prefixes and member size queries retain the selected

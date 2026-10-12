@@ -12427,6 +12427,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                             arguments_rev = word :: scope.arguments_rev;
                           }
                           :: rest
+                    | None, _ when Option.is_some !failed -> ()
                     | _ ->
                         failed :=
                           Some

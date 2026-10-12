@@ -51,6 +51,7 @@ type instruction =
   | Free_call_frame of call_frame
   | Call of int64
   | Call_stack of stack_slot
+  | Jump_stack of stack_slot
   | Pop_rbp
   | Unary of unary * register
   | Binary of binary * register * register
@@ -242,6 +243,7 @@ let divide = source_form "DIV" 708
 let signed_divide = source_form "IDIV" 713
 let sign_extend_rax = source_form "CQO" 780
 let jump = source_form "JMP" 584
+let jump_indirect = source_form "JMP" 587
 let jump_equal = source_form "JE" 608
 let jump_not_equal = source_form "JNE" 612
 let jump_below = source_form "JB" 600
@@ -338,6 +340,7 @@ let form = function
   | Free_call_frame _ -> add_immediate
   | Call _ -> call_relative
   | Call_stack _ -> call_indirect
+  | Jump_stack _ -> jump_indirect
   | Pop_rbp -> pop_register
   | Unary (Neg, _) -> negate
   | Unary (Not, _) -> complement
@@ -389,28 +392,29 @@ let signed_int32 value =
   && Int64.compare value 0x7fffffffL <= 0
 
 let valid_context_read_offset offset =
-  offset >= 0 && offset <= 184 && offset mod 8 = 0
+  offset >= 0 && offset <= 232 && offset mod 8 = 0
 
 let valid_context_write_offset offset =
   (offset >= 0 && offset <= 64 && offset mod 8 = 0)
   || offset = 88 || offset = 96 || offset = 104 || offset = 120 || offset = 128
-  || offset = 160
+  || offset = 160 || offset = 208 || offset = 216 || offset = 224
+  || offset = 232
 
 let valid_reference_offset offset =
-  offset = 0 || offset = 8 || offset = 16 || offset = 24
+  offset = 0 || offset = 8 || offset = 16 || offset = 24 || offset = 32
 
 let validate = function
   | Lock_binary_indirect (Imul, _, _, _) ->
       invalid_arg "LOCK requires memory ADD, SUB, AND, OR or XOR"
   | Load_indirect (_, _, offset) when not (valid_reference_offset offset) ->
       invalid_arg
-        "reference descriptor offset must be zero, eight, sixteen or \
-         twenty-four"
+        "reference descriptor offset must be aligned from zero through \
+         thirty-two"
   | Store_indirect_offset (_, offset, _)
     when not (valid_reference_offset offset) ->
       invalid_arg
-        "reference descriptor offset must be zero, eight, sixteen or \
-         twenty-four"
+        "reference descriptor offset must be aligned from zero through \
+         thirty-two"
   | (Load_frame (_, slot) | Store_frame (slot, _))
     when slot.frame_offset mod 8 <> 0 ->
       invalid_arg "qword frame access requires an aligned frame slot"
@@ -432,16 +436,16 @@ let validate = function
       invalid_arg "status site must be between 1 and 100000"
   | Load_context (_, offset) when not (valid_context_read_offset offset) ->
       invalid_arg
-        "private context read offset must be aligned from 0 through 184"
+        "private context read offset must be aligned from 0 through 232"
   | Store_context (offset, _) when not (valid_context_write_offset offset) ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96, 104, 120, 128 or 160"
+         88, 96, 104, 120, 128, 160, 208, 216, 224 or 232"
   | Store_context_imm (offset, _) when not (valid_context_write_offset offset)
     ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96, 104, 120, 128 or 160"
+         88, 96, 104, 120, 128, 160, 208, 216, 224 or 232"
   | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
@@ -581,9 +585,13 @@ let plans instruction =
         ~immediate:(signed 4 (Int64.of_int frame.call_bytes))
         ()
   | Call displacement -> one ~immediate:(signed 4 displacement) ()
-  | Call_stack slot ->
-      (* CALL RM64 uses its implicit qword width without a REX prefix. *)
+  | Call_stack slot | Jump_stack slot ->
+      (* The pinned CALL form suppresses W; its JMP RM64 form retains W. *)
       one
+        ~prefixes:
+          (match instruction with
+          | Jump_stack _ -> [ 0x48 ]
+          | _ -> [])
         ~modrm:(0x84 lor (selected.slash_value lsl 3))
         ~sib:0x24
         ~displacement:(signed 4 (Int64.of_int slot.offset))

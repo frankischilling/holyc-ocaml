@@ -198,13 +198,13 @@ Root-array mutation controls reject changed strides and foreign frames before
 IR execution. Pointee proofs also reject missing, foreign, changed and
 other-function layouts before execution; exact quotas cover scalar, array and
 pointer update fixtures.
-Owned integer and class pointer fields execute in IR, including member arrays,
+Owned integer and class pointer fields execute in IR and native code, including member arrays,
 pointer updates and retained selections. Combined fixtures check function-local
 field proofs and strides, builtin member sizes and type replacement. Faults
 cover expired callee locals, overlapping writes, numeric reconstruction and
-incompatible pointees. Native public and retained targets preserve the explicit
-pointer-field rejection. See [pointer fields](aggregate-pointer-fields.md).
-General aggregate copies, native pointer fields, persistent objects and partial
+incompatible pointees. Native public and retained targets preserve those
+ownership and activation checks. See [pointer fields](aggregate-pointer-fields.md).
+General aggregate copies and partial
 or out-of-compilation inherited bases remain unsupported. Retained JIT imports
 require the original completed class and command evidence.
 These hosted checks have no TempleOS runtime capture. See

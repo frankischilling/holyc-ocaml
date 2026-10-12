@@ -181,6 +181,8 @@ let kind_name = function
   | Program.Output_invalid_pointer -> "output-pointer"
   | Program.Output_invalid_byte -> "output-byte"
   | Program.Pointer_object_mismatch -> "pointer-object-mismatch"
+  | Program.Pointer_ownership_unavailable -> "pointer-ownership-unavailable"
+  | Program.Reference_shadow_limit_exceeded -> "reference-shadow-limit-exceeded"
   | Program.Callback_unowned_address -> "callback-unowned-address"
   | Program.Callback_signature_mismatch -> "callback-signature-mismatch"
   | Program.Code_comparison_invalid_word -> "code-comparison-invalid-word"
@@ -1281,7 +1283,7 @@ let private_context_encoder_bytes () =
       | Ok _ -> Alcotest.fail "invalid private context access encoded")
     [
       Encoder.Load_context (Encoder.Rax, 7);
-      Encoder.Load_context (Encoder.Rax, 192);
+      Encoder.Load_context (Encoder.Rax, 240);
       Encoder.Store_context (184, Encoder.Rax);
       Encoder.Store_context (72, Encoder.Rax);
       Encoder.Store_context_imm (72, 0);
@@ -1308,6 +1310,9 @@ let callable_frame_encoder_bytes () =
         Encoder.Alloc_call_frame (call_frame 32),
         "4881ec20000000" );
       ("relative direct CALL", Encoder.Call 0x12345678L, "e878563412");
+      ( "shared service return through a private stack slot",
+        Encoder.Jump_stack (Encoder.stack_slot ~offset:8 |> require_ok Fun.id),
+        "48ffa42408000000" );
       ( "free 32-byte call frame",
         Encoder.Free_call_frame (call_frame 32),
         "4881c420000000" );
@@ -1343,10 +1348,10 @@ let compiled_callable_frame_and_rel32_bytes () =
   let code = Program.code image in
   Alcotest.(check int) "one named callable" 1 (Program.function_count image);
   Alcotest.(check int)
-    "identity bundle maximum frame" 32
+    "identity bundle maximum frame" 144
     (Program.frame_bytes image);
   Alcotest.(check int)
-    "identity entry physical stack charge" 48
+    "identity entry physical stack charge" 160
     (Program.entry_stack_bytes image);
   match Program.windows_unwind_functions image with
   | [
@@ -1357,15 +1362,16 @@ let compiled_callable_frame_and_rel32_bytes () =
       Alcotest.(check int)
         "identity range covers image tail" (String.length code) function_end;
       Alcotest.(check string)
-        "entry PUSH/MOV/SUB frame bytes" "554889e54881ec20000000"
+        "entry PUSH/MOV/SUB frame bytes" "554889e54881ec90000000"
         (String.sub code 0 11 |> hex);
       Alcotest.(check string)
-        "entry callable unwind bytes" "010b02000b320150" (hex entry_unwind);
+        "entry callable unwind bytes" "010b03000b01120001500000"
+        (hex entry_unwind);
       Alcotest.(check string)
         "identity PUSH/MOV frame bytes" "554889e5"
         (String.sub code function_begin 4 |> hex);
       Alcotest.(check string)
-        "identity frameless unwind bytes" "0104010001500000"
+        "identity owned reference frame unwind bytes" "010b02000bf20150"
         (hex function_unwind);
       Alcotest.(check string)
         "identity POP/RET bytes" "5dc3"

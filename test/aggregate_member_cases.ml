@@ -171,6 +171,10 @@ let pointer_width_matrix =
 
 let pointer_faults =
   [
+    ( "an earlier retained string consumer rejects a later escaped local",
+      {|extern U0 Print(U8 *fmt,...);U0 Show(U8 *p){Print("%s",p);}class Box{U8 *p;};Box saved;U0 Save(){U8 bytes[2];bytes[0]=65;bytes[1]=0;saved.p=bytes;}Save();Print("kept");Show(saved.p);|},
+      "HCIRVM0018",
+      "kept" );
     ( "whole class prefix store removes pointer ownership",
       {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;U64 old=o;o=old;return *o.p;}F();|},
       "HCIRVM0018",

@@ -226,6 +226,14 @@ explicitly call `Native_program_execution.execute ~max_steps`. Code and unwind
 getters return fresh copies. `windows_unwind_functions` exposes checked code
 ranges and per-owner unwind bytes; `function_count` counts named functions and
 `entry_stack_bytes` includes the entry's return address and saved RBP when present.
+Callable frames also reserve an activation record and scratch storage for the
+native reference service. The service body is shared within each callable frame;
+its entry and return use jumps and add no generated stack activation. Retained
+functions keep these lifetime checks when later Source fragments introduce
+pointer fields. The descriptor and guard code increase frame and image sizes;
+programs with several complete Print formatters can require an explicit
+`--code-byte-limit` above the default 65,536 bytes. Source tasks charge code
+cumulatively across their fragments.
 Neither image interface exposes a constructor for
 arbitrary bytes. An optional compile-time `status_abi` selects Windows x64 or
 System V code generation for inspection; execution rejects a foreign ABI before

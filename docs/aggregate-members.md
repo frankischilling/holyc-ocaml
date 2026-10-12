@@ -20,9 +20,10 @@ callback class parameters still need their own implementation.
 byte roots through the same member and scalar-prefix paths. Defaults containing references remain unsupported in AOT IR
 and ordinary native compilation.
 
-[Data pointer fields](aggregate-pointer-fields.md) add IR reads, assignments
+[Data pointer fields](aggregate-pointer-fields.md) add IR and native reads, assignments
 and updates for one-level integer and class pointers, including pointer member
-arrays. Native execution of these fields remains gated with `HCBACK0002`.
+arrays. Private descriptors and shadows preserve target lifetime across calls
+and retained source fragments.
 
 The interpreter and native executor read, assign and update integer members of
 nonempty automatic class and union objects. The layout must be complete at the
@@ -154,8 +155,8 @@ separate from the offsets used by subsequent member accesses.
 Partial inherited bases and bases without their original completed compilation
 or retained-context proof cannot authorize object storage. Zero-sized automatic
 objects, automatic root pointer arrays, inferred initializer dimensions,
-whole-value postfix casts, callback class
-parameters, general aggregate copies, native data pointer fields, callback
+floating whole-value postfix casts, callback class
+parameters, general aggregate copies, callback
 fields, numeric/null casts to class pointers and pointer returns remain unfinished
 under [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 Defaults containing references remain unsupported in AOT IR and ordinary native

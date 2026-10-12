@@ -47,6 +47,8 @@ type program_site = {
   lock_alignment_site : bool;
   pointer_ordering_site : bool;
   pointer_difference_site : bool;
+  reference_ownership_site : bool;
+  reference_shadow_store_site : bool;
   output_site : bool;
   atomic_output_site : bool;
   stream_print_site : bool;
@@ -198,6 +200,7 @@ val program_register_peak : program_image -> int
 val program_frame_bytes : program_image -> int
 val program_block_count : program_image -> int
 val program_function_count : program_image -> int
+val program_is_callable : program_image -> bool
 val program_entry_stack_bytes : program_image -> int
 val program_sites : program_image -> program_site list
 val program_has_output : program_image -> bool

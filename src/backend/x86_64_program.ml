@@ -37,6 +37,8 @@ type fault_kind =
   | Output_invalid_pointer
   | Output_invalid_byte
   | Pointer_object_mismatch
+  | Pointer_ownership_unavailable
+  | Reference_shadow_limit_exceeded
   | Pointer_difference_object_mismatch
   | Callback_unowned_address
   | Callback_signature_mismatch
@@ -502,6 +504,7 @@ let register_peak compiled = Codegen.program_register_peak compiled.image
 let frame_bytes compiled = Codegen.program_frame_bytes compiled.image
 let block_count compiled = Codegen.program_block_count compiled.image
 let function_count compiled = Codegen.program_function_count compiled.image
+let is_callable compiled = Codegen.program_is_callable compiled.image
 let has_output compiled = Codegen.program_has_output compiled.image
 
 let entry_stack_bytes compiled =
@@ -898,6 +901,20 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        else if Int64.equal kind 28L then
                          Stream_exe_context_required
                        else Stream_exe_source_failed)
+                      None
+                else if kind = 34L || kind = 35L then
+                  if
+                    (if kind = 34L then not candidate.reference_ownership_site
+                     else not candidate.reference_shadow_store_site)
+                    || executed_steps_int < 1
+                  then
+                    Error
+                      "native reference ownership fault has another reached \
+                       site"
+                  else
+                    make_fault
+                      (if kind = 34L then Pointer_ownership_unavailable
+                       else Reference_shadow_limit_exceeded)
                       None
                 else if Int64.equal kind 17L then
                   if not candidate.pointer_ordering_site then

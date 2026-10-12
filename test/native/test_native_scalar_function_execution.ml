@@ -29,19 +29,21 @@ let source_inputs ~mode contents =
   in
   (session, config, source)
 
-let native_report ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
-    ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps contents =
-  let session, config, source = source_inputs ~mode contents in
-  Native_program.evaluate ?max_initializer_steps ?max_default_bytes
-    ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes session ~config
-    ~source ~max_steps
-
-let native_success_report ?max_initializer_steps ?max_default_bytes
+let native_report ?max_code_bytes ?max_initializer_steps ?max_default_bytes
     ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps
     contents =
+  let session, config, source = source_inputs ~mode contents in
+  Native_program.evaluate ?max_code_bytes ?max_initializer_steps
+    ?max_default_bytes ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
+    session ~config ~source ~max_steps
+
+let native_success_report ?max_code_bytes ?max_initializer_steps
+    ?max_default_bytes ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
+    ~mode ~max_steps contents =
   let report =
-    native_report ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
-      ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps contents
+    native_report ?max_code_bytes ?max_initializer_steps ?max_default_bytes
+      ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps
+      contents
   in
   match Native_program.outcome report with
   | Ok checked -> (report, checked.value)
@@ -133,8 +135,8 @@ let check_vm_word label expected_type expected_bits result =
         (label ^ " VM type") expected_type (vm_type_name word.type_);
       Alcotest.(check int64) (label ^ " VM bits") expected_bits word.bits
 
-let compare_source ?(initializer_steps = 0) ?(max_steps = 10_000) ~mode ~label
-    ~expected_type ~expected_bits contents =
+let compare_source ?max_code_bytes ?(initializer_steps = 0)
+    ?(max_steps = 10_000) ~mode ~label ~expected_type ~expected_bits contents =
   (* Fresh public source execution is the independent semantic oracle. In JIT,
      defaults can activate a stateful command stream whose bookkeeping is not
      part of the native batch image, so its runtime meter is intentionally not a
@@ -143,7 +145,9 @@ let compare_source ?(initializer_steps = 0) ?(max_steps = 10_000) ~mode ~label
   check_vm_word label expected_type expected_bits vm;
   let fixture, batch = batch_success ~mode ~max_steps contents in
   check_vm_word (label ^ " checked batch") expected_type expected_bits batch;
-  let report, native = native_success_report ~mode ~max_steps contents in
+  let report, native =
+    native_success_report ?max_code_bytes ~mode ~max_steps contents
+  in
   check_native_word label expected_type expected_bits
     native.execution.final_value;
   Alcotest.(check int)
@@ -3159,8 +3163,8 @@ let aot_load_calls_and_effects () =
   List.iter
     (fun (label, initializer_steps, output, source) ->
       let report, native, vm =
-        compare_source ~mode:Preprocessor.Aot ~label ~initializer_steps
-          ~expected_type:"I64" ~expected_bits:42L source
+        compare_source ~max_code_bytes:131072 ~mode:Preprocessor.Aot ~label
+          ~initializer_steps ~expected_type:"I64" ~expected_bits:42L source
       in
       Alcotest.(check string)
         (label ^ " reached native output")

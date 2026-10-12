@@ -1736,12 +1736,14 @@ let encoder_reference_bytes () =
       (Load_indirect (R10, R11, 0), "4d8b9300000000");
       (Load_indirect (R8, R11, 16), "4d8b8310000000");
       (Load_indirect (Rax, Rdx, 24), "488b8218000000");
+      (Load_indirect (Rax, Rdx, 32), "488b8220000000");
       (Store_indirect (Rcx, Rax), "48898100000000");
       (Store_indirect (R9, R8), "4d898100000000");
       (Store_indirect_offset (Rax, 0, Rax), "48898000000000");
       (Store_indirect_offset (Rcx, 8, Rax), "48898108000000");
       (Store_indirect_offset (R9, 16, R8), "4d898110000000");
       (Store_indirect_offset (R11, 24, R10), "4d899318000000");
+      (Store_indirect_offset (R11, 32, R10), "4d899320000000");
       (Load_indirect_narrow (Rax, Rdx, Frame8, Sign_extend), "480fbe8200000000");
       (Load_indirect_narrow (R8, R11, Frame8, Zero_extend), "4d0fb68300000000");
       (Load_indirect_narrow (Rdx, Rcx, Frame16, Sign_extend), "480fbf9100000000");
@@ -1778,7 +1780,7 @@ let encoder_reference_bytes () =
           Encoder.Load_indirect (Encoder.Rax, Encoder.Rcx, offset);
           Encoder.Store_indirect_offset (Encoder.Rcx, offset, Encoder.Rax);
         ])
-    [ -8; 1; 7; 15; 17; 23; 25; 32; max_int ]
+    [ -8; 1; 7; 15; 17; 23; 25; 33; 40; max_int ]
 
 let encoder_arena_bytes () =
   (* Literal bytes come from the same pinned MOV/MOVSX/MOVZX/MOVSXD forms as the

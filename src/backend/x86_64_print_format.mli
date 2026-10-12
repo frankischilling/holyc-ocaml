@@ -45,7 +45,11 @@ val scratch_slots : int -> int
     word for repeated [%c]/[%C], followed by one kind tag for each variadic
     argument. The caller bounds the complete frame before entry. *)
 
-val emit : 'label emitter -> t -> unit
+val emit :
+  ?reference_guard:(X86_64_encoder.register -> unit) ->
+  'label emitter ->
+  t ->
+  unit
 (** Emit the bounded dynamic Print formatter from authenticated, staged call
     values, including quoted [%Q]/[%q] strings, auxiliary [%h] parsing for the
     supported nonfloating directives, repeated packed [%c]/[%C] fields and
@@ -56,7 +60,11 @@ val emit : 'label emitter -> t -> unit
     and may invoke its original C callback. The callback preserves the private
     registers and returns the actual word into the staged source-call result. *)
 
-val emit_provider : 'label emitter -> provider_input -> unit
+val emit_provider :
+  ?reference_guard:(X86_64_encoder.register -> unit) ->
+  'label emitter ->
+  provider_input ->
+  unit
 (** Emit the same formatter from original caller-supplied count and
     argument/kind tables. The private entry has already reserved semantic
     depth/frame and physical stack; it owns the fixed bounded scratch frame.

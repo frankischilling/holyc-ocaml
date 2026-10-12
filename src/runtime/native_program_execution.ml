@@ -626,7 +626,7 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                 literal_bytes,
                                 metadata_bytes,
                                 global_image )
-                          else if function_count = 0 then
+                          else if not (Image.is_callable image) then
                             execute_program_image (Image.code image)
                               (Image.windows_unwind_info image)
                               abi_code max_steps

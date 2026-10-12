@@ -1081,6 +1081,12 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ("HCIRVM0018", "native Print requires a live byte pointer")
     | Image.Output_invalid_byte ->
         ("HCIRVM0008", "native Print byte cell has an invalid runtime value")
+    | Image.Pointer_ownership_unavailable ->
+        ("HCIRVM0018", "pointer reference has no live owned storage")
+    | Image.Reference_shadow_limit_exceeded ->
+        ( "HCIRVM0016",
+          "native pointer ownership metadata exceeds its host allocation limit"
+        )
     | Image.Pointer_object_mismatch ->
         ("HCIRVM0018", "pointer ordering requires the same live object extent")
     | Image.Callback_unowned_address ->

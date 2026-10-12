@@ -229,24 +229,16 @@ let () =
               (fun (_, source, code, _) ->
                 error ~code "" (invoke ~status:1 target mode source))
               Persistent.initializer_partial_faults;
-          if target = "ir" then (
-            List.iter
-              (fun (_, source, expected, output) ->
-                value expected output (invoke target mode source))
-              (Cases.pointer_values @ Cases.pointer_width_matrix
-             @ Persistent.pointer_values);
-            value 42L "AB" (invoke target mode (read Sys.argv.(12)));
-            List.iter
-              (fun (_, source, code, output) ->
-                error ~code output (invoke ~status:1 target mode source))
-              (Cases.pointer_faults @ Persistent.pointer_faults))
-          else
-            List.iter
-              (fun (_, source, _, _) ->
-                error ~code:"HCBACK0002" ""
-                  (invoke ~status:1 target mode source))
-              (Cases.pointer_values @ Cases.pointer_width_matrix
-             @ Persistent.pointer_values);
+          List.iter
+            (fun (_, source, expected, output) ->
+              value expected output (invoke target mode source))
+            (Cases.pointer_values @ Cases.pointer_width_matrix
+           @ Persistent.pointer_values);
+          value 42L "AB" (invoke target mode (read Sys.argv.(12)));
+          List.iter
+            (fun (_, source, code, output) ->
+              error ~code output (invoke ~status:1 target mode source))
+            (Cases.pointer_faults @ Persistent.pointer_faults);
           List.iter
             (fun (name, source, word, output) ->
               value ~warnings:(value_warnings name)
@@ -417,10 +409,21 @@ let () =
         "host-jit-task" mode source
     in
     List.iter
-      (fun (_, source, _, _) ->
-        error ~code:"HCBACK0002" "" (invoke_task ~status:1 source))
-      (Cases.pointer_values @ Cases.pointer_retained_values
+      (fun (_, source, expected, output) ->
+        value expected output (invoke_task source))
+      (Cases.pointer_values @ Cases.pointer_width_matrix
+     @ Cases.pointer_retained_values @ Persistent.pointer_values);
+    value 42L "AB" (invoke_task (read Sys.argv.(12)));
+    List.iter
+      (fun (_, source, code, output) ->
+        error ~code output (invoke_task ~status:1 source))
+      (Cases.pointer_faults @ Persistent.pointer_faults);
+    List.iter
+      (fun (_, source, expected, output) ->
+        value expected output (invoke_task ~mode:"aot" source))
+      (Cases.pointer_values @ Cases.pointer_width_matrix
      @ Persistent.pointer_values);
+    value 42L "AB" (invoke_task ~mode:"aot" (read Sys.argv.(12)));
     value 42L "AB" (invoke_task (read Sys.argv.(13)));
     value 42L "AB" (invoke_task (read Sys.argv.(14)));
     value 42L "" (invoke_task (read Sys.argv.(15)));

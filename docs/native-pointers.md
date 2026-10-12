@@ -11,9 +11,10 @@ select integer member windows and member-array strides over the caller's
 original automatic object. Descriptors retain the original initialization
 region and extent; the admitted storage and call paths keep that allocation
 live. [Class pointer operations](class-pointers.md) support indexing, arithmetic,
-comparisons and updates with the selected layout. Native execution of
-[data pointer fields](aggregate-pointer-fields.md) remains rejected with
-`HCBACK0002`. The IR field-storage path does not provide native lifetime tracking.
+comparisons and updates with the selected layout.
+[Data pointer fields](aggregate-pointer-fields.md) retain native ownership
+shadows and activation identities across calls and source fragments. Expired
+locals and numeric reconstructions fail before target storage is read.
 
 Native [owned scalar pointer difference](pointer-difference.md) checks original
 data-base, initialization-region and extent fields, then subtracts offsets.

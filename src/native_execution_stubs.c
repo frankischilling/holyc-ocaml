@@ -37,6 +37,10 @@
 #define HOLYC_NATIVE_PLATFORM 0
 #endif
 
+#if HOLYC_NATIVE_PLATFORM != 0
+#include "native_reference_shadow.h"
+#endif
+
 /* A custom finalizer can run while OCaml promotes a global root and holds its
    root-table lock. Root-owning finalizers must not remove roots there. They
    detach C owners with lock-free operations and retain the roots and mappings
@@ -768,6 +772,7 @@ struct native_task_arena {
   size_t committed;
   size_t page_size;
   struct native_task_code_owner **owners;
+  struct native_reference_state reference_shadows;
   size_t owner_capacity;
   atomic_int active;
   int closing;
@@ -778,6 +783,7 @@ static int native_task_arena_close(struct native_task_arena *arena)
 {
   arena->closing = 1;
   arena->close_error[0] = 0;
+  native_reference_state_clear(&arena->reference_shadows);
   if (arena->mapping == NULL) return 1;
 #if HOLYC_NATIVE_PLATFORM == 1
   if (!VirtualFree(arena->mapping, 0, MEM_RELEASE)) {
@@ -1470,11 +1476,16 @@ CAMLprim value holyc_native_execute_program_functions(value code, value function
      remaining physical native-stack bytes. The root's exact physical cost is
      charged before entry; generated CALL/return and checked-fault paths restore
      all three remaining quotas to these values. */
-  uint64_t context[9] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+  uint64_t context[30] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                          (uint64_t)frame_limit, (uint64_t)depth_limit,
                          remaining_stack};
+  struct native_reference_state reference_state = {0};
+  struct native_reference_scope reference_scope;
+  native_reference_context_init(context, &reference_scope, &reference_state);
   (void)native_execute_checked_program_image(code, functions, abi_code,
                                              (uintnat)entry_stack_bytes, context);
+  native_reference_scope_finish(&reference_scope);
+  native_reference_state_clear(&reference_state);
   if (context[2] != (uint64_t)step_limit)
     caml_failwith("native program status integrity failure: budget was modified");
   if (context[6] != (uint64_t)frame_limit)
@@ -1592,11 +1603,16 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   /* The tenth word is an immutable private arena pointer installed by the
      platform helper after fresh RW allocation. Generated code may only read it
      through the sealed R11 context and keeps R9 reserved as the arena base. */
-  uint64_t context[10] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+  uint64_t context[30] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                           (uint64_t)frame_limit, (uint64_t)depth_limit,
                           remaining_stack, 0};
+  struct native_reference_state reference_state = {0};
+  struct native_reference_scope reference_scope;
+  native_reference_context_init(context, &reference_scope, &reference_state);
   (void)native_execute_checked_program_storage_image(
     code, functions, abi_code, (uintnat)entry_stack_bytes, arena_image, context);
+  native_reference_scope_finish(&reference_scope);
+  native_reference_state_clear(&reference_state);
   if (context[2] != (uint64_t)step_limit)
     caml_failwith("native program status integrity failure: budget was modified");
   if (context[6] != (uint64_t)frame_limit)
@@ -2689,7 +2705,7 @@ static value native_execute_program_output(value code, value functions,
   }
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
-    uint64_t context[24] = {
+    uint64_t context[30] = {
       0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
       output_address, remaining_output, remaining_work, 0,
@@ -2699,6 +2715,12 @@ static value native_execute_program_output(value code, value functions,
       (uint64_t)(uintptr_t)bridge,
       bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_option_callback
     };
+
+    struct native_reference_state reference_state = {0};
+    struct native_reference_scope reference_scope;
+    struct native_reference_state *reference_shared = task_storage ?
+      &native_task_arena_get(task_arena)->reference_shadows : &reference_state;
+    native_reference_context_init(context, &reference_scope, reference_shared);
 
     if (bridge != NULL) {
       bridge->handle = bridge_owner;
@@ -2725,6 +2747,11 @@ static value native_execute_program_output(value code, value functions,
         context);
     }
 
+    native_reference_scope_finish(&reference_scope);
+    native_reference_state_clear(&reference_state);
+    if (context[24] != (uint64_t)(uintptr_t)&native_reference_service ||
+        context[25] != (uint64_t)(uintptr_t)&reference_scope)
+      caml_failwith("native reference status integrity failure: owner was modified");
     if (context[21] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_source_callback) ||
         context[22] != (uint64_t)(uintptr_t)bridge ||
         context[23] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_option_callback))
@@ -3196,6 +3223,8 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
   for (chunks = literal_chunks; chunks != Val_emptylist; chunks = Field(chunks, 1)) {
     value chunk = Field(chunks, 0);
     value payload = Field(chunk, 1);
+    native_reference_invalidate(&arena->reference_shadows,
+      (uintptr_t)((char *)arena->mapping + Long_val(Field(chunk, 0))), caml_string_length(payload));
     memcpy((char *)arena->mapping + Long_val(Field(chunk, 0)),
            String_val(payload), caml_string_length(payload));
   }
@@ -3435,6 +3464,7 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor, val
       caml_invalid_argument("native static byte copy has a malformed initialization flag");
     }
   }
+  native_reference_invalidate(&arena->reference_shadows, (uintptr_t)(mapping + data), count);
   memcpy(mapping + data, String_val(payload), count);
   for (i = 0; i < count; ++i) mapping[(size_t)flag - i] = 1;
   if (!borrowed_arena) atomic_store(&arena->active, 0);

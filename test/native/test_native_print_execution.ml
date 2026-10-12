@@ -98,17 +98,18 @@ let batch_fault ?max_output_bytes ?max_output_work ?max_steps ?max_frame_bytes
   | Error [] -> Alcotest.fail "checked batch returned no fault"
   | Error (error :: _) -> (report, error)
 
-let report ?max_output_bytes ?max_output_work ?max_frame_bytes ?max_call_depth
-    ?max_initializer_steps ?(max_steps = 10_000) mode contents =
+let report ?max_code_bytes ?max_output_bytes ?max_output_work ?max_frame_bytes
+    ?max_call_depth ?max_initializer_steps ?(max_steps = 10_000) mode contents =
   let session, config, source = inputs mode contents in
-  Native_program.evaluate ?max_output_bytes ?max_output_work ?max_frame_bytes
-    ?max_call_depth ?max_initializer_steps session ~config ~source ~max_steps
+  Native_program.evaluate ?max_code_bytes ?max_output_bytes ?max_output_work
+    ?max_frame_bytes ?max_call_depth ?max_initializer_steps session ~config
+    ~source ~max_steps
 
-let success ?max_output_bytes ?max_output_work ?max_frame_bytes ?max_call_depth
-    ?max_initializer_steps ?max_steps mode contents =
+let success ?max_code_bytes ?max_output_bytes ?max_output_work ?max_frame_bytes
+    ?max_call_depth ?max_initializer_steps ?max_steps mode contents =
   let report =
-    report ?max_output_bytes ?max_output_work ?max_frame_bytes ?max_call_depth
-      ?max_initializer_steps ?max_steps mode contents
+    report ?max_code_bytes ?max_output_bytes ?max_output_work ?max_frame_bytes
+      ?max_call_depth ?max_initializer_steps ?max_steps mode contents
   in
   let checked = Native_program.outcome report |> require_ok diagnostics_text in
   (report, checked.value)
@@ -123,11 +124,11 @@ let first_error report =
           diagnostic.severity = Diagnostic.Error)
         diagnostics
 
-let fault ?max_output_bytes ?max_output_work ?max_frame_bytes ?max_call_depth
-    ?max_initializer_steps ?max_steps mode contents =
+let fault ?max_code_bytes ?max_output_bytes ?max_output_work ?max_frame_bytes
+    ?max_call_depth ?max_initializer_steps ?max_steps mode contents =
   let report =
-    report ?max_output_bytes ?max_output_work ?max_frame_bytes ?max_call_depth
-      ?max_initializer_steps ?max_steps mode contents
+    report ?max_code_bytes ?max_output_bytes ?max_output_work ?max_frame_bytes
+      ?max_call_depth ?max_initializer_steps ?max_steps mode contents
   in
   (report, first_error report)
 
@@ -177,8 +178,9 @@ let check_final label expected vm (native : Native_program.result) =
       check_native_word (label ^ " native result") bits
         native.execution.final_value
 
-let compare_success ?max_output_bytes ?max_output_work ?max_frame_bytes
-    ?max_call_depth ?max_steps mode ~label ~contents ~bytes ~work ~value () =
+let compare_success ?max_code_bytes ?max_output_bytes ?max_output_work
+    ?max_frame_bytes ?max_call_depth ?max_steps mode ~label ~contents ~bytes
+    ~work ~value () =
   let public_report, public =
     interpreter_success ?max_output_bytes ?max_output_work ?max_frame_bytes
       ?max_call_depth ?max_steps mode contents
@@ -196,8 +198,8 @@ let compare_success ?max_output_bytes ?max_output_work ?max_frame_bytes
   in
   check_vm_output (label ^ " checked batch") ~bytes ~work batch_report;
   let native_report, native =
-    success ?max_output_bytes ?max_output_work ?max_frame_bytes ?max_call_depth
-      ?max_steps mode contents
+    success ?max_code_bytes ?max_output_bytes ?max_output_work ?max_frame_bytes
+      ?max_call_depth ?max_steps mode contents
   in
   check_output (label ^ " native") ~bytes ~work native_report;
   Alcotest.(check int)
@@ -207,9 +209,9 @@ let compare_success ?max_output_bytes ?max_output_work ?max_frame_bytes
   check_final (label ^ " checked/native") value batch native;
   (native_report, native, fixture)
 
-let compare_reached_fault ?max_output_bytes ?max_output_work ?max_frame_bytes
-    ?max_call_depth ?max_steps mode ~label ~contents ~code ~kind ~bytes ~work ()
-    =
+let compare_reached_fault ?max_code_bytes ?max_output_bytes ?max_output_work
+    ?max_frame_bytes ?max_call_depth ?max_steps mode ~label ~contents ~code
+    ~kind ~bytes ~work () =
   let public_report, public_error =
     interpreter_fault ?max_output_bytes ?max_output_work ?max_frame_bytes
       ?max_call_depth ?max_steps mode contents
@@ -229,8 +231,8 @@ let compare_reached_fault ?max_output_bytes ?max_output_work ?max_frame_bytes
   Alcotest.(check string) (label ^ " checked code") code batch_error.code;
   check_vm_output (label ^ " checked batch") ~bytes ~work batch_report;
   let native_report, native_error =
-    fault ?max_output_bytes ?max_output_work ?max_frame_bytes ?max_call_depth
-      ?max_steps mode contents
+    fault ?max_code_bytes ?max_output_bytes ?max_output_work ?max_frame_bytes
+      ?max_call_depth ?max_steps mode contents
   in
   Alcotest.(check string) (label ^ " native code") code native_error.code;
   check_output (label ^ " native") ~bytes ~work native_report;
@@ -641,13 +643,14 @@ let zero_output_charges_work () =
   List.iter
     (fun mode ->
       ignore
-        (compare_success ~max_output_bytes:1 ~max_output_work:9 mode
-           ~label:"empty output keeps scan work" ~contents ~bytes:"" ~work:9
-           ~value:(Some 42L) ());
+        (compare_success ~max_code_bytes:131072 ~max_output_bytes:1
+           ~max_output_work:9 mode ~label:"empty output keeps scan work"
+           ~contents ~bytes:"" ~work:9 ~value:(Some 42L) ());
       let reached =
-        compare_reached_fault ~max_output_bytes:1 ~max_output_work:8 mode
-          ~label:"empty output work one below" ~contents ~code:"HCIRVM0023"
-          ~kind:Program.Output_work_limit_exceeded ~bytes:"" ~work:8 ()
+        compare_reached_fault ~max_code_bytes:131072 ~max_output_bytes:1
+          ~max_output_work:8 mode ~label:"empty output work one below" ~contents
+          ~code:"HCIRVM0023" ~kind:Program.Output_work_limit_exceeded ~bytes:""
+          ~work:8 ()
       in
       Alcotest.(check bool)
         "empty output work failure keeps Print ownership" true

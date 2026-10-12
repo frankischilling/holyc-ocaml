@@ -1128,15 +1128,15 @@ let physical_native_stack_is_bounded_independently () =
                "root one-below fails before native entry" true (message <> "")
          | Ok _ -> Alcotest.fail "root one-below physical stack budget executed");
       let identity_image = source_image ~mode identity in
-      (* The independent callable byte golden has a 32-byte entry allocation:
-         return address + PUSH RBP + allocation = 48 bytes. Identity is frameless,
-         so its return address + PUSH RBP costs 16 more. This private convention is
-         shared by both host status ABIs, making the complete call require 64 bytes. *)
+      (* The independent callable byte golden has a 144-byte entry allocation
+         and a 128-byte Identity allocation, including ownership bookkeeping.
+         Each return address + PUSH RBP adds 16 bytes. Both host status ABIs
+         therefore require 160 + 144 = 304 bytes for the complete call. *)
       Alcotest.(check int)
-        "Identity entry physical charge matches byte golden" 48
+        "Identity entry physical charge matches byte golden" 160
         (Program.entry_stack_bytes identity_image);
       let exact_identity =
-        execute ~max_active_stack_bytes:64 ~max_steps:100
+        execute ~max_active_stack_bytes:304 ~max_steps:100
           "Identity exact physical stack budget" identity_image
         |> completed "Identity exact physical stack budget"
       in
@@ -1144,7 +1144,7 @@ let physical_native_stack_is_bounded_independently () =
         exact_identity.final_value;
       let expected_call_id, expected_call_span = identity_call_site mode in
       let one_below =
-        execute ~max_active_stack_bytes:63 ~max_steps:100
+        execute ~max_active_stack_bytes:303 ~max_steps:100
           "Identity one-below physical stack budget" identity_image
         |> faulted "Identity one-below physical stack budget"
       in
@@ -1162,7 +1162,7 @@ let physical_native_stack_is_bounded_independently () =
            (fun (span : Span.t) -> (span.start, span.stop))
            one_below.span);
       let reused_identity =
-        execute ~max_active_stack_bytes:64 ~max_steps:100
+        execute ~max_active_stack_bytes:304 ~max_steps:100
           "Identity healthy reuse after physical fault" identity_image
         |> completed "Identity healthy reuse after physical fault"
       in
@@ -1170,8 +1170,10 @@ let physical_native_stack_is_bounded_independently () =
         reused_identity.final_value;
       let recursive_image = source_image ~mode recursive in
       let root_bytes = Program.entry_stack_bytes recursive_image in
+      (* Admit one recursive activation, including its reference service home;
+         the next recursive call must fail inside Recur, rather than at entry. *)
       let allowance =
-        min Runtime.hard_max_active_stack_bytes (root_bytes + 32)
+        min Runtime.hard_max_active_stack_bytes (root_bytes + 160)
       in
       let outcome =
         execute ~max_frame_bytes:1 ~max_call_depth:10000

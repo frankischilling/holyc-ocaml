@@ -33,6 +33,8 @@ type fault_kind =
   | Output_invalid_pointer
   | Output_invalid_byte
   | Pointer_object_mismatch
+  | Pointer_ownership_unavailable
+  | Reference_shadow_limit_exceeded
   | Pointer_difference_object_mismatch
   | Callback_unowned_address
   | Callback_signature_mismatch
@@ -288,6 +290,10 @@ val block_count : t -> int
 val function_count : t -> int
 (** Number of emitted named source functions. Closed native programs return 0.
 *)
+
+val is_callable : t -> bool
+(** Whether the compiler emitted the callable convention and its private runtime
+    context, including images with no named source functions. *)
 
 val has_output : t -> bool
 (** Whether the image contains an authenticated PutChars provider call and

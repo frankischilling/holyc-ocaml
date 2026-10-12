@@ -42,6 +42,7 @@ function New-ProjectFixture([string]$Name, [string]$BuildTarget, [string]$CacheM
   Copy-Item -LiteralPath (Join-Path $repositoryRoot 'holyc-ocaml.opam') -Destination $projectRoot
   Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src/dune') -Destination (Join-Path $projectRoot 'src/dune')
   Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src/native_execution_stubs.c') -Destination (Join-Path $projectRoot 'src/native_execution_stubs.c')
+  Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src/native_reference_shadow.h') -Destination (Join-Path $projectRoot 'src/native_reference_shadow.h')
   Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src/compiler_hash_stubs.c') -Destination (Join-Path $projectRoot 'src/compiler_hash_stubs.c')
   Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src/compiler_control_stubs.c') -Destination (Join-Path $projectRoot 'src/compiler_control_stubs.c')
   Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src/driver/version.ml') -Destination (Join-Path $projectRoot 'src/driver/version.ml')

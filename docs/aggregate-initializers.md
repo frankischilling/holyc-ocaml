@@ -86,7 +86,7 @@ data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686). Native data
-pointer fields retain the `HCBACK0002` boundary.
+pointer fields retain their separate owned storage and activation checks.
 
 These checks use pinned source and hosted execution. They include no TempleOS
 runtime capture or comparison of original emitted machine code. Root bounds,

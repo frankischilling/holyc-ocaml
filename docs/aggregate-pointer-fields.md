@@ -1,16 +1,13 @@
-# Owned data pointer fields in IR
+# Owned data pointer fields
 
 [Persistent class globals and statics](persistent-aggregates.md) also supply
-owned byte roots for the IR pointer-field path. Their shadows retain the target's
+owned byte roots for IR and native pointer fields. Their shadows retain the target's
 lifetime; a persistent field cannot keep a retired activation alive.
 
-`holyc run --target=ir` reads, assigns and updates one-level integer or class
+The IR, `host-jit` and `host-jit-task` targets read, assign and update one-level integer or class
 pointers stored in automatic class and union fields. Direct access, inherited
 fields, nested objects and multidimensional pointer member arrays retain their
-selected member types and layouts. Native targets reject these fields with
-`HCBACK0002`. Storing native references in object bytes requires ownership and
-lifetime tracking that remains open under
-[issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
+selected member types and layouts in JIT and AOT modes.
 
 ```c
 class Item { U16 value; };
@@ -46,6 +43,20 @@ local after return fails with `HCIRVM0018`. Retired frames release their byte
 arrays and pointer shadows; an expired descriptor retains its dead storage
 identity for the lifetime check.
 
+Native descriptors carry a process-unique activation identity. Original object
+bytes contain the address; a separate native shadow retains the descriptor and
+selected pointee identity. Returning from a function removes its own field
+shadows and retires its activation. Caller and persistent fields can retain a
+descriptor for that expired activation, but later accesses fail before reading
+its old stack storage. Reusing the same stack address cannot revive it.
+
+Source-task fragments share persistent shadows through their original arena.
+Scalar stores, atomic updates, bit operations, swaps and compiler byte copies
+invalidate overlapping ownership. Native shadow entries and their bucket index
+have a 64 MiB payload limit and fail with `HCIRVM0016` before writing the field.
+These descriptors and shadows are private execution metadata; source queries
+still report eight-byte pointer storage.
+
 Pointer fields can supply local pointer initializers, further field assignments
 and fixed pointer parameters. Pointer arithmetic and prefix, postfix or compound
 updates use the selected pointee stride. Lowering captures an assignment
@@ -58,6 +69,9 @@ address. Indexing within an allocation advances those bytes by the selected
 pointee width. Integer and byte views can observe initialized pointer bytes,
 including through a union or the default class prefix. Reading or restoring
 those numeric bytes does not grant pointer ownership.
+Native execution stores its actual data address in the object bytes while
+retaining ownership separately. Neither executor can rebuild an owned pointer
+by copying numeric bytes.
 
 Any scalar store overlapping a pointer field removes that field's ownership,
 even when the stored bits are unchanged. A later typed pointer store restores
@@ -81,8 +95,16 @@ cover callee-local escape, full and partial overlapping writes, restored numeric
 bytes, nominal type mismatches, unknown fields and one-past accesses. Rebuilt
 owned IR executes; foreign field proofs, missing proofs, altered offsets and
 altered array strides fail before execution. Exact and one-below frame and
-instruction budgets cover the pointer field path. Native public and retained
-execution tests require the explicit gate.
+instruction budgets cover the pointer field path. Native checks also cover
+both host ABIs, original graph seals, exact stack and encoded-image limits,
+retained source tasks and reached output before lifetime and ownership faults.
+
+For the maintained example in a JIT source task, allow the code emitted across
+its declaration and command fragments:
+
+```sh
+holyc run --target=host-jit-task --code-byte-limit=524288 examples/aggregate-pointer-fields.hc
+```
 
 F64, U0, callback and multiple-layer pointer fields remain outside this execution
 path. Automatic root pointer arrays, numeric pointer construction, general class

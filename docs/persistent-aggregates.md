@@ -59,17 +59,17 @@ layouts and metadata reads. Ownership controls reject foreign roots, reused
 static locations and changed source extents before execution. Native graph
 controls also require the original sealed member projections.
 
-IR data pointer fields also retain their separate ownership shadows over these
-byte roots. A stored address cannot keep a retired activation alive. The native
-path continues to reject data pointer fields with `HCBACK0002`.
+IR and native data pointer fields retain separate ownership shadows over these
+byte roots. A stored address cannot keep a retired activation alive. Native
+source fragments share those shadows through their original task arena.
 
 [Aggregate initializers](aggregate-initializers.md) now traverse completed selected
 classes, integer leaves, nested fixed arrays and strings with the original source
 byte cursor. Selected forward members can complete before their leaves are
 consumed. Changes during a leaf and other leaf families remain
 open.
-Callback fields, native data pointer fields, reference returns, persistent pointer
-cells, general aggregate copies and whole-value casts remain unfinished under
+Callback fields, reference returns, persistent pointer
+cells, general aggregate copies and floating whole-value casts remain unfinished under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and related
 issues. This storage path does not close the aggregate issue or establish full
 compiler parity. Tests derive expected words from pinned source and hosted

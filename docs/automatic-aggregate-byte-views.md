@@ -67,11 +67,11 @@ Whole-value reads and assignments use
 [returns](class-value-returns.md) transport words without transferring
 whole-object storage. IR [data pointer fields](aggregate-pointer-fields.md)
 retain separate ownership shadows; overlapping scalar stores invalidate those
-shadows. Native execution of data pointer fields remains gated with `HCBACK0002`.
+shadows. Native data pointer fields also retain ownership and activation identities.
 
 Local and member size queries use their own original metadata. Zero-sized
 automatic objects, general aggregate copies,
-callback fields, native data pointer fields, pointer returns and compiler
+callback fields, pointer returns and compiler
 position queries for aggregate-valued frames remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 

@@ -9,6 +9,7 @@ module Encoder = X86_64_encoder
 module Global_storage = X86_64_global_storage
 module Literal_storage = X86_64_literal_storage
 module Print_codegen = X86_64_print_format
+module Reference_service = X86_64_reference_service
 module Option_codegen = X86_64_compiler_options
 module Runtime = Ir.Runtime_call_context
 module Intrinsic = Ir.Integer_intrinsic
@@ -160,14 +161,46 @@ let checked_scalar ?(allow_public = false) description type_ =
 (* Runtime references retain the original object and its byte initialization
    state. Each reached view has its own descriptor snapshot. *)
 let checked_reference description type_ =
-  if Type.pointer_depth type_ <> 1 then
+  let pointer_field =
+    Option.fold ~none:false
+      ~some:Ir.Aggregate_member_projection.pointer_member_type
+      (Type.dereference type_ |> Result.to_option)
+  in
+  if Type.pointer_depth type_ <> 1 && not pointer_field then
     unsupported description "native references require one scalar indirection";
   match Type.dereference type_ with
+  | Ok pointee when pointer_field ->
+      (pointee, { word_type = U64; byte_size = 8 })
   | Ok pointee when Ir.Automatic_aggregate_storage.aggregate_pointer type_ ->
       (pointee, { word_type = U64; byte_size = 1 })
   | Ok pointee ->
       (pointee, checked_scalar ~allow_public:true description pointee)
   | Error message -> malformed description message
+
+let pointer_field_identity type_ =
+  match Type.base type_ with
+  | Type.Aggregate symbol ->
+      Int64.of_int (65536 + Sema.Symbol.execution_identity symbol)
+  | Type.Primitive (form, primitive) ->
+      let identity =
+        match primitive with
+        | Primitive.Bool -> 1
+        | Primitive.I8 -> 2
+        | Primitive.U8 -> 3
+        | Primitive.I16 -> 4
+        | Primitive.U16 -> 5
+        | Primitive.I32 -> 6
+        | Primitive.U32 -> 7
+        | Primitive.I64 -> 8
+        | Primitive.U64 -> 9
+        | Primitive.I0 | Primitive.U0 | Primitive.F64 -> assert false
+      in
+      Int64.of_int
+        (if
+           form = Type.Internal_storage
+           && primitive <> Primitive.U8 && primitive <> Primitive.I64
+         then identity + 32
+         else identity)
 
 let compatible_reference target source =
   Type.equal target source
@@ -328,7 +361,9 @@ type operation =
   | Materialize_existing_reference of reference_access * value
   | Project_reference of member_reference_source * int64 * scalar_value * value
   | Load_reference_value of reference_access * value
+  | Load_pointer_field of reference_access * value
   | Store_reference_value of reference_access * value * value
+  | Store_pointer_field of reference_access * value * value
   | Update_reference_value of
       reference_access
       * frame_update
@@ -888,6 +923,7 @@ type planned_item =
   | Planned_branch of branch_kind * int
   | Planned_call of int
   | Planned_function_address of Encoder.register * int
+  | Planned_label_address of Encoder.register * int
   | Planned_callee_stack of Encoder.register * int
   | Planned_label of int
 
@@ -907,8 +943,8 @@ let planned_size = function
   | Planned_instruction instruction -> Encoder.size instruction
   | Planned_branch (kind, _) -> Encoder.size (branch_instruction kind 0L)
   | Planned_call _ -> Encoder.size (Encoder.Call 0L)
-  | Planned_function_address (register, _) ->
-      Encoder.size (Encoder.Address_code_relative (register, 0L))
+  | Planned_function_address (register, _) | Planned_label_address (register, _)
+    -> Encoder.size (Encoder.Address_code_relative (register, 0L))
   | Planned_callee_stack (register, _) ->
       Encoder.size (Encoder.Mov_imm64 (register, 0L))
   | Planned_label _ -> 0
@@ -973,6 +1009,8 @@ let resolve_plan ~max_code_bytes ?(callee_labels = [||])
         | Planned_function_address (register, index) ->
             ( Some (label index),
               Some (Encoder.Address_code_relative (register, 0L)) )
+        | Planned_label_address (register, target) ->
+            (Some target, Some (Encoder.Address_code_relative (register, 0L)))
         | Planned_callee_stack (register, index) ->
             if index < 0 || index >= Array.length callee_stack_bytes then
               reject "HCBACK0003"
@@ -1062,7 +1100,8 @@ let resolve_plan ~max_code_bytes ?(callee_labels = [||])
         match planned with
         | Planned_branch (kind, _) -> branch_instruction kind (displacement ())
         | Planned_call _ -> Encoder.Call (displacement ())
-        | Planned_function_address (register, _) ->
+        | Planned_function_address (register, _)
+        | Planned_label_address (register, _) ->
             Encoder.Address_code_relative (register, displacement ())
         | _ -> instruction)
       provisional
@@ -1176,7 +1215,13 @@ type control_mode =
       home_slots : int;
     }
 
-type callable_frame_layout = { rbp_bytes : int; fixed_stack_slots : int }
+type callable_frame_layout = {
+  rbp_bytes : int;
+  fixed_stack_slots : int;
+  reference_stage : int;
+  reference_frame : int;
+  reference_service_label : int;
+}
 
 type body_allocation = {
   plan : planned_item list;
@@ -1832,6 +1877,70 @@ let allocate_body ?callable_frame ?(shared_values = [])
       { label; kind_value = kind; site_value = site } :: !fault_blocks;
     label
   in
+  let reference_service ?site operation arguments =
+    match (callable_frame, mode) with
+    | Some layout, Callable_control { epilogue_label; _ } ->
+        Reference_service.emit
+          {
+            abi = status_abi;
+            emit = emit None;
+            fresh = (fun () -> fresh_label supply);
+            mark;
+            equal = emit_branch Equal;
+            abort = (fun () -> emit_branch Unconditional epilogue_label);
+            slot = (fun index -> encoder_stack_slot None (index * 8));
+            invoke =
+              (fun ~return_slot ~rax_slot ->
+                let resumed = fresh_label supply in
+                planned :=
+                  Planned_label_address (Encoder.Rax, resumed) :: !planned;
+                emit None (Encoder.Store_stack (return_slot, Encoder.Rax));
+                emit None (Encoder.Load_stack (Encoder.Rax, rax_slot));
+                emit_branch Unconditional layout.reference_service_label;
+                mark resumed);
+          }
+          ~stage:layout.reference_stage ~operation ~arguments ~site
+    | _ -> reject "HCBACK0003" "reference bookkeeping requires a callable frame"
+  in
+  let check_reference site register =
+    reference_service ~site 2 [ Reference_service.Register register ]
+  in
+  let invalidate_reference register bytes =
+    reference_service 3
+      [
+        Reference_service.Register register;
+        Reference_service.Immediate (Int64.of_int bytes);
+      ]
+  in
+  let store_frame_scalar span access source =
+    reference_service 3
+      [
+        Reference_service.Frame_address access.frame_offset;
+        Reference_service.Immediate (Int64.of_int access.frame_bytes);
+      ];
+    store_frame_scalar span access source
+  in
+  let store_arena_scalar span access source =
+    reference_service 3
+      [
+        Reference_service.Arena_address access.arena_offset;
+        Reference_service.Immediate (Int64.of_int access.arena_bytes);
+      ];
+    store_arena_scalar span access source
+  in
+  let store_reference_scalar span base scalar source =
+    invalidate_reference base scalar.byte_size;
+    store_reference_scalar span base scalar source
+  in
+  let emit_reference_epoch span target = function
+    | Frame_reference _ | Variadic_reference _ ->
+        let layout = Option.get callable_frame in
+        emit span
+          (Encoder.Load_frame
+             (target, encoder_frame_slot span (layout.reference_frame + 8)))
+    | Arena_reference _ | Literal_reference _ ->
+        emit span (Encoder.Mov_imm64 (target, 0L))
+  in
   let emit_doubles span register count =
     for _ = 1 to count do
       emit span (Encoder.Binary (Encoder.Add, register, register))
@@ -2019,6 +2128,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
         (match input with
         | Some input -> copy_value_to instruction.span input rcx
         | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, increment)));
+        invalidate_reference Encoder.Rdx scalar.byte_size;
         emit
           (Encoder.Lock_binary_indirect
              ( binary,
@@ -2346,6 +2456,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           spill_all_registers instruction.span;
           copy_value_to instruction.span left rdx;
           copy_value_to instruction.span right rcx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
+          check_reference (Option.get instruction.site) Encoder.Rcx;
           let different = fresh_label supply in
           let complete = fresh_label supply in
           (* Separate address sites can own separate descriptor snapshots. The
@@ -2357,7 +2469,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, offset));
               emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
               emit_branch Not_equal different)
-            [ 0; 8; 16; 24 ];
+            [ 0; 8; 16; 24; 32 ];
           let same = if condition = Encoder.E then 1L else 0L in
           emit (Encoder.Mov_imm64 (Encoder.Rax, same));
           emit_branch Unconditional complete;
@@ -2370,6 +2482,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           spill_all_registers instruction.span;
           copy_value_to instruction.span left rdx;
           copy_value_to instruction.span right rcx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
+          check_reference (Option.get instruction.site) Encoder.Rcx;
           let mismatch = fresh_label supply in
           fault_blocks :=
             {
@@ -2384,7 +2498,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, offset));
               emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
               emit_branch Not_equal mismatch)
-            [ 0; 8; 24 ];
+            [ 0; 8; 24; 32 ];
           emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, 16));
           emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
@@ -2396,6 +2510,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           spill_all_registers instruction.span;
           copy_value_to instruction.span left rdx;
           copy_value_to instruction.span right rcx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
+          check_reference (Option.get instruction.site) Encoder.Rcx;
           let mismatch = fresh_label supply in
           fault_blocks :=
             {
@@ -2410,7 +2526,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, offset));
               emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
               emit_branch Not_equal mismatch)
-            [ 0; 8; 24 ];
+            [ 0; 8; 24; 32 ];
           emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, 16));
           emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.R8));
@@ -2519,9 +2635,12 @@ let allocate_body ?callable_frame ?(shared_values = [])
                 (Encoder.Address_frame
                    (Encoder.Rdx, encoder_frame_slot instruction.span offset))
           | Arena_table offset ->
+              let _ = offset in
               emit
-                (Encoder.Address_arena
-                   (Encoder.Rdx, encoder_arena_slot instruction.span offset)));
+                (Encoder.Address_frame
+                   ( Encoder.Rdx,
+                     encoder_frame_slot instruction.span
+                       (Option.get result.reference_descriptor_offset) )));
           emit_reference_data instruction.span Encoder.Rax origin;
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 0, Encoder.Rax));
           emit_reference_flag instruction.span Encoder.Rax origin;
@@ -2529,6 +2648,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx));
           emit_reference_extent instruction.span Encoder.Rax origin;
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 24, Encoder.Rax));
+          emit_reference_epoch instruction.span Encoder.Rax origin;
+          emit (Encoder.Store_indirect_offset (Encoder.Rdx, 32, Encoder.Rax));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rdx result
       | Project_reference (source, delta, scalar, result) ->
@@ -2559,9 +2680,13 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit
                 (Encoder.Store_indirect_offset (Encoder.Rdx, 24, Encoder.Rax));
               emit
-                (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx))
+                (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx));
+              emit_reference_epoch instruction.span Encoder.Rax origin;
+              emit
+                (Encoder.Store_indirect_offset (Encoder.Rdx, 32, Encoder.Rax))
           | Member_reference access ->
               copy_value_to instruction.span access.reference rdx;
+              check_reference site Encoder.Rdx;
               (match access.offset with
               | None ->
                   emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
@@ -2584,7 +2709,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
                   emit
                     (Encoder.Store_indirect_offset
                        (Encoder.R8, offset, Encoder.Rax)))
-                [ 0; 8; 24 ];
+                [ 0; 8; 24; 32 ];
               emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx));
               emit (Encoder.Mov (Encoder.Rdx, Encoder.R8)));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
@@ -2592,6 +2717,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Materialize_existing_reference (access, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
+          if Option.is_some access.offset then
+            check_reference (Option.get instruction.site) Encoder.Rdx;
           (match access.offset with
           | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
           | Some offset ->
@@ -2611,13 +2738,66 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit
                 (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
-            [ 0; 8; 24 ];
+            [ 0; 8; 24; 32 ];
           emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position r8 result
+      | Load_pointer_field (access, result)
+      | Store_pointer_field (access, _, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span access.reference rdx;
+          emit
+            (Encoder.Address_frame
+               ( Encoder.R8,
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
+            [ 0; 8; 16; 24; 32 ];
+          Option.iter
+            (fun offset ->
+              copy_value_to instruction.span offset rcx;
+              emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx)))
+            access.offset;
+          let identity = pointer_field_identity result.declared_type in
+          (match instruction.operation with
+          | Load_pointer_field _ ->
+              reference_service
+                ~site:(Option.get instruction.site)
+                4
+                [
+                  Reference_service.Register Encoder.R8;
+                  Reference_service.Register Encoder.R8;
+                  Reference_service.Immediate identity;
+                ]
+          | Store_pointer_field (_, input, _) ->
+              copy_value_to instruction.span input rdx;
+              reference_service
+                ~site:(Option.get instruction.site)
+                5
+                [
+                  Reference_service.Register Encoder.R8;
+                  Reference_service.Register Encoder.Rdx;
+                  Reference_service.Immediate identity;
+                ];
+              List.iter
+                (fun offset ->
+                  emit
+                    (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+                  emit
+                    (Encoder.Store_indirect_offset
+                       (Encoder.R8, offset, Encoder.Rax)))
+                [ 0; 8; 16; 24; 32 ]
+          | _ -> assert false);
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position r8 result
       | Load_reference_value (access, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           (match access.offset with
           | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
           | Some offset -> copy_value_to instruction.span offset rcx);
@@ -2640,6 +2820,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Store_reference_value (access, input, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           (match access.offset with
           | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
           | Some offset -> copy_value_to instruction.span offset rcx);
@@ -2724,7 +2905,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit
                 (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
-            [ 0; 8; 16; 24 ];
+            [ 0; 8; 16; 24; 32 ];
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position r8 result
       | Store_reference_frame (access, home, input, result) ->
@@ -2738,7 +2919,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit
                 (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
-            [ 0; 8; 16; 24 ];
+            [ 0; 8; 16; 24; 32 ];
           emit (store_frame_scalar instruction.span access Encoder.R8);
           Option.iter
             (fun offset ->
@@ -2757,7 +2938,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit
                 (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
-            [ 0; 8; 16; 24 ];
+            [ 0; 8; 16; 24; 32 ];
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position r8 result
       | Load_frame_value (access, result) | Load_code_frame (access, _, result)
@@ -3091,6 +3272,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           (match access.offset with
           | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
           | Some offset -> copy_value_to instruction.span offset rcx);
@@ -3252,6 +3434,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
             (Encoder.Mov_imm64 (Encoder.Rcx, Int64.of_int (-scalar.byte_size)));
           emit (Encoder.Binary (Encoder.And, Encoder.Rax, Encoder.Rcx));
           copy_value_to instruction.span reference rdx;
+          check_reference site Encoder.Rdx;
           emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
           emit_bounds instruction.span site ~one_past:true ~scalar
@@ -3274,6 +3457,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           in
           if instruction.locked then (
             emit_lock_alignment instruction.span site scalar Encoder.R8;
+            if operation <> Intrinsic.Test_bit then
+              invalidate_reference Encoder.R8 scalar.byte_size;
             emit
               (load_reference_scalar instruction.span Encoder.Rax Encoder.R8
                  scalar);
@@ -3317,6 +3502,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           in
           let load reference scalar =
             copy_value_to instruction.span reference rdx;
+            check_reference site Encoder.Rdx;
             emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
             emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
             emit_bounds instruction.span site ~one_past:false ~scalar
@@ -3348,6 +3534,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Internal_mod_u64 (reference, divisor, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
           let site = Option.get instruction.site in
@@ -3365,6 +3552,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit_branch Equal (fault_label 1 site);
           emit Encoder.Zero_edx;
           emit Encoder.Div_rcx;
+          invalidate_reference Encoder.R8 8;
           emit (Encoder.Store_indirect (Encoder.R8, Encoder.Rax));
           emit
             (Encoder.Store_stack
@@ -3374,6 +3562,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Internal_strlen (reference, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
           let site = Option.get instruction.site in
           let bounds_fault = fault_label 10 site in
@@ -3446,6 +3635,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Print_output call ->
           spill_all_registers instruction.span;
           Print_codegen.emit
+            ~reference_guard:(check_reference (Option.get instruction.site))
             {
               status_abi;
               instruction = emit;
@@ -3837,14 +4027,30 @@ let allocate_body ?callable_frame ?(shared_values = [])
               reject ?span:instruction.span "HCBACK0003"
                 "native program contains expression return")
       | Load_saved_data (offset, result) ->
+          spill_all_registers instruction.span;
+          emit
+            (Encoder.Address_arena
+               (Encoder.Rdx, encoder_arena_slot instruction.span offset));
           let destination =
             acquire_destination instruction.span position ~protected:[]
               ~excluded:[]
           in
           emit
-            (Encoder.Address_arena
+            (Encoder.Address_frame
                ( registers.(destination),
-                 encoder_arena_slot instruction.span offset ));
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          List.iter
+            (fun field ->
+              emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, field));
+              emit
+                (Encoder.Store_indirect_offset
+                   (registers.(destination), field, Encoder.Rcx)))
+            [ 0; 8; 16; 24 ];
+          emit (Encoder.Mov_imm64 (Encoder.Rcx, 0L));
+          emit
+            (Encoder.Store_indirect_offset
+               (registers.(destination), 32, Encoder.Rcx));
           assign position destination result
       | Discard_data_default (input, offset) ->
           spill_all_registers instruction.span;
@@ -4220,7 +4426,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
                   emit
                     (Encoder.Store_indirect_offset
                        (Encoder.R8, byte, Encoder.Rax)))
-                [ 0; 8; 16; 24 ];
+                [ 0; 8; 16; 24; 32 ];
               emit
                 (Encoder.Store_stack
                    (staged_stack_slot instruction.span stage, Encoder.R8)));
@@ -4375,6 +4581,8 @@ type program_site = {
   lock_alignment_site : bool;
   pointer_ordering_site : bool;
   pointer_difference_site : bool;
+  reference_ownership_site : bool;
+  reference_shadow_store_site : bool;
   output_site : bool;
   atomic_output_site : bool;
   stream_print_site : bool;
@@ -4394,6 +4602,7 @@ type program_image = {
   status_abi : status_abi;
   block_count : int;
   function_count : int;
+  callable : bool;
   private_function_count : int;
   entry_stack_bytes : int;
   global_bytes : int;
@@ -4746,6 +4955,8 @@ let preflight_program graph =
                 lock_alignment_site = false;
                 pointer_ordering_site = false;
                 pointer_difference_site = false;
+                reference_ownership_site = false;
+                reference_shadow_store_site = false;
                 output_site = false;
                 atomic_output_site = false;
                 stream_print_site = false;
@@ -5392,7 +5603,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           slot_owner_offset = Option.map (fun _ -> reserve_metadata ()) callback;
           slot_reference_offset =
             (if Option.is_none callback && Type.pointer_depth type_ > 0 then (
-               for _ = 1 to 3 do
+               for _ = 1 to 4 do
                  ignore (reserve_metadata ())
                done;
                Some (reserve_metadata ()))
@@ -5666,7 +5877,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           slot_owner_offset;
           slot_reference_offset =
             (if Option.is_none callback && Type.pointer_depth type_ > 0 then (
-               for _ = 1 to 3 do
+               for _ = 1 to 4 do
                  ignore (reserve_metadata ())
                done;
                Some (reserve_metadata ()))
@@ -5981,7 +6192,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     value
   in
   let reserve_reference_table (description : Sequence.description) =
-    let descriptor_bytes = 32 in
+    let descriptor_bytes = 40 in
     let available = max_stack_bytes - rbp_bytes - !reference_bytes in
     if available < descriptor_bytes then
       reject ?span:description.span "HCBACK0004"
@@ -8700,7 +8911,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         define values description position result target_type
                           (Computation.forward target_type)
                       in
-                      (Load_reference_value (access, value), None)
+                      if
+                        Ir.Aggregate_member_projection.pointer_member_type
+                          target_type
+                      then (
+                        mark_reference description value;
+                        (Load_pointer_field (access, value), None))
+                      else (Load_reference_value (access, value), None)
                   | Indexed_address indexed
                     when indexed.indexed_remaining_strides = [] -> (
                       match indexed.indexed_root with
@@ -8728,13 +8945,26 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                   target_type
                                   (Computation.forward target_type)
                               in
-                              ( Load_reference_value
-                                  ( {
-                                      access with
-                                      offset = Some indexed.indexed_offset;
-                                    },
-                                    value ),
-                                None )
+                              if
+                                Ir.Aggregate_member_projection
+                                .pointer_member_type target_type
+                              then (
+                                mark_reference description value;
+                                ( Load_pointer_field
+                                    ( {
+                                        access with
+                                        offset = Some indexed.indexed_offset;
+                                      },
+                                      value ),
+                                  None ))
+                              else
+                                ( Load_reference_value
+                                    ( {
+                                        access with
+                                        offset = Some indexed.indexed_offset;
+                                      },
+                                      value ),
+                                  None )
                           | _ ->
                               malformed description
                                 "indexed scalar load changes its checked \
@@ -8859,7 +9089,20 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         define values description position result target_type
                           (Computation.forward target_type)
                       in
-                      (Store_reference_value (access, input, value), None)
+                      if
+                        Ir.Aggregate_member_projection.pointer_member_type
+                          target_type
+                      then (
+                        if
+                          Option.is_none input.reference_descriptor_offset
+                          || Option.is_some input.code_owner_offset
+                        then
+                          malformed description
+                            "pointer field store requires an owned data \
+                             reference";
+                        mark_reference description value;
+                        (Store_pointer_field (access, input, value), None))
+                      else (Store_reference_value (access, input, value), None)
                   | Indexed_address indexed
                     when indexed.indexed_remaining_strides = [] -> (
                       let input =
@@ -8886,14 +9129,36 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             Type.dereference indexed.indexed_pointer_type
                           with
                           | Ok pointee when Type.equal target_type pointee ->
-                              ( Store_reference_value
-                                  ( {
-                                      access with
-                                      offset = Some indexed.indexed_offset;
-                                    },
-                                    input,
-                                    value ),
-                                None )
+                              if
+                                Ir.Aggregate_member_projection
+                                .pointer_member_type target_type
+                              then (
+                                if
+                                  Option.is_none
+                                    input.reference_descriptor_offset
+                                  || Option.is_some input.code_owner_offset
+                                then
+                                  malformed description
+                                    "pointer field store requires an owned \
+                                     data reference";
+                                mark_reference description value;
+                                ( Store_pointer_field
+                                    ( {
+                                        access with
+                                        offset = Some indexed.indexed_offset;
+                                      },
+                                      input,
+                                      value ),
+                                  None ))
+                              else
+                                ( Store_reference_value
+                                    ( {
+                                        access with
+                                        offset = Some indexed.indexed_offset;
+                                      },
+                                      input,
+                                      value ),
+                                  None )
                           | _ ->
                               malformed description
                                 "indexed assignment changes its checked \
@@ -9895,6 +10160,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Load_code_indexed _
               | Update_indexed_object_value _
               | Load_reference_value _
+              | Load_pointer_field _
               | Update_reference_value _
               | Internal_mod_u64 _
               | Internal_bit _
@@ -9923,7 +10189,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Project_reference _
               | Materialize_existing_reference ({ offset = Some _; _ }, _)
               | Load_reference_value _
+              | Load_pointer_field _
               | Store_reference_value _
+              | Store_pointer_field _
               | Update_reference_value _
               | Load_indexed_object_value _
               | Load_code_indexed _
@@ -9961,6 +10229,29 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             pointer_difference_site =
               (match operation with
               | Apply_reference_difference _ -> true
+              | _ -> false);
+            reference_ownership_site =
+              (match operation with
+              | Load_pointer_field _
+              | Store_pointer_field _
+              | Load_reference_value _
+              | Store_reference_value _
+              | Update_reference_value _
+              | Project_reference _
+              | Materialize_existing_reference _
+              | Apply_reference_comparison _
+              | Apply_reference_ordering _
+              | Apply_reference_difference _
+              | Internal_mod_u64 _
+              | Internal_bit _
+              | Internal_swap _
+              | Internal_strlen _
+              | Print_output _ -> true
+              | Indirect_call _ when provider_print_site -> true
+              | _ -> false);
+            reference_shadow_store_site =
+              (match operation with
+              | Store_pointer_field _ -> true
               | _ -> false);
             output_site =
               (match operation with
@@ -10967,6 +11258,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         status_abi = abi;
                         block_count;
                         function_count = 0;
+                        callable = false;
                         private_function_count = 0;
                         entry_stack_bytes = 8 + !frame_size;
                         global_bytes = 0;
@@ -11567,9 +11859,14 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       in
       let allocate_graph ~graph ~prepared ~rbp_bytes ~init_flag_offsets
           ~parameter_owner_offsets ~variadic ~is_entry ~start_label =
+        let reference_service_label = fresh_label supply in
         let rbp_bytes = rbp_bytes + prepared.callable_reference_bytes in
+        let reference_frame = -(rbp_bytes + 24) in
+        let rbp_bytes = rbp_bytes + 24 in
+        let home_slots = max 4 prepared.callable_home_slots in
+        let reference_stage = home_slots + prepared.callable_stage_slots in
         let fixed_stack_slots =
-          prepared.callable_home_slots + prepared.callable_stage_slots
+          reference_stage + Reference_service.scratch_slots
         in
         let local_subroutine_capacity = Graph.local_subroutine_capacity graph in
         let local_subroutine_slots =
@@ -11611,7 +11908,14 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                 ~shared_values:prepared.callable_shared_values
                 ~function_code_owners ?undefined_code_owner
                 ~provider_entry_start:(Array.length function_infos)
-                ~callable_frame:{ rbp_bytes; fixed_stack_slots }
+                ~callable_frame:
+                  {
+                    rbp_bytes;
+                    fixed_stack_slots;
+                    reference_stage;
+                    reference_frame;
+                    reference_service_label;
+                  }
                 ~max_stack_bytes
                 ~reserved_registers:
                   (if has_storage then [ Encoder.R9; Encoder.R10; Encoder.R11 ]
@@ -11623,7 +11927,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                        block_labels;
                        epilogue_label = epilogue;
                        is_entry;
-                       home_slots = prepared.callable_home_slots;
+                       home_slots;
                      })
                 block.program_instructions
             in
@@ -11656,6 +11960,46 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           if !frame_size = 0 then None
           else Some (encoder_call_frame None !frame_size)
         in
+        let reference_service_plan operation =
+          let result = ref [] in
+          Reference_service.emit
+            {
+              abi;
+              emit =
+                (fun instruction ->
+                  result := Planned_instruction instruction :: !result);
+              fresh = (fun () -> fresh_label supply);
+              mark = (fun label -> result := Planned_label label :: !result);
+              equal =
+                (fun label ->
+                  result := Planned_branch (Equal, label) :: !result);
+              abort =
+                (fun () ->
+                  result := Planned_branch (Unconditional, epilogue) :: !result);
+              slot = (fun index -> encoder_stack_slot None (index * 8));
+              invoke =
+                (fun ~return_slot ~rax_slot ->
+                  let resumed = fresh_label supply in
+                  result :=
+                    Planned_label_address (Encoder.Rax, resumed) :: !result;
+                  result :=
+                    Planned_instruction
+                      (Encoder.Store_stack (return_slot, Encoder.Rax))
+                    :: !result;
+                  result :=
+                    Planned_instruction
+                      (Encoder.Load_stack (Encoder.Rax, rax_slot))
+                    :: !result;
+                  result :=
+                    Planned_branch (Unconditional, reference_service_label)
+                    :: !result;
+                  result := Planned_label resumed :: !result);
+            }
+            ~stage:reference_stage ~operation
+            ~arguments:[ Reference_service.Frame_address reference_frame ]
+            ~site:(if operation = 0 then Some 0 else None);
+          List.rev !result
+        in
         let prefix =
           (match start_label with
             | None -> []
@@ -11686,6 +12030,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           @ (if is_entry && has_storage then
                [ Planned_instruction (Encoder.Load_context (Encoder.R9, 72)) ]
              else [])
+          @ reference_service_plan 0
           @ List.concat_map
               (fun flag_offset ->
                 [
@@ -11769,7 +12114,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ])
         in
         let suffix =
-          [ Planned_label epilogue ]
+          [ Planned_label epilogue ] @ reference_service_plan 1
           @ (if is_entry then
                [
                  Planned_instruction (Encoder.Load_context (Encoder.Rax, 16));
@@ -11787,8 +12132,19 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               Planned_instruction Encoder.Ret;
             ]
         in
+        let reference_shared_plan =
+          let result = ref [] in
+          Reference_service.emit_shared ~abi
+            ~emit:(fun instruction ->
+              result := Planned_instruction instruction :: !result)
+            ~slot:(fun index -> encoder_stack_slot None (index * 8))
+            ~stage:reference_stage;
+          Planned_label reference_service_label :: List.rev !result
+        in
         {
-          body_plan = prefix @ List.rev !block_plan_rev @ fault_plan @ suffix;
+          body_plan =
+            prefix @ List.rev !block_plan_rev @ fault_plan
+            @ reference_shared_plan @ suffix;
           body_frame_size = !frame_size;
           body_peak = !peak;
           body_unwind = build_callable_windows_unwind_info !frame_size;
@@ -11928,7 +12284,11 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               | _ -> false
             then (
               let frame_size =
-                align_up ((4 + Print_codegen.provider_scratch_slots) * 8) 16
+                align_up
+                  ((8 + Print_codegen.provider_scratch_slots
+                  + Reference_service.scratch_slots)
+                  * 8)
+                  16
               in
               if frame_size > max_stack_bytes || frame_size > 4080 then
                 reject "HCBACK0004"
@@ -11936,6 +12296,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               let frame = encoder_call_frame None frame_size in
               let complete = fresh_label supply in
               let faults = ref [] in
+              let reference_service_label = fresh_label supply in
               let plan = ref [] in
               let emit instruction =
                 plan := Planned_instruction instruction :: !plan
@@ -11945,7 +12306,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                 plan := Planned_branch (kind, label) :: !plan
               in
               let slot index =
-                Encoder.stack_slot ~offset:(index * 8) |> Result.get_ok
+                Encoder.stack_slot ~offset:((index + 4) * 8) |> Result.get_ok
               in
               let fault kind =
                 match List.assoc_opt kind !faults with
@@ -11972,6 +12333,31 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rax));
               emit (Encoder.Store_stack (slot 2, Encoder.Rdx));
               Print_codegen.emit_provider
+                ~reference_guard:(fun register ->
+                  Reference_service.emit
+                    {
+                      abi;
+                      emit;
+                      fresh = (fun () -> fresh_label supply);
+                      mark;
+                      equal = branch Equal;
+                      abort = (fun () -> branch Unconditional complete);
+                      slot;
+                      invoke =
+                        (fun ~return_slot ~rax_slot ->
+                          let resumed = fresh_label supply in
+                          plan :=
+                            Planned_label_address (Encoder.Rax, resumed)
+                            :: !plan;
+                          emit (Encoder.Store_stack (return_slot, Encoder.Rax));
+                          emit (Encoder.Load_stack (Encoder.Rax, rax_slot));
+                          branch Unconditional reference_service_label;
+                          mark resumed);
+                    }
+                    ~stage:(4 + Print_codegen.provider_scratch_slots)
+                    ~operation:2
+                    ~arguments:[ Reference_service.Register register ]
+                    ~site:(Some (-1)))
                 {
                   status_abi = abi;
                   instruction = emit;
@@ -12012,6 +12398,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   emit (Encoder.Store_context_imm (0, kind));
                   branch Unconditional complete)
                 !faults;
+              mark reference_service_label;
+              Reference_service.emit_shared ~abi ~emit ~slot
+                ~stage:(4 + Print_codegen.provider_scratch_slots);
               mark complete;
               emit (Encoder.Free_call_frame frame);
               emit Encoder.Pop_rbp;
@@ -12411,6 +12800,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               status_abi = abi;
               block_count;
               function_count = Array.length function_infos;
+              callable = true;
               private_function_count;
               entry_stack_bytes = 16 + entry_allocated.body_frame_size;
               global_bytes = Global_storage.global_bytes global_storage;
@@ -12508,6 +12898,7 @@ let program_register_peak (compiled : program_image) = compiled.peak
 let program_frame_bytes (compiled : program_image) = compiled.frame_size
 let program_block_count (compiled : program_image) = compiled.block_count
 let program_function_count (compiled : program_image) = compiled.function_count
+let program_is_callable (compiled : program_image) = compiled.callable
 
 let program_entry_stack_bytes (compiled : program_image) =
   compiled.entry_stack_bytes

@@ -897,9 +897,10 @@ host image, private arena and executable owners across activations, including
 reached writes on checked faults. Native JIT execution at original parser
 callbacks and persistent source-task publication/linking remain unfinished.
 
-[Owned data pointer fields in IR](aggregate-pointer-fields.md) execute integer
+[Owned data pointer fields](aggregate-pointer-fields.md) execute integer
 and class pointer members, member arrays and pointer updates in automatic
 objects. Typed stores retain the original target allocation and lifetime;
 overlapping scalar stores remove pointer ownership. Numeric bytes and word
-class parameters cannot recreate it. Native pointer fields remain gated until
-their descriptor storage and lifetime checks are implemented under issue #686.
+class parameters cannot recreate it. Native descriptors retain activation
+identities, and source-task arenas share their persistent field shadows.
+Expired locals fail before their old stack bytes are read.
