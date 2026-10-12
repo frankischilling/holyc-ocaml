@@ -40,6 +40,8 @@ contexts. Member access, nested and inherited objects, arrays and class pointer
 operations share the existing IR and native storage paths. See
 [function-local objects](function-local-aggregate-objects.md).
 General object copies remain part of the broader work under #686.
+[Member metadata](member-metadata.md) now retains closed preparation results.
+Live metadata expressions and runtime reflection consumers remain unfinished.
 [Owned reference returns](reference-returns.md) now preserve caller storage and
 activation lifetimes through named calls and callbacks in IR and native code.
 One-level [callback fields](callback-fields.md) now use their selected headers

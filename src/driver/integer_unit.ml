@@ -1386,6 +1386,16 @@ let compile_source_in_task_budget ~task ~source_command session ~config parsed =
             ~span:(Option.get parsed.Frontend.Parser.ast).span message;
         ])
   in
+  let* () =
+    VM.settle_isolated_member_metadata task
+      ~table:(Session.semantic_symbols session)
+      (Task_declarations.source_member_metadata source_command)
+    |> Result.map_error (fun message ->
+        [
+          Integer_source.message_diagnostic
+            ~span:(Option.get parsed.Frontend.Parser.ast).span message;
+        ])
+  in
   let preparation = VM.begin_isolated_preparation task in
   let compiled =
     compile_parsed_with_limit ~source_command

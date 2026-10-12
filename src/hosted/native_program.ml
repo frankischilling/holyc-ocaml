@@ -841,7 +841,36 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                         ]
                   | _ -> Ok ()
                 in
-                let* () = Task_declarations.observe ledger event in
+                let before = Task_declarations.offset_work ledger in
+                let observed =
+                  Task_declarations.observe
+                    ~metadata_work_limit:
+                      (Native_default_preparation.remaining_work preparation)
+                    ledger event
+                in
+                let* () =
+                  match event with
+                  | Frontend.Parser.Aggregate_advanced
+                      {
+                        phase_step =
+                          Frontend.Parser.Aggregate_member_metadata_reached _;
+                        phase_location;
+                        _;
+                      } ->
+                      Native_default_preparation.synchronize_work preparation
+                        ~work:
+                          (Native_default_preparation.work preparation
+                          + Task_declarations.offset_work ledger
+                          - before)
+                        ~bytes:(Native_default_preparation.bytes preparation)
+                      |> Result.map_error (fun message ->
+                          [
+                            diagnostic ~span:phase_location.span "HCIRVM0007"
+                              message;
+                          ])
+                  | _ -> Ok ()
+                in
+                let* () = observed in
                 match event with
                 | Frontend.Parser.Parameter_default_completed receipt ->
                     Native_default_preparation.prepare preparation ~session

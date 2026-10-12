@@ -103,6 +103,19 @@ type sizeof_class =
   | Pointer_class
   | Unavailable_class
 
+type member_metadata_value =
+  | Metadata_word of int64
+  | Metadata_string of string
+
+type member_metadata = {
+  metadata_table : Symbol_table.t;
+  metadata_namespace : Declaration_collection.namespace;
+  metadata_phase : Parser.aggregate_phase;
+  metadata_source : Ast.aggregate_member_metadata;
+  metadata_value : member_metadata_value;
+  metadata_work : int;
+}
+
 type aggregate_field = {
   field_phase : Parser.aggregate_phase;
   field_namespace : Declaration_collection.namespace;
@@ -114,6 +127,7 @@ type aggregate_field = {
   field_offsets : aggregate_offset list;
   field_counts : int64 list;
   field_record : t option;
+  field_metadata : member_metadata list;
 }
 
 and t = {
@@ -1082,6 +1096,8 @@ type aggregate_progress = {
   mutable progress_offset_attempt : Parser.aggregate_phase option;
   mutable progress_offsets : aggregate_offset list;
   mutable progress_members : aggregate_member list;
+  mutable progress_metadata_attempt : Parser.aggregate_phase option;
+  mutable progress_metadata : member_metadata list;
 }
 
 type runtime_aggregate_offset = {
@@ -1188,6 +1204,8 @@ let begin_aggregate ?compiler_positions ?backing_record ?initializer_records
           progress_offset_attempt = None;
           progress_offsets = [];
           progress_members = [];
+          progress_metadata_attempt = None;
+          progress_metadata = [];
           progress_record =
             Ok
               {
@@ -1234,6 +1252,19 @@ let aggregate_initializer_is_complete (record : t) =
 let aggregate_field_type field = field.field_type
 let aggregate_field_counts field = field.field_counts
 let aggregate_field_record field = field.field_record
+let aggregate_field_metadata field = field.field_metadata
+let member_metadata_source metadata = metadata.metadata_source
+let member_metadata_value metadata = metadata.metadata_value
+let member_metadata_work metadata = metadata.metadata_work
+let member_metadata_phase metadata = metadata.metadata_phase
+let member_metadata_table metadata = metadata.metadata_table
+let member_metadata_namespace metadata = metadata.metadata_namespace
+
+let aggregate_field_metadata_find field name =
+  List.find_opt
+    (fun metadata ->
+      metadata.metadata_source.member_metadata_name.spelling = name)
+    field.field_metadata
 
 let aggregate_field_callback field =
   match field.field_phase.Parser.phase_step with
@@ -1534,6 +1565,7 @@ let advance_aggregate
                           List.concat_map dimension_runtime_dependencies checked;
                         field_offsets =
                           List.concat_map dimension_offset_dependencies checked;
+                        field_metadata = [];
                       }
                       :: fields)
                     record.aggregate_fields;
@@ -1552,6 +1584,30 @@ let advance_aggregate
               }
           in
           Ok (record, scopes)
+      | Parser.Aggregate_member_metadata_reached original ->
+          let* metadata =
+            match progress.progress_metadata with
+            | metadata :: _
+              when metadata.metadata_phase == phase
+                   && metadata.metadata_source == original.metadata ->
+                Ok metadata
+            | _ -> Error "member metadata lacks its original prepared value"
+          in
+          let* record = progress.progress_record in
+          let* fields =
+            match record.aggregate_fields with
+            | Some (field :: rest)
+              when aggregate_field_name field == original.member_name ->
+                Ok
+                  ({
+                     field with
+                     field_metadata = metadata :: field.field_metadata;
+                   }
+                  :: rest)
+            | _ ->
+                Error "member metadata substituted its original placed member"
+          in
+          Ok (Ok { record with aggregate_fields = Some fields }, scopes)
     in
     progress.progress_phase <- Some phase;
     progress.progress_scopes <- scopes;
@@ -1675,9 +1731,30 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
                     | _ -> None)
                   progress.progress_members)
           in
-          Source_aggregate_layout.layout ~members ~callbacks ?initial_size
-            ~offsets ~dimensions:member_dimensions ~table ~namespace ~symbol
-            definition
+          let metadata (member : Ast.aggregate_member_declarator) =
+            let prepared =
+              Option.bind progress (fun progress ->
+                  Result.to_option progress.progress_record)
+              |> Option.map aggregate_fields
+              |> Option.value ~default:[]
+              |> List.find_opt (fun field ->
+                  aggregate_field_name field == member.member_name)
+            in
+            match prepared with
+            | Some field
+              when List.length field.field_metadata
+                   = List.length member.member_metadata
+                   && List.for_all2
+                        (fun value source -> value.metadata_source == source)
+                        (List.rev field.field_metadata)
+                        member.member_metadata -> Ok ()
+            | None when member.member_metadata = [] -> Ok ()
+            | _ ->
+                Error "member metadata differs from its original source chain"
+          in
+          Source_aggregate_layout.layout ~members ~callbacks ~metadata
+            ?initial_size ~offsets ~dimensions:member_dimensions ~table
+            ~namespace ~symbol definition
       | _ -> Error "aggregate completion has another original declaration"
     in
     let* () =
@@ -2867,6 +2944,21 @@ let aggregate_offset_is_current ~table ~namespace progress
   | Parser.Aggregate_offset_reached _ -> true
   | _ -> false
 
+let member_metadata_is_current ~table ~namespace progress
+    (phase : Parser.aggregate_phase) =
+  progress.progress_namespace == namespace
+  && Declaration_collection.namespace_owns_table namespace table
+  && (not progress.progress_finished)
+  && (not progress.progress_body_finished)
+  && phase.phase_aggregate == progress.progress_source
+  && Parser.aggregate_phase_is_current phase
+  && same_phase phase.phase_predecessor progress.progress_phase
+  && (not (same_phase (Some phase) progress.progress_metadata_attempt))
+  &&
+  match phase.phase_step with
+  | Parser.Aggregate_member_metadata_reached _ -> true
+  | _ -> false
+
 let resolve_position_reads progress phase =
   let rec collect rev = function
     | [] -> Ok (List.rev rev)
@@ -2920,6 +3012,26 @@ let aggregate_offset_dependencies ~table ~namespace ~queries progress phase =
     let* record = progress.progress_record in
     let* positions = resolve_position_reads progress phase in
     Ok (offset_input_dependencies record queries positions)
+
+let member_metadata_dependencies ~table ~namespace ~queries progress phase =
+  if not (member_metadata_is_current ~table ~namespace progress phase) then
+    Error "metadata dependencies require their original unconsumed member phase"
+  else
+    let* record = progress.progress_record in
+    let* positions = resolve_position_reads progress phase in
+    let* () =
+      match phase.phase_step with
+      | Parser.Aggregate_member_metadata_reached original -> (
+          match original.metadata.member_metadata_value with
+          | Ast.Member_metadata_expression expression ->
+              validate_query_manifest ~table ~expression queries
+          | Ast.Member_metadata_string _ when queries = [] -> Ok ()
+          | _ -> Error "string metadata has foreign query reads")
+      | _ -> assert false
+    in
+    Ok
+      ( offset_dimension_dependencies record queries positions,
+        offset_input_dependencies record queries positions )
 
 let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
   if not (aggregate_offset_is_current ~table ~namespace progress phase) then
@@ -2992,6 +3104,96 @@ let finish_runtime_aggregate_offset preparation ~value ~work =
     in
     progress.progress_offsets <- offset :: progress.progress_offsets;
     Ok offset)
+
+let prepare_aggregate_member_metadata ~table ~namespace ~max_work ~queries
+    progress (phase : Parser.aggregate_phase) =
+  let module Numeric = Closed_numeric_expression in
+  let work = ref 0 in
+  let result =
+    if
+      max_work < 0
+      || not (member_metadata_is_current ~table ~namespace progress phase)
+    then
+      Error
+        "member metadata preparation is foreign, expired, repeated or out of \
+         order"
+    else
+      match phase.phase_step with
+      | Parser.Aggregate_member_metadata_reached original ->
+          let* record = progress.progress_record in
+          let* () =
+            match record.aggregate_fields with
+            | Some (field :: _)
+              when aggregate_field_name field == original.member_name -> Ok ()
+            | _ -> Error "member metadata requires its original placed member"
+          in
+          progress.progress_metadata_attempt <- Some phase;
+          let* metadata_value =
+            match original.metadata.member_metadata_value with
+            | Ast.Member_metadata_string string ->
+                if queries = [] && phase.phase_position_reads = [] then
+                  Ok (Metadata_string string.member_metadata_string_value)
+                else Error "string metadata has foreign expression reads"
+            | Ast.Member_metadata_expression expression ->
+                let* () = validate_query_manifest ~table ~expression queries in
+                let* () =
+                  if
+                    List.for_all
+                      (fun query ->
+                        query.receipt.query_root.query_command
+                        == progress.progress_source.aggregate_header
+                             .declaration_command
+                        && query.receipt.query_root.query_environment
+                           == progress.progress_source.aggregate_environment)
+                      queries
+                  then Ok ()
+                  else
+                    Error
+                      "member metadata queries have another original command"
+                in
+                let* positions = resolve_position_reads progress phase in
+                let numeric =
+                  Numeric.of_ast ~allow_floating:true
+                    ~position_value:(fun source ->
+                      List.find_opt (fun (node, _) -> node == source) positions
+                      |> Option.map (fun (_, position) ->
+                          position.position_value))
+                    ~query_expression ~queries expression
+                in
+                let consume () =
+                  if !work >= max_work then
+                    Error
+                      (Numeric.make_error "HCIRVM0007"
+                         (Numeric.Invalid_input
+                            "member metadata preparation work limit")
+                         "the bounded member metadata preparation work limit \
+                          was exhausted")
+                  else (
+                    incr work;
+                    Ok ())
+                in
+                Numeric.evaluate_expression ~consume
+                  ~query_origin:(fun query -> query.origin)
+                  ~query_value:query_constant ~context:Numeric.Member_metadata
+                  ~current_position:record.byte_size numeric
+                |> Result.map (fun value -> Metadata_word value)
+                |> Result.map_error Numeric.error_to_string
+          in
+          let metadata =
+            {
+              metadata_table = table;
+              metadata_namespace = namespace;
+              metadata_phase = phase;
+              metadata_source = original.metadata;
+              metadata_value;
+              metadata_work = !work;
+            }
+          in
+          progress.progress_metadata <- metadata :: progress.progress_metadata;
+          Ok metadata
+      | _ -> Error "member metadata requires its original parser phase"
+  in
+  (result, !work)
 
 let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
     (phase : Parser.aggregate_phase) =

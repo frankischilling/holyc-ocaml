@@ -34,6 +34,7 @@ type t = {
 let ( let* ) = Result.bind
 let work value = VM.task_initializer_steps value.state
 let bytes value = value.saved_bytes
+let remaining_work value = VM.task_initializer_remaining value.state
 
 let synchronize_work value ~work ~bytes =
   let before = VM.task_initializer_steps value.state in

@@ -1,5 +1,10 @@
 # Compiler status and implementation notes
 
+[Member metadata preparation](member-metadata.md) now retains strings and closed
+numeric words at original member phases in IR and native source tasks. Duplicate
+names resolve to the last source entry. Live expressions and runtime compiler
+reflection remain part of #686.
+
 [Data pointer fields](aggregate-pointer-fields.md) execute through IR, native
 programs and native source tasks in both modes. Separate ownership shadows and
 activation identities preserve caller storage, retained pointer types and

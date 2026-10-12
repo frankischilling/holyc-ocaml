@@ -1,5 +1,10 @@
 # holyc-ocaml architecture
 
+Original member metadata phases retain prepared strings and numeric words in
+`Sema.Compiler_record.aggregate_field`. Completion checks the original source
+chain; task promotion and replay preserve its preparation work. See
+[member metadata](member-metadata.md) for lookup order and remaining consumers.
+
 `Sema.Compiler_record` retains original aggregate field types and dimension
 counts from live member phases. Member `sizeof` callbacks follow the exact
 root, dot and member sequence, read the selected canonical class's current

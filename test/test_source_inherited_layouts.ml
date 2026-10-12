@@ -84,6 +84,18 @@ let boundaries () =
   let _, forward = List.hd Cases.jit_values in
   value ~expected:8L (run Preprocessor.Aot forward)
 
+let metadata_preparation () =
+  List.iter
+    (fun mode ->
+      let source = {|class B{I64 x data 40+2;};42;|} in
+      value (run ~max_initializer_steps:3 mode source);
+      failure "HCIRVM0007" (run ~max_initializer_steps:2 mode source);
+      let source =
+        {|I64 N=0;I64 Side(){N++;return 42;}class B{I64 x data Side();};N;|}
+      in
+      failure "HCRUN0006" (run mode source))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Original source inherited layout metadata"
     [
@@ -107,6 +119,9 @@ let () =
             Alcotest.test_case "original effects and base attachment order"
               `Quick effects;
             Alcotest.test_case "exact shared budgets" `Quick quotas;
+            Alcotest.test_case
+              "metadata preparation quotas and live expression boundary" `Quick
+              metadata_preparation;
             Alcotest.test_case "completed object storage and AOT boundaries"
               `Quick boundaries;
           ] );

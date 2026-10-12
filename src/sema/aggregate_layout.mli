@@ -69,6 +69,7 @@ type expression_context = Closed_numeric_expression.expression_context =
   | Array_dimension
   | Aggregate_offset
   | Switch_case
+  | Member_metadata
 
 type dimension = {
   dimension_expression : expression option;

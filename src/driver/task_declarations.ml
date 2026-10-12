@@ -229,6 +229,7 @@ type command = {
   checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
   switches : Switch.t list;
   offsets : Sema.Compiler_record.aggregate_offset list;
+  member_metadata : Sema.Compiler_record.member_metadata list;
   initializers : (Ast.global_initializer * Sema.Initializer_source.t) Names.t;
   source_order : Sema.Task_command_order.command option;
 }
@@ -346,6 +347,7 @@ type t = {
   mutable dimension_work : int;
   mutable offset_work : int;
   mutable offsets_rev : Sema.Compiler_record.aggregate_offset list;
+  mutable member_metadata_rev : Sema.Compiler_record.member_metadata list;
   mutable runtime_offset_completions :
     (Parser.aggregate_phase * int * bool ref) list;
   mutable source_dimensions_rev :
@@ -503,6 +505,7 @@ let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
                   dimension_work = 0;
                   offset_work = 0;
                   offsets_rev = [];
+                  member_metadata_rev = [];
                   runtime_offset_completions = [];
                   source_dimensions_rev = [];
                   runtime_entries = Entries.create 32;
@@ -618,6 +621,7 @@ let promote_source_with_activation ~activate ledger ~runtime session ~source =
                      ?pending_runtime_offset:ledger.pending_runtime_offset
                      ?pending_runtime_switch_case
                      ~offsets:(List.rev ledger.offsets_rev)
+                     ~member_metadata:(List.rev ledger.member_metadata_rev)
                      runtime ~namespace:ledger.namespace ~activation
                      ~dimensions:(List.rev ledger.source_dimensions_rev)
                    |> Result.map (fun () ->
@@ -627,6 +631,7 @@ let promote_source_with_activation ~activate ledger ~runtime session ~source =
          else
            VM.promote_task_source runtime ~namespace:ledger.namespace
              ~offsets:(List.rev ledger.offsets_rev)
+             ~member_metadata:(List.rev ledger.member_metadata_rev)
              ~events:(List.rev ledger.source_events_rev)
              ~dimensions:(List.rev ledger.source_dimensions_rev)
              ~completed_dimensions:
@@ -2723,7 +2728,7 @@ let declared_callback_for ledger span =
       in
       (header, pointer))
 
-let observe ?offset_runtime ledger event =
+let observe ?offset_runtime ?metadata_work_limit ledger event =
   protect (fun () ->
       match event with
       | Parser.Callback_position_written receipt ->
@@ -3010,6 +3015,53 @@ let observe ?offset_runtime ledger event =
                         if String.starts_with ~prefix:"HCIRVM0007:" message then
                           "HCIRVM0007"
                         else "HCRUN0004"
+                      in
+                      fail ~code phase.phase_location.span message)
+              | Parser.Aggregate_member_metadata_reached original, _ -> (
+                  let queries =
+                    match original.metadata.member_metadata_value with
+                    | Ast.Member_metadata_string _ -> []
+                    | Ast.Member_metadata_expression expression ->
+                        Sema.Query_selection.source_queries expression
+                        |> List.map (fun expression ->
+                            match
+                              Query_expressions.find_opt ledger.queries
+                                expression
+                            with
+                            | Some query ->
+                                Sema.Query_selection.checked_read
+                                  query.query_selection
+                            | None ->
+                                fail phase.phase_location.span
+                                  "member metadata lacks its original query \
+                                   read")
+                  in
+                  let result, work =
+                    match ledger.authority with
+                    | Task_runtime task ->
+                        VM.prepare_task_member_metadata task ~table:ledger.table
+                          ~namespace:ledger.namespace ~queries progress phase
+                    | _ ->
+                        Sema.Compiler_record.prepare_aggregate_member_metadata
+                          ~table:ledger.table ~namespace:ledger.namespace
+                          ~queries
+                          ~max_work:
+                            (min
+                               (ledger.max_offset_work - ledger.offset_work)
+                               (Option.value ~default:max_int
+                                  metadata_work_limit))
+                          progress phase
+                  in
+                  ledger.offset_work <- ledger.offset_work + work;
+                  match result with
+                  | Ok metadata ->
+                      ledger.member_metadata_rev <-
+                        metadata :: ledger.member_metadata_rev
+                  | Error message ->
+                      let code =
+                        if String.starts_with ~prefix:"HCIRVM0007:" message then
+                          "HCIRVM0007"
+                        else "HCRUN0006"
                       in
                       fail ~code phase.phase_location.span message)
               | _ -> ());
@@ -3685,8 +3737,8 @@ let observe ?offset_runtime ledger event =
               fail publication.function_name.location.span
                 "function body completion is foreign, repeated or out of order"))
 
-let observe ?offset_runtime ledger event =
-  let observed = observe ?offset_runtime ledger event in
+let observe ?offset_runtime ?metadata_work_limit ledger event =
+  let observed = observe ?offset_runtime ?metadata_work_limit ledger event in
   let observed =
     Result.bind observed (fun () ->
         match ledger.authority with
@@ -4692,6 +4744,19 @@ let seal ledger (ast : Ast.module_) =
                           entry.receipt.command_start == Switch.command prepared)
                         original_commands)
                     (Switch.preparations ledger.switch_tracker);
+                member_metadata =
+                  List.rev ledger.member_metadata_rev
+                  |> List.filter (fun metadata ->
+                      let phase =
+                        Sema.Compiler_record.member_metadata_phase metadata
+                      in
+                      List.exists
+                        (fun assigned ->
+                          match assigned.source with
+                          | Aggregate state ->
+                              state.publication == phase.phase_aggregate
+                          | _ -> false)
+                        !claimed);
                 offsets =
                   List.filter
                     (fun offset ->
@@ -6545,6 +6610,13 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
                         else "HCRUN0004"
                       in
                       fail ~code phase.phase_location.span message)
+              | Parser.Aggregate_advanced
+                  ({
+                     phase_step = Parser.Aggregate_member_metadata_reached _;
+                     _;
+                   } as phase) ->
+                  VM.charge_source_member_metadata runtime phase
+                  |> checked phase.phase_location.span
               | Parser.Switch_case_preparing preparation -> (
                   match
                     List.find_opt
@@ -6884,9 +6956,14 @@ let source_offset_work (Source_command command) =
   List.fold_left
     (fun total offset ->
       total + Sema.Compiler_record.aggregate_offset_work offset)
-    0 command.offsets
+    (List.fold_left
+       (fun total metadata ->
+         total + Sema.Compiler_record.member_metadata_work metadata)
+       0 command.member_metadata)
+    command.offsets
 
 let source_offsets (Source_command command) = command.offsets
+let source_member_metadata (Source_command command) = command.member_metadata
 
 let seal_source ledger ast =
   match ledger.authority with

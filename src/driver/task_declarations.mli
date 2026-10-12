@@ -822,6 +822,7 @@ val observe_command :
 
 val observe :
   ?offset_runtime:Ir.Integer_interpreter.task_state ->
+  ?metadata_work_limit:int ->
   t ->
   Frontend.Parser.declaration_event ->
   (unit, Common.Diagnostic.t list) result
@@ -942,6 +943,9 @@ val source_offset_work : source_command -> int
 
 val source_offsets :
   source_command -> Sema.Compiler_record.aggregate_offset list
+
+val source_member_metadata :
+  source_command -> Sema.Compiler_record.member_metadata list
 
 val checked_offset_for :
   table:Sema.Symbol_table.t ->

@@ -279,6 +279,31 @@ val select_aggregate_base :
 type aggregate_member
 type aggregate_field
 
+type member_metadata_value =
+  | Metadata_word of int64
+  | Metadata_string of string
+
+type member_metadata
+
+val member_metadata_source :
+  member_metadata -> Frontend.Ast.aggregate_member_metadata
+
+val member_metadata_value : member_metadata -> member_metadata_value
+val member_metadata_work : member_metadata -> int
+val member_metadata_phase : member_metadata -> Frontend.Parser.aggregate_phase
+val member_metadata_table : member_metadata -> Symbol_table.t
+
+val member_metadata_namespace :
+  member_metadata -> Declaration_collection.namespace
+
+val aggregate_field_metadata : aggregate_field -> member_metadata list
+
+val aggregate_field_metadata_find :
+  aggregate_field -> string -> member_metadata option
+(** Retain the original member's prepended metadata chain. Duplicate names
+    return the last source declaration. Words contain no data or executable
+    ownership. *)
+
 val aggregate_fields : t -> aggregate_field list
 val aggregate_initializer_size : t -> int64
 val aggregate_initializer_has_members : t -> bool
@@ -575,6 +600,27 @@ type query_role = Query_source.role =
   | Defined_operand
 
 type query_read
+
+val member_metadata_dependencies :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (runtime_dimension_proposal list * aggregate_offset list, string) result
+
+val prepare_aggregate_member_metadata :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  max_work:int ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (member_metadata, string) result * int
+(** Prepare a string or closed numeric expression after its original member
+    placement and before its delimiter. Failures consume their reached numeric
+    work and cannot retry the same phase. Live expressions need runtime support.
+*)
 
 val aggregate_offset_is_current :
   table:Symbol_table.t ->

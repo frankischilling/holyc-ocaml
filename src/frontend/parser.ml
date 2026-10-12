@@ -1535,6 +1535,10 @@ and aggregate_step =
       member_callback : Ast.function_pointer_declarator option;
       member_dimensions : Ast.array_dimension list;
     }
+  | Aggregate_member_metadata_reached of {
+      member_name : Ast.identifier;
+      metadata : Ast.aggregate_member_metadata;
+    }
   | Aggregate_union_entered
   | Aggregate_union_left
   | Aggregate_offset_reached of Ast.expression
@@ -1576,6 +1580,8 @@ let aggregate_completion_is_current source =
 
 let aggregate_phase_is_current phase =
   phase.phase_activity.aggregate_active
+  && Option.fold ~none:false ~some:(( == ) phase)
+       phase.phase_aggregate.aggregate_activity.aggregate_last_phase
   && phase.phase_aggregate.aggregate_header.declaration_command.command_context
        .context_active
 
@@ -6569,7 +6575,10 @@ and parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
                      member_callback = function_pointer;
                      member_dimensions = array_dimensions;
                    });
-              match parse_aggregate_member_metadata cursor ~recovery_depth with
+              match
+                parse_aggregate_member_metadata cursor ~recovery_depth
+                  ~aggregate ~member_name:name
+              with
               | Error failure -> Error failure
               | Ok metadata -> (
                   let delimiter_item = peek cursor in
@@ -6602,7 +6611,8 @@ and parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
                       in
                       Ok { node; tokens }))))
 
-and parse_aggregate_member_metadata cursor ~recovery_depth :
+and parse_aggregate_member_metadata cursor ~recovery_depth ~aggregate
+    ~member_name :
     (parsed_aggregate_member_metadata, aggregate_parse_failure) result =
   let rec collect nodes_rev tokens_rev =
     let name_item = peek cursor in
@@ -6618,12 +6628,14 @@ and parse_aggregate_member_metadata cursor ~recovery_depth :
         Ast.make_identifier ~spelling:name_item.token.raw
           ~location:(token_location name_item.token)
       in
-      let finish value value_tokens =
+      let finish ?(positions = []) value value_tokens =
         let tokens = name_item.token :: value_tokens in
         let node =
           Ast.make_aggregate_member_metadata ~name ~value
             ~location:(location_from_expression_tokens tokens)
         in
+        advance_aggregate ~positions cursor (peek cursor) aggregate
+          (Aggregate_member_metadata_reached { member_name; metadata = node });
         collect (node :: nodes_rev) (List.rev_append tokens tokens_rev)
       in
       let value_item = peek cursor in
@@ -6664,14 +6676,25 @@ and parse_aggregate_member_metadata cursor ~recovery_depth :
                  name.spelling
                  (token_description value_item.token))
       | _ -> (
+          let capture =
+            { capture_aggregate = aggregate; capture_positions_rev = [] }
+          in
+          let previous_capture = cursor.offset_position_capture in
           match
-            parse_expression cursor
-              ~context:Aggregate_member_metadata_expression ~depth:0
-              ~minimum_binding_power:0
+            Fun.protect
+              ~finally:(fun () ->
+                cursor.offset_position_capture <- previous_capture)
+              (fun () ->
+                cursor.offset_position_capture <- Some capture;
+                parse_expression cursor
+                  ~context:Aggregate_member_metadata_expression ~depth:0
+                  ~minimum_binding_power:0)
           with
           | None -> Error { recovery_depth }
           | Some expression ->
-              finish (Ast.Member_metadata_expression expression.node)
+              finish
+                ~positions:(List.rev capture.capture_positions_rev)
+                (Ast.Member_metadata_expression expression.node)
                 expression.tokens)
   in
   collect [] []

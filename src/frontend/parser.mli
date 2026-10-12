@@ -993,6 +993,10 @@ type aggregate_step =
       member_callback : Ast.function_pointer_declarator option;
       member_dimensions : Ast.array_dimension list;
     }
+  | Aggregate_member_metadata_reached of {
+      member_name : Ast.identifier;
+      metadata : Ast.aggregate_member_metadata;
+    }
   | Aggregate_union_entered
   | Aggregate_union_left
   | Aggregate_offset_reached of Ast.expression

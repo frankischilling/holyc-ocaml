@@ -91,6 +91,16 @@ let trailing_dimension_preparation t =
       Some preparation
   | _ -> None
 
+let member_metadata_phases t =
+  List.filter_map
+    (function
+      | Declaration
+          (Parser.Aggregate_advanced
+             ({ phase_step = Parser.Aggregate_member_metadata_reached _; _ } as
+              phase)) -> Some phase
+      | _ -> None)
+    t.events
+
 let trailing_switch_case_preparation t =
   match List.rev t.events with
   | Declaration (Parser.Switch_case_preparing preparation) :: _ ->

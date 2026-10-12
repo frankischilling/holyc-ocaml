@@ -2,6 +2,20 @@ let headers = "extern U0 Print(U8 *fmt,...);extern U0 StreamPrint(U8 *fmt,...);"
 
 let values =
   [
+    ( "member metadata words and joined strings",
+      {|class B{U8 x count 40+2 note "A" "B" bits 1.5 at $$;};sizeof(B)+41;|} );
+    ( "metadata survives inherited and nested objects",
+      {|class B{U8 x data 42;};class C:B{I64 y data 43;};class D{C c data 44;};sizeof(D)+33;|}
+    );
+    ( "metadata on callback and union members",
+      {|union B{I64 (*cb)() note "callback";U8 x data 1;};class C{B b;};sizeof(C)+34;|}
+    );
+    ( "metadata on multiple declarators",
+      {|class B{U8 x data 1,y data 2;I64 z data 3;};sizeof(B)+32;|} );
+    ( "metadata before persistent initialization",
+      {|class B{I64 x data 42;};B b={42};b.x;|} );
+    ( "metadata on a function local class",
+      {|I64 F(){class B{I64 x data 42;};B b;b.x=42;return b.x;}F();|} );
     ("base prefix", {|class B{U8 a[34];};class C:B{I64 b;};sizeof(C);|});
     ( "three original bases",
       {|class A{U8 a;};class B:A{I64 b;};class C:B{U8 c[33];};sizeof(C);|} );
@@ -69,6 +83,10 @@ let jit_values =
     ( "runtime inherited saved default",
       {|I64 N=34;class B{U8 a[N];};class C:B{I64 b;};I64 F(I64 n=sizeof(C)){return n;}N=1;F;|}
     );
+    ( "metadata retains executed offset dependencies",
+      {|I64 N=7;class B{$$=++N;I64 x data $$;};sizeof(B)+N+18;|} );
+    ( "metadata retains executed dimension query dependencies",
+      {|I64 N=1;class B{U8 x[++N] data sizeof(B);};sizeof(B)+N+38;|} );
   ]
 
 let effects =

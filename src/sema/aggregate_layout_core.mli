@@ -76,6 +76,7 @@ end) : sig
     | Array_dimension
     | Aggregate_offset
     | Switch_case
+    | Member_metadata
 
   type dimension = {
     dimension_expression : expression option;

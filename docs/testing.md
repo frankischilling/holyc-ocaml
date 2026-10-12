@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+Member metadata preparation tests retain original values, duplicate lookup order,
+raw floating bits, joined string bytes, source phases and class replacements.
+Source and native inherited-layout suites cover metadata on class, union,
+callback, nested and local members. Exact and one-below initializer allowances
+check preparation and promotion costs. Live expressions remain explicit errors.
+See [member metadata preparation](member-metadata.md).
+
 The shared aggregate suites exercise [class pointer views](class-pointer-views.md)
 through IR, both native image ABIs and the public CLI. Expected words cover all
 supported integer field types, packed offsets, aliasing, argument snapshots,

@@ -669,6 +669,7 @@ and child_work = {
   work_initializers : task_initializer list;
   work_deferred_dimensions : Sema.Compiler_record.dimension_preparation list;
   work_deferred_offsets : Sema.Compiler_record.aggregate_offset list;
+  work_deferred_metadata : Sema.Compiler_record.member_metadata list;
 }
 
 and task_state = {
@@ -699,6 +700,8 @@ and task_state = {
   mutable deferred_dimensions : Sema.Compiler_record.dimension_preparation list;
   mutable deferred_offsets : Sema.Compiler_record.aggregate_offset list;
   mutable charged_offsets : Sema.Compiler_record.aggregate_offset list;
+  mutable deferred_metadata : Sema.Compiler_record.member_metadata list;
+  mutable charged_metadata : Sema.Compiler_record.member_metadata list;
   mutable attempted_offsets : Frontend.Parser.aggregate_phase list;
   mutable source_execution_failed : bool;
   mutable source_result : (Frontend.Parser.completed_sequence * t) option;
@@ -877,6 +880,8 @@ let make_task_state ~resources ~native_storage_authority ~table =
     deferred_dimensions = [];
     deferred_offsets = [];
     charged_offsets = [];
+    deferred_metadata = [];
+    charged_metadata = [];
     attempted_offsets = [];
     seen_dimensions = [];
     closed_dimensions = [];
@@ -1186,6 +1191,7 @@ let child_work task =
     work_initializers = task.initializers;
     work_deferred_dimensions = task.deferred_dimensions;
     work_deferred_offsets = task.deferred_offsets;
+    work_deferred_metadata = task.deferred_metadata;
   }
 
 let child_participant scope task =
@@ -1605,6 +1611,9 @@ let completed_input task input =
   && List.for_all
        (child_work_is_excluded task (fun work -> work.work_deferred_offsets))
        task.deferred_offsets
+  && List.for_all
+       (child_work_is_excluded task (fun work -> work.work_deferred_metadata))
+       task.deferred_metadata
   && input_prefix_complete input.input_internal_bindings task.internal_bindings
        (fun attempt ->
          attempt.internal_binding_state = Successful_initializer
@@ -1733,6 +1742,13 @@ let complete_task_child_input scope sequence =
                 (fun work -> work.work_deferred_offsets)
                 item)
          task.deferred_offsets
+    && List.for_all
+         (fun item ->
+           List.exists (( == ) item) before.work_deferred_metadata
+           || child_work_is_excluded task
+                (fun work -> work.work_deferred_metadata)
+                item)
+         task.deferred_metadata
   in
   if
     (not (child_input_is_active scope))
@@ -1874,8 +1890,9 @@ let start_task_compilation task = task.source_promotion_open <- false
 let bind_task_namespace task namespace =
   Integer_globals.bind_task_namespace task.catalog namespace
 
-let promote_task_source ?(offsets = []) ?(dimensions = [])
-    ?(completed_dimensions = []) task ~namespace ~events ~dimension_steps =
+let promote_task_source ?(offsets = []) ?(member_metadata = [])
+    ?(dimensions = []) ?(completed_dimensions = []) task ~namespace ~events
+    ~dimension_steps =
   let module Record = Sema.Compiler_record in
   let originals = List.map Record.dimension_preparation_source dimensions in
   let completions = List.map Record.dimension_receipt completed_dimensions in
@@ -1883,6 +1900,32 @@ let promote_task_source ?(offsets = []) ?(dimensions = [])
     List.fold_left
       (fun total offset -> total + Record.aggregate_offset_work offset)
       0 offsets
+  in
+  let metadata_work =
+    List.fold_left
+      (fun total value -> total + Record.member_metadata_work value)
+      0 member_metadata
+  in
+  let metadata_valid =
+    let rec loop seen = function
+      | [] -> true
+      | value :: rest ->
+          let phase = Record.member_metadata_phase value in
+          Record.member_metadata_namespace value == namespace
+          && Integer_globals.task_catalog_owns_table task.catalog
+               (Record.member_metadata_table value)
+          && (not (List.exists (( == ) phase) seen))
+          && List.exists
+               (function
+                 | Frontend.Parser.Command_started start ->
+                     start
+                     == phase.phase_aggregate.aggregate_header
+                          .declaration_command
+                 | _ -> false)
+               events
+          && loop (phase :: seen) rest
+    in
+    loop [] member_metadata
   in
   let offsets_valid =
     let rec loop seen = function
@@ -1959,8 +2002,10 @@ let promote_task_source ?(offsets = []) ?(dimensions = [])
     dimension_steps < 0
     || dimension_steps > task.resources.max_initializer_steps
     || offset_work > task.resources.max_initializer_steps - dimension_steps
+    || metadata_work
+       > task.resources.max_initializer_steps - dimension_steps - offset_work
   then Error "source dimension work exceeds the task preparation allowance"
-  else if (not manifest_valid) || not offsets_valid then
+  else if (not manifest_valid) || (not offsets_valid) || not metadata_valid then
     Error "source promotion requires its original closed dimension manifest"
   else
     Result.bind (Integer_globals.check_task_namespace task.catalog namespace)
@@ -1970,8 +2015,10 @@ let promote_task_source ?(offsets = []) ?(dimensions = [])
     |> fun result ->
     Result.bind result (fun () -> bind_task_namespace task namespace)
     |> Result.map (fun () ->
-        task.resources.initializer_steps <- dimension_steps + offset_work;
+        task.resources.initializer_steps <-
+          dimension_steps + offset_work + metadata_work;
         task.charged_offsets <- offsets;
+        task.charged_metadata <- member_metadata;
         task.seen_dimensions <- originals;
         task.closed_dimensions <- dimensions;
         task.completed_dimensions <- completions;
@@ -1987,9 +2034,9 @@ let bind_source_activation task ~namespace activation =
     task.source_activation <- Some activation;
     Ok ())
 
-let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
-    ?pending_runtime_offset ?pending_runtime_switch_case task ~namespace
-    ~activation ~dimensions =
+let promote_task_source_activation ?(offsets = []) ?(member_metadata = [])
+    ?pending_runtime_dimension ?pending_runtime_offset
+    ?pending_runtime_switch_case task ~namespace ~activation ~dimensions =
   let pending_switch_valid =
     let originals =
       Sema.Source_activation.switch_case_preparations activation
@@ -2047,12 +2094,23 @@ let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
         | last :: rest when valid && last == pending -> (true, List.rev rest)
         | _ -> (false, phases))
   in
+  let metadata_valid =
+    let originals = Sema.Source_activation.member_metadata_phases activation in
+    List.length originals = List.length member_metadata
+    && List.for_all2
+         (fun phase value ->
+           Sema.Compiler_record.member_metadata_phase value == phase
+           && Sema.Compiler_record.member_metadata_namespace value == namespace
+           && Integer_globals.task_catalog_owns_table task.catalog
+                (Sema.Compiler_record.member_metadata_table value))
+         originals member_metadata
+  in
   if
     Option.is_some task.source_activation
     || (not (Sema.Source_activation.available activation))
     || (not (Sema.Source_activation.owns_namespace activation namespace))
     || (not pending_valid) || (not pending_offset_valid)
-    || (not pending_switch_valid)
+    || (not pending_switch_valid) || (not metadata_valid)
     || (let phases = closed_offsets in
         List.length phases <> List.length offsets
         || not
@@ -2088,6 +2146,7 @@ let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
     |> Result.map (fun () ->
         task.source_activation <- Some activation;
         task.deferred_offsets <- offsets;
+        task.deferred_metadata <- member_metadata;
         task.deferred_dimensions <- dimensions)
 
 let charge_source_aggregate_offset task phase =
@@ -2114,6 +2173,69 @@ let charge_source_aggregate_offset task phase =
       Error
         "aggregate offset charge is foreign, repeated or outside its \
          activation event"
+
+let charge_member_metadata task values =
+  let rec loop = function
+    | [] -> Ok ()
+    | value :: rest ->
+        let work = Sema.Compiler_record.member_metadata_work value in
+        let remaining = task_initializer_remaining task in
+        task.resources.initializer_steps <-
+          task.resources.initializer_steps + min work remaining;
+        task.charged_metadata <- value :: task.charged_metadata;
+        if work > remaining then
+          Error
+            "HCIRVM0007: the bounded member metadata preparation work limit \
+             was exhausted"
+        else loop rest
+  in
+  loop values
+
+let charge_source_member_metadata task phase =
+  match task.deferred_metadata with
+  | value :: rest
+    when (not task.source_execution_failed)
+         && Sema.Compiler_record.member_metadata_phase value == phase
+         && Sema.Source_activation.aggregate_offset_preparing
+              task.source_activation phase ->
+      task.deferred_metadata <- rest;
+      let result = charge_member_metadata task [ value ] in
+      if Result.is_error result then (
+        task.source_execution_failed <- true;
+        task.failure_generation <- ref ());
+      result
+  | _ ->
+      Error
+        "member metadata charge is foreign, repeated or outside its activation \
+         event"
+
+let settle_isolated_member_metadata task ~table values =
+  let module Record = Sema.Compiler_record in
+  let values =
+    List.filter
+      (fun value -> not (List.exists (( == ) value) task.charged_metadata))
+      values
+  in
+  let rec valid seen = function
+    | [] -> true
+    | value :: rest ->
+        Record.member_metadata_table value == table
+        && (not
+              (List.exists
+                 (fun prior ->
+                   Record.member_metadata_phase prior
+                   == Record.member_metadata_phase value)
+                 seen))
+        && valid (value :: seen) rest
+  in
+  if task.native_storage_authority || not (valid task.charged_metadata values)
+  then
+    Error
+      "isolated metadata has a foreign table, native task or repeated \
+       preparation"
+  else (
+    task.source_promotion_open <- false;
+    charge_member_metadata task values)
 
 let source_dimensions_ready task =
   (match (task.deferred_offsets, task.source_activation) with
@@ -3931,6 +4053,37 @@ let prepare_task_aggregate_offset task ~table ~namespace ~queries progress phase
       prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
         phase
 
+let prepare_task_member_metadata task ~table ~namespace ~queries progress phase
+    =
+  let checked =
+    let ( let* ) = Result.bind in
+    let* () = require_initializer_namespace task namespace in
+    let* dimensions, offsets =
+      Sema.Compiler_record.member_metadata_dependencies ~table ~namespace
+        ~queries progress phase
+    in
+    let* () = validate_dimension_dependencies (Some task) dimensions in
+    validate_offset_dependencies (Some task) offsets
+  in
+  match checked with
+  | Error message -> (Error message, 0)
+  | Ok () when not (task_owns_table task table) ->
+      (Error "member metadata belongs to another task table", 0)
+  | Ok () ->
+      let result, work =
+        Sema.Compiler_record.prepare_aggregate_member_metadata ~table ~namespace
+          ~queries
+          ~max_work:(task_initializer_remaining task)
+          progress phase
+      in
+      task.source_promotion_open <- false;
+      task.resources.initializer_steps <-
+        task.resources.initializer_steps + work;
+      (match result with
+      | Ok value -> task.charged_metadata <- value :: task.charged_metadata
+      | Error _ -> ());
+      (result, work)
+
 let prepare_isolated_aggregate_offset task ~table ~namespace ~queries progress
     phase =
   if
@@ -5062,6 +5215,13 @@ let task_result task ~sequence =
                 (fun work -> work.work_deferred_offsets)
                 item))
          task.deferred_offsets
+    || List.exists
+         (fun item ->
+           not
+             (child_work_is_excluded task
+                (fun work -> work.work_deferred_metadata)
+                item))
+         task.deferred_metadata
     || List.exists
          (fun preparation ->
            (not

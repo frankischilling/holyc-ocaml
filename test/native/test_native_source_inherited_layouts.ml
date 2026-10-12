@@ -105,6 +105,16 @@ let boundaries () =
   value (run Cases.object_storage);
   failure "HCRUN0001" (run Cases.overflow)
 
+let metadata_preparation () =
+  let source = {|class B{I64 x data 40+2;};42;|} in
+  value (run ~max_initializer_steps:3 source);
+  failure "HCIRVM0007" (run ~max_initializer_steps:2 source);
+  let source = {|class B{I64 x data 40+2;};I64 N=42;N;|} in
+  value (run ~max_initializer_steps:6 source);
+  failure "HCIRVM0007" (run ~max_initializer_steps:5 source);
+  failure "HCRUN0006"
+    (run {|I64 N=0;I64 Side(){N++;return 42;}class B{I64 x data Side();};N;|})
+
 let () =
   Alcotest.run "Native original inherited metadata"
     [
@@ -117,6 +127,9 @@ let () =
             Alcotest.test_case "once-only native effects and source order"
               `Quick effects;
             Alcotest.test_case "exact source and native budgets" `Quick quotas;
+            Alcotest.test_case
+              "metadata preparation quotas and live expression boundary" `Quick
+              metadata_preparation;
             Alcotest.test_case "existing storage boundaries" `Quick boundaries;
           ] );
     ]

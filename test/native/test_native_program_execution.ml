@@ -353,6 +353,54 @@ let source_pre_entry_failure ?max_initializer_steps ?max_default_bytes ~mode
     (Option.is_none (Native_program.image report));
   (report, diagnostics)
 
+let source_member_metadata_budgets () =
+  List.iter
+    (fun mode ->
+      let simple = {|class B{I64 x data 40+2;};42;|} in
+      let report, success =
+        source_success_report ~max_initializer_steps:3 ~mode ~max_steps:1000
+          simple
+      in
+      check_program_word "metadata leaves entry word" "I64" 42L
+        success.execution.final_value;
+      Alcotest.(check int)
+        "native metadata reports its original numeric work" 3
+        (Native_program.preparation_steps report);
+      let report, errors =
+        source_pre_entry_failure ~max_initializer_steps:2 ~mode simple
+      in
+      Alcotest.(check int)
+        "failed metadata retains reached work" 2
+        (Native_program.preparation_steps report);
+      Alcotest.(check bool)
+        "metadata quota diagnosis" true
+        (List.exists (fun (d : Diagnostic.t) -> d.code = "HCIRVM0007") errors);
+      List.iter
+        (fun source ->
+          let report, _ =
+            source_success_report ~max_initializer_steps:6 ~mode ~max_steps:1000
+              source
+          in
+          Alcotest.(check int)
+            "metadata and initializer share one allowance" 6
+            (Native_program.preparation_steps report);
+          let report, errors =
+            source_pre_entry_failure ~max_initializer_steps:5 ~mode source
+          in
+          Alcotest.(check int)
+            "mixed failure retains reached work" 5
+            (Native_program.preparation_steps report);
+          Alcotest.(check bool)
+            "mixed quota diagnosis" true
+            (List.exists
+               (fun (d : Diagnostic.t) -> d.code = "HCIRVM0007")
+               errors))
+        [
+          {|class B{I64 x data 40+2;};I64 N=42;N;|};
+          {|I64 N=42;class B{I64 x data 40+2;};N;|};
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let integer_source_fault ?max_frame_bytes ?max_call_depth ~mode ~max_steps
     contents =
   let session, config, source = source_inputs ~mode contents in
@@ -1728,6 +1776,9 @@ let () =
                 skipped_and_eager_faults;
               Alcotest.test_case "source arithmetic faults map to VM semantics"
                 `Quick source_arithmetic_fault_mapping;
+              Alcotest.test_case
+                "source member metadata shares native preparation work" `Quick
+                source_member_metadata_budgets;
               Alcotest.test_case
                 "source functions locals calls recursion and argument order"
                 `Quick source_functions_and_locals_both_modes;
