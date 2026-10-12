@@ -12,7 +12,8 @@ during a leaf and the remaining aggregate execution families stay open.
 [Class pointer views](class-pointer-views.md) retain owned bytes through casts
 between supported integer and class pointers. IR and native paths preserve
 original source selections, target strides and root bounds, including local
-class definitions and retained functions. Whole class-value casts, numeric/null
+class definitions and retained functions. [Aggregate value casts](aggregate-value-casts.md)
+preserve selected integer reads and grouped register bits. Numeric/null
 reference construction and wider aggregate storage remain open under #686.
 
 [Native sections](native-sections.md) now provide the common checked layout and patch model for own-encoder native objects, assembly linking and AOT BIN serialization. Native source compilation retains semantic function/global identities and resolves forward machine references through that model. Signed field overflow fails before output; explicit modulo fields retain their source behavior. Hosted objects retain their runtime ownership boundary.
@@ -155,15 +156,16 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
-extents, member identities and pointer strides remain separate. General casts,
-class defaults and callback class parameters still need
-their own implementation.
+extents, member identities and pointer strides remain separate.
+[Aggregate value casts](aggregate-value-casts.md) retain that distinction for
+storage destinations and class register words. Floating casts and callback
+class parameters still need their own implementation.
 
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) support
 nonempty class and union objects from completed earlier layouts in isolated IR
 and native programs, in both modes. Explicit integer views retain overlap,
 padding, initialized bytes and the original extent. Partial inherited
-metadata, retained JIT imports, whole-value postfix casts,
+metadata, retained JIT imports,
 class defaults and callback parameters and general aggregate copies, pointer
 fields and pointer returns remain outside this slice of #686. [Owned aggregate
 members](aggregate-members.md) support direct and pointer integer fields,

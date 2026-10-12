@@ -2,6 +2,7 @@ open Yojson.Safe.Util
 module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
+module Casts = Aggregate_cast_cases
 module Inherited = Inherited_aggregate_cases
 module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
@@ -31,11 +32,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 15 || Array.length Sys.argv = 16)
-    "expected compiler and thirteen aggregate examples, optionally --native"
+    (Array.length Sys.argv = 16 || Array.length Sys.argv = 17)
+    "expected compiler and fourteen aggregate examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 16 && Sys.argv.(15) = "--native"
+let native = Array.length Sys.argv = 17 && Sys.argv.(16) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -222,6 +223,7 @@ let () =
         (fun target ->
           initializer_limits target mode;
           value 42L "AB" (invoke target mode (read Sys.argv.(14)));
+          value 42L "" (invoke target mode (read Sys.argv.(15)));
           if target = "ir" && mode = "jit" then
             List.iter
               (fun (_, source, code, _) ->
@@ -260,7 +262,7 @@ let () =
            @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
            @ Backed.values @ Default.values @ Parameters.values
            @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
-           @ Returns.warning_values @ Persistent.values);
+           @ Returns.warning_values @ Persistent.values @ Casts.values);
           value 42L "AB" (invoke target mode (read Sys.argv.(13)));
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "AB" (invoke target mode (read Sys.argv.(3)));
@@ -324,13 +326,14 @@ let () =
                 value expected output (invoke target mode source))
               (Defaults.jit_values @ Inherited.retained_values
              @ Pointers.retained_view_values @ Cases.retained_nested_values
-             @ Cases.pointer_retained_values @ Persistent.retained_values));
+             @ Cases.pointer_retained_values @ Persistent.retained_values
+             @ Casts.retained_values));
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
             (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
            @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults
-           @ Persistent.faults
+           @ Casts.faults @ Persistent.faults
             @ if mode = "jit" then Persistent.jit_faults else []);
           List.iter
             (fun (definition, bytes) ->
@@ -393,6 +396,7 @@ let () =
               (Inherited.quota_source, Inherited.quota_frame_bytes);
               (Backed.quota_source, Backed.quota_frame_bytes);
               (Default.quota_source, Default.quota_frame_bytes);
+              (Casts.quota_source, Casts.quota_frame_bytes);
               (Parameters.quota_source, Parameters.quota_frame_bytes);
               (Returns.quota_source, Returns.quota_frame_bytes);
             ];
@@ -403,14 +407,14 @@ let () =
             @ (if target = "ir" && mode = "jit" then Inherited.unsupported
                else Inherited.source_unsupported)
             @ Backed.unsupported @ Default.unsupported @ Parameters.unsupported
-            @ Returns.unsupported @ Persistent.unsupported))
+            @ Casts.unsupported @ Returns.unsupported @ Persistent.unsupported))
         (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
     [ "jit"; "aot" ];
   if native then (
-    let invoke_task ?(status = 0) ?(options = []) source =
+    let invoke_task ?(mode = "jit") ?(status = 0) ?(options = []) source =
       invoke ~status
         ~options:("--code-byte-limit=524288" :: options)
-        "host-jit-task" "jit" source
+        "host-jit-task" mode source
     in
     List.iter
       (fun (_, source, _, _) ->
@@ -419,6 +423,19 @@ let () =
      @ Persistent.pointer_values);
     value 42L "AB" (invoke_task (read Sys.argv.(13)));
     value 42L "AB" (invoke_task (read Sys.argv.(14)));
+    value 42L "" (invoke_task (read Sys.argv.(15)));
+    value 42L "" (invoke_task ~mode:"aot" (read Sys.argv.(15)));
+    List.iter
+      (fun (_, source, expected, output) ->
+        value expected output (invoke_task ~mode:"aot" source))
+      Casts.values;
+    List.iter
+      (fun (_, source, code, output) ->
+        error ~code output (invoke_task ~mode:"aot" ~status:1 source))
+      Casts.faults;
+    List.iter
+      (fun (_, source) -> error "" (invoke_task ~mode:"aot" ~status:1 source))
+      Casts.unsupported;
     initializer_limits "host-jit-task" "jit";
     List.iter
       (fun (_, source, code, output) ->
@@ -434,7 +451,7 @@ let () =
       @ Parameters.values @ Parameters.view_matrix @ Returns.values
       @ Returns.view_matrix @ Returns.warning_values @ Defaults.native_values
       @ Defaults.jit_values @ Cases.retained_nested_values @ Persistent.values
-      @ Persistent.retained_values
+      @ Persistent.retained_values @ Casts.values @ Casts.retained_values
     in
     List.iter
       (fun (name, source, expected, output) ->
@@ -455,10 +472,10 @@ let () =
     List.iter
       (fun (_, source, code, output) ->
         error ~code output (invoke_task ~status:1 source))
-      (Persistent.faults @ Persistent.jit_faults);
+      (Persistent.faults @ Persistent.jit_faults @ Casts.faults);
     List.iter
       (fun (_, source) -> error "" (invoke_task ~status:1 source))
-      Persistent.unsupported;
+      (Persistent.unsupported @ Casts.unsupported);
     let _, prototype, expected, output = List.hd Defaults.prototype_values in
     value
       ~warnings:

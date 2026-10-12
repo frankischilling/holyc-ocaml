@@ -13,8 +13,11 @@ during a leaf and the remaining aggregate execution families stay open.
 references to complete earlier layouts in IR and native execution. The
 [example](../examples/class-pointer-views.hc) prints `AB` and returns 42 while
 checking a primitive round trip and the selected class stride. Local and retained
-casts preserve their original source selections; numeric references and whole
-class-value casts remain unfinished.
+casts preserve their original source selections; numeric references remain
+unfinished. [Aggregate value casts](aggregate-value-casts.md) distinguish
+original storage reads from grouped register values across the nine integer
+raw classes. Cast destinations preserve root bounds and update only the
+selected bytes; register class values supply no addressable object.
 
 Native emission, assembly linking and BIN output share the checked [section and relocation model](native-sections.md). Native branches and calls resolve through ordered, address-independent objects. Reports retain function/global source identities and source maps; private hosted storage remains tied to its original runtime owner.
 

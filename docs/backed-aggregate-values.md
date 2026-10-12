@@ -77,7 +77,8 @@ no TempleOS runtime capture or machine-byte comparison.
 an earlier selected backing when a local type replaces its name. Inline backed
 definitions with attached locals retain their separate declaration-mode gate.
 
-Postfix casts involving whole backed values, aggregate initializers, prepared
+[Aggregate value casts](aggregate-value-casts.md) distinguish selected storage
+widths from computed register bits. Remaining aggregate initializer leaves, prepared
 AOT IR and ordinary native defaults containing references, callback parameter
 ABI paths, floating execution and parameter storage,
 zero-sized automatic objects, F64/pointer/callback

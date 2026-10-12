@@ -7,6 +7,14 @@ retains the parenthesis distinction; complete `Compiler/OptLib.HC:9-15,508-525`
 and `Compiler/BackLib.HC:693-708` select forwarded pointed widths. Hosted
 descriptors preserve the original root independently of the chosen class view.
 
+[Aggregate value casts](aggregate-value-casts.md) use the same original cast
+producer and optimizer distinction. Complete `PrsExpression2` at
+`Compiler/PrsExp.HC:65-262` emits subsequent dereferences and updates.
+`Compiler/BackLib.HC:311-659` preserves register words through `ICPush`,
+`ICPop` and `ICMov`, while memory operands select their raw width and sign.
+`Compiler/OptPass789A.HC:445-448` sends a remaining cast to `ICMov`.
+Register classes supply no owned aggregate allocation.
+
 [BIN serialization](templeos-bin-format.md) follows the header and IET registry
 in `Kernel/KernelA.HH:375-436`, the AOT adjustments and final writer in
 `Compiler/CMain.HC:302-568`, and the import/export producers in

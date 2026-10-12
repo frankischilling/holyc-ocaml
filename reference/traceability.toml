@@ -14507,7 +14507,7 @@ selection = "Complete nonempty target class at the exact original cast occurrenc
 execution = "IR and native descriptor views preserve allocation identity, logical offset, initialization region and original extent; subsequent operations use the selected target fields and stride."
 verification = "Independent words cover all supported integer field types, packed and inherited members, nested arrays, scalar-cell crossings, prefix backing, argument snapshots, captured destinations, primitive round trips, interior/backward/one-past views and local/retained replacement. Faults preserve initialization and root bounds. Missing, foreign, numeric and other-function class proofs reject raw IR; native mutations reject the graph seal. Existing frame, instruction, stack and image limits exercise casts."
 evidence_limit = "Source audit and hosted executions; no original TempleOS runtime capture or emitted-byte comparison for class casts. Invalid-memory faults are hosted policy."
-remaining = ["whole class-value casts and general aggregate copies", "numeric/null reference construction", "incomplete and empty target layouts", "deeper pointer views", "returned and persistent references", "other aggregate and compiler acceptance under #686/#682"]
+remaining = ["floating class-value casts and general aggregate copies", "numeric/null reference construction", "incomplete and empty target layouts", "deeper pointer views", "returned and persistent references", "other aggregate and compiler acceptance under #686/#682"]
 
 
 [[feature]]
@@ -14538,3 +14538,18 @@ model = "Backing forwarding before array traversal, reached completion of exact 
 verification = "Shared source fixtures exercise IR and both native paths in supported modes. Exact and one-below storage, preparation and runtime limits accompany cursor and foreign-header controls. Native source tasks preserve output before a later leaf fails; isolated IR validates the full layout before initializer execution."
 evidence_limit = "Pinned source audit and hosted execution only; original runtime captures and emitted machine code are absent. Out-of-root and unknown-byte rejection are hosted policy."
 remaining = ["metadata changes during an executing initializer leaf and unresolved selected classes", "F64, data pointer and owned callback leaves and stored callback invocation", "inferred dimensions and oversized source string copies", "empty root allocations and raw scalar copies wider than eight bytes", "full aggregate and compiler acceptance under #686 and #682"]
+
+[[feature]]
+id = "HC-INTEGER-AGGREGATE-VALUE-CASTS"
+description = "Integer class postfix casts distinguish original storage addresses from computed register values."
+sources = ["Compiler/PrsExp.HC:65-262 complete PrsExpression2", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier", "Compiler/OptPass012.HC:87-110 cast class transfer", "Compiler/OptLib.HC:508-525 complete CmpRawType and CmpRawTypePointed", "Compiler/BackLib.HC:311-659 complete ICPush, ICPop and ICMov", "Compiler/OptPass789A.HC:445-448 cast emission"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/aggregate_cast_cases.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/test_pointer_ordering.ml", "test/test_pointer_difference.ml", "test/test_integer_bytes.ml", "test/test_ir_integer_frames.ml", "examples/aggregate-value-casts.hc"]
+documentation = ["docs/aggregate-value-casts.md", "docs/default-aggregate-values.md", "docs/backed-aggregate-values.md", "docs/class-pointer-views.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+model = "Ungrouped integer storage casts select their final owned address class and load or update its raw width. Grouped and immediate class values preserve register bits and nominal computation class without granting a byte root. Existing class view proofs bind selected layouts to the exact function owner. Root bounds, initialization, lifetime, member offsets and captured destinations remain original."
+verification = "A nine-by-nine backing/read matrix accompanies all integer cast targets, grouped and immediate values, selected class members, consecutive casts, parameter and return words, prefix and postfix updates, unions, inheritance, nested and persistent storage, local types and retained replacements. Faults and exact limits retain original roots and initialized bytes. Raw IR rejects foreign, missing and other-function class proofs; native graph mutations reject before image creation. Public source fixtures run through IR, native programs and native source tasks."
+evidence_limit = "Pinned source audit and hosted execution only; no new TempleOS runtime captures or emitted machine-byte comparison. Invalid-memory faults are hosted policy."
+remaining = ["F64, pointer and callback class backings", "numeric reference construction and reference returns", "callable callback fields and general aggregate copies", "inline backed local declaration mode", "full aggregate and compiler acceptance under #686/#682"]

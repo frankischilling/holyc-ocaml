@@ -388,7 +388,7 @@ let assignment_results_and_types () =
       [
         block 0
           [
-            H.imm ~id:0 ~value:0 ~type_:H.i64 42L;
+            H.imm ~id:0 ~value:0 ~type_:H.i64 0x1002aL;
             H.description
               ~operands:[ H.value_id 0 ]
               ~result:(H.result 1) ~target_type:cast_type
@@ -398,14 +398,14 @@ let assignment_results_and_types () =
           ];
       ]
   in
-  ignore (execute frame [ 0L; 0L ] (public_cast H.public_i64) |> expect_word 42L);
+  ignore
+    (execute frame [ 0L; 0L ] (public_cast H.public_i64) |> expect_word 0x1002aL);
   let narrow =
     Type.make_primitive ~form:Type.Public_spelling ~primitive:Primitive_type.U8
       ~pointer_depth:0
     |> Result.get_ok
   in
-  ignore
-    (execute frame [ 0L; 0L ] (public_cast narrow) |> expect_error "HCIRVM0005")
+  ignore (execute frame [ 0L; 0L ] (public_cast narrow) |> expect_word 0x1002aL)
 
 let lowering_boundaries () =
   let frame, function_ = analyze source in

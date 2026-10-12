@@ -473,6 +473,8 @@ let narrow_operand_boundaries () =
                               d with
                               opcode = O.Ic_holyc_typecast;
                               operands = [ byte ];
+                              target_type =
+                                Some (T.pointer_to H.public_i64 |> Result.get_ok);
                               flags = 0L;
                               payload = Some (Seq.Integer 0L);
                             }
@@ -547,7 +549,7 @@ let tests =
       Alcotest.test_case "malformed byte IR types strides layouts and owners"
         `Quick malformed_ir_and_owners;
       Alcotest.test_case
-        "byte values cannot forge pointer strides or word casts" `Quick
+        "byte values cannot forge pointer strides or references" `Quick
         narrow_operand_boundaries;
       Alcotest.test_case "byte arithmetic result rank is checked" `Quick
         malformed_arithmetic_rank;

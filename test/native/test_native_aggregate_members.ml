@@ -2,6 +2,7 @@ open Holyc_lib
 module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
+module Casts = Aggregate_cast_cases
 module Inherited = Inherited_aggregate_cases
 module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
@@ -86,7 +87,7 @@ let faults () =
             (Native_program.output_bytes report))
         (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
        @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults
-       @ Persistent.faults
+       @ Persistent.faults @ Casts.faults
         @ if mode = Preprocessor.Jit then Persistent.jit_faults else []);
       List.iter
         (fun (definition, bytes) ->
@@ -169,6 +170,7 @@ let quotas () =
       Inherited.quota_source;
       Backed.quota_source;
       Default.quota_source;
+      Casts.quota_source;
       Parameters.quota_source;
       Returns.quota_source;
       Defaults.quota_source;
@@ -222,6 +224,7 @@ let images () =
       Inherited.quota_source;
       Backed.quota_source;
       Default.quota_source;
+      Casts.quota_source;
       Parameters.quota_source;
       Returns.quota_source;
       Defaults.quota_source;
@@ -277,6 +280,7 @@ let field_proofs () =
       Inherited.proof_source;
       Backed.proof_source;
       Default.proof_source;
+      Casts.proof_source;
       Persistent.quota_source;
     ]
 
@@ -300,7 +304,7 @@ let boundaries () =
         (Cases.unsupported @ Cases.pointer_unsupported @ Arrays.unsupported
        @ Pointers.unsupported @ Inherited.source_unsupported
        @ Backed.unsupported @ Default.unsupported @ Parameters.unsupported
-       @ Returns.unsupported @ Persistent.unsupported);
+       @ Casts.unsupported @ Returns.unsupported @ Persistent.unsupported);
       let original =
         Aggregate_member_fixture.compile ~contents:Returns.quota_source mode
       in
@@ -412,10 +416,10 @@ let class_default_proofs () =
               ~path:"class-default-quota.hc" ~contents:Defaults.quota_source ())))
     modes
 
-let run_task ?max_global_bytes ?max_code_bytes ?max_ir_instructions
-    ?max_initializer_steps ?max_default_bytes ?max_frame_bytes ?max_steps
-    contents =
-  let session, config, source = inputs Preprocessor.Jit contents in
+let run_task ?(mode = Preprocessor.Jit) ?max_global_bytes ?max_code_bytes
+    ?max_ir_instructions ?max_initializer_steps ?max_default_bytes
+    ?max_frame_bytes ?max_steps contents =
+  let session, config, source = inputs mode contents in
   Native_source_execution.evaluate ?max_global_bytes ?max_ir_instructions
     ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
     ~max_code_bytes:(Option.value ~default:524_288 max_code_bytes)
@@ -482,7 +486,9 @@ let task_limits () =
     (run_task ~max_default_bytes:7 Defaults.quota_source);
   task_failure "HCIRVM0019" (run_task Defaults.extent_source)
 
-let task_storage_limits ~expect_preparation contents =
+let task_storage_limits ?(mode = Preprocessor.Jit) ?expected_frame_bytes
+    ~expect_preparation contents =
+  let run_task = run_task ~mode in
   let baseline = run_task contents in
   task_value 42L "" baseline;
   let bytes, ir =
@@ -492,7 +498,7 @@ let task_storage_limits ~expect_preparation contents =
       (0, 0)
       (Native_source_execution.fragments baseline)
   in
-  let session, config, source = inputs Preprocessor.Jit contents in
+  let session, config, source = inputs mode contents in
   let report = compile_integer_program_report session ~config ~source in
   ignore (integer_program_compilation_result report |> checked);
   let frame_bytes =
@@ -505,6 +511,7 @@ let task_storage_limits ~expect_preparation contents =
         |> Int64.to_int)
     |> List.fold_left max 0
   in
+  let frame_bytes = Option.value ~default:frame_bytes expected_frame_bytes in
   let steps = Native_source_execution.executed_steps baseline
   and preparation = Native_source_execution.preparation_steps baseline in
   if expect_preparation then
@@ -529,6 +536,40 @@ let task_nested_limits () =
 let task_view_limits () =
   task_storage_limits ~expect_preparation:false
     ("#exe {0;}" ^ Pointers.quota_source)
+
+let task_cast_limits () =
+  List.iter
+    (fun mode ->
+      task_storage_limits ~mode ~expected_frame_bytes:Casts.quota_frame_bytes
+        ~expect_preparation:false Casts.quota_source)
+    modes
+
+let task_cast_faults () =
+  List.iter
+    (fun mode ->
+      let run_task = run_task ~mode in
+      List.iter
+        (fun (_, contents, code, output) ->
+          let report = run_task contents in
+          task_failure code report;
+          Alcotest.(check string)
+            "cast failure preserves reached native output" output
+            (Native_source_execution.output_bytes report))
+        Casts.faults;
+      List.iter
+        (fun (_, contents) ->
+          Alcotest.(check bool)
+            "unsupported cast has no native task execution authority" true
+            (Result.is_error
+               (Native_source_execution.outcome (run_task contents))))
+        Casts.unsupported)
+    modes
+
+let task_aot_cast_values () =
+  List.iter
+    (fun (_, contents, expected, output) ->
+      task_value expected output (run_task ~mode:Preprocessor.Aot contents))
+    Casts.values
 
 let persistent_storage () =
   List.iter
@@ -573,7 +614,7 @@ let task_values =
   @ Returns.view_matrix @ Returns.warning_values @ Defaults.native_values
   @ [ List.hd Defaults.prototype_values ]
   @ Defaults.jit_values @ Cases.retained_nested_values @ Persistent.values
-  @ Persistent.retained_values
+  @ Persistent.retained_values @ Casts.values @ Casts.retained_values
 
 let task_boundaries () =
   let _, original_prototype_call, _, _ = List.nth Defaults.prototype_values 1 in
@@ -618,6 +659,12 @@ let () =
             `Quick task_nested_limits;
           Alcotest.test_case "exact class view storage, work and image limits"
             `Quick task_view_limits;
+          Alcotest.test_case "exact class cast storage, work and image limits"
+            `Quick task_cast_limits;
+          Alcotest.test_case "class cast faults and reached native output"
+            `Quick task_cast_faults;
+          Alcotest.test_case "AOT class cast words and storage" `Quick
+            task_aot_cast_values;
           Alcotest.test_case "earlier prototype ABI remains bounded" `Quick
             task_boundaries;
         ] );
@@ -635,7 +682,7 @@ let () =
          @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
          @ Backed.values @ Default.values @ Parameters.values
          @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
-         @ Returns.warning_values @ Persistent.values) );
+         @ Returns.warning_values @ Persistent.values @ Casts.values) );
       ( "storage",
         [
           Alcotest.test_case

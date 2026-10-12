@@ -59,7 +59,8 @@ parenthesis flag. Stride proofs and cast proofs have separate payload forms.
 
 Numeric and null casts cannot manufacture owned references. Incomplete and
 empty target layouts, deeper pointers, reference returns and persistent pointer
-cells retain their execution boundaries. Whole class-value casts and general
+cells retain their execution boundaries. [Integer class-value casts](aggregate-value-casts.md)
+retain storage and register semantics. General
 aggregate copies remain open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686). Full compiler
 parity remains open under

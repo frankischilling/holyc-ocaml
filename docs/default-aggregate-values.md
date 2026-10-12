@@ -74,8 +74,10 @@ no TempleOS runtime capture or machine-byte comparison.
 [Closed class default words](class-default-words.md) prepare in both IR modes and
 native JIT/AOT source compilation. Completed
 [function-local classes](function-local-aggregate-objects.md) also retain their
-default signed word view and original object size. Whole-value postfix casts, aggregate
-initializers, AOT IR and ordinary native defaults containing references and
+default signed word view and original object size.
+[Aggregate value casts](aggregate-value-casts.md) select integer storage widths
+or preserve grouped register words. Remaining aggregate initializer leaves,
+AOT IR and ordinary native defaults containing references and
 callback parameter ABI paths and
 zero-sized automatic objects, pointer and callback backings, F64 execution and
 general aggregate copies remain

@@ -1714,6 +1714,18 @@ let make_result ?aggregate_return_value_type ?operand_result ?binary_operands
             | Function_call_resolution.Parenthesized_expression _ ->
                 Option.bind operand_result (fun operand ->
                     operand.aggregate_return_value_type)
+            | Function_call_resolution.Postfix_cast_expression _ ->
+                Option.bind source_type (fun source_type ->
+                    Option.bind state.backing_context
+                      (fun (table, members, policies, before_item_index) ->
+                        if
+                          Option.fold ~none:false
+                            ~some:(fun operand -> operand.category = Lvalue)
+                            operand_result
+                        then None
+                        else
+                          Aggregate_backing_storage.integer_value_type ~table
+                            ~members ~policies ~before_item_index ~source_type))
             | Function_call_resolution.Prefix_expression prefix
               when Function_call_resolution.prefix_operator prefix
                    = Function_call_resolution.Unary_plus ->
@@ -2560,13 +2572,30 @@ let rec type_expression table members policies ~before_item_index ~context
           (fun () ->
             make_result ?operand_result ~array_rank ?array_address
               ?aggregate_pointee_layout:
-                (Option.bind source_type (fun pointer_type ->
-                     match Type.base pointer_type with
-                     | Type.Aggregate _ when Type.pointer_depth pointer_type = 1
-                       ->
-                         pointee_layout state ~members ~before_item_index
-                           ~source ~pointer_type
-                     | _ -> None))
+                (Option.bind source_type (fun source_type ->
+                     let pointer_type =
+                       if
+                         Option.fold ~none:false
+                           ~some:(fun operand -> operand.category = Lvalue)
+                           operand_result
+                         &&
+                         match
+                           Function_call_resolution.argument_expression_kind
+                             source
+                         with
+                         | Function_call_resolution.Postfix_cast_expression _ ->
+                             true
+                         | _ -> false
+                       then Type.pointer_to source_type |> Result.to_option
+                       else Some source_type
+                     in
+                     Option.bind pointer_type (fun pointer_type ->
+                         match Type.base pointer_type with
+                         | Type.Aggregate _
+                           when Type.pointer_depth pointer_type = 1 ->
+                             pointee_layout state ~members ~before_item_index
+                               ~source ~pointer_type
+                         | _ -> None)))
               ?member_lookup ?callback_pointer ?aggregate_offset_path
               ?outer_occurrence ?top_level_outer_occurrence ?outer_binding
               ?call_resolution ?function_declaration ?function_address_path
@@ -2635,17 +2664,45 @@ let rec type_expression table members policies ~before_item_index ~context
           type_member table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source member
       | Function_call_resolution.Postfix_cast_expression (operand, target) -> (
-          match
-            type_expression table members policies ~before_item_index
-              ~context:Value_context state operand
-          with
+          match known_type table (Type_reference.resolved_type target) with
           | Error _ as error -> error
-          | Ok (operand_result, state) -> (
-              match known_type table (Type_reference.resolved_type target) with
+          | Ok target_type -> (
+              let operand_context =
+                if
+                  Type.pointer_depth target_type = 0
+                  && forwarded_class policies ~before_item_index target_type
+                     = Integer_result
+                  &&
+                  match
+                    Function_call_resolution.argument_expression_kind operand
+                  with
+                  | Function_call_resolution.Parenthesized_expression _ -> false
+                  | _ -> true
+                then Lvalue_context
+                else Value_context
+              in
+              match
+                type_expression table members policies ~before_item_index
+                  ~context:operand_context state operand
+              with
               | Error _ as error -> error
-              | Ok target_type ->
+              | Ok (operand_result, state) ->
                   let category =
                     if Type.pointer_depth target_type > 0 then Address_value
+                    else if
+                      operand_result.category = Lvalue
+                      &&
+                      match
+                        Function_call_resolution.argument_expression_kind
+                          operand
+                      with
+                      | Function_call_resolution.Parenthesized_expression _ ->
+                          false
+                      | _ -> true
+                    then
+                      match context with
+                      | Value_context -> Object_value
+                      | Lvalue_context -> Lvalue
                     else Object_value
                   in
                   finish ~operand_result ~source_type:(Some target_type)

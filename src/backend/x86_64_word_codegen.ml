@@ -658,12 +658,12 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               Some result,
               Some target_type,
               Some (Sequence.Integer (0L | 1L)) ) ) ->
-            (* OptPass012.HC:87-110 preserves bits for both parenthesis
-               forms in this checked full-word domain. Keep the original cast
-               instruction and target computation class; no floating or
-               narrow conversion is admitted by this path. *)
-            let _ = checked_word ~allow_public description target_type in
+            (* OptPass012.HC:87-110 and BackLib.HC:445-657 preserve register
+               bits. Storage casts have already selected their owned address
+               and read width; this instruction changes the computation class. *)
+            let _ = checked_value target_type in
             let input = operand operand_id in
+            ignore (checked_value input.declared_type);
             let result =
               define result target_type (Computation.declared target_type)
             in

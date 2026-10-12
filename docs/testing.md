@@ -8,6 +8,15 @@ replace selected class proofs; unknown bytes and out-of-root field windows fail
 with the existing diagnostics. Casts also run through the aggregate frame,
 instruction, stack and image budget checks.
 
+[Aggregate value casts](aggregate-value-casts.md) add a backing/read-width
+matrix across the nine integer classes. Separate cases check selected storage
+reads, grouped and immediate register bits, cast destinations, parameter and
+return words, member views and retained nominal identities. Initialization,
+root bounds, exact limits, foreign class proofs and native graph seals remain
+checked across IR, native programs, native source tasks and the public CLI.
+These expected words derive from the pinned source; no new target runtime
+capture or machine-byte comparison is claimed.
+
 The independent BIN validator tests use literal wire builders without the
 writer's decoder. They check all twenty nonterminal IET types, malformed
 headers and payloads, exact budgets, one-below failures, two virtual bases,

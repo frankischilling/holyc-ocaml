@@ -6701,7 +6701,8 @@ let declared_types ?frame ?globals ?literals ?initialization
                          | _, Opcode.Ic_holyc_typecast
                            when memory_enabled || allow_calls -> (
                              match
-                               scalar_word_type ~allow_public:true type_
+                               scalar_value_type ~allow_byte ~allow_public:true
+                                 type_
                              with
                              | Some word_type -> supported word_type type_
                              | None -> Unsupported)
@@ -7474,7 +7475,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   Some result_type,
                   Some (Sequence.Integer (0L | 1L)) ) -> (
                   match
-                    scalar_word_type
+                    scalar_value_type ~allow_byte
                       ~allow_public:(memory_enabled || allow_public)
                       result_type
                   with
@@ -7485,10 +7486,16 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                       | Some operand
                         when match Value_map.find_opt operand_id types with
                              | Some (Supported (_, type_, computation)) ->
-                                 Option.is_some (return_word_type type_)
+                                 Option.is_some
+                                   (function_return_word_type type_)
                                  || callback_word_type type_
                                     && Option.is_some
                                          (return_word_type computation)
+                                    && Option.fold ~none:false
+                                         ~some:(fun type_ ->
+                                           Option.is_some
+                                             (return_word_type type_))
+                                         description.target_type
                              | _ -> false ->
                           Ok (Word_view (operand, result.value_id, result_type))
                       | Some _ ->

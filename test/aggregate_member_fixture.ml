@@ -119,6 +119,7 @@ let controls ?(contents = contents) mode =
     if
       contents <> Aggregate_pointer_cases.proof_source
       && contents <> local_pointer_contents
+      && contents <> Aggregate_cast_cases.proof_source
     then []
     else
       let proof definition =
@@ -189,11 +190,16 @@ let controls ?(contents = contents) mode =
         ("missing selected pointee layout", rebuild definition (substitute None));
         ( "numeric cast payload cannot replace its selected class proof",
           rebuild definition (substitute (Some (Seq.Integer 0L))) );
-        ( "scaled offset differs from selected pointee",
-          rebuild definition wrong_stride );
         ( "pointee layout belongs to another function",
           rebuild definition (substitute (Some later_function_proof)) );
       ]
+      @
+      if contents = Aggregate_cast_cases.proof_source then []
+      else
+        [
+          ( "scaled offset differs from selected pointee",
+            rebuild definition wrong_stride );
+        ]
   in
   let backing_proofs =
     if

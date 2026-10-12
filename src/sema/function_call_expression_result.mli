@@ -566,8 +566,9 @@ val result_type : expression_result -> Type.t option
 val result_value_type : expression_result -> Type.t option
 
 val result_aggregate_return_value_type : expression_result -> Type.t option
-(** Scalar view retained by an original direct class call and transparent
-    grouping. This value grants no addressable aggregate storage. *)
+(** Scalar view retained by an original direct class call or register-value
+    cast, and transparent grouping. This value grants no addressable aggregate
+    storage. *)
 
 val result_aggregate_backing_storage :
   expression_result -> Aggregate_backing_storage.t option

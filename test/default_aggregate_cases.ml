@@ -137,8 +137,4 @@ let faults =
       "" );
   ]
 
-let unsupported =
-  [
-    ( "default whole postfix cast",
-      {|class Box{U64 word;};I64 F(){Box o;o=42;return o(U8);}F();|} );
-  ]
+let unsupported = []

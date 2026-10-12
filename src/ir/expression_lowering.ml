@@ -74,12 +74,20 @@ type backing_step = {
   backing_span : Common.Span.t;
 }
 
+type cast_address_step = {
+  cast_result : Semantic_result.expression_result;
+  cast_operand : Semantic_result.expression_result;
+  cast_pointer_type : Type.t;
+  cast_span : Common.Span.t;
+}
+
 type assignment_address =
   | Direct_address of storage_address
   | Indirect_address_value of Semantic_result.expression_result
   | Pointer_base of Semantic_result.expression_result
   | Member_address of member_step * assignment_address
   | Backing_address of backing_step * assignment_address
+  | Cast_address of cast_address_step * assignment_address
   | Indexed_address of {
       base : Semantic_result.expression_result;
       address : assignment_address;
@@ -131,6 +139,7 @@ type pointer_update_step = {
 type plan_node =
   | Project_member of member_step
   | Project_backing of backing_step
+  | Project_cast_address of cast_address_step
   | Index_stride of index_step
   | Index_address of index_step
   | Pointer_difference of pointer_difference_step
@@ -247,6 +256,7 @@ type plan_node =
 type task =
   | Finish_member_projection of member_step
   | Finish_backing_projection of backing_step
+  | Finish_cast_address of cast_address_step
   | Emit_index_stride of index_step
   | Finish_index_address of index_step
   | Finish_pointer_update of pointer_update_step
@@ -1473,11 +1483,33 @@ let checked_alias_types result operand =
         (metadata_error ?span:(result_span result)
            "transparent expression does not have complete checked types")
 
+let rec callback_cast_operand operand =
+  Option.is_some (Semantic_result.result_callback_pointer operand)
+  || Option.is_some (Semantic_result.result_function_declaration operand)
+  || numeric_callback_result operand
+  ||
+  match
+    Semantic_source.argument_expression_kind
+      (Semantic_result.result_source operand)
+  with
+  | Semantic_source.Parenthesized_expression _
+  | Semantic_source.Postfix_cast_expression _ ->
+      Option.fold ~none:false ~some:callback_cast_operand
+        (Semantic_result.result_operand operand)
+  | _ -> false
+
 let checked_cast_types ?frame result operand target =
   if
-    Option.is_some (Semantic_result.result_aggregate_backing_storage result)
-    || Option.is_some (Semantic_result.result_aggregate_backing_storage operand)
-  then Ok false
+    match
+      Semantic_source.argument_expression_kind
+        (Semantic_result.result_source operand)
+    with
+    | Semantic_source.Postfix_expression _ -> true
+    | _ -> false
+  then
+    (* PrsExpression2 consumes an update at PE_DEREFERENCE and then checks
+       binary operators. A further cast requires a grouped value. *)
+    Ok false
   else
     match Semantic_result.result_type result with
     | None ->
@@ -1505,7 +1537,14 @@ let checked_cast_types ?frame result operand target =
           match (checked_numeric_type operand, checked_numeric_type result) with
           | Error item, _ | _, Error item -> Error item
           | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok false
-          | Ok (Checked_type _), Ok (Checked_type _) -> Ok true)
+          | Ok (Checked_type _), Ok (Checked_type type_) ->
+              if callback_cast_operand operand then
+                Ok
+                  (Option.fold ~none:false
+                     ~some:(fun scalar ->
+                       Integer_scalar_storage.byte_size scalar = 8)
+                     (Integer_scalar_storage.of_type type_))
+              else Ok true)
 
 let cast_span result =
   match result_span result with
@@ -2155,6 +2194,46 @@ and prepare_assignment_address ?frame ?globals result =
     Semantic_source.argument_expression_kind
       (Semantic_result.result_source result)
   with
+  | Semantic_source.Postfix_cast_expression (source_operand, target) ->
+      let ( let* ) = Result.bind in
+      let* operand =
+        checked_operand result source_operand "postfix cast destination"
+        |> Result.map_error (fun e -> [ e ])
+      in
+      let* valid =
+        checked_cast_types ?frame result operand target
+        |> Result.map_error (fun e -> [ e ])
+      in
+      if
+        (not valid)
+        || cast_was_parenthesized source_operand
+        || Semantic_result.result_category operand <> Semantic_result.Lvalue
+        || Semantic_result.result_array_rank operand <> 0
+        || Option.is_none
+             (Option.bind
+                (Semantic_result.result_value_type result)
+                Integer_scalar_storage.of_type)
+      then Ok None
+      else
+        let* span = cast_span result |> Result.map_error (fun e -> [ e ]) in
+        let* pointer_type =
+          Type.pointer_to
+            (Option.get (Semantic_result.result_storage_type result))
+          |> Result.map_error (fun message -> [ metadata_error ~span message ])
+        in
+        let* address = prepare_assignment_address ?frame ?globals operand in
+        Ok
+          (Option.map
+             (fun address ->
+               Cast_address
+                 ( {
+                     cast_result = result;
+                     cast_operand = operand;
+                     cast_pointer_type = pointer_type;
+                     cast_span = span;
+                   },
+                   address ))
+             address)
   | Semantic_source.Prefix_expression _
     when Option.is_some
            (Semantic_result.result_canceled_callback_operand result) ->
@@ -2377,6 +2456,9 @@ let plan ?frame ?globals ~allow_calls root =
     | Backing_address (step, address) ->
         address_tasks step.backing_result address
           (Finish_backing_projection step :: after)
+    | Cast_address (step, address) ->
+        address_tasks step.cast_operand address
+          (Finish_cast_address step :: after)
     | Indexed_address
         { base; address; index; stride; pointee_layout; pointer_type; span } ->
         let step =
@@ -3416,6 +3498,25 @@ let plan ?frame ?globals ~allow_calls root =
                     match checked_cast_types ?frame result operand target with
                     | Error item -> error := Some item
                     | Ok false -> unsupported := true
+                    | Ok true
+                      when Semantic_result.result_category operand
+                           = Semantic_result.Lvalue
+                           && not (cast_was_parenthesized source_operand) -> (
+                        match prepare_value_address ?frame ?globals result with
+                        | Error (item :: _) -> error := Some item
+                        | Ok (Some address) ->
+                            address_tasks result address
+                              [
+                                Finish_unary
+                                  {
+                                    result;
+                                    opcode = Opcode.Ic_deref;
+                                    span;
+                                    operand = result;
+                                    conversion;
+                                  };
+                              ]
+                        | _ -> unsupported := true)
                     | Ok true ->
                         pending :=
                           Visit { result = operand; conversion = Keep_result }
@@ -3457,6 +3558,8 @@ let plan ?frame ?globals ~allow_calls root =
             reversed := Project_member step :: !reversed
         | Finish_backing_projection step ->
             reversed := Project_backing step :: !reversed
+        | Finish_cast_address step ->
+            reversed := Project_cast_address step :: !reversed
         | Finish_materialize_array { result; operand; pointer_type; span } ->
             reversed :=
               Materialize_array { result; operand; pointer_type; span }
@@ -3772,6 +3875,7 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
     | Index_address { indexed_result = result; _ }
     | Project_member { member_result = result; _ }
     | Project_backing { backing_result = result; _ }
+    | Project_cast_address { cast_result = result; _ }
     | Chain_link { result; _ } -> (result, [], false)
     | Alias { result; operand } | Eliminated_division { result; operand } ->
         (result, [ operand ], true)
@@ -3815,6 +3919,7 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
         | Index_address _
         | Project_member _
         | Project_backing _
+        | Project_cast_address _
         | Pointer_difference _
         | Pointer_update _
         | Materialize_array _
@@ -4548,6 +4653,42 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
             | Ok node ->
                 lowered :=
                   Int_map.add (result_key step.member_result) node !lowered)
+        | Project_cast_address step -> (
+            let ( let* ) = Result.bind in
+            let materialize =
+              let* operand =
+                find_lowered !lowered step.cast_operand "postfix cast address"
+              in
+              emit_index_value ~opcode:Opcode.Ic_addr
+                ~operands:[ operand.lowered_value ]
+                ~target_type:operand.lowered_type ~payload:None
+                ~span:step.cast_span
+            in
+            match materialize with
+            | Error item -> error := Some item
+            | Ok operand -> (
+                let payload =
+                  if
+                    Automatic_aggregate_storage.aggregate_pointer
+                      step.cast_pointer_type
+                  then
+                    Option.map
+                      (fun layout ->
+                        Sequence.Class_pointer_view (layout, false))
+                      (Semantic_result.result_aggregate_pointee_layout
+                         step.cast_result)
+                  else Some (Sequence.Integer 0L)
+                in
+                match
+                  emit_index_value ~opcode:Opcode.Ic_holyc_typecast
+                    ~operands:[ operand.lowered_value ]
+                    ~target_type:step.cast_pointer_type ~payload
+                    ~span:step.cast_span
+                with
+                | Error item -> error := Some item
+                | Ok node ->
+                    lowered :=
+                      Int_map.add (result_key step.cast_result) node !lowered))
         | Project_backing step -> (
             let ( let* ) = Result.bind in
             let emitted =
@@ -5399,6 +5540,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                 | Index_address { indexed_result = result; _ } :: _
                 | Project_member { member_result = result; _ } :: _
                 | Project_backing { backing_result = result; _ } :: _
+                | Project_cast_address { cast_result = result; _ } :: _
                 | Pointer_update { updated_result = result; _ } :: _
                 | Pointer_difference { difference_result = result; _ } :: _
                 | Materialize_array { result; _ } :: _

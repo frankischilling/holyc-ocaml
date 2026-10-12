@@ -2,6 +2,7 @@ open Holyc_lib
 module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
+module Casts = Aggregate_cast_cases
 module Inherited = Inherited_aggregate_cases
 module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
@@ -66,7 +67,8 @@ let faults () =
         (fun (_, source, code, output) -> failure code output (run mode source))
         (Cases.faults @ Cases.pointer_faults @ Arrays.faults @ Pointers.faults
        @ Inherited.faults @ Backed.faults @ Default.faults @ Parameters.faults
-       @ Returns.faults @ Persistent.faults @ Persistent.pointer_faults);
+       @ Returns.faults @ Persistent.faults @ Persistent.pointer_faults
+       @ Casts.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -131,6 +133,7 @@ let quotas () =
       Inherited.quota_source;
       Backed.quota_source;
       Default.quota_source;
+      Casts.quota_source;
       Parameters.quota_source;
       Returns.quota_source;
     ];
@@ -195,6 +198,7 @@ let foreign_frame () =
       Inherited.quota_source;
       Backed.quota_source;
       Default.quota_source;
+      Casts.quota_source;
       Parameters.quota_source;
       Returns.quota_source;
       Persistent.quota_source;
@@ -251,6 +255,7 @@ let field_proofs () =
       Inherited.proof_source;
       Backed.proof_source;
       Default.proof_source;
+      Casts.proof_source;
     ]
 
 let persistent_ownership () =
@@ -461,7 +466,7 @@ let boundaries () =
                (integer_program_report_outcome (run mode contents))))
         (Cases.unsupported @ Cases.pointer_unsupported @ Arrays.unsupported
        @ Pointers.unsupported @ Inherited.unsupported @ Backed.unsupported
-       @ Default.unsupported
+       @ Default.unsupported @ Casts.unsupported
         @ (if mode = Preprocessor.Aot then
              [ List.hd Inherited.source_unsupported ]
            else [])
@@ -499,7 +504,8 @@ let () =
                 ignore (value expected output (run Preprocessor.Jit source))))
           (Defaults.jit_values @ Inherited.retained_values
          @ Pointers.retained_view_values @ Cases.retained_nested_values
-         @ Cases.pointer_retained_values @ Persistent.retained_values) );
+         @ Cases.pointer_retained_values @ Persistent.retained_values
+         @ Casts.retained_values) );
       ( "values",
         List.map
           (fun (name, source, expected, output) ->
@@ -513,7 +519,7 @@ let () =
          @ Inherited.values @ Inherited.view_matrix @ Backed.values
          @ Default.values @ Parameters.values @ Parameters.view_matrix
          @ Returns.values @ Returns.view_matrix @ Returns.warning_values
-         @ Persistent.values @ Persistent.pointer_values) );
+         @ Persistent.values @ Persistent.pointer_values @ Casts.values) );
       ( "storage",
         [
           Alcotest.test_case "source class default boundaries" `Quick

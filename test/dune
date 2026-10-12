@@ -5345,6 +5345,7 @@
   aggregate_member_cases
   aggregate_array_cases
   aggregate_pointer_cases
+  aggregate_cast_cases
   persistent_aggregate_cases
   inherited_aggregate_cases
   backed_aggregate_cases
@@ -5385,7 +5386,8 @@
   ../examples/retained-nested-members.hc
   ../examples/aggregate-pointer-fields.hc
   ../examples/persistent-aggregates.hc
-  ../examples/aggregate-initializers.hc)
+  ../examples/aggregate-initializers.hc
+  ../examples/aggregate-value-casts.hc)
  (action
   (run
    %{test}
@@ -5402,7 +5404,8 @@
    %{dep:../examples/retained-nested-members.hc}
    %{dep:../examples/aggregate-pointer-fields.hc}
    %{dep:../examples/persistent-aggregates.hc}
-   %{dep:../examples/aggregate-initializers.hc})))
+   %{dep:../examples/aggregate-initializers.hc}
+   %{dep:../examples/aggregate-value-casts.hc})))
 
 (test
  (name test_automatic_aggregate_storage)
