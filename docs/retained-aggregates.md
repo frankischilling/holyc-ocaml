@@ -1,5 +1,10 @@
 # Retained aggregate sizes
 
+[Class pointer views](class-pointer-views.md) retain original cast selections
+inside saved functions, including function-local definitions and later same-name
+replacement. A resumed call uses the saved class fields and stride over its
+current owned allocation. Casting does not change that allocation's extent.
+
 [Member size queries](aggregate-member-sizeof.md) retain original field types,
 dimensions and parser steps. Each selected class is read at the member's live
 callback, so a later forward completion changes later queries while saved

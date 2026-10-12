@@ -1,5 +1,12 @@
 # Reference source map
 
+[Class pointer views](class-pointer-views.md) follow complete
+`Compiler/PrsExp.HC:960-1115` and `Compiler/PrsVar.HC:285-371` for original cast
+selection, member offsets and target strides. `Compiler/OptPass012.HC:87-110`
+retains the parenthesis distinction; complete `Compiler/OptLib.HC:9-15,508-525`
+and `Compiler/BackLib.HC:693-708` select forwarded pointed widths. Hosted
+descriptors preserve the original root independently of the chosen class view.
+
 [BIN serialization](templeos-bin-format.md) follows the header and IET registry
 in `Kernel/KernelA.HH:375-436`, the AOT adjustments and final writer in
 `Compiler/CMain.HC:302-568`, and the import/export producers in

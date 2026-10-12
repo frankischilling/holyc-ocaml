@@ -490,8 +490,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   let* calls =
     Function_call_resolution.resolve ?call_phases ~table ~declarations
-      ~function_types ~members ~local_types ~global_types ~functions
-      ~expressions:module_expressions ?outer ast
+      ~function_types ~members ~aggregate_visibility ~local_types ~global_types
+      ~functions ~expressions:module_expressions ?outer ast
     |> checked
   in
   let* policies =

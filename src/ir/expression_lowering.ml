@@ -1473,7 +1473,7 @@ let checked_alias_types result operand =
         (metadata_error ?span:(result_span result)
            "transparent expression does not have complete checked types")
 
-let checked_cast_types result operand target =
+let checked_cast_types ?frame result operand target =
   if
     Option.is_some (Semantic_result.result_aggregate_backing_storage result)
     || Option.is_some (Semantic_result.result_aggregate_backing_storage operand)
@@ -1491,7 +1491,8 @@ let checked_cast_types result operand target =
             (metadata_error ?span:(result_span result)
                "postfix cast result type does not match its checked target")
         else if
-          scalar_pointer_type result_type
+          data_pointer_type result_type
+          && Option.is_some (pointer_element_size ?frame ~result result_type)
           && (match checked_frame_value operand with
             | Ok (Checked_type type_) -> data_pointer_type type_
             | _ -> false)
@@ -3409,7 +3410,7 @@ let plan ?frame ?globals ~allow_calls root =
                 with
                 | Error item, _ | _, Error item -> error := Some item
                 | Ok operand, Ok span -> (
-                    match checked_cast_types result operand target with
+                    match checked_cast_types ?frame result operand target with
                     | Error item -> error := Some item
                     | Ok false -> unsupported := true
                     | Ok true ->
@@ -4985,9 +4986,20 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                         result = Some { value_id };
                         target_type = Some result_type;
                         payload =
-                          Some
-                            (Sequence.Integer
-                               (if was_parenthesized then 1L else 0L));
+                          (if
+                             Automatic_aggregate_storage.aggregate_pointer
+                               result_type
+                           then
+                             Option.map
+                               (fun layout ->
+                                 Sequence.Class_pointer_view
+                                   (layout, was_parenthesized))
+                               (Semantic_result.result_aggregate_pointee_layout
+                                  result)
+                           else
+                             Some
+                               (Sequence.Integer
+                                  (if was_parenthesized then 1L else 0L)));
                         flags = conversion_flags conversion;
                         span = Some span;
                       }

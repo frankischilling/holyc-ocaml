@@ -14492,3 +14492,19 @@ consumers = "own-encoder native branches/calls/code addresses, assembly linking 
 checks = "checked alignment, IDs, section ranges, address/addend/relative arithmetic and one/two/four/eight-byte field ranges before final allocation"
 independent_evidence = "literal section rebases and original Cmp-produced ASM.BIN body; shared consumer agreement is separate"
 remaining = ["inline assembly execution (#715)", "runtime entry/fixup integration (#719)", "full compiler BIN emission (#723)"]
+
+[[feature]]
+id = "HC-OWNED-CLASS-POINTER-VIEWS"
+description = "Source-selected class pointer casts retain an existing owned allocation, offset, initialization state and extent."
+sources = ["Compiler/PrsExp.HC:960-1115 PrsUnaryModifier casts, members and indexing", "Compiler/PrsVar.HC:285-371 PrsType selected class and pointer depth", "Compiler/OptPass012.HC:87-110 cast class transfer", "Compiler/OptLib.HC:9-15,508-525 forwarding and raw widths", "Compiler/BackLib.HC:693-708 ICDeref pointed access"]
+implementation = ["src/driver/function_call_resolution.ml", "src/driver/integer_source.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/ir/instruction_sequence.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/aggregate_pointer_cases.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/class-pointer-views.hc"]
+documentation = ["docs/class-pointer-views.md", "docs/class-pointers.md", "docs/aggregate-members.md", "docs/native-pointers.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+selection = "Complete nonempty target class at the exact original cast occurrence, including function-local declarations and retained redefinitions; class proof retains the owning function and nominal layout."
+execution = "IR and native descriptor views preserve allocation identity, logical offset, initialization region and original extent; subsequent operations use the selected target fields and stride."
+verification = "Independent words cover all supported integer field types, packed and inherited members, nested arrays, scalar-cell crossings, prefix backing, argument snapshots, captured destinations, primitive round trips, interior/backward/one-past views and local/retained replacement. Faults preserve initialization and root bounds. Missing, foreign, numeric and other-function class proofs reject raw IR; native mutations reject the graph seal. Existing frame, instruction, stack and image limits exercise casts."
+evidence_limit = "Source audit and hosted executions; no original TempleOS runtime capture or emitted-byte comparison for class casts. Invalid-memory faults are hosted policy."
+remaining = ["whole class-value casts and general aggregate copies", "numeric/null reference construction", "incomplete and empty target layouts", "deeper pointer views", "returned and persistent references", "other aggregate and compiler acceptance under #686/#682"]

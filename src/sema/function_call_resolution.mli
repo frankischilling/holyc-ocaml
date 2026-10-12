@@ -560,6 +560,7 @@ val resolve :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   ?members:Aggregate_member_index.t ->
+  ?aggregate_visibility:Function_aggregate_visibility.t ->
   function_types:Function_type_resolution.t ->
   functions:Function_resolution.t ->
   expressions:Module_expression_binding.t ->
@@ -569,9 +570,10 @@ val resolve :
 (** Resolve function-body calls. A module function receives the source header
     visible to the caller and its canonical joined identity. A supplied member
     index also resolves direct and pointer callbacks through their exact lookup
-    and stored signature. Named aggregate types must carry the identity visible
-    before the caller. Other computed callee categories remain explicit deferred
-    calls. *)
+    and stored signature. Named aggregate casts retain the identity at their
+    original expression when [aggregate_visibility] is supplied, including body
+    declarations. Otherwise they use the identity before the caller. Other
+    computed callee categories remain explicit deferred calls. *)
 
 val bind_direct_arguments :
   call ->

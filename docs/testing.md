@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+The shared aggregate suites exercise [class pointer views](class-pointer-views.md)
+through IR, both native image ABIs and the public CLI. Expected words cover all
+supported integer field types, packed offsets, aliasing, argument snapshots,
+target strides and local and retained redefinitions. Raw IR mutations remove or
+replace selected class proofs; unknown bytes and out-of-root field windows fail
+with the existing diagnostics. Casts also run through the aggregate frame,
+instruction, stack and image budget checks.
+
 The independent BIN validator tests use literal wire builders without the
 writer's decoder. They check all twenty nonterminal IET types, malformed
 headers and payloads, exact budgets, one-below failures, two virtual bases,

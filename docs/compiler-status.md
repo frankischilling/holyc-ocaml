@@ -1,5 +1,12 @@
 # Compiler status and implementation notes
 
+[Class pointer views](class-pointer-views.md) cast owned integer and class
+references to complete earlier layouts in IR and native execution. The
+[example](../examples/class-pointer-views.hc) prints `AB` and returns 42 while
+checking a primitive round trip and the selected class stride. Local and retained
+casts preserve their original source selections; numeric references and whole
+class-value casts remain unfinished.
+
 Native emission, assembly linking and BIN output share the checked [section and relocation model](native-sections.md). Native branches and calls resolve through ordered, address-independent objects. Reports retain function/global source identities and source maps; private hosted storage remains tied to its original runtime owner.
 
 Owned data pointer fields execute in IR with their original member types,

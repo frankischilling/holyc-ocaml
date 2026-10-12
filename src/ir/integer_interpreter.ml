@@ -7403,7 +7403,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
               | _ -> Error (malformed block_id description))
           | Word_view_kind
             when memory_enabled
-                 && Option.fold ~none:false ~some:scalar_pointer_type
+                 && Option.fold ~none:false ~some:data_pointer_type
                       description.target_type -> (
               match
                 ( description.operands,
@@ -7411,17 +7411,33 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   description.target_type,
                   description.payload )
               with
-              | ( [ operand_id ],
-                  Some result,
-                  Some target_type,
-                  Some (Sequence.Integer (0L | 1L)) )
+              | [ operand_id ], Some result, Some target_type, Some payload
                 when description.flags = 0L -> (
+                  let valid_selection =
+                    match payload with
+                    | Sequence.Integer (0L | 1L) ->
+                        scalar_pointer_type target_type
+                    | Sequence.Class_pointer_view (layout, _) ->
+                        Option.fold ~none:false
+                          ~some:(fun context ->
+                            Sema.Aggregate_pointee_layout.matches layout
+                              ~function_symbol:
+                                (Frame.function_symbol context.layout)
+                              ~before_item_index:
+                                (Frame.function_item_index context.layout)
+                              ~pointer_type:target_type
+                              ~stride:
+                                (Sema.Aggregate_pointee_layout.byte_size layout))
+                          frame
+                    | _ -> false
+                  in
                   match
                     ( pointer_operand_of_value types operand_id,
                       Type.dereference target_type )
                   with
                   | Some operand, Ok pointee
-                    when data_pointer_type operand.pointer_type ->
+                    when valid_selection
+                         && data_pointer_type operand.pointer_type ->
                       Ok (Pointer_view (operand, result.value_id, pointee))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))

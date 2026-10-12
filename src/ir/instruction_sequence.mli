@@ -41,6 +41,8 @@ type payload =
   | Member_projection of Aggregate_member_projection.t
   | Backing_projection of Aggregate_member_projection.t
   | Pointee_stride of Sema.Aggregate_pointee_layout.t
+  | Class_pointer_view of Sema.Aggregate_pointee_layout.t * bool
+      (** Exact selected pointee and the original cast's parenthesis flag. *)
   | Retained_global of Retained_global.t
   | Saved_parameter_default of Prepared_parameter_default.t
   | Saved_callback_default of Prepared_callback_default.t

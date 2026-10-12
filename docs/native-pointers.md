@@ -1,5 +1,10 @@
 # Native scalar pointer aliases
 
+[Class pointer views](class-pointer-views.md) cast owned integer and class
+references to complete earlier class layouts. They preserve the original
+allocation, logical offset, initialization region and extent in isolated native
+programs and retained native tasks. Numeric casts still cannot supply ownership.
+
 [Owned aggregate members](aggregate-members.md) also admit one-level class
 pointer locals and fixed parameters in isolated programs. Exact field proofs
 select integer member windows and member-array strides over the caller's

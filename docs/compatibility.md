@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Class pointer views](class-pointer-views.md) retain owned bytes through casts
+between supported integer and class pointers. IR and native paths preserve
+original source selections, target strides and root bounds, including local
+class definitions and retained functions. Whole class-value casts, numeric/null
+reference construction and wider aggregate storage remain open under #686.
+
 [Native sections](native-sections.md) now provide the common checked layout and patch model for own-encoder native objects, assembly linking and AOT BIN serialization. Native source compilation retains semantic function/global identities and resolves forward machine references through that model. Signed field overflow fails before output; explicit modulo fields retain their source behavior. Hosted objects retain their runtime ownership boundary.
 
 [Assembler operands](assembler.md) now use one ordered parser for HolyC blocks,

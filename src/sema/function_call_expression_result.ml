@@ -2559,6 +2559,14 @@ let rec type_expression table members policies ~before_item_index ~context
         Result.map
           (fun () ->
             make_result ?operand_result ~array_rank ?array_address
+              ?aggregate_pointee_layout:
+                (Option.bind source_type (fun pointer_type ->
+                     match Type.base pointer_type with
+                     | Type.Aggregate _ when Type.pointer_depth pointer_type = 1
+                       ->
+                         pointee_layout state ~members ~before_item_index
+                           ~source ~pointer_type
+                     | _ -> None))
               ?member_lookup ?callback_pointer ?aggregate_offset_path
               ?outer_occurrence ?top_level_outer_occurrence ?outer_binding
               ?call_resolution ?function_declaration ?function_address_path

@@ -475,8 +475,7 @@ let task_limits () =
     (run_task ~max_default_bytes:7 Defaults.quota_source);
   task_failure "HCIRVM0019" (run_task Defaults.extent_source)
 
-let task_nested_limits () =
-  let contents = Cases.retained_nested_limits in
+let task_storage_limits ~expect_preparation contents =
   let baseline = run_task contents in
   task_value 42L "" baseline;
   let bytes, ir =
@@ -501,26 +500,36 @@ let task_nested_limits () =
   in
   let steps = Native_source_execution.executed_steps baseline
   and preparation = Native_source_execution.preparation_steps baseline in
-  Alcotest.(check bool)
-    "original nested preparation is counted" true (preparation > 1);
+  if expect_preparation then
+    Alcotest.(check bool)
+      "original nested preparation is counted" true (preparation > 1);
   task_value 42L ""
     (run_task ~max_code_bytes:bytes ~max_ir_instructions:ir ~max_steps:steps
-       ~max_initializer_steps:preparation ~max_frame_bytes:frame_bytes contents);
+       ~max_initializer_steps:(max 1 preparation) ~max_frame_bytes:frame_bytes
+       contents);
   task_failure "HCBACK0005" (run_task ~max_code_bytes:(bytes - 1) contents);
   task_failure "HCBACK0001" (run_task ~max_ir_instructions:(ir - 1) contents);
   task_failure "HCIRVM0007" (run_task ~max_steps:(steps - 1) contents);
-  task_failure "HCIRVM0007"
-    (run_task ~max_initializer_steps:(preparation - 1) contents);
+  if preparation > 1 then
+    task_failure "HCIRVM0007"
+      (run_task ~max_initializer_steps:(preparation - 1) contents);
   task_failure "HCIRVM0011"
     (run_task ~max_frame_bytes:(frame_bytes - 1) contents)
+
+let task_nested_limits () =
+  task_storage_limits ~expect_preparation:true Cases.retained_nested_limits
+
+let task_view_limits () =
+  task_storage_limits ~expect_preparation:false
+    ("#exe {0;}" ^ Pointers.quota_source)
 
 let task_values =
   Cases.values @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
   @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
   @ Inherited.values @ Inherited.view_matrix @ Inherited.retained_values
-  @ Backed.values @ Default.values @ Parameters.values @ Parameters.view_matrix
-  @ Returns.values @ Returns.view_matrix @ Returns.warning_values
-  @ Defaults.native_values
+  @ Pointers.retained_view_values @ Backed.values @ Default.values
+  @ Parameters.values @ Parameters.view_matrix @ Returns.values
+  @ Returns.view_matrix @ Returns.warning_values @ Defaults.native_values
   @ [ List.hd Defaults.prototype_values ]
   @ Defaults.jit_values @ Cases.retained_nested_values
 
@@ -563,6 +572,8 @@ let () =
             `Quick task_limits;
           Alcotest.test_case "exact nested class layout and preparation limits"
             `Quick task_nested_limits;
+          Alcotest.test_case "exact class view storage, work and image limits"
+            `Quick task_view_limits;
           Alcotest.test_case "earlier prototype ABI remains bounded" `Quick
             task_boundaries;
         ] );

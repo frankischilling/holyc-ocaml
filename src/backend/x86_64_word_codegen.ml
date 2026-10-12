@@ -6370,10 +6370,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   description.target_type,
                   description.payload )
               with
-              | ( [ id ],
-                  Some result,
-                  Some target_type,
-                  Some (Sequence.Integer (0L | 1L)) ) ->
+              | [ id ], Some result, Some target_type, Some payload ->
                   let input = operand values description position id in
                   if
                     Option.is_none input.reference_descriptor_offset
@@ -6383,11 +6380,31 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       "native primitive pointer casts require an owned data \
                        reference";
                   ignore (checked_reference description input.declared_type);
-                  if
-                    Ir.Automatic_aggregate_storage.aggregate_pointer target_type
-                  then
-                    unsupported description
-                      "native casts require an admitted primitive pointer view";
+                  let valid_selection =
+                    match payload with
+                    | Sequence.Integer (0L | 1L) ->
+                        not
+                          (Ir.Automatic_aggregate_storage.aggregate_pointer
+                             target_type)
+                    | Sequence.Class_pointer_view (layout, _) ->
+                        Option.fold ~none:false
+                          ~some:(fun before_item_index ->
+                            Sema.Aggregate_pointee_layout.matches
+                              ?function_symbol:
+                                (match runtime_owner with
+                                | Runtime.Function body ->
+                                    Some (Function.symbol body)
+                                | _ -> None)
+                              layout ~before_item_index
+                              ~pointer_type:target_type
+                              ~stride:
+                                (Sema.Aggregate_pointee_layout.byte_size layout))
+                          source_item_index
+                    | _ -> false
+                  in
+                  if not valid_selection then
+                    malformed description
+                      "pointer cast does not retain its selected class layout";
                   let _, scalar = checked_reference description target_type in
                   let value =
                     define values description position result target_type

@@ -2693,7 +2693,12 @@ let publish_aggregates_before visible publications item_index =
   in
   loop visible publications
 
-let validate_cast_target table parent visible target =
+type aggregate_visibility = {
+  published_aggregates : Symbol.t String_map.t;
+  cast_selection : (argument_expression -> string -> Symbol.t option) option;
+}
+
+let validate_cast_target table parent visible expression target =
   let resolved = Type_reference.resolved_type target in
   match Type.base resolved with
   | Type.Primitive _ -> Ok ()
@@ -2707,7 +2712,15 @@ let validate_cast_target table parent visible target =
       else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
       then Error (invalid_input "function call cast target is not an aggregate")
       else
-        match String_map.find_opt (Type_reference.spelling target) visible with
+        let selected =
+          match visible.cast_selection with
+          | None ->
+              String_map.find_opt
+                (Type_reference.spelling target)
+                visible.published_aggregates
+          | Some select -> select expression (Type_reference.spelling target)
+        in
+        match selected with
         | None ->
             Error
               (invalid_input
@@ -2754,7 +2767,7 @@ let rec validate_argument_expression table parent visible declarations
       validate_argument_expression table parent visible declarations
         compilation_mode member.member_base
   | Postfix_cast_expression (operand, target) -> (
-      match validate_cast_target table parent visible target with
+      match validate_cast_target table parent visible expression target with
       | Error _ as error -> error
       | Ok () ->
           validate_argument_expression table parent visible declarations
@@ -2798,7 +2811,7 @@ let rec validate_argument_expression table parent visible declarations
         match
           String_map.find_opt
             (Module_expression_binding.occurrence_name occurrence)
-            visible
+            visible.published_aggregates
         with
         | Some expected when same_symbol expected symbol -> Ok ()
         | Some _ ->
@@ -2828,7 +2841,7 @@ let rec validate_argument_expression table parent visible declarations
             if
               String_map.exists
                 (fun _ expected -> same_symbol expected symbol)
-                visible
+                visible.published_aggregates
             then Ok ()
             else
               Error
@@ -2836,7 +2849,8 @@ let rec validate_argument_expression table parent visible declarations
                    "offset object type is not source-visible at the function")
           else
             match
-              String_map.find_opt offset.offset_target_spelling_ visible
+              String_map.find_opt offset.offset_target_spelling_
+                visible.published_aggregates
             with
             | Some expected when same_symbol expected symbol -> Ok ()
             | Some _ ->
@@ -3707,8 +3721,8 @@ let validate_function_input table parent visible declarations compilation_mode
                                           input.returns occurrences queries)))))
                 )))
 
-let validate_function_inputs table parent expressions declarations
-    compilation_mode outer inputs =
+let validate_function_inputs ?aggregate_visibility table parent expressions
+    declarations compilation_mode outer inputs =
   let rec unique seen = function
     | [] -> true
     | (output : implicit_output_input) :: rest -> (
@@ -3754,9 +3768,35 @@ let validate_function_inputs table parent expressions declarations
         match queries with
         | Error _ as error -> error
         | Ok queries -> (
+            let cast_selection =
+              Option.map
+                (fun visibility ->
+                  let function_ =
+                    Function_aggregate_visibility.find_function visibility
+                      ~symbol:input.symbol ~item_index:input.item_index
+                  in
+                  fun expression name ->
+                    Option.bind function_ (fun function_ ->
+                        Option.bind (argument_expression_source expression)
+                          (fun source ->
+                            Option.bind
+                              (Function_aggregate_visibility.before_expression
+                                 function_ source) (fun frontier ->
+                                let selected, _ =
+                                  publish_aggregates_before String_map.empty
+                                    (Module_expression_binding.publications
+                                       expressions)
+                                    frontier
+                                in
+                                String_map.find_opt name selected))))
+                aggregate_visibility
+            in
+            let expression_visibility =
+              { published_aggregates = visible; cast_selection }
+            in
             match
-              validate_function_input table parent visible declarations
-                compilation_mode expected queries input
+              validate_function_input table parent expression_visibility
+                declarations compilation_mode expected queries input
             with
             | Error _ as error -> error
             | Ok () -> pair visible publications expected_rest input_rest))
@@ -4499,8 +4539,8 @@ let resolve_validated ?members ?outer types declarations expressions inputs =
   in
   pair [] Int_map.empty (Module_expression_binding.functions expressions) inputs
 
-let resolve ~table ~parent ?members ~function_types ~functions ~expressions
-    ?outer inputs =
+let resolve ~table ~parent ?members ?aggregate_visibility ~function_types
+    ~functions ~expressions ?outer inputs =
   if not (Symbol_table.owns_scope table parent) then
     Error (invalid_input "function call parent belongs to another symbol table")
   else if Symbol_table.scope_kind parent <> Symbol_table.Module then
@@ -4527,6 +4567,12 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
     Error
       (invalid_input "aggregate member index belongs to another symbol table")
   else if
+    Option.fold ~none:false
+      ~some:(fun visibility ->
+        not (Function_aggregate_visibility.owns visibility ~table ~parent))
+      aggregate_visibility
+  then Error (invalid_input "cast visibility belongs to another compilation")
+  else if
     Function_resolution.compilation_mode functions
     <> Module_expression_binding.compilation_mode expressions
   then
@@ -4541,7 +4587,8 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
         | Error _ as error -> error
         | Ok declarations -> (
             match
-              validate_function_inputs table parent expressions declarations
+              validate_function_inputs ?aggregate_visibility table parent
+                expressions declarations
                 (Function_resolution.compilation_mode functions)
                 outer inputs
             with

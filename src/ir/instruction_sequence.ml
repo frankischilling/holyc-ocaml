@@ -48,6 +48,7 @@ type payload =
   | Member_projection of Aggregate_member_projection.t
   | Backing_projection of Aggregate_member_projection.t
   | Pointee_stride of Sema.Aggregate_pointee_layout.t
+  | Class_pointer_view of Sema.Aggregate_pointee_layout.t * bool
   | Retained_global of Retained_global.t
   | Saved_parameter_default of Prepared_parameter_default.t
   | Saved_callback_default of Prepared_callback_default.t
@@ -324,6 +325,14 @@ let add_escaped_bytes buffer bytes =
   Buffer.add_char buffer '"'
 
 let add_payload buffer = function
+  | Class_pointer_view (layout, was_parenthesized) ->
+      Buffer.add_string buffer " class-pointer-view:";
+      add_escaped_bytes buffer
+        (Sema.Symbol.name
+           (Sema.Aggregate_pointee_layout.aggregate_symbol layout));
+      Printf.bprintf buffer ":bytes=%Ld:paren=%d"
+        (Sema.Aggregate_pointee_layout.byte_size layout)
+        (if was_parenthesized then 1 else 0)
   | Backing_projection projection ->
       Buffer.add_string buffer " backing-projection:";
       add_escaped_bytes buffer

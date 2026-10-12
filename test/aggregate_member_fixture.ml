@@ -128,13 +128,15 @@ let controls ?(contents = contents) mode =
             Graph.instructions block |> Seq.instructions)
         |> List.find_map (fun instruction ->
             match (Seq.description instruction).payload with
-            | Some (Seq.Pointee_stride _ as proof) -> Some proof
+            | Some ((Seq.Pointee_stride _ | Seq.Class_pointer_view _) as proof)
+              -> Some proof
             | _ -> None)
         |> Option.get
       in
       let substitute payload (d : Seq.description) =
         match d.payload with
-        | Some (Seq.Pointee_stride _) -> { d with payload }
+        | Some (Seq.Pointee_stride _ | Seq.Class_pointer_view _) ->
+            { d with payload }
         | _ -> d
       in
       let foreign_proof = proof (first_definition foreign) in
@@ -150,11 +152,17 @@ let controls ?(contents = contents) mode =
         |> List.find_map (fun instruction ->
             let description = Seq.description instruction in
             match description.payload with
-            | Some (Seq.Pointee_stride layout) -> Some (description, layout)
+            | Some
+                (Seq.Pointee_stride layout | Seq.Class_pointer_view (layout, _))
+              -> Some (description, layout)
             | _ -> None)
         |> Option.get
       in
       let description, layout = instruction in
+      (if contents = Aggregate_pointer_cases.proof_source then
+         match description.payload with
+         | Some (Seq.Class_pointer_view (_, true)) -> ()
+         | _ -> failwith "class cast lost its original parenthesis flag");
       let pointer_type = Option.get description.target_type in
       let stride = Semantic_aggregate_pointee_layout.byte_size layout in
       let before_item_index =
@@ -179,6 +187,8 @@ let controls ?(contents = contents) mode =
         ( "foreign equal-name pointee layout",
           rebuild definition (substitute (Some foreign_proof)) );
         ("missing selected pointee layout", rebuild definition (substitute None));
+        ( "numeric cast payload cannot replace its selected class proof",
+          rebuild definition (substitute (Some (Seq.Integer 0L))) );
         ( "scaled offset differs from selected pointee",
           rebuild definition wrong_stride );
         ( "pointee layout belongs to another function",

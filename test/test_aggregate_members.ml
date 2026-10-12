@@ -406,7 +406,8 @@ let () =
             Alcotest.test_case name `Quick (fun () ->
                 ignore (value expected output (run Preprocessor.Jit source))))
           (Defaults.jit_values @ Inherited.retained_values
-         @ Cases.retained_nested_values @ Cases.pointer_retained_values) );
+         @ Pointers.retained_view_values @ Cases.retained_nested_values
+         @ Cases.pointer_retained_values) );
       ( "values",
         List.map
           (fun (name, source, expected, output) ->

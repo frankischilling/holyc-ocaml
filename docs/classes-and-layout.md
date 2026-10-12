@@ -1,5 +1,10 @@
 # Classes and layout
 
+[Class pointer views](class-pointer-views.md) select a complete earlier class
+layout over existing owned bytes. Primitive and class views share the original
+allocation, offset, initialization state and extent; the target supplies field
+types and strides. Function-local casts retain their exact declaration frontier.
+
 [Member `sizeof`](aggregate-member-sizeof.md) follows original dot paths through
 named types, automatic objects and class parameters. The final field uses its
 own array count and the current size of its exact selected class, including

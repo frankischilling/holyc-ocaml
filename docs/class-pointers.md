@@ -103,17 +103,20 @@ integer widths. Raw IR controls reject missing, foreign, altered and
 other-function pointee proofs before storage. Exact and one-below controls
 cover frame bytes, executed instructions and both native ABIs' stack and
 encoded image bytes. Fresh native image executions retain the same results.
-The maintained CLI checks run 920 IR reports and 2137 including native execution.
+The maintained CLI checks cover source execution, diagnostics and resource limits
+through IR and native targets.
 
 Completed earlier [inherited layouts](inherited-aggregates.md) and
 [function-local types](function-local-aggregate-objects.md) also use these
 selected strides. A source stride proof keeps its exact function symbol, so
 another retained function cannot borrow it by reusing a numeric source index.
+[Class pointer views](class-pointer-views.md) select complete earlier layouts
+over existing owned integer or class storage while retaining the root's extent.
 Partial or out-of-compilation bases,
 zero-sized objects, persistent aggregate
 storage, pointer arrays, aggregate initializers, whole-value postfix casts,
 AOT IR and ordinary native defaults containing references, callback parameters and general aggregate copies, pointer
-and callback fields, general class pointer casts, pointer returns and deeper
+and callback fields, numeric/null class pointer casts, pointer returns and deeper
 indirection remain separate work under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686),
 [#687](https://github.com/frankischilling/holyc-ocaml/issues/687),

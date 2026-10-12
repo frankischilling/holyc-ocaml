@@ -150,7 +150,7 @@ or retained-context proof cannot authorize object storage. Zero-sized automatic
 objects, automatic root pointer arrays, aggregate array initializers,
 persistent aggregate objects, whole-value postfix casts, callback class
 parameters, general aggregate copies, native data pointer fields, callback
-fields, general casts to class pointers and pointer returns remain unfinished
+fields, numeric/null casts to class pointers and pointer returns remain unfinished
 under [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 Defaults containing references remain unsupported in AOT IR and ordinary native
 compilation. Local and member size queries use their separate metadata paths;

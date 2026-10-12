@@ -285,7 +285,8 @@ let () =
               (fun (_, source, expected, output) ->
                 value expected output (invoke target mode source))
               (Defaults.jit_values @ Inherited.retained_values
-             @ Cases.retained_nested_values @ Cases.pointer_retained_values));
+             @ Pointers.retained_view_values @ Cases.retained_nested_values
+             @ Cases.pointer_retained_values));
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
@@ -367,10 +368,10 @@ let () =
       Cases.values @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
       @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
       @ Inherited.values @ Inherited.view_matrix @ Inherited.retained_values
-      @ Backed.values @ Default.values @ Parameters.values
-      @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
-      @ Returns.warning_values @ Defaults.native_values @ Defaults.jit_values
-      @ Cases.retained_nested_values
+      @ Pointers.retained_view_values @ Backed.values @ Default.values
+      @ Parameters.values @ Parameters.view_matrix @ Returns.values
+      @ Returns.view_matrix @ Returns.warning_values @ Defaults.native_values
+      @ Defaults.jit_values @ Cases.retained_nested_values
     in
     List.iter
       (fun (name, source, expected, output) ->
