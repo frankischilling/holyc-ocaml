@@ -46,7 +46,12 @@ end)
 
 type word_type = I64 | U64
 type word = { type_ : word_type; bits : int64 }
-type return_kind = Word_return of word_type | Void_return
+
+type return_kind =
+  | Word_return of word_type
+  | Reference_return of Type.t
+  | Void_return
+
 type function_definition = { frame : Frame.function_layout; body : Function.t }
 
 type task_function_source = {
@@ -264,6 +269,7 @@ and prepared_operation =
   | Discard of prepared_value
   | Discard_void of Value_id.t
   | Return_value of prepared_operand * word_type
+  | Return_reference of prepared_pointer * Type.t
   | Jump of int
   | Local_call of int * int
   | Local_return of int list
@@ -5800,7 +5806,14 @@ let checked_return_kind type_ =
       match Type.base type_ with
       | Type.Primitive (_, Sema.Primitive_type.U0) -> Some Void_return
       | _ -> None)
-  | None -> None
+  | None -> (
+      match Type.dereference type_ with
+      | Ok pointee
+        when Type.pointer_depth type_ = 1
+             && (Option.is_some (Scalar.of_type pointee)
+                || Automatic_aggregate_storage.aggregate_pointer type_) ->
+          Some (Reference_return type_)
+      | _ -> None)
 
 let callback_word_type type_ =
   Type.pointer_depth type_ = 1
@@ -5999,7 +6012,9 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
   else if
     Option.is_none (checked_return_kind (Function.return_value_type function_))
   then
-    invalid "the function return type is outside nonzero integer/U0 execution"
+    invalid
+      "the function return type is outside integer, U0 or owned reference \
+       execution"
   else if
     if variadic then argument_count < parameter_count
     else argument_count <> parameter_count
@@ -6682,6 +6697,7 @@ let declared_types ?frame ?globals ?literals ?initialization
                            match checked_return_kind type_ with
                            | Some (Word_return word_type) ->
                                supported word_type type_
+                           | Some (Reference_return _) -> Pointer_value type_
                            | Some Void_return -> Void_value
                            | None -> Unsupported
                        else
@@ -7683,9 +7699,15 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                        ~some:(fun context ->
                          Type.equal context.return_type target_type)
                        frame -> (
-                  match function_return_word_type target_type with
-                  | None -> Error (unsupported_type block_id description)
-                  | Some target_type -> (
+                  match checked_return_kind target_type with
+                  | Some (Reference_return target_type) -> (
+                      match pointer_operand_of_value types operand_id with
+                      | Some operand when data_pointer_type operand.pointer_type
+                        -> Ok (Return_reference (operand, target_type))
+                      | _ -> Error (invalid_type_matrix block_id description))
+                  | None | Some Void_return ->
+                      Error (unsupported_type block_id description)
+                  | Some (Word_return target_type) -> (
                       match operand_of_value types operand_id with
                       | Some operand
                         when Option.is_some frame
@@ -8189,6 +8211,9 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               | Some (Word_return word) ->
                   call_instruction description
                     (Call_end (callback.callback_result, word))
+              | Some (Reference_return type_) ->
+                  call_instruction description
+                    (Call_end_pointer (callback.callback_result, type_))
               | Some Void_return ->
                   call_instruction description
                     (Call_end_void callback.callback_result)
@@ -8631,6 +8656,10 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                       intrinsics := rest;
                       call_instruction description
                         (Call_end_void result.value_id)
+                  | Some (Reference_return type_) ->
+                      intrinsics := rest;
+                      call_instruction description
+                        (Call_end_pointer (result.value_id, type_))
                   | None
                     when Runtime.intrinsic_opcode intrinsic = Opcode.Ic_fs
                          && Task_exception_layout.pointer_type
@@ -8845,6 +8874,13 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   calls := rest;
                   call_instruction description
                     (Call_end (result.value_id, type_))
+              | ( Some (Sequence.Symbol symbol),
+                  Some result,
+                  Some (Reference_return type_) )
+                when symbol == callee.callee_symbol ->
+                  calls := rest;
+                  call_instruction description
+                    (Call_end_pointer (result.value_id, type_))
               | Some (Sequence.Symbol symbol), Some result, Some Void_return
                 when symbol == callee.callee_symbol ->
                   calls := rest;
@@ -9426,7 +9462,7 @@ type caller = {
   saved_instruction : int;
   saved_values : runtime_value Value_map.t;
   saved_slots : runtime_storage;
-  saved_return : word option;
+  saved_return : runtime_value option;
   saved_local_returns : int list;
   saved_calls : call_scope list;
   saved_publication_item : int option;
@@ -11591,7 +11627,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       failed :=
                         Some
                           (runtime_error ~instruction block !steps "HCIRVM0008"
-                             "IC_FS completion lost its checked task pointer"))
+                             "pointer call completion lost its checked return \
+                              descriptor"))
               | Call_end_void result -> (
                   match !calls with
                   | { completion = Completed_void; _ } :: rest ->
@@ -12393,7 +12430,21 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               | Return_value (operand, type_) -> (
                   match require_operand block instruction operand with
                   | Some word ->
-                      pending_return := Some { type_; bits = word.bits }
+                      pending_return :=
+                        Some (Runtime_word { type_; bits = word.bits })
+                  | None -> ())
+              | Return_reference (operand, type_) -> (
+                  match require_pointer block instruction operand with
+                  | Some address ->
+                      pending_return :=
+                        Some
+                          (Runtime_pointer
+                             {
+                               address with
+                               pointer_pointee =
+                                 Type.dereference type_ |> Result.get_ok;
+                               pointer_callback = None;
+                             })
                   | None -> ())
               | Jump target -> transfer target
               | Local_call (entry, continuation) ->
@@ -12494,19 +12545,27 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                          "function return retains an active exception record")
               | Return
                 when match !program.required_return with
-                     | Some (Word_return _) -> Option.is_none !pending_return
+                     | Some (Word_return _ | Reference_return _) ->
+                         Option.is_none !pending_return
                      | Some Void_return | None -> false ->
                   failed :=
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0013"
-                         "the integer function returned without a value")
+                         "the function returned without its required value")
               | Return -> (
                   let completion =
                     match (!program.required_return, !pending_return) with
                     | (Some Void_return | None), None -> Some Completed_void
-                    | Some (Word_return type_), Some word
+                    | Some (Word_return type_), Some (Runtime_word word)
                       when word.type_ = type_ -> Some (Completed_word word)
-                    | None, Some word -> Some (Completed_word word)
+                    | ( Some (Reference_return type_),
+                        Some (Runtime_pointer address) )
+                      when Option.fold ~none:false
+                             ~some:(Type.equal address.pointer_pointee)
+                             (Type.dereference type_ |> Result.to_option) ->
+                        Some (Completed_pointer address)
+                    | None, Some (Runtime_word word) ->
+                        Some (Completed_word word)
                     | _ -> None
                   in
                   match completion with
@@ -12522,7 +12581,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       local_returns := [];
                       retire_frame !slots;
                       match !callers with
-                      | [] -> completed := Some (Returned !pending_return)
+                      | [] ->
+                          completed :=
+                            Some
+                              (Returned
+                                 (Option.bind !pending_return (function
+                                   | Runtime_word word -> Some word
+                                   | _ -> None)))
                       | caller :: rest -> (
                           callers := rest;
                           decr depth;

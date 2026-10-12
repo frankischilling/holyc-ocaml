@@ -405,12 +405,14 @@ let pointer_source_and_authority () =
       ignore (image ~mode ~max_stack_bytes:stack source);
       compile_source ~mode ~max_stack_bytes:(stack - 1) source
       |> reject_compile ~code:"HCBACK0004" "reference bookkeeping stack quota";
+      ignore
+        (compile_source ~mode "I64 *F(){I64 x;return &x;}42;"
+        |> require_ok diagnostics_text);
       List.iter
         (fun source ->
           compile_source ~mode source
           |> reject_gate "unsupported reference escape or fabrication")
         [
-          "I64 *F(){I64 x;return &x;}42;";
           "I64 *G;42;";
           "I64 F(){static I64 *p;return 42;}42;";
           "I64 F(I64 **p){return **p;}42;";
@@ -587,7 +589,11 @@ let automatic_array_layout () =
       List.iter
         (fun contents ->
           ignore (compile_source ~mode contents |> require_ok diagnostics_text))
-        [ "I64 F(){static I8 a[2];return 42;}F();"; "I8 G[2];42;" ];
+        [
+          "I64 F(){static I8 a[2];return 42;}F();";
+          "I8 G[2];42;";
+          "I8 *F(){I8 a[2];return a;}42;";
+        ];
       List.iter
         (fun contents ->
           compile_source ~mode contents
@@ -595,7 +601,6 @@ let automatic_array_layout () =
         [
           "I64 F(){I8 a[2]={1,2};return 42;}F();";
           "I64 F(){I8 *a[2];return 42;}F();";
-          "I8 *F(){I8 a[2];return a;}42;";
           "I64 F(){I8 a[0];return 42;}F();";
           "I64 F(){I8 a[1000000000];return 42;}F();";
           "I64 F(){I8 a[9223372036854775807][2];return 42;}F();";

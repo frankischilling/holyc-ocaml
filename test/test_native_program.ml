@@ -1283,7 +1283,8 @@ let private_context_encoder_bytes () =
       | Ok _ -> Alcotest.fail "invalid private context access encoded")
     [
       Encoder.Load_context (Encoder.Rax, 7);
-      Encoder.Load_context (Encoder.Rax, 240);
+      Encoder.Load_context (Encoder.Rax, 280);
+      Encoder.Store_context (280, Encoder.Rax);
       Encoder.Store_context (184, Encoder.Rax);
       Encoder.Store_context (72, Encoder.Rax);
       Encoder.Store_context_imm (72, 0);

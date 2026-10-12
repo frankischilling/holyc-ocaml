@@ -1476,7 +1476,7 @@ CAMLprim value holyc_native_execute_program_functions(value code, value function
      remaining physical native-stack bytes. The root's exact physical cost is
      charged before entry; generated CALL/return and checked-fault paths restore
      all three remaining quotas to these values. */
-  uint64_t context[30] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+  uint64_t context[35] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                          (uint64_t)frame_limit, (uint64_t)depth_limit,
                          remaining_stack};
   struct native_reference_state reference_state = {0};
@@ -1603,7 +1603,7 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   /* The tenth word is an immutable private arena pointer installed by the
      platform helper after fresh RW allocation. Generated code may only read it
      through the sealed R11 context and keeps R9 reserved as the arena base. */
-  uint64_t context[30] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+  uint64_t context[35] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                           (uint64_t)frame_limit, (uint64_t)depth_limit,
                           remaining_stack, 0};
   struct native_reference_state reference_state = {0};
@@ -2705,7 +2705,7 @@ static value native_execute_program_output(value code, value functions,
   }
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
-    uint64_t context[30] = {
+    uint64_t context[35] = {
       0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
       output_address, remaining_output, remaining_work, 0,

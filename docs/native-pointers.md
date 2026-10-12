@@ -122,13 +122,17 @@ in [SECURITY.md](SECURITY.md).
 Automatic scalar arrays use the same references; see
 [native arrays](native-arrays.md). Global/static arrays and mutable byte literals
 use the [persistent storage](native-persistent-storage.md) path. Persistent
-pointer variables, pointer returns, raw address ordering, null/integer
+pointer variables, raw address ordering, null/integer
 conversions, raw pointer difference, deeper indirection, automatic root arrays
 of data pointers, data pointer fields, general aggregate copies, foreign calls
 and the full HolyC ABI remain unfinished native work. Class value operations
 use their selected scalar prefixes and register words, as described in
 [class value returns](class-value-returns.md). This feature does not produce
 object files or BIN files, establish loader acceptance, or complete the compiler.
+
+[Owned reference returns](reference-returns.md) preserve checked integer and
+class references across named and callback calls. Callee retirement preserves
+caller and persistent roots while expiring the callee's own storage.
 
 [Owned class pointers](class-pointers.md) now support generic indexing,
 arithmetic, difference, comparisons and updates over exact earlier automatic

@@ -208,6 +208,11 @@ Callback fixtures also cover direct, inherited and nested fields, full array
 indexing, fixed defaults, variadic calls, callee capture and typed owner copies.
 Numeric updates, signature mismatches, byte overwrites, exact budgets and
 foreign projection proofs accompany those cases. See [callback fields](callback-fields.md).
+Reference-return fixtures cover caller and persistent roots, packed classes,
+arrays, views, callbacks and exact budgets. Expiration controls preserve output
+and argument effects at the reached lifetime check. The maintained
+[reference-return example](../examples/reference-returns.hc) runs through all
+three CLI targets in both modes.
 General aggregate copies and partial
 or out-of-compilation inherited bases remain unsupported. Retained JIT imports
 require the original completed class and command evidence.

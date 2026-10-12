@@ -28,6 +28,9 @@ Callback fields keep their code-address word and executable owner separately.
 IR byte storage and the native shadow service both invalidate that owner on
 overlapping writes. Field calls use the selected header and a callee snapshot
 taken before argument evaluation. See [callback fields](callback-fields.md).
+Owned reference returns copy the five-word descriptor before callee retirement.
+Native callers snapshot the private context buffer before another invocation;
+IR callers retain the original storage identity. See [reference returns](reference-returns.md).
 See [owned aggregate members](aggregate-members.md) and
 [pointer fields](aggregate-pointer-fields.md).
 

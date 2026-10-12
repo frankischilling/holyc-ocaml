@@ -3,8 +3,15 @@
 [Data pointer fields](aggregate-pointer-fields.md) execute through IR, native
 programs and native source tasks in both modes. Separate ownership shadows and
 activation identities preserve caller storage, retained pointer types and
-invalid-memory checks. Pointer returns and the remaining
+invalid-memory checks. The remaining
 aggregate requirements under #686 remain open.
+
+[Owned reference returns](reference-returns.md) preserve integer and class
+pointer descriptors through named calls and callbacks in IR and both native
+targets. Caller/global/static storage stays usable; callee-local targets expire
+on return. Native calls snapshot the private return buffer before another call
+can replace it. The [example](../examples/reference-returns.hc) prints `AB`
+and returns 42 in both source modes.
 
 [Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
 and union globals and statics their original byte roots in IR and native execution.
@@ -298,7 +305,7 @@ pointer storage remain unsupported by this native increment.
 `holyc run --target=host-jit examples/native-scalar-pointers.hc` executes checked
 one-level scalar pointer aliases in both JIT and AOT source modes. Local and
 fixed-parameter references preserve object width, initialization and ownership;
-pointer returns and persistent pointer storage remain outside native admission.
+persistent standalone pointer storage remains outside native admission; owned reference returns use their separate checked path.
 See [native pointers](native-pointers.md).
 
 `holyc run --target=host-jit examples/integer-arrays.hc` returns 42 using
@@ -634,7 +641,7 @@ under issue #686. [Owned data pointer fields in IR](aggregate-pointer-fields.md)
 support integer and class pointers, pointer member arrays and updates while
 preserving bounds and invocation lifetimes. `examples/aggregate-pointer-fields.hc`
 prints `AB` and returns 42 with `--target=ir` in JIT and AOT mode. Native pointer
-fields, general aggregate copies and pointer returns still need implementation.
+fields now have native ownership checks, and owned reference returns preserve their original descriptors. General aggregate copies remain unfinished.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,

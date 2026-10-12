@@ -5344,6 +5344,7 @@
   automatic_aggregate_cases
   aggregate_member_cases
   callback_field_cases
+  reference_return_cases
   aggregate_array_cases
   aggregate_pointer_cases
   aggregate_cast_cases
@@ -5388,7 +5389,8 @@
   ../examples/aggregate-pointer-fields.hc
   ../examples/persistent-aggregates.hc
   ../examples/aggregate-initializers.hc
-  ../examples/aggregate-value-casts.hc)
+  ../examples/aggregate-value-casts.hc
+  ../examples/reference-returns.hc)
  (action
   (run
    %{test}
@@ -5406,7 +5408,8 @@
    %{dep:../examples/aggregate-pointer-fields.hc}
    %{dep:../examples/persistent-aggregates.hc}
    %{dep:../examples/aggregate-initializers.hc}
-   %{dep:../examples/aggregate-value-casts.hc})))
+   %{dep:../examples/aggregate-value-casts.hc}
+   %{dep:../examples/reference-returns.hc})))
 
 (test
  (name test_automatic_aggregate_storage)

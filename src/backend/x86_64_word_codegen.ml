@@ -177,6 +177,14 @@ let checked_reference description type_ =
       (pointee, checked_scalar ~allow_public:true description pointee)
   | Error message -> malformed description message
 
+let reference_value_scalar type_ =
+  let pointee = Type.dereference type_ |> Result.get_ok in
+  if Ir.Aggregate_member_projection.pointer_member_type pointee then
+    { word_type = U64; byte_size = 8 }
+  else if Ir.Automatic_aggregate_storage.aggregate_pointer type_ then
+    { word_type = U64; byte_size = 1 }
+  else scalar_value ~allow_public:true pointee |> Option.get
+
 let pointer_field_identity type_ =
   match Type.base type_ with
   | Type.Aggregate symbol ->
@@ -442,11 +450,14 @@ type operation =
   | Call_end of int * value
   | Call_end_void
   | Return_value of value
+  | Return_reference of value * scalar_value
+  | Call_end_reference of value
   | Return
   | Discard_value of value * word_type
   | Discard_callback_default of value
   | Discard_data_default of value * int
   | Discard_void
+  | Discard_reference of value * scalar_value
   | Jump_to of Sequence.Block_id.t
   | Branch_zero of value * Sequence.Block_id.t
   | Branch_not_zero of value * Sequence.Block_id.t
@@ -2972,6 +2983,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Store_reference_frame (access, home, input, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span input rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          emit_bounds instruction.span
+            (Option.get instruction.site)
+            ~one_past:true
+            ~scalar:(reference_value_scalar input.declared_type)
+            ~offset:Encoder.Rcx ~extent:Encoder.R8;
           emit
             (Encoder.Address_frame
                (Encoder.R8, encoder_frame_slot instruction.span home));
@@ -4109,6 +4128,39 @@ let allocate_body ?callable_frame ?(shared_values = [])
                  staged_stack_slot instruction.span stage ));
           assign position destination result
       | Call_end_void -> release_through position
+      | Call_end_reference result ->
+          spill_all_registers instruction.span;
+          emit
+            (Encoder.Address_frame
+               ( Encoder.Rdx,
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_context (Encoder.Rax, 240 + offset));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.Rdx, offset, Encoder.Rax)))
+            [ 0; 8; 16; 24; 32 ];
+          note_peak ~temporaries:[ rax; rdx ] ();
+          assign position rdx result
+      | Return_reference (input, scalar) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span input rdx;
+          let site = Option.get instruction.site in
+          check_reference site Encoder.Rdx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          emit_bounds instruction.span site ~one_past:true ~scalar
+            ~offset:Encoder.Rcx ~extent:Encoder.R8;
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit (Encoder.Store_context (240 + offset, Encoder.Rax)))
+            [ 0; 8; 16; 24; 32 ];
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          release_through position
       | Return_value input ->
           require_numeric_owner input;
           let inputs, _ = ensure_inputs instruction.span [ input ] in
@@ -4282,7 +4334,18 @@ let allocate_body ?callable_frame ?(shared_values = [])
               release_through position
           | Callable_control { is_entry = false; _ } -> release_through position
           )
-      | Discard_void -> (
+      | Discard_reference _ | Discard_void -> (
+          (match instruction.operation with
+          | Discard_reference (input, scalar) ->
+              spill_all_registers instruction.span;
+              copy_value_to instruction.span input rdx;
+              check_reference (Option.get instruction.site) Encoder.Rdx;
+              emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+              emit_bounds instruction.span
+                (Option.get instruction.site)
+                ~one_past:true ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8
+          | _ -> ());
           match mode with
           | Expression_control _ ->
               reject ?span:instruction.span "HCBACK0003"
@@ -4522,6 +4585,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
           | Some offset ->
               spill_all_registers instruction.span;
               copy_value_to instruction.span value rdx;
+              check_reference (Option.get instruction.site) Encoder.Rdx;
+              emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+              emit_bounds instruction.span
+                (Option.get instruction.site)
+                ~one_past:true
+                ~scalar:(reference_value_scalar value.declared_type)
+                ~offset:Encoder.Rcx ~extent:Encoder.R8;
               emit
                 (Encoder.Address_frame
                    (Encoder.R8, encoder_frame_slot instruction.span offset));
@@ -5169,6 +5240,7 @@ type callable_slot = {
 
 type callable_return_kind =
   | Callable_word_return of scalar_value
+  | Callable_reference_return of Type.t
   | Callable_void_return
 
 type callable_function_source = {
@@ -5511,9 +5583,9 @@ let source_return_kind ?span type_ =
     | _ ->
         Callable_word_return
           (source_scalar ?span "native source function return type" type_)
-  else
-    Callable_word_return
-      (source_scalar ?span "native source function return type" type_)
+  else (
+    ignore (source_slot_scalar ?span "native source function return type" type_);
+    Callable_reference_return type_)
 
 let callable_frame_update opcode word =
   match opcode with
@@ -6129,7 +6201,7 @@ let callable_callee_index ~allow_task_self_call ~runtime_owner functions call =
 let validate_callable_returns graph return_kind =
   match return_kind with
   | Callable_void_return -> ()
-  | Callable_word_return _ ->
+  | Callable_word_return _ | Callable_reference_return _ ->
       let blocks =
         List.fold_left
           (fun index block -> Block_map.add (Graph.block_id block) block index)
@@ -6817,7 +6889,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               let captured_stage = !argument_end in
               let result_stage =
                 match return_kind with
-                | Callable_word_return _ -> Some (captured_stage + 2)
+                | Callable_word_return _ | Callable_reference_return _ ->
+                    Some (captured_stage + 2)
                 | Callable_void_return -> None
               in
               let kind_stage =
@@ -6989,12 +7062,18 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   let result = Option.get description.result in
                   let target_type = callback.callback_return_type in
                   match result_stage with
-                  | Some stage ->
+                  | Some stage -> (
                       let value =
                         define values description position result target_type
                           (Computation.declared target_type)
                       in
-                      (Call_end (stage, value), None)
+                      match
+                        source_return_kind ?span:description.span target_type
+                      with
+                      | Callable_reference_return _ ->
+                          mark_reference description value;
+                          (Call_end_reference value, None)
+                      | _ -> (Call_end (stage, value), None))
                   | None ->
                       void_values := Value_set.add result.value_id !void_values;
                       (Call_end_void, None))
@@ -7567,7 +7646,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               let owner_count = !argument_end - stage_base - parameter_count in
               let result_stage =
                 match return_kind with
-                | Callable_word_return _ -> Some !argument_end
+                | Callable_word_return _ | Callable_reference_return _ ->
+                    Some !argument_end
                 | Callable_void_return -> None
               in
               let scratch_stage =
@@ -7938,6 +8018,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           (Computation.declared target_type)
                       in
                       (Call_end (scope.intrinsic_stage, value), None)
+                  | Callable_reference_return _ ->
+                      unsupported description
+                        "native internal pointer results require their \
+                         original provider"
                   | Callable_void_return ->
                       void_values := Value_set.add result.value_id !void_values;
                       (Call_end_void, None))
@@ -7976,6 +8060,16 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   calls := remaining;
                   stage_cursor := scope.stage_base;
                   match scope.return_kind with
+                  | Callable_reference_return expected ->
+                      if not (Type.equal expected target_type) then
+                        malformed description
+                          "reference return class is inconsistent";
+                      let value =
+                        define values description position result target_type
+                          (Computation.declared target_type)
+                      in
+                      mark_reference description value;
+                      (Call_end_reference value, None)
                   | Callable_word_return scalar ->
                       let actual =
                         checked_scalar ~allow_public:true description
@@ -9833,7 +9927,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                 (Global_storage.find_saved_data snapshot data)
                             in
                             (Discard_data_default (input, offset), None)
-                        | _ -> (Discard_void, None))
+                        | _ ->
+                            ( Discard_reference
+                                ( input,
+                                  reference_value_scalar input.declared_type ),
+                              None ))
                       else
                         let word =
                           (checked_scalar ~allow_public:true description
@@ -9920,7 +10018,15 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         ignore
                           (checked_scalar ~allow_public:true description
                              input.declared_type);
-                      (Return_value input, None))
+                      (Return_value input, None)
+                  | Callable_reference_return _ ->
+                      let _, scalar = checked_reference description expected in
+                      ignore (checked_reference description input.declared_type);
+                      if Option.is_none input.reference_descriptor_offset then
+                        unsupported description
+                          "native reference return requires its original owned \
+                           descriptor";
+                      (Return_reference (input, scalar), None))
               | _ ->
                   malformed description
                     "IC_RETURN_VAL disagrees with function return type")
@@ -10341,7 +10447,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ -> false);
             no_value_capture_site =
               (match operation with
-              | Discard_void -> true
+              | Discard_void | Discard_reference _ -> true
               | Discard_value (input, _) ->
                   Option.is_some input.code_owner_offset
               | _ -> false);
@@ -10429,7 +10535,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Indirect_call _ when provider_print_site -> true
               | _ -> false);
             address_bounds_site =
-              (match operation with
+              (Option.fold ~none:false
+                 ~some:(fun (_, _, _, reference) -> Option.is_some reference)
+                 push_stage
+              ||
+              match operation with
+              | Store_reference_frame _ | Discard_reference _ -> true
+              | Return_reference _ -> true
               | Update_callback_value (Callback_indexed _, _, _, _, _, _)
               | Update_callback_value (Callback_field _, _, _, _, _, _) -> true
               | Materialize_reference (_, _, Some _, _)
@@ -10480,7 +10592,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Apply_reference_difference _ -> true
               | _ -> false);
             reference_ownership_site =
-              (match operation with
+              (Option.fold ~none:false
+                 ~some:(fun (_, _, _, reference) -> Option.is_some reference)
+                 push_stage
+              ||
+              match operation with
+              | Store_reference_frame _ | Discard_reference _ -> true
+              | Return_reference _ -> true
               | Update_callback_value (Callback_field _, _, _, _, _, _) -> true
               | Load_pointer_field _
               | Store_pointer_field _

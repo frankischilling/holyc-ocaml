@@ -334,6 +334,4 @@ let unsupported =
     ( "class pointer fields need per-field ownership",
       {|class Box{U16 value;};class Holder{Box *p;};I64 F(){Holder h;h.p++;return 42;}F();|}
     );
-    ( "class pointer returns need caller lifetime handling",
-      {|class Box{U16 value;};Box *Get(){Box a[2];return &a[1];}Get();|} );
   ]

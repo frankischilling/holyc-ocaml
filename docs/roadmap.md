@@ -39,8 +39,9 @@ layouts while preserving exact types, function identities and retained JIT
 contexts. Member access, nested and inherited objects, arrays and class pointer
 operations share the existing IR and native storage paths. See
 [function-local objects](function-local-aggregate-objects.md).
-General object copies and class
-pointer returns remain part of the broader work under #686.
+General object copies remain part of the broader work under #686.
+[Owned reference returns](reference-returns.md) now preserve caller storage and
+activation lifetimes through named calls and callbacks in IR and native code.
 One-level [callback fields](callback-fields.md) now use their selected headers
 and executable ownership through IR and both native targets.
 See [owned aggregate members](aggregate-members.md) and

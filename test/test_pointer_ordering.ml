@@ -183,7 +183,6 @@ let rejected =
     "I64 F(){I64 q[3];return q<&q[1]<&q[2];}F();";
     "I64 F(){I64 x;return (&x)(I64)<&x;}F();";
     "I64 x;I64 *p=&x;42;";
-    "I64 *F(){I64 x;return &x;}F();";
   ]
 
 let boundaries () =

@@ -14583,3 +14583,18 @@ model = "One-level member callbacks use their original immutable lookup and anon
 verification = "Independent words cover integer/Bool returns, U0 effects, variadic calls, fixed defaults, nested/inherited/unaligned fields, arrays, copies, caller storage, persistent fields and retained class replacement. Faults cover unknown bytes, numeric words, restored address bytes, overlap, signature mismatch, opaque updates and bounds. Projection controls and exact/one-below semantic frame, work, physical frame and image limits accompany IR and native execution."
 evidence_limit = "Pinned source audit and hosted execution without a new TempleOS runtime capture or machine-byte comparison. Virtual IR code tokens, native owner shadows, invalid-memory checks and rejection of numeric function-address arithmetic are hosted policy."
 remaining = ["extra callback indirection and reference returns", "F64 and wider ABI execution", "existing local callback declaration-initializer boundary", "member metadata consumers and remaining #686/#682 acceptance"]
+
+[[feature]]
+id = "HC-OWNED-REFERENCE-RETURNS"
+description = "Original integer and class pointer returns preserve checked storage descriptors and lifetimes."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsStmt.HC:904-1223 complete PrsStmt", "Compiler/PrsExp.HC:383-591 complete PrsFunCall", "Compiler/OptPass789A.HC:779-783 return-to-RAX consumer", "Compiler/BackLib.HC:445-659 complete ICMov"]
+implementation = ["src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/native_execution_stubs.c", "src/native_reference_shadow.h", "src/hosted/native_program.ml"]
+tests = ["test/reference_return_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/test_native_program.ml", "examples/reference-returns.hc"]
+documentation = ["docs/reference-returns.md", "docs/native-pointers.md", "docs/aggregate-members.md", "docs/architecture.md", "docs/testing.md", "docs/compiler-status.md"]
+status = "implemented"
+issue = 686
+model = "Return declarations retain their exact selected pointer type. Descriptors preserve allocation, byte extent, logical offset, initialization and activation identity. IR carries the original runtime address. Native RETURN_VAL copies five lanes to a private context buffer; CALL_END snapshots them in the caller before another invocation. Retirement does not extend callee storage. Typed copies, arguments, fields and result capture validate live ownership and one-past windows before later effects."
+verification = "Independent words cover public/intrinsic integer pointees, packed/inherited/backed classes, whole-value prefixes, arrays, globals, statics, strings, declared views, calling flags, callbacks, recursive/nested calls and retained replacements. Faults cover unknown bytes, bounds, expired captures/copies/arguments/fields and restored numeric bytes. Exact and one-below semantic/physical frame, work and image limits accompany graph and foreign-frame controls and public CLI execution."
+evidence_limit = "Pinned source analysis and hosted execution without a TempleOS runtime capture or emitted machine-byte comparison. Private five-word return transport, initialization checks and invalid-memory lifetime faults are hosted policy."
+remaining = ["numeric/null pointer construction and additional indirection", "floating/U0 pointee and code-valued return execution", "exported and wider ABI families", "member metadata, remaining backings and general copies under #686/#682"]

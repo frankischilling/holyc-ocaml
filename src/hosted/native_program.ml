@@ -232,8 +232,12 @@ let function_source_error (definition : Ast.function_definition) =
       | Ast.Named_type_specifier _ -> true
       | _ -> false)
   then reject "native functions require a scalar integer or U0 return type"
-  else if definition.return_pointer_layers <> [] then
-    reject "native functions do not admit pointer returns"
+  else if
+    List.length definition.return_pointer_layers > 1
+    || definition.return_pointer_layers <> []
+       && void_return_type definition.return_type
+  then
+    reject "native functions admit one-level integer or class pointer returns"
   else if
     List.exists
       (fun (modifier : Ast.declaration_modifier) ->

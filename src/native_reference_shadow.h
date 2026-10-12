@@ -247,7 +247,12 @@ static uint64_t native_reference_service(uint64_t *context)
           }
           return 0;
         }
-      } else memcpy(&target, (void *)second, sizeof(target));
+      } else {
+        uintptr_t target_address;
+        memcpy(&target, (void *)second, sizeof(target));
+        fault = native_reference_window(&target, 0, &target_address);
+        if (fault != 0) { context[0] = fault; return fault; }
+      }
       struct native_reference_entry *entry = NULL;
       if (state->count != 0) {
         uintptr_t start = address > 7 ? address - 7 : 0;

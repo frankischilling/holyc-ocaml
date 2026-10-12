@@ -1,6 +1,7 @@
 open Holyc_lib
 module Cases = Aggregate_member_cases
 module Callbacks = Callback_field_cases
+module Refs = Reference_return_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
 module Casts = Aggregate_cast_cases
@@ -86,9 +87,9 @@ let faults () =
           Alcotest.(check string)
             "native fault preserves reached output" output
             (Native_program.output_bytes report))
-        (Callbacks.faults @ Cases.faults @ Arrays.faults @ Pointers.faults
-       @ Inherited.faults @ Backed.faults @ Default.faults @ Parameters.faults
-       @ Returns.faults @ Persistent.faults @ Casts.faults
+        (Refs.faults @ Callbacks.faults @ Cases.faults @ Arrays.faults
+       @ Pointers.faults @ Inherited.faults @ Backed.faults @ Default.faults
+       @ Parameters.faults @ Returns.faults @ Persistent.faults @ Casts.faults
        @ Cases.pointer_faults @ Persistent.pointer_faults
         @ if mode = Preprocessor.Jit then Persistent.jit_faults else []);
       List.iter
@@ -149,7 +150,10 @@ let quotas () =
           |> List.fold_left max 0
         in
         let frame =
-          if source_contents = Callbacks.quota_source then
+          if
+            source_contents = Callbacks.quota_source
+            || source_contents = Refs.quota_source
+          then
             (* The active Box's eight bytes and Add's eight-byte parameter
                coexist across the callback. *)
             16
@@ -174,6 +178,7 @@ let quotas () =
   List.iter check
     [
       Cases.quota_source;
+      Refs.quota_source;
       Callbacks.quota_source;
       Cases.pointer_quota_source;
       Arrays.quota_source;
@@ -230,6 +235,7 @@ let images () =
   List.iter check
     [
       Cases.quota_source;
+      Refs.quota_source;
       Callbacks.quota_source;
       Cases.pointer_quota_source;
       Arrays.quota_source;
@@ -317,10 +323,11 @@ let boundaries () =
           Alcotest.(check bool)
             name true
             (Result.is_error (Native_program.outcome (run mode contents))))
-        (Cases.unsupported @ Cases.pointer_unsupported @ Arrays.unsupported
-       @ Pointers.unsupported @ Inherited.source_unsupported
-       @ Backed.unsupported @ Default.unsupported @ Parameters.unsupported
-       @ Casts.unsupported @ Returns.unsupported @ Persistent.unsupported);
+        (Refs.unsupported @ Cases.unsupported @ Cases.pointer_unsupported
+       @ Arrays.unsupported @ Pointers.unsupported
+       @ Inherited.source_unsupported @ Backed.unsupported @ Default.unsupported
+       @ Parameters.unsupported @ Casts.unsupported @ Returns.unsupported
+       @ Persistent.unsupported);
       let original =
         Aggregate_member_fixture.compile ~contents:Returns.quota_source mode
       in
@@ -591,7 +598,26 @@ let task_aot_callback_values () =
   List.iter
     (fun (_, contents, expected, output) ->
       task_value expected output (run_task ~mode:Preprocessor.Aot contents))
-    (Callbacks.values @ Callbacks.width_values)
+    (Refs.values @ Refs.width_values @ Callbacks.values @ Callbacks.width_values)
+
+let discarded_reference_returns () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, source) ->
+          let result =
+            (Native_program.outcome (run mode source) |> checked).value
+          in
+          Alcotest.(check bool)
+            name true
+            (Option.is_none result.execution.final_value);
+          let report = run_task ~mode source in
+          let result =
+            (Native_source_execution.outcome report |> checked).value
+          in
+          Alcotest.(check bool) name true (Option.is_none result.final_value))
+        Refs.discarded_values)
+    modes
 
 let persistent_storage () =
   List.iter
@@ -628,10 +654,11 @@ let persistent_storage () =
     Persistent.aot_values
 
 let task_values =
-  Callbacks.values @ Callbacks.width_values @ Callbacks.retained_values
-  @ Cases.values @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
-  @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
-  @ Inherited.values @ Inherited.view_matrix @ Inherited.retained_values
+  Refs.values @ Refs.width_values @ Callbacks.values @ Callbacks.width_values
+  @ Refs.retained_values @ Callbacks.retained_values @ Cases.values
+  @ Cases.nested_values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
+  @ Pointers.values @ Pointers.view_matrix @ Inherited.values
+  @ Inherited.view_matrix @ Inherited.retained_values
   @ Pointers.retained_view_values @ Backed.values @ Default.values
   @ Parameters.values @ Parameters.view_matrix @ Returns.values
   @ Returns.view_matrix @ Returns.warning_values @ Defaults.native_values
@@ -655,17 +682,19 @@ let pointer_field_boundaries () =
           Alcotest.(check string)
             "reached pointer fault output" output
             (Native_source_execution.output_bytes report))
-        (Callbacks.faults @ Cases.pointer_faults @ Persistent.pointer_faults))
+        (Refs.faults @ Callbacks.faults @ Cases.pointer_faults
+       @ Persistent.pointer_faults))
     modes
 
 let () =
   Alcotest.run "native aggregate members"
     [
-      ( "callback fields",
+      ( "owned fields and reference returns",
         List.map
           (fun (name, contents, expected, output) ->
             Alcotest.test_case name `Quick (case contents expected output))
-          (Callbacks.values @ Callbacks.width_values) );
+          (Refs.values @ Refs.width_values @ Callbacks.values
+         @ Callbacks.width_values) );
       ( "pointer fields",
         List.map
           (fun (name, contents, expected, output) ->
@@ -691,8 +720,8 @@ let () =
             `Quick task_cast_faults;
           Alcotest.test_case "AOT class cast words and storage" `Quick
             task_aot_cast_values;
-          Alcotest.test_case "AOT callback field owners, headers and updates"
-            `Quick task_aot_callback_values;
+          Alcotest.test_case "AOT field and reference-return owners" `Quick
+            task_aot_callback_values;
           Alcotest.test_case "earlier prototype ABI remains bounded" `Quick
             task_boundaries;
         ] );
@@ -713,6 +742,8 @@ let () =
          @ Returns.warning_values @ Persistent.values @ Casts.values) );
       ( "storage",
         [
+          Alcotest.test_case "returned callee addresses can be discarded" `Quick
+            discarded_reference_returns;
           Alcotest.test_case
             "original class defaults, quotas and source boundaries" `Quick
             class_default_proofs;

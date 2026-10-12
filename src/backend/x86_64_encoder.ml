@@ -392,13 +392,14 @@ let signed_int32 value =
   && Int64.compare value 0x7fffffffL <= 0
 
 let valid_context_read_offset offset =
-  offset >= 0 && offset <= 232 && offset mod 8 = 0
+  offset >= 0 && offset <= 272 && offset mod 8 = 0
 
 let valid_context_write_offset offset =
   (offset >= 0 && offset <= 64 && offset mod 8 = 0)
   || offset = 88 || offset = 96 || offset = 104 || offset = 120 || offset = 128
   || offset = 160 || offset = 208 || offset = 216 || offset = 224
   || offset = 232
+  || (offset >= 240 && offset <= 272 && offset mod 8 = 0)
 
 let valid_reference_offset offset =
   offset = 0 || offset = 8 || offset = 16 || offset = 24 || offset = 32
@@ -436,16 +437,18 @@ let validate = function
       invalid_arg "status site must be between 1 and 100000"
   | Load_context (_, offset) when not (valid_context_read_offset offset) ->
       invalid_arg
-        "private context read offset must be aligned from 0 through 232"
+        "private context read offset must be aligned from 0 through 272"
   | Store_context (offset, _) when not (valid_context_write_offset offset) ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96, 104, 120, 128, 160, 208, 216, 224 or 232"
+         88, 96, 104, 120, 128, 160, 208, 216, 224, 232, 240, 248, 256, 264 or \
+         272"
   | Store_context_imm (offset, _) when not (valid_context_write_offset offset)
     ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96, 104, 120, 128, 160, 208, 216, 224 or 232"
+         88, 96, 104, 120, 128, 160, 208, 216, 224, 232, 240, 248, 256, 264 or \
+         272"
   | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()

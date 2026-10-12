@@ -1,6 +1,7 @@
 open Holyc_lib
 module Cases = Aggregate_member_cases
 module Callbacks = Callback_field_cases
+module Refs = Reference_return_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
 module Casts = Aggregate_cast_cases
@@ -50,6 +51,24 @@ let value expected output report =
     (integer_program_report_output_bytes report);
   result
 
+let discarded_reference_returns () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, source) ->
+          let report = run mode source in
+          let result =
+            (integer_program_report_outcome report |> checked).value
+          in
+          Alcotest.(check bool)
+            name true
+            (Option.is_none (VM.final_value result));
+          Alcotest.(check string)
+            "discarded return has no output" ""
+            (integer_program_report_output_bytes report))
+        Refs.discarded_values)
+    modes
+
 let failure code output report =
   (match integer_program_report_outcome report with
   | Ok _ -> Alcotest.fail ("expected " ^ code)
@@ -66,9 +85,9 @@ let faults () =
     (fun mode ->
       List.iter
         (fun (_, source, code, output) -> failure code output (run mode source))
-        (Callbacks.faults @ Cases.faults @ Cases.pointer_faults @ Arrays.faults
-       @ Pointers.faults @ Inherited.faults @ Backed.faults @ Default.faults
-       @ Parameters.faults @ Returns.faults @ Persistent.faults
+        (Refs.faults @ Callbacks.faults @ Cases.faults @ Cases.pointer_faults
+       @ Arrays.faults @ Pointers.faults @ Inherited.faults @ Backed.faults
+       @ Default.faults @ Parameters.faults @ Returns.faults @ Persistent.faults
        @ Persistent.pointer_faults @ Casts.faults);
       List.iter
         (fun (definition, bytes) ->
@@ -109,6 +128,9 @@ let quotas () =
               |> Int64.to_int)
           |> List.fold_left max 0
         in
+        let frame_bytes =
+          if source_contents = Refs.quota_source then 16 else frame_bytes
+        in
         let baseline = value 42L "" (run mode source_contents) in
         let steps = VM.executed_steps baseline in
         let preparation = VM.compiled_initializer_steps baseline in
@@ -128,6 +150,7 @@ let quotas () =
   List.iter (check ~modes)
     [
       Cases.quota_source;
+      Refs.quota_source;
       Cases.pointer_quota_source;
       Arrays.quota_source;
       Pointers.quota_source;
@@ -194,6 +217,7 @@ let foreign_frame () =
   List.iter check
     [
       Cases.quota_source;
+      Refs.quota_source;
       Arrays.quota_source;
       Pointers.quota_source;
       Inherited.quota_source;
@@ -466,9 +490,9 @@ let boundaries () =
             name true
             (Result.is_error
                (integer_program_report_outcome (run mode contents))))
-        (Cases.unsupported @ Cases.pointer_unsupported @ Arrays.unsupported
-       @ Pointers.unsupported @ Inherited.unsupported @ Backed.unsupported
-       @ Default.unsupported @ Casts.unsupported
+        (Refs.unsupported @ Cases.unsupported @ Cases.pointer_unsupported
+       @ Arrays.unsupported @ Pointers.unsupported @ Inherited.unsupported
+       @ Backed.unsupported @ Default.unsupported @ Casts.unsupported
         @ (if mode = Preprocessor.Aot then
              [ List.hd Inherited.source_unsupported ]
            else [])
@@ -515,16 +539,20 @@ let () =
                 List.iter
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
-          (Callbacks.values @ Callbacks.width_values @ Cases.values
-         @ Cases.pointer_values @ Cases.pointer_width_matrix
-         @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
-         @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
-         @ Inherited.values @ Inherited.view_matrix @ Backed.values
-         @ Default.values @ Parameters.values @ Parameters.view_matrix
-         @ Returns.values @ Returns.view_matrix @ Returns.warning_values
-         @ Persistent.values @ Persistent.pointer_values @ Casts.values) );
+          (Refs.values @ Refs.width_values @ Callbacks.values
+         @ Callbacks.width_values @ Cases.values @ Cases.pointer_values
+         @ Cases.pointer_width_matrix @ Cases.nested_values @ Cases.view_matrix
+         @ Arrays.values @ Arrays.view_matrix @ Pointers.values
+         @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
+         @ Backed.values @ Default.values @ Parameters.values
+         @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
+         @ Returns.warning_values @ Persistent.values
+         @ Persistent.pointer_values @ Casts.values) );
       ( "storage",
         [
+          Alcotest.test_case
+            "owned returns can be discarded without reading bytes" `Quick
+            discarded_reference_returns;
           Alcotest.test_case "source class default boundaries" `Quick
             class_default_boundaries;
           Alcotest.test_case

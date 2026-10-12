@@ -160,19 +160,21 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 232. Arena, output, generation, temporary-buffer and
+          from zero through 272. Arena, output, generation, temporary-buffer and
           source callback pointers and generation activity are immutable. Output
           counters occupy offsets 88, 96 and 104; generation counters occupy 120
-          and 128. Native reference requests occupy 208 through 232. *)
+          and 128. Native reference requests occupy 208 through 232. Reference
+          return snapshots occupy 240 through 272. *)
   | Store_context of int * register
       (** Store one qword to the private R11 context at an aligned byte offset
           from zero through 64, or at counter offsets 88, 96, 104, 120, 128 and
           the formatted-source length at 160, and reference request lanes 208,
-          216, 224 and 232. *)
+          216, 224 and 232, and the return snapshot at 240 through 272. *)
   | Store_context_imm of int * int
       (** Store a sign-extended imm32 qword to the private R11 context at an
           aligned byte offset from zero through 64, or 88, 96, 104, 120, 128 and
-          160, 208, 216, 224 and 232. *)
+          160, 208, 216, 224 and 232, and the return snapshot at 240 through
+          272. *)
   | Dec of register
       (** Decrement one full-width register with the qword FF /1 form. *)
   | Cmp of register * register

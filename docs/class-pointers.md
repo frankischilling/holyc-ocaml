@@ -112,11 +112,13 @@ selected strides. A source stride proof keeps its exact function symbol, so
 another retained function cannot borrow it by reusing a numeric source index.
 [Class pointer views](class-pointer-views.md) select complete earlier layouts
 over existing owned integer or class storage while retaining the root's extent.
-Partial or out-of-compilation bases,
-zero-sized objects, pointer arrays, aggregate initializers, whole-value postfix casts,
-AOT IR and ordinary native defaults containing references, callback parameters and general aggregate copies, pointer
-and callback fields, numeric/null class pointer casts, pointer returns and deeper
-indirection remain separate work under
+[Owned reference returns](reference-returns.md) retain caller and persistent
+roots, offsets and activation lifetimes. Data and callback fields use their
+separate ownership paths.
+Partial or out-of-compilation bases, zero-sized allocations, automatic root
+arrays of data pointers, defaults containing references in AOT IR and isolated
+native programs, by-value aggregate callback arguments, general copies,
+numeric/null class pointer casts and deeper indirection remain under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686),
 [#687](https://github.com/frankischilling/holyc-ocaml/issues/687),
 [#699](https://github.com/frankischilling/holyc-ocaml/issues/699) and
