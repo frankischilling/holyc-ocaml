@@ -176,6 +176,7 @@ let advance_tokens ~shape ~final ~expression_of_leaf ~make_entry progress input
         | Initializer_type.Aggregate members ->
             run (Aggregate_start members :: rest) offset reversed input)
     | Consume (type_, count :: tail) :: rest, _ -> (
+        let* type_ = Initializer_type.select_forwarding type_ in
         let* value =
           match input with
           | Expression leaf :: _ -> (
@@ -313,6 +314,7 @@ let rec select_prepared_kind ~(first : Frontend.Token.t) = function
       let* phase = Initializer_type.begin_scalar_evaluation type_ in
       Ok (Prepared_scalar phase, rest)
   | Consume (type_, count :: tail) :: rest -> (
+      let* type_ = Initializer_type.select_forwarding type_ in
       if count <= 0L || count > Int64.of_int Int.max_int then
         invalid "has an invalid fixed array count"
       else

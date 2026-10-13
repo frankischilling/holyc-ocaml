@@ -26,6 +26,14 @@ val of_members :
     width; numeric initializer values grant no callable field identity. *)
 
 val view : t -> (view, string) result
+
+val select_forwarding : t -> (t, string) result
+(** Follow the reached original backing chain and retain its terminal class for
+    an array rank. Later recursion can follow new backing on that terminal
+    class, but cannot restart from an earlier class in the already traversed
+    chain. This selects metadata only and grants no storage or execution
+    authority. *)
+
 val element_type : element -> t
 val element_dimensions : element -> int64 list
 val scalar_type : scalar -> Type.t

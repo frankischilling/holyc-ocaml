@@ -371,6 +371,14 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                     | _ -> Task_declarations.observe ledger event
                   in
                   match (is_jit, !task, event) with
+                  | true, None, Parser.Aggregate_declared receipt
+                    when Option.is_some receipt.aggregate_backing
+                         && Option.fold ~none:false
+                              ~some:(fun binding ->
+                                binding.Frontend.Ast.kind = Frontend.Ast.Extern)
+                              receipt.aggregate_header.binding ->
+                      ensure_task receipt.aggregate_name.location.span
+                      |> Result.map ignore
                   | true, None, Parser.Function_parameter_declared receipt
                     when Option.is_some receipt.parameter_default_equals ->
                       ensure_task

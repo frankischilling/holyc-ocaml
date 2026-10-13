@@ -41,6 +41,27 @@ class indexing still uses a three-byte stride. Anonymous union members remain in
 the direct source chain. The hosted path rejects a sequential write that leaves
 the original allocation, rather than granting extra union bytes.
 
+Each array rank retains the class reached by forwarding before advancing past
+its optional opening brace. Its children recurse from that cached class. If
+`Item` already forwards to `U16`, completion that changes `Item` to `U8` after
+the brace cannot shorten the current rank's writes. Later recursion can still
+follow new backing on the cached terminal class itself.
+
+`extern U16 class Item;` retains a backed forward declaration. The parser keeps
+the backing type, original selection and pointer layers. Source-task metadata
+installs that backing after class-name lookahead, matching `PrsClass` followed
+by the forwarding assignment in `PrsType`. An initializer reached during that
+lookahead still sees the preceding zero-byte class. Its reached destination
+remains attached when the forward declaration completes.
+
+The [backed forward example](../examples/backed-forward-initializers.hc) prints
+`A` and returns 42 through IR and native source tasks in both outer modes. Its
+static array copies `0x12a` and 7 as two `U16` words, even though lookahead changes
+`Item` to `U8`. Byte reads verify `2a 01 07 00` in the original eight-byte root.
+Nested byte strings and zero-width forwarding use the same array selection.
+Backing changes cannot enlarge the root or turn an originally wide copy into
+a shorter write that bypasses its bounds.
+
 Fixed arrays accept the source's optional braces and delimiters. Every required
 leaf must be present; missing members are not filled in. A string leaf copies
 that array rank's fixed count. This path requires a forwarded byte type; a
@@ -144,8 +165,9 @@ JIT or 7 in AOT. The second call sees the first call's mutation; it does not
 repeat the initializer or its class completion. IR and native source tasks retain
 the actual reached leaf destinations when joining the completed frame.
 
-Isolated preparation of incomplete selections, earlier forwarding selections
-at array entry and other runtime class changes remain unfinished. Floating,
+Isolated preparation of incomplete selections and other runtime class changes
+remain unfinished, including backing installation during a reentrant ordinary
+class body. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under

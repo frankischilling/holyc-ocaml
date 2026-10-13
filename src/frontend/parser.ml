@@ -7844,6 +7844,133 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
              parsed_parameters.parameters parsed_parameters.variadic);
       Some (Ast.Function_prototype prototype)
 
+let parse_aggregate_forward ?backing_selection cursor ~modifiers
+    ~modifier_tokens ~binding ~binding_tokens ~backing ~aggregate_kind ~local
+    ~on_tokens =
+  let aggregate_item = take cursor in
+  let name_item = peek cursor in
+  if not (token_is_name_position_identifier name_item.token) then (
+    report cursor name_item ~code:"HCPARSE0107"
+      ~message:
+        (Printf.sprintf "expected a name after %S %S, but found %s"
+           binding.Ast.spelling aggregate_item.token.raw
+           (token_description name_item.token));
+    recover_declaration cursor;
+    None)
+  else
+    let name_item = take cursor in
+    let name =
+      Ast.make_identifier ~spelling:name_item.token.raw
+        ~location:(token_location name_item.token)
+    in
+    let publication =
+      declare_aggregate ?backing_selection
+        ?backing:
+          (Option.map (fun (b : parsed_aggregate_backing) -> b.node) backing)
+        cursor name_item ~modifiers ~binding:(Some binding) ~aggregate_kind name
+    in
+    let semicolon_item = peek cursor in
+    if
+      semicolon_item.token.kind <> Token_kind.Punctuation ';'
+      && not (local && semicolon_item.token.kind = Token_kind.Punctuation ',')
+    then (
+      report cursor semicolon_item
+        ~code:
+          (if
+             Option.is_some backing
+             && semicolon_item.token.kind = Token_kind.Punctuation '{'
+           then "HCPARSE0125"
+           else "HCPARSE0108")
+        ~message:
+          (Printf.sprintf
+             "expected ';' after %s forward declaration %S, but found %s"
+             aggregate_item.token.raw name.spelling
+             (token_description semicolon_item.token));
+      let rec recover nested_braces =
+        let item = peek cursor in
+        match item.token.kind with
+        | Token_kind.Eof -> ()
+        | Token_kind.Punctuation ';' when nested_braces = 0 ->
+            ignore (take cursor)
+        | Token_kind.Punctuation '{' ->
+            ignore (take cursor);
+            recover (nested_braces + 1)
+        | Token_kind.Punctuation '}' when nested_braces > 0 ->
+            ignore (take cursor);
+            recover (nested_braces - 1)
+        | _ ->
+            ignore (take cursor);
+            recover nested_braces
+      in
+      recover 0;
+      None)
+    else
+      let delimiter =
+        if semicolon_item.token.kind = Token_kind.Punctuation ';' then
+          Some (take cursor)
+        else None
+      in
+      let declaration_tokens =
+        modifier_tokens @ binding_tokens
+        @ Option.fold ~none:[]
+            ~some:(fun (b : parsed_aggregate_backing) -> b.tokens)
+            backing
+        @ [ aggregate_item.token; name_item.token ]
+        @ List.map (fun item -> item.token) (Option.to_list delimiter)
+      in
+      let base_location = location_from_tokens declaration_tokens in
+      let first_token = List.hd declaration_tokens in
+      let location =
+        Ast.make_location ?generated_from:first_token.origin.generated_from
+          ?defined_at:first_token.origin.defined_at ~span:base_location.span
+          ~source_segments:base_location.source_segments ()
+      in
+      let declaration =
+        let make =
+          match (backing, delimiter) with
+          | Some (backing : parsed_aggregate_backing), delimiter ->
+              fun ~modifiers
+                ~binding
+                ~aggregate_kind
+                ~aggregate_keyword_spelling
+                ~aggregate_keyword_location
+                ~name
+                ~location
+              ->
+                Ast.make_backed_aggregate_forward ~modifiers ~binding
+                  ~backing:backing.node ~aggregate_kind
+                  ~aggregate_keyword_spelling ~aggregate_keyword_location ~name
+                  ~semicolon:
+                    (Option.map
+                       (fun item -> token_location item.token)
+                       delimiter)
+                  ~location
+          | None, None -> Ast.make_aggregate_forward_before_comma
+          | None, Some item ->
+              fun ~modifiers
+                ~binding
+                ~aggregate_kind
+                ~aggregate_keyword_spelling
+                ~aggregate_keyword_location
+                ~name
+                ~location
+              ->
+                Ast.make_aggregate_forward_declaration ~modifiers ~binding
+                  ~aggregate_kind ~aggregate_keyword_spelling
+                  ~aggregate_keyword_location ~name
+                  ~semicolon:(token_location item.token)
+                  ~location
+        in
+        make ~modifiers ~binding ~aggregate_kind
+          ~aggregate_keyword_spelling:aggregate_item.token.raw
+          ~aggregate_keyword_location:(token_location aggregate_item.token)
+          ~name ~location
+      in
+      on_tokens declaration_tokens;
+      Some
+        (complete_aggregate cursor semicolon_item publication
+           (Ast.Aggregate_forward_declaration declaration))
+
 let parse_global ?(aggregate_local = false) ?(on_aggregate_tokens = ignore)
     cursor ~parse_function_definition =
   let parse_global_function_pointer ~return_type ~return_selection
@@ -7879,109 +8006,15 @@ let parse_global ?(aggregate_local = false) ?(on_aggregate_tokens = ignore)
   match aggregate_forward_kind with
   | Some aggregate_kind ->
       let binding_item = take cursor in
-      let aggregate_item = take cursor in
       let binding =
         Ast.make_declaration_binding ~kind:Ast.Extern
           ~spelling:binding_item.token.raw
           ~location:(token_location binding_item.token)
           ~target:Ast.No_binding_target
       in
-      let name_item = peek cursor in
-      if not (token_is_name_position_identifier name_item.token) then (
-        report cursor name_item ~code:"HCPARSE0107"
-          ~message:
-            (Printf.sprintf "expected a name after %S %S, but found %s"
-               binding_item.token.raw aggregate_item.token.raw
-               (token_description name_item.token));
-        recover_declaration cursor;
-        None)
-      else
-        let name_item = take cursor in
-        let name =
-          Ast.make_identifier ~spelling:name_item.token.raw
-            ~location:(token_location name_item.token)
-        in
-        let publication =
-          declare_aggregate cursor name_item ~modifiers ~binding:(Some binding)
-            ~aggregate_kind name
-        in
-        let semicolon_item = peek cursor in
-        if
-          semicolon_item.token.kind <> Token_kind.Punctuation ';'
-          && not
-               (aggregate_local
-               && semicolon_item.token.kind = Token_kind.Punctuation ',')
-        then (
-          report cursor semicolon_item ~code:"HCPARSE0108"
-            ~message:
-              (Printf.sprintf
-                 "expected ';' after %s forward declaration %S, but found %s"
-                 aggregate_item.token.raw name.spelling
-                 (token_description semicolon_item.token));
-          let rec recover nested_braces =
-            let item = peek cursor in
-            match item.token.kind with
-            | Token_kind.Eof -> ()
-            | Token_kind.Punctuation ';' when nested_braces = 0 ->
-                ignore (take cursor)
-            | Token_kind.Punctuation '{' ->
-                ignore (take cursor);
-                recover (nested_braces + 1)
-            | Token_kind.Punctuation '}' when nested_braces > 0 ->
-                ignore (take cursor);
-                recover (nested_braces - 1)
-            | _ ->
-                ignore (take cursor);
-                recover nested_braces
-          in
-          recover 0;
-          None)
-        else
-          let delimiter =
-            if semicolon_item.token.kind = Token_kind.Punctuation ';' then
-              Some (take cursor)
-            else None
-          in
-          let declaration_tokens =
-            modifier_tokens
-            @ [ binding_item.token; aggregate_item.token; name_item.token ]
-            @ List.map (fun item -> item.token) (Option.to_list delimiter)
-          in
-          let base_location = location_from_tokens declaration_tokens in
-          let first_token = List.hd declaration_tokens in
-          let location =
-            Ast.make_location ?generated_from:first_token.origin.generated_from
-              ?defined_at:first_token.origin.defined_at ~span:base_location.span
-              ~source_segments:base_location.source_segments ()
-          in
-          let declaration =
-            let make =
-              match delimiter with
-              | None -> Ast.make_aggregate_forward_before_comma
-              | Some item ->
-                  fun ~modifiers
-                    ~binding
-                    ~aggregate_kind
-                    ~aggregate_keyword_spelling
-                    ~aggregate_keyword_location
-                    ~name
-                    ~location
-                  ->
-                    Ast.make_aggregate_forward_declaration ~modifiers ~binding
-                      ~aggregate_kind ~aggregate_keyword_spelling
-                      ~aggregate_keyword_location ~name
-                      ~semicolon:(token_location item.token)
-                      ~location
-            in
-            make ~modifiers ~binding ~aggregate_kind
-              ~aggregate_keyword_spelling:aggregate_item.token.raw
-              ~aggregate_keyword_location:(token_location aggregate_item.token)
-              ~name ~location
-          in
-          on_aggregate_tokens declaration_tokens;
-          Some
-            (complete_aggregate cursor semicolon_item publication
-               (Ast.Aggregate_forward_declaration declaration))
+      parse_aggregate_forward cursor ~modifiers ~modifier_tokens ~binding
+        ~binding_tokens:[ binding_item.token ] ~backing:None ~aggregate_kind
+        ~local:aggregate_local ~on_tokens:on_aggregate_tokens
   | None -> (
       match aggregate_kind_of_token (peek cursor).token with
       | Some aggregate_kind ->
@@ -8016,6 +8049,19 @@ let parse_global ?(aggregate_local = false) ?(on_aggregate_tokens = ignore)
                   match aggregate_kind_after_backing cursor ~offset:0 with
                   | Some aggregate_kind -> (
                       match binding with
+                      | Some binding when binding.Ast.kind = Ast.Extern -> (
+                          match
+                            parse_aggregate_backing cursor type_item
+                              type_specifier
+                          with
+                          | None -> None
+                          | Some backing ->
+                              parse_aggregate_forward
+                                ?backing_selection:type_selection cursor
+                                ~modifiers ~modifier_tokens ~binding
+                                ~binding_tokens ~backing:(Some backing)
+                                ~aggregate_kind ~local:aggregate_local
+                                ~on_tokens:on_aggregate_tokens)
                       | Some binding ->
                           report cursor type_item ~code:"HCPARSE0125"
                             ~message:

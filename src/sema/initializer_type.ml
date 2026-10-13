@@ -19,6 +19,7 @@ type scalar_evaluation = {
 type t = {
   read : unit -> (view, string) result;
   capture_scalar : unit -> (scalar_evaluation, string) result;
+  select_forwarding : unit -> (t, string) result;
 }
 
 and element = { type_ : t; dimensions : int64 list }
@@ -37,6 +38,7 @@ let scalar_equal left right =
   && Option.equal ( == ) left.callback_source right.callback_source
 
 let view type_ = type_.read ()
+let select_forwarding type_ = type_.select_forwarding ()
 let ( let* ) = Result.bind
 let invalid message = Error ("HCRUN0006: initializer type " ^ message)
 
@@ -44,15 +46,20 @@ let evaluation ?(dynamic = false) before settle =
   { before; dynamic; settle; domain = Domain.self (); finished = false }
 
 let fixed_node read =
-  {
-    read;
-    capture_scalar =
-      (fun () ->
-        let* value = read () in
-        match value with
-        | Scalar before -> Ok (evaluation before (fun () -> Ok before))
-        | Aggregate _ -> invalid "requires its original direct member traversal");
-  }
+  let rec selected =
+    {
+      read;
+      select_forwarding = (fun () -> Ok selected);
+      capture_scalar =
+        (fun () ->
+          let* value = read () in
+          match value with
+          | Scalar before -> Ok (evaluation before (fun () -> Ok before))
+          | Aggregate _ ->
+              invalid "requires its original direct member traversal");
+    }
+  in
+  selected
 
 let begin_scalar_evaluation type_ = type_.capture_scalar ()
 let scalar_evaluation_before phase = phase.before
@@ -133,76 +140,97 @@ let of_record ?resolve ~type_ original =
     | _ -> invalid "has no original class record"
   in
   let rec node seen type_ saved =
-    {
-      capture_scalar =
-        (fun () ->
-          if Type.pointer_depth type_ > 0 then
-            begin_scalar_evaluation (fixed_node (fun () -> primitive type_))
-          else
-            match Type.base type_ with
-            | Type.Primitive _ ->
-                begin_scalar_evaluation (fixed_node (fun () -> primitive type_))
-            | Type.Aggregate symbol -> (
-                if List.exists (( == ) symbol) seen then
-                  invalid "has cyclic class forwarding or members"
-                else
-                  let* record = selected_record type_ saved in
-                  let seen = symbol :: seen in
-                  match Record.aggregate_initializer_backing record with
-                  | Some (Some (backing, saved)) ->
-                      begin_scalar_evaluation
-                        (node seen (Type_reference.resolved_type backing) saved)
-                  | None -> invalid "has no original forwarding selection"
-                  | Some None -> (
-                      if
-                        (not (Record.aggregate_initializer_has_members record))
-                        || Record.aggregate_fields record <> []
-                      then
-                        invalid "requires its original direct member traversal"
-                      else
-                        let* before =
-                          scalar ~owner:symbol ~type_:default_word
-                            (Record.aggregate_initializer_size record)
-                        in
-                        match before with
-                        | Aggregate _ -> assert false
-                        | Scalar before ->
-                            Ok
-                              (evaluation
-                                 ~dynamic:
-                                   (not
-                                      (Record.aggregate_initializer_is_complete
-                                         record))
-                                 before
-                                 (fun () ->
-                                   let* current =
-                                     selected_record type_ (Some record)
-                                   in
-                                   let* settled =
-                                     scalar ~owner:symbol ~type_:default_word
-                                       (Record.aggregate_initializer_size
-                                          current)
-                                   in
-                                   match settled with
-                                   | Scalar settled -> Ok settled
-                                   | Aggregate _ -> assert false)))));
-      read =
-        (fun () ->
-          if Type.pointer_depth type_ > 0 then primitive type_
-          else
-            match Type.base type_ with
-            | Type.Primitive _ -> primitive type_
-            | Type.Aggregate symbol -> (
-                if List.exists (( == ) symbol) seen then
-                  invalid "has cyclic class forwarding or members"
-                else
-                  let* record = selected_record type_ saved in
-                  let seen = symbol :: seen in
-                  if not (Record.aggregate_initializer_is_complete record) then
-                    invalid
-                      "requires a completed selected class; live forward \
-                       completion is not yet supported"
+    let rec selected =
+      {
+        select_forwarding =
+          (fun () ->
+            if Type.pointer_depth type_ > 0 then Ok selected
+            else
+              match Type.base type_ with
+              | Type.Primitive _ -> Ok selected
+              | Type.Aggregate symbol -> (
+                  if List.exists (( == ) symbol) seen then
+                    invalid "has cyclic class forwarding or members"
                   else
+                    let* record = selected_record type_ saved in
+                    match Record.aggregate_initializer_backing record with
+                    | None -> invalid "has no original forwarding selection"
+                    | Some None -> Ok selected
+                    | Some (Some (backing, saved)) ->
+                        select_forwarding
+                          (node (symbol :: seen)
+                             (Type_reference.resolved_type backing)
+                             saved)));
+        capture_scalar =
+          (fun () ->
+            if Type.pointer_depth type_ > 0 then
+              begin_scalar_evaluation (fixed_node (fun () -> primitive type_))
+            else
+              match Type.base type_ with
+              | Type.Primitive _ ->
+                  begin_scalar_evaluation
+                    (fixed_node (fun () -> primitive type_))
+              | Type.Aggregate symbol -> (
+                  if List.exists (( == ) symbol) seen then
+                    invalid "has cyclic class forwarding or members"
+                  else
+                    let* record = selected_record type_ saved in
+                    let seen = symbol :: seen in
+                    match Record.aggregate_initializer_backing record with
+                    | Some (Some (backing, saved)) ->
+                        begin_scalar_evaluation
+                          (node seen
+                             (Type_reference.resolved_type backing)
+                             saved)
+                    | None -> invalid "has no original forwarding selection"
+                    | Some None -> (
+                        if
+                          (not
+                             (Record.aggregate_initializer_has_members record))
+                          || Record.aggregate_fields record <> []
+                        then
+                          invalid
+                            "requires its original direct member traversal"
+                        else
+                          let* before =
+                            scalar ~owner:symbol ~type_:default_word
+                              (Record.aggregate_initializer_size record)
+                          in
+                          match before with
+                          | Aggregate _ -> assert false
+                          | Scalar before ->
+                              Ok
+                                (evaluation
+                                   ~dynamic:
+                                     (not
+                                        (Record
+                                         .aggregate_initializer_is_complete
+                                           record))
+                                   before
+                                   (fun () ->
+                                     let* current =
+                                       selected_record type_ (Some record)
+                                     in
+                                     let* settled =
+                                       scalar ~owner:symbol ~type_:default_word
+                                         (Record.aggregate_initializer_size
+                                            current)
+                                     in
+                                     match settled with
+                                     | Scalar settled -> Ok settled
+                                     | Aggregate _ -> assert false)))));
+        read =
+          (fun () ->
+            if Type.pointer_depth type_ > 0 then primitive type_
+            else
+              match Type.base type_ with
+              | Type.Primitive _ -> primitive type_
+              | Type.Aggregate symbol -> (
+                  if List.exists (( == ) symbol) seen then
+                    invalid "has cyclic class forwarding or members"
+                  else
+                    let* record = selected_record type_ saved in
+                    let seen = symbol :: seen in
                     match Record.aggregate_initializer_backing record with
                     | None -> invalid "has no original forwarding selection"
                     | Some (Some (backing, saved)) ->
@@ -210,6 +238,12 @@ let of_record ?resolve ~type_ original =
                           (node seen
                              (Type_reference.resolved_type backing)
                              saved)
+                    | Some None
+                      when not (Record.aggregate_initializer_is_complete record)
+                      ->
+                        invalid
+                          "requires a completed selected class; live forward \
+                           completion is not yet supported"
                     | Some None -> (
                         if not (Record.aggregate_initializer_has_members record)
                         then invalid "has no original direct member list"
@@ -245,7 +279,9 @@ let of_record ?resolve ~type_ original =
                                             Record.aggregate_field_counts field;
                                         })
                                       fields)))));
-    }
+      }
+    in
+    selected
   in
   if not (Record.aggregate_record_matches ~owner:original ~type_ original) then
     invalid "root disagrees with its selected class record"

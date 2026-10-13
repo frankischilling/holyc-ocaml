@@ -63,15 +63,80 @@ Box object={Complete()};StreamPrint("%d;",object.item.value-256);
       "A" );
   ]
 
-let both_values =
+let backed_array_lexer static =
+  let object_ =
+    {|Box object={{#exe{Print("A");U8 class Item{U8 value;};}0x12a,7}};|}
+  in
+  let check =
+    {|U8 *p=(&object)(U8*);if(p[0]!=42||p[1]!=1||p[2]!=7||p[3]!=0)return -1;return 42;|}
+  in
+  "#exe{extern U16 class Item;class Box{Item items[2];$$=8;};"
+  ^ (if static then "I64 F(){static " ^ object_ ^ check ^ "}"
+     else object_ ^ "I64 F(){" ^ check ^ "}")
+  ^ "StreamPrint(\"%d;\",F());}"
+
+let backed_array_callee static =
+  let object_ = "Box object={{Complete(),7}};" in
+  let check =
+    {|U8 *p=(&object)(U8*);if(p[0]!=42||p[1]!=1||p[2]!=7||p[3]!=0)return -1;return 42;|}
+  in
+  "#exe{extern U16 class Item;class Box{Item items[2];$$=8;};"
+  ^ {|I64 Complete(){Print("A");StreamExePrint("U8 class Item{U8 value;};");return 0x12a;}|}
+  ^ (if static then "I64 F(){static " ^ object_ ^ check ^ "}"
+     else object_ ^ "I64 F(){" ^ check ^ "}")
+  ^ "StreamPrint(\"%d;\",F());}"
+
+let backed_forward_timing =
+  {|#exe{extern U16 class Item #exe{Print("A");class Box{Item item;U8 tail;$$=8;};Box object={9,42};};StreamPrint("%d;",object.tail);}|}
+
+let backed_strings =
+  {|#exe{extern U8 class Item;class Box{Item items[2][2];$$=8;};I64 F(){static Box object={{#exe{Print("A");U16 class Item{U16 value;};}"A","B"}};U8 *p=(&object)(U8*);if(p[0]!=65||p[1]!=0||p[2]!=66||p[3]!=0)return -1;return 42;}StreamPrint("%d;",F());}|}
+
+let named_backed_array =
+  {|#exe{U16 class Base{U8 value;};extern Base class Item;class Box{Item items[2];$$=8;};Box object={{#exe{Print("A");U8 class Base{U8 value;};U8 class Item{U8 value;};}0x12a,7}};I64 F(){U8 *p=(&object)(U8*);if(p[1]!=1||p[2]!=7||p[3]!=0)return -1;return 42;}StreamPrint("%d;",F());}|}
+
+let backed_values =
   [
-    ( "uncompleted scalar consumes zero bytes before the next leaf",
-      {|#exe {extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Side(){Print("A");return 7;}Box object={Side(),42};StreamPrint("%d;",object.tail);}|},
+    ( "cached zero-width forwarding still evaluates its leaf",
+      {|#exe{extern U0 class Item;class Box{Item items[2];U8 tail;$$=8;};I64 Side(){Print("A");StreamExePrint("U8 class Item{U8 value;};");return 7;}Box object={{Side(),9},42};StreamPrint("%d;",object.tail);}|},
+      "A" );
+    ( "global array caches forwarding before lexer completion",
+      backed_array_lexer false,
+      "A" );
+    ( "static array caches forwarding before lexer completion",
+      backed_array_lexer true,
+      "A" );
+    ( "global array retains forwarding across callee completion",
+      backed_array_callee false,
+      "A" );
+    ( "static array retains forwarding across callee completion",
+      backed_array_callee true,
+      "A" );
+    ( "forward backing is installed after class-name lookahead",
+      backed_forward_timing,
+      "A" );
+    ("cached byte forwarding retains nested string copies", backed_strings, "A");
+    ( "named backing preserves original targets through replacement",
+      named_backed_array,
       "A" );
   ]
 
+let both_values =
+  backed_values
+  @ [
+      ( "uncompleted scalar consumes zero bytes before the next leaf",
+        {|#exe {extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Side(){Print("A");return 7;}Box object={Side(),42};StreamPrint("%d;",object.tail);}|},
+        "A" );
+    ]
+
 let faults =
   [
+    ( "cached global array backing cannot shrink around original bounds",
+      {|#exe{extern U64 class Item;class Box{Item items[2];$$=1;};Box object={{#exe{Print("A");U8 class Item{U8 value;};}42,7}};}|},
+      "HCRUN0006" );
+    ( "cached static array backing cannot shrink around original bounds",
+      {|#exe{extern U64 class Item;class Box{Item items[2];$$=1;};I64 F(){static Box object={{#exe{Print("A");U8 class Item{U8 value;};}42,7}};return 42;}}|},
+      "HCRUN0006" );
     ( "completion cannot enlarge the original root",
       {|#exe {extern class Item;class Box{Item item;$$=1;};I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}Box object={Complete()};StreamPrint("42;");}|},
       "HCRUN0006" );

@@ -1083,6 +1083,7 @@ type aggregate_progress = {
   progress_namespace : Declaration_collection.namespace;
   progress_publication : Declaration_collection.publication;
   progress_source : Parser.aggregate_publication;
+  progress_initializer_backing : (Type_reference.t * t option) option option;
   mutable progress_phase : Parser.aggregate_phase option;
   mutable progress_scopes : (Ast.aggregate_kind * int64) list;
   mutable progress_record : (t, string) result;
@@ -1208,6 +1209,7 @@ let begin_aggregate ?compiler_positions ?backing_record ?initializer_records
           progress_namespace = namespace;
           progress_publication = publication;
           progress_source = source;
+          progress_initializer_backing = initializer_backing;
           progress_phase = None;
           progress_scopes = [ (source.aggregate_kind, 0L) ];
           progress_finished = false;
@@ -1238,7 +1240,10 @@ let begin_aggregate ?compiler_positions ?backing_record ?initializer_records
                 aggregate_stamp = Some (stamp, stamp.current_stamp);
                 aggregate_base_snapshot = None;
                 aggregate_fields = Some [];
-                aggregate_initializer_backing = initializer_backing;
+                aggregate_initializer_backing =
+                  (if Option.is_some source.aggregate_header.binding then
+                     Some None
+                   else initializer_backing);
                 aggregate_initializer_body = None;
                 aggregate_initializer_records = initializer_records;
               };
@@ -1698,7 +1703,9 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
     let* byte_size =
       match receipt.aggregate_item with
       | Ast.Aggregate_forward_declaration forward
-        when forward.name == source.aggregate_name -> Ok 0L
+        when forward.name == source.aggregate_name
+             && Option.equal ( == ) forward.backing source.aggregate_backing ->
+          Ok 0L
       | Ast.Aggregate_definition definition
         when definition.name == source.aggregate_name ->
           let member_dimensions (member : Ast.aggregate_member_declarator) =
@@ -1819,9 +1826,13 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
               | Error _ -> None);
         aggregate_initializer_backing =
           Option.bind progress (fun progress ->
-              match progress.progress_record with
-              | Ok record -> record.aggregate_initializer_backing
-              | Error _ -> None);
+              match receipt.aggregate_item with
+              | Ast.Aggregate_forward_declaration _ ->
+                  progress.progress_initializer_backing
+              | _ -> (
+                  match progress.progress_record with
+                  | Ok record -> record.aggregate_initializer_backing
+                  | Error _ -> None));
         aggregate_initializer_body =
           Option.bind progress (fun progress ->
               match progress.progress_record with

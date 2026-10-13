@@ -13,8 +13,11 @@ zero-byte leaves and late backing preserve the original byte cursor and root.
 Static copies run once before calls and retain their reached layout in the completed
 function frame. Static delimiter receipts select reached grammar before advancing
 the lexer; completion after a nested opening brace cannot restart that branch.
-Isolated incomplete-class preparation, earlier array-entry forwarding selections
-and the remaining aggregate execution families stay open.
+Backed extern forwards retain their type and pointer provenance. Source-task
+initializers install their backing after class-name lookahead and cache forwarding
+at each array rank before opening-brace lookahead or callee effects.
+Isolated incomplete-class preparation, other runtime class changes and the
+remaining aggregate execution families stay open.
 
 [Class pointer views](class-pointer-views.md) retain owned bytes through casts
 between supported integer and class pointers. IR and native paths preserve

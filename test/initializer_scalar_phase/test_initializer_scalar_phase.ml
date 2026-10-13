@@ -25,7 +25,7 @@ let checked = function
 let reject label result =
   Alcotest.(check bool) label true (Result.is_error result)
 
-let with_records contents on_completed =
+let with_records ?(on_declared = fun _ _ _ -> ()) contents on_completed =
   let session = Session.create () in
   let table = Session.semantic_symbols session in
   let namespace = C.create_namespace ~table () |> checked in
@@ -56,6 +56,7 @@ let with_records contents on_completed =
         let record = Record.aggregate_metadata progress |> checked in
         Entries.add entries source.aggregate_entry
           { publication; progress; record };
+        on_declared resolve (Entries.find entries source.aggregate_entry) source;
         Ok ()
     | Parser.Aggregate_advanced receipt ->
         let state =
@@ -611,6 +612,118 @@ let static_delimiter_phases () =
   Alcotest.(check bool)
     "next source parses after failed delimiters" false (Parser.has_errors next)
 
+let backed_forward_selection () =
+  let original = ref None
+  and array_target = ref None
+  and scalar_phase = ref None in
+  let on_declared resolve state source =
+    if Option.is_some source.Parser.aggregate_header.binding then (
+      let symbol =
+        C.publication_aggregate_identity state.publication |> Option.get
+      in
+      let type_ = Type.make_aggregate ~symbol ~pointer_depth:0 |> checked in
+      let node = Init.of_record ~resolve ~type_ state.record |> checked in
+      original := Some node;
+      scalar_phase := Some (Init.begin_scalar_evaluation node |> checked);
+      Alcotest.(check int)
+        "forward backing is absent before name lookahead" 0
+        (Init.scalar_evaluation_before (Option.get !scalar_phase)
+        |> Init.scalar_byte_size))
+  in
+  with_records ~on_declared "extern U16 class Item;U8 class Item{U8 value;};"
+    (fun _ _ receipt ->
+      let node = Option.get !original in
+      match receipt.Parser.aggregate_item with
+      | Ast.Aggregate_forward_declaration forward ->
+          Alcotest.(check bool)
+            "AST retains the original backing" true
+            (Option.equal ( == ) forward.backing
+               receipt.aggregate_publication.aggregate_backing);
+          let target = Init.select_forwarding node |> checked in
+          array_target := Some target;
+          Alcotest.(check int)
+            "forward declaration installs U16 backing" 2
+            (Init.begin_scalar_evaluation target
+            |> checked |> Init.scalar_evaluation_before |> Init.scalar_byte_size
+            );
+          Alcotest.(check int)
+            "earlier scalar branch retains the nominal class" 0
+            (Init.finish_scalar_evaluation (Option.get !scalar_phase)
+            |> checked |> Init.scalar_byte_size)
+      | Ast.Aggregate_definition _ ->
+          Alcotest.(check int)
+            "array rank keeps the cached forwarded target" 2
+            (Init.begin_scalar_evaluation (Option.get !array_target)
+            |> checked |> Init.scalar_evaluation_before |> Init.scalar_byte_size
+            );
+          Alcotest.(check int)
+            "a later recursion can select new backing" 1
+            (Init.select_forwarding node
+            |> checked |> Init.begin_scalar_evaluation |> checked
+            |> Init.scalar_evaluation_before |> Init.scalar_byte_size)
+      | _ -> Alcotest.fail "unexpected backed forward item")
+
+let backed_forward_syntax () =
+  List.iter
+    (fun mode ->
+      let session = Session.create () in
+      let source =
+        Session.add_source session ~path:"backed-forward-syntax.hc"
+          ~contents:
+            "#define EXT extern\n\
+             #define RAW U16\n\
+             U16 class Base{U8 value;};EXT RAW class First;extern Base ** \
+             union Second;extern I16i class Third;extern U8 **** class Fourth;"
+      in
+      let parsed =
+        Parser.parse ~sources:(Session.sources session)
+          ~definitions:(Session.definitions session)
+          ~symbols:(Session.symbols session)
+          ~config:
+            (Preprocessor.Config.create ~compilation_mode:mode () |> checked)
+          source
+      in
+      Alcotest.(check bool)
+        "backed forward syntax parses" false (Parser.has_errors parsed);
+      let ast = Option.get parsed.ast in
+      let forwards =
+        List.filter_map
+          (function
+            | Ast.Aggregate_forward_declaration forward -> Some forward
+            | _ -> None)
+          ast.items
+      in
+      Alcotest.(check (list int))
+        "retained backing pointer layers" [ 0; 2; 0; 4 ]
+        (List.map
+           (fun (forward : Ast.aggregate_forward_declaration) ->
+             List.length (Option.get forward.backing).backing_pointer_layers)
+           forwards);
+      let first = List.hd forwards in
+      Alcotest.(check bool)
+        "generated binding retains its definition" true
+        (Option.is_some first.binding.location.defined_at);
+      Alcotest.(check bool)
+        "generated backing retains its definition" true
+        (match (Option.get first.backing).backing_type_specifier with
+        | Ast.Primitive_type_specifier type_ ->
+            Option.is_some type_.location.defined_at
+        | _ -> false);
+      let json =
+        Holyc_lib__Frontend.Ast_dump.to_yojson (Session.sources session) ast
+      in
+      let open Yojson.Safe.Util in
+      let items =
+        json |> member "module" |> member "items" |> to_list |> List.tl
+      in
+      List.iter
+        (fun item ->
+          Alcotest.(check bool)
+            "public JSON retains backing" true
+            (member "backing" item <> `Null))
+        items)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Original initializer scalar phases"
     [
@@ -634,5 +747,10 @@ let () =
           Alcotest.test_case
             "static delimiter order, identity and failure expiry" `Quick
             static_delimiter_phases;
+          Alcotest.test_case
+            "backed forward installation and cached array target" `Quick
+            backed_forward_selection;
+          Alcotest.test_case "backed forward syntax, provenance and public JSON"
+            `Quick backed_forward_syntax;
         ] );
     ]

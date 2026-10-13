@@ -134,6 +134,29 @@ let () =
       in
       List.iter
         (fun target ->
+          List.iter
+            (fun mode ->
+              List.iter
+                (fun (_, source, _) ->
+                  write source;
+                  success "42" (invoke compiler probe target mode [] 0))
+                Cases.backed_values;
+              let forward_example =
+                Filename.concat (Filename.dirname example)
+                  "backed-forward-initializers.hc"
+              in
+              let baseline = invoke compiler forward_example target mode [] 0 in
+              success "42" baseline;
+              let steps = member "executed_steps" baseline |> to_int in
+              success "42"
+                (invoke compiler forward_example target mode
+                   [ Printf.sprintf "--step-limit=%d" steps ]
+                   0);
+              failure "HCIRVM0007"
+                (invoke compiler forward_example target mode
+                   [ Printf.sprintf "--step-limit=%d" (steps - 1) ]
+                   1))
+            [ "jit"; "aot" ];
           write Cases.static_before_nested_brace;
           success "42" (invoke compiler probe target "jit" [] 0);
           List.iter

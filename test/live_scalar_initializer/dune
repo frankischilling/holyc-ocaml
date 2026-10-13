@@ -19,7 +19,8 @@
  (libraries unix yojson)
  (deps
   ../../examples/live-scalar-initializers.hc
-  ../../examples/live-static-scalar-initializers.hc)
+  ../../examples/live-static-scalar-initializers.hc
+  ../../examples/backed-forward-initializers.hc)
  (action
   (run
    %{test}
@@ -30,7 +31,8 @@
  (alias native-tests)
  (deps
   ../../examples/live-scalar-initializers.hc
-  ../../examples/live-static-scalar-initializers.hc)
+  ../../examples/live-static-scalar-initializers.hc
+  ../../examples/backed-forward-initializers.hc)
  (action
   (run
    %{exe:test_live_scalar_initializer_cli.exe}

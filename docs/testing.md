@@ -2329,6 +2329,15 @@ survives. Native checks reject delimiter replay and cloned receipts without
 changing the original cursor. Existing array, string, saved-table and exact quota
 fixtures run through the same delimiter path.
 
-Isolated incomplete-class preparation, earlier array-entry forwarding selections,
-other leaf families and full aggregate parity remain open.
+Backed-forward cases check primitive, intrinsic and named backing syntax,
+pointer layers, macro provenance and public JSON in JIT and AOT parsing. Metadata
+tests retain the absent backing before name lookahead and the installed backing
+after forward completion. Cached array targets survive later completion.
+IR, native and public CLI fixtures cover global/static arrays, lexer and callee
+effects, named-target replacement, nested strings and zero-width copies. Bounds
+failures preserve earlier output. The maintained backed-forward example verifies
+its original four copied bytes and exact/one-below execution limits.
+
+Isolated incomplete-class preparation, backing installation during a reentrant
+ordinary class body, other leaf families and full aggregate parity remain open.
 No TempleOS runtime or emitted-byte capture is included.
