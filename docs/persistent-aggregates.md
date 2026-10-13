@@ -29,6 +29,15 @@ Globals and statics have separate roots. A function's static object survives cal
 and recursion within one execution. Equal local names in different functions
 remain separate. A new execution receives fresh persistent storage.
 
+Ordinary JIT class and union initializers activate their original source task at
+the initializer start. Earlier declarations and globals remain selected. Each
+reached expression executes once during parsing, including a zero-byte forward
+member inside a nonempty allocation. That member copies no bytes; the following
+direct member keeps the same initializer cursor. The
+[ordinary-source example](../examples/source-aggregate-initializers.hc) checks
+this timing without a `#exe` block. Isolated AOT preparation of incomplete
+selections remains open.
+
 The source shape distinguishes class elements from physical byte cells. Two
 three-byte class elements have an object count of two, six byte cells and a
 three-byte stride. Size queries and indexing use source geometry; allocation and

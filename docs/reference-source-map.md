@@ -2369,3 +2369,23 @@ modes, callback arrays, defaults, pointer arguments and returns, variadic slots,
 inherited lookup, replacement and argument mutation. Bounds and executable
 ownership guards are hosted policy. No TempleOS runtime or emitted-byte capture
 is included; wider callback and aggregate families remain open.
+
+## Ordinary-source aggregate initialization
+
+Complete `PrsGlblVarLst` at `Compiler/PrsStmt.HC:209-463` allocates and publishes
+the original global before invoking `PrsGlblInit`, then consumes the following
+separator. Complete `PrsGlblInit`, `PrsVarInit2` and `PrsVarInit` at
+`Compiler/PrsVar.HC:1-214` traverse backing, fixed array ranks and the direct
+member chain. A scalar expression executes even when the selected class has
+zero size; `MemCpy` writes no bytes and the destination cursor does not advance.
+The initializer does not add inherited field offsets to that cursor.
+
+The JIT source driver activates the existing original source task at a class or
+union object's initializer start. Earlier declarations are replayed through
+their retained source events; original initializer receipts select and settle
+each reached leaf. Shared IR/native tests cover zero-byte members, arrays,
+inherited layouts, later completion, shared globals, malformed later input and
+fault order. The [ordinary-source example](../examples/source-aggregate-initializers.hc)
+adds exact and one-below execution and initializer limits. This uses pinned
+source and hosted execution without a new TempleOS runtime capture. AOT's
+detached task and isolated preparation retain their existing boundaries.

@@ -1,5 +1,8 @@
 let headers = "extern U0 Print(U8 *fmt,...);"
 
+let source_zero_member =
+  {|I64 calls=0;extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){calls++;Print("A");return 7;}Box object={Next(),42};I64 F(){if(calls!=1)return -1;return object.tail;}F();|}
+
 let current_leaf =
   {|#exe {
 extern class Item;class Box{Item item;$$=8;};
@@ -34,6 +37,30 @@ StreamPrint("%%d;",Check());
 
 let jit_values =
   [
+    ( "ordinary source activates before a zero-byte member initializer",
+      {|extern class Item;class Box{Item item;U8 tail;$$=8;};Box object={7,42};I64 F(){return object.tail;}F();|},
+      "" );
+    ( "ordinary source evaluates zero-byte members exactly once",
+      source_zero_member,
+      "A" );
+    ( "ordinary source zero-byte member arrays keep each leaf",
+      {|I64 calls=0;extern class Item;class Box{Item items[2];U8 tail;$$=8;};I64 Next(I64 n){calls++;if(n==40)Print("A");return n;}Box object={{Next(40),Next(2)},42};I64 F(){if(calls!=2)return -1;return object.tail;}F();|},
+      "A" );
+    ( "ordinary source zero-byte leaves follow the direct member cursor",
+      {|extern class Item;class Base{U8 base;};class Box:Base{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};I64 F(){return object.base;}F();|},
+      "A" );
+    ( "ordinary source later completion preserves the earlier copy",
+      {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};class Item{U16 value;};I64 F(){return object.tail;}F();|},
+      "A" );
+    ( "ordinary source shares reached globals with later functions",
+      {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 saved=0;I64 Next(){saved=40;Print("A");return 7;}Box object={Next(),42};I64 F(){if(saved!=40)return -1;object.tail+=2;return object.tail;}I64 Check(){F();return F()-4;}Check();|},
+      "A" );
+    ( "ordinary source zero-byte union members evaluate once",
+      {|extern class Item;union Box{Item item;U8 value;};I64 Next(){Print("A");return 7;}Box object={Next(),42};I64 F(){return object.value;}F();|},
+      "A" );
+    ( "ordinary source aggregate arrays retain each initializer effect",
+      {|I64 calls=0;extern class Item;class Box{Item item;U8 tail[2];$$=8;};I64 Next(I64 n){calls++;if(n==40)Print("A");return n;}Box objects[2]={{Next(40),{40,2}},{Next(2),{1,1}}};I64 F(){if(calls!=2)return -1;return objects[0].tail[0]+objects[0].tail[1];}F();|},
+      "A" );
     ("callee completes the cached scalar class", current_leaf, "A");
     ("callee completion includes child runtime metadata", nested_metadata, "A");
     ( "lookahead completes the cached scalar class",
@@ -231,27 +258,38 @@ let both_values =
         "A" );
     ]
 
-let faults =
+let source_activation_faults =
   [
-    ( "new ordinary forwarding cannot shrink a captured nominal copy",
-      {|#exe{extern class Item;class Box{Item item;$$=8;};I64 Complete(){Print("A");StreamExePrint("U16 class Item{U8 value[9];};");return 42;}Box object={Complete()};}|},
-      "HCRUN0006" );
-    ( "cached global array backing cannot shrink around original bounds",
-      {|#exe{extern U64 class Item;class Box{Item items[2];$$=1;};Box object={{#exe{Print("A");U8 class Item{U8 value;};}42,7}};}|},
-      "HCRUN0006" );
-    ( "cached static array backing cannot shrink around original bounds",
-      {|#exe{extern U64 class Item;class Box{Item items[2];$$=1;};I64 F(){static Box object={{#exe{Print("A");U8 class Item{U8 value;};}42,7}};return 42;}}|},
-      "HCRUN0006" );
-    ( "completion cannot enlarge the original root",
-      {|#exe {extern class Item;class Box{Item item;$$=1;};I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}Box object={Complete()};StreamPrint("42;");}|},
-      "HCRUN0006" );
-    ( "scalar copy cannot read beyond the computed register word",
-      {|#exe {extern class Item;class Box{Item item;$$=16;};I64 Complete(){Print("A");StreamExePrint("class Item{U8 value[9];};");return 42;}Box object={Complete()};StreamPrint("42;");}|},
-      "HCRUN0006" );
-    ( "failed evaluation preserves its earlier output",
-      {|#exe {extern class Item;class Box{Item item;$$=8;};I64 Z=0;I64 Bad(){Print("A");return 1/Z;}Box object={Bad()};StreamPrint("42;");}|},
+    ( "ordinary source initializer output precedes later malformed input",
+      {|class Box{I64 value;};I64 Next(){Print("A");return 42;}Box object={Next()};I64 Broken(garbage|},
+      "HCPARSE0009" );
+    ( "ordinary source initializer faults precede later malformed input",
+      {|class Box{I64 value;};I64 Next(I64 divisor){Print("A");return 1/divisor;}Box object={Next(0)};I64 Broken(garbage|},
       "HCIRVM0009" );
   ]
+
+let faults =
+  source_activation_faults
+  @ [
+      ( "new ordinary forwarding cannot shrink a captured nominal copy",
+        {|#exe{extern class Item;class Box{Item item;$$=8;};I64 Complete(){Print("A");StreamExePrint("U16 class Item{U8 value[9];};");return 42;}Box object={Complete()};}|},
+        "HCRUN0006" );
+      ( "cached global array backing cannot shrink around original bounds",
+        {|#exe{extern U64 class Item;class Box{Item items[2];$$=1;};Box object={{#exe{Print("A");U8 class Item{U8 value;};}42,7}};}|},
+        "HCRUN0006" );
+      ( "cached static array backing cannot shrink around original bounds",
+        {|#exe{extern U64 class Item;class Box{Item items[2];$$=1;};I64 F(){static Box object={{#exe{Print("A");U8 class Item{U8 value;};}42,7}};return 42;}}|},
+        "HCRUN0006" );
+      ( "completion cannot enlarge the original root",
+        {|#exe {extern class Item;class Box{Item item;$$=1;};I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}Box object={Complete()};StreamPrint("42;");}|},
+        "HCRUN0006" );
+      ( "scalar copy cannot read beyond the computed register word",
+        {|#exe {extern class Item;class Box{Item item;$$=16;};I64 Complete(){Print("A");StreamExePrint("class Item{U8 value[9];};");return 42;}Box object={Complete()};StreamPrint("42;");}|},
+        "HCRUN0006" );
+      ( "failed evaluation preserves its earlier output",
+        {|#exe {extern class Item;class Box{Item item;$$=8;};I64 Z=0;I64 Bad(){Print("A");return 1/Z;}Box object={Bad()};StreamPrint("42;");}|},
+        "HCIRVM0009" );
+    ]
 
 let static_current_leaf =
   {|#exe {

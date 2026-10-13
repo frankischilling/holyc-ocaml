@@ -230,7 +230,22 @@ Unreached fields, completion after the member name, invalid array bounds,
 mismatched executable signatures and overlapping byte writes retain their
 errors and earlier output.
 
-Isolated preparation of incomplete selections and other
+Ordinary JIT source activates its original source task when a class or union
+object initializer starts, before consuming the initializer tokens. It reuses
+the earlier declarations and globals, then evaluates each reached leaf during
+parsing. A zero-byte forward member inside a nonempty root still evaluates its
+scalar expression once. It copies no bytes and leaves the cursor in place for
+the following direct member. Fixed member arrays repeat that rule for each
+element. Later completion cannot enlarge the earlier copy or containing root.
+
+The [ordinary-source example](../examples/source-aggregate-initializers.hc)
+contains no `#exe` block. Its zero-byte member calls `Next` once, prints `A`,
+and leaves the following byte initialized to 42. Later functions observe the
+same globals and storage. IR and native source tasks check the result and exact
+execution and initializer limits. Reached output survives malformed later
+input; an initializer fault stops before that later input is parsed.
+
+Isolated AOT preparation of incomplete selections and other
 runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution

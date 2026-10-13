@@ -933,3 +933,13 @@ same-name replacement preserve the original class. The
 callee capture before argument mutation in both IR and native source modes.
 Extra callback indirection, wider return domains and full aggregate parity
 remain open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686).
+
+Ordinary JIT class and union initializers now activate the original source task
+at their parser start. This supplies reached partial-class metadata and executes
+leaf effects before later declarations are checked. Zero-byte members inside
+nonempty roots still evaluate once, while their copies leave the byte cursor
+unchanged. Later functions share the reached globals and storage. The
+[ordinary-source example](../examples/source-aggregate-initializers.hc) runs
+through IR and native source tasks. Isolated AOT preparation of incomplete
+selections, empty root allocations and other initializer value families remain
+open under #686 and #690.

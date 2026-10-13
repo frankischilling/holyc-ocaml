@@ -169,7 +169,8 @@ let error ?code output report =
     code;
   require
     (member "output_hex" report = `String (hex output))
-    "aggregate fault preserves reached output"
+    ("aggregate fault preserves reached output: expected " ^ hex output ^ "; "
+    ^ Yojson.Safe.to_string report)
 
 let nested_limits target =
   let source = Cases.retained_nested_limits in
@@ -243,8 +244,8 @@ let () =
           value 42L "AB" (invoke target mode (read Sys.argv.(16)));
           if target = "ir" && mode = "jit" then
             List.iter
-              (fun (_, source, code, _) ->
-                error ~code "" (invoke ~status:1 target mode source))
+              (fun (_, source, code, output) ->
+                error ~code output (invoke ~status:1 target mode source))
               Persistent.initializer_partial_faults;
           List.iter
             (fun (_, source, expected, output) ->

@@ -2373,6 +2373,15 @@ unreached fields and completion after the member name. The maintained
 `class-body-callback-fields.hc` example runs through both targets and modes with
 exact and one-below execution limits.
 
-Isolated incomplete-class preparation, other leaf
+Ordinary-source JIT cases start class and union initialization without a preceding
+directive. They check zero-byte forward members, fixed member arrays, the direct
+member cursor across inherited layouts, later completion, shared globals and
+once-only effects. A later malformed declaration retains earlier output; a
+faulting initializer stops first. The `source-aggregate-initializers.hc` example
+runs through IR and native source tasks with exact and one-below execution and
+initializer limits. Existing AOT cases retain their separate source table and
+preparation path.
+
+Isolated AOT incomplete-class preparation, other leaf
 families and full aggregate parity remain open.
 No TempleOS runtime or emitted-byte capture is included.

@@ -79,6 +79,7 @@ let quotas () =
       Cases.static_current_leaf;
       Cases.static_saved_tables;
       Cases.static_nested_metadata;
+      Cases.source_zero_member;
     ]
 
 let grammar_faults () =

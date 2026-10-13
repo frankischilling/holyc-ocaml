@@ -122,6 +122,31 @@ let () =
             [ ("jit", "42"); ("aot", "7") ])
         targets)
     examples;
+  List.iter
+    (fun target ->
+      let source_example =
+        Filename.concat (Filename.dirname example)
+          "source-aggregate-initializers.hc"
+      in
+      let run options status =
+        invoke compiler source_example target "jit" options status
+      in
+      let baseline = run [] 0 in
+      success "42" baseline;
+      let work = member "compiled_initializer_steps" baseline |> to_int
+      and steps = member "executed_steps" baseline |> to_int in
+      success "42"
+        (run
+           [
+             Printf.sprintf "--initializer-step-limit=%d" work;
+             Printf.sprintf "--step-limit=%d" steps;
+           ]
+           0);
+      failure "HCIRVM0007"
+        (run [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ] 1);
+      failure "HCIRVM0007"
+        (run [ Printf.sprintf "--step-limit=%d" (steps - 1) ] 1))
+    targets;
   let probe = Filename.temp_file "holyc static grammar " ".hc" in
   Fun.protect
     ~finally:(fun () -> Sys.remove probe)
@@ -134,6 +159,15 @@ let () =
       in
       List.iter
         (fun target ->
+          List.iter
+            (fun (_, source, code) ->
+              write source;
+              let report = invoke compiler probe target "jit" [] 1 in
+              failure code report;
+              require
+                (member "output_hex" report = `String "41")
+                "source initializer output survives later failure")
+            Cases.source_activation_faults;
           List.iter
             (fun mode ->
               List.iter

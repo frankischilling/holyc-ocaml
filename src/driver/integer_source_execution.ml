@@ -371,6 +371,15 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                     | _ -> Task_declarations.observe ledger event
                   in
                   match (is_jit, !task, event) with
+                  | true, None, Parser.Global_initializer_started start
+                    when Option.is_some
+                           start.initializer_owner.global_header
+                             .declaration_type_selection
+                         && start.initializer_owner.global_pointer_layers = []
+                         && Option.is_none
+                              start.initializer_owner.global_function_pointer ->
+                      ensure_task start.initializer_equals.span
+                      |> Result.map ignore
                   | true, None, Parser.Aggregate_declared receipt
                     when Option.is_some receipt.aggregate_backing
                          && Option.fold ~none:false

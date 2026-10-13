@@ -19,6 +19,7 @@
  (libraries unix yojson)
  (deps
   ../../examples/live-scalar-initializers.hc
+  ../../examples/source-aggregate-initializers.hc
   ../../examples/live-static-scalar-initializers.hc
   ../../examples/backed-forward-initializers.hc
   ../../examples/class-body-initializers.hc
@@ -35,6 +36,7 @@
  (alias native-tests)
  (deps
   ../../examples/live-scalar-initializers.hc
+  ../../examples/source-aggregate-initializers.hc
   ../../examples/live-static-scalar-initializers.hc
   ../../examples/backed-forward-initializers.hc
   ../../examples/class-body-initializers.hc
