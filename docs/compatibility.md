@@ -20,8 +20,11 @@ Ordinary definitions install new backing after their body and following-token
 lookahead. They preserve prior extern forwarding during the body and on unbacked
 completion; reached partial direct members can supply initializer grammar.
 Isolated incomplete-class preparation, other runtime class changes and the
-remaining aggregate execution families stay open. Function-body member reads
-from an unfinished class still need a completed member index.
+  remaining aggregate execution families stay open. Function-body reads and
+  writes can select reached direct and inherited fields from an unfinished
+  ordinary class at the original member-name observation. Later fields cannot
+  enlarge that snapshot or the original allocation. Partial callback calls
+  still require their signature index.
 
 [Class pointer views](class-pointer-views.md) retain owned bytes through casts
 between supported integer and class pointers. IR and native paths preserve

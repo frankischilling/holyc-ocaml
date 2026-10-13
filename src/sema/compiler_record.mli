@@ -311,11 +311,19 @@ val aggregate_initializer_has_members : t -> bool
 val aggregate_initializer_is_complete : t -> bool
 val aggregate_initializer_is_definition : t -> bool
 val aggregate_field_type : aggregate_field -> Type.t
+val aggregate_field_type_reference : aggregate_field -> Type_reference.t
+val aggregate_field_offset : aggregate_field -> int64
+val aggregate_field_placement_size : aggregate_field -> int64
 val aggregate_field_counts : aggregate_field -> int64 list
 val aggregate_field_record : aggregate_field -> t option
 
 val aggregate_field_callback :
   aggregate_field -> Frontend.Ast.function_pointer_declarator option
+
+val aggregate_reached_field :
+  t -> string -> (Symbol.t * int * aggregate_field) option
+(** Search reached direct members before the original attached base snapshot.
+    Retain the declaring identity, inheritance depth and original field. *)
 
 val aggregate_initializer_backing :
   t -> (Type_reference.t * t option) option option
@@ -408,11 +416,10 @@ val capture_aggregate_reference_visibility :
   Frontend.Parser.reference_selection ->
   t list ->
   (aggregate_reference_visibility, string) result
-(** Record which original class definitions were complete at a live identifier
-    read. Every supplied record must have its current completed definition in
-    the reference's table, namespace and parser environment. Forward
-    declarations cannot establish completion. Later definitions cannot enlarge
-    this set. *)
+(** Record completed class identities and reached ordinary class bodies at a
+    live identifier read. Each record must be current in the original table,
+    namespace and parser environment. Forward declarations cannot establish
+    completion. Later phases cannot enlarge the saved member snapshots. *)
 
 val aggregate_reference_allows :
   table:Symbol_table.t ->
@@ -424,6 +431,16 @@ val aggregate_reference_allows :
 (** True only for this exact original identifier and a class identity captured
     as complete there. Foreign owners and missing identities return [false].
     This is a visibility limit and grants no member layout or storage. *)
+
+val aggregate_reference_partial :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  identifier:Frontend.Ast.identifier ->
+  symbol:Symbol.t ->
+  aggregate_reference_visibility ->
+  t option
+(** The immutable ordinary class body reached at this exact live identifier.
+    Later phases cannot add fields to this snapshot. *)
 
 val advance_aggregate :
   ?members:

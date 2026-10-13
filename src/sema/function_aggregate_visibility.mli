@@ -41,3 +41,11 @@ val permits_aggregate :
 (** Imported layouts must also have been complete at the original identifier
     observation. This veto cannot grant a layout or replay a later completion.
 *)
+
+val partial_aggregate :
+  function_ ->
+  source:Frontend.Ast.expression ->
+  symbol:Symbol.t ->
+  Compiler_record.t option
+(** Original reached metadata at the exact member-name observation. Other
+    expression forms retain their original identifier observation. *)

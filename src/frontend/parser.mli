@@ -300,6 +300,11 @@ val selected_local : reference_selection -> local_publication option
     semantic symbol or storage authority. *)
 
 val selected_command : reference_selection -> command_start
+
+val selected_member_reference : reference_selection -> bool
+(** A member-name observation follows dot/arrow lookahead and precedes skipping
+    that name. Its lexical lookup is not an expression binding or callee. *)
+
 val reference_selection_is_current : reference_selection -> bool
 
 type call_activity

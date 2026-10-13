@@ -809,6 +809,56 @@ let ordinary_body_backing_phases () =
         (Parser.aggregate_phase_is_current phase))
     !saved
 
+let member_reference_phases () =
+  let session = Session.create () in
+  let saved = ref [] in
+  let commands : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = None;
+      reference =
+        Some
+          (fun receipt ->
+            Alcotest.(check bool)
+              "original name callback is live" true
+              (Parser.reference_selection_is_current receipt);
+            saved := receipt :: !saved;
+            Ok ());
+      call = None;
+      implicit_output = None;
+      declaration = None;
+      query = None;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let source =
+    Session.add_source session ~path:"member-reference-phase.hc"
+      ~contents:"class C{U8 value;};I64 value=1;I64 F(C *p){return p->value;}"
+  in
+  let parsed =
+    Parser.parse ~commands ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session)
+      ~config:(Preprocessor.Config.create ~compilation_mode:Jit () |> checked)
+      source
+  in
+  Alcotest.(check bool) "member source parses" false (Parser.has_errors parsed);
+  Alcotest.(check (list (pair string bool)))
+    "base and member have separate observations"
+    [ ("p", false); ("value", true) ]
+    (List.rev !saved
+    |> List.map (fun receipt ->
+        ( (Parser.selected_identifier receipt).spelling,
+          Parser.selected_member_reference receipt )));
+  List.iter
+    (fun receipt ->
+      Alcotest.(check bool)
+        "member callback expires" false
+        (Parser.reference_selection_is_current receipt))
+    !saved
+
 let () =
   Alcotest.run "Original initializer scalar phases"
     [
@@ -840,5 +890,8 @@ let () =
           Alcotest.test_case
             "ordinary body and forwarding phases retain original timing" `Quick
             ordinary_body_backing_phases;
+          Alcotest.test_case
+            "member-name observations and original callback expiry" `Quick
+            member_reference_phases;
         ] );
     ]

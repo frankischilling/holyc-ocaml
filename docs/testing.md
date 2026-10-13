@@ -2347,7 +2347,16 @@ the maintained class-body example in both outer modes with exact/one-below
 execution limits. New forwarding cannot shorten an already captured nominal copy
 to bypass the original root bounds.
 
-Isolated incomplete-class preparation, partial function-body member reads that
-still need a completed member index, other leaf families and full aggregate parity
-remain open.
+Partial member cases exercise direct and inherited reads, signed fields, writes,
+array dimensions, explicit offsets, anonymous union aliases and owned static
+pointer targets. Original
+member-name observations distinguish completion during dot lookahead from
+completion after the name; unreached fields reject. Out-of-bounds projections
+retain the original byte root and earlier output. Public JSON CLI runs the
+maintained `class-body-member-reads.hc` example through both targets and modes
+with exact/one-below execution limits. Existing local aggregate tests continue
+to reject later, unreachable and same-name replacement layouts.
+
+Isolated incomplete-class preparation, partial callback calls, other leaf
+families and full aggregate parity remain open.
 No TempleOS runtime or emitted-byte capture is included.

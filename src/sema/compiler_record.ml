@@ -121,6 +121,8 @@ type aggregate_field = {
   field_namespace : Declaration_collection.namespace;
   field_publication : Declaration_collection.publication;
   field_type : Type.t;
+  field_type_reference : Type_reference.t;
+  field_offset : int64;
   field_element_size : int64;
   field_count : int64;
   field_dimensions : runtime_dimension_proposal list;
@@ -199,6 +201,7 @@ type aggregate_reference_visibility = {
   reference_namespace : Declaration_collection.namespace;
   reference_source : Parser.reference_selection;
   reference_completed_symbols : Symbol.t list;
+  reference_partial_records : (Symbol.t * t) list;
 }
 
 type inherited_base = {
@@ -1020,7 +1023,7 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
     || not (Declaration_collection.namespace_owns_table namespace table)
   then Error "aggregate visibility requires its original live reference"
   else
-    let rec completed symbols = function
+    let rec completed symbols partial = function
       | [] ->
           Ok
             {
@@ -1028,6 +1031,7 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
               reference_namespace = namespace;
               reference_source = reference;
               reference_completed_symbols = symbols;
+              reference_partial_records = partial;
             }
       | (record : t) :: rest -> (
           match record.aggregate_owner with
@@ -1057,16 +1061,39 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
                 Declaration_collection.publication_aggregate_identity
                   publication
               with
-              | Some symbol -> completed (symbol :: symbols) rest
+              | Some symbol -> completed (symbol :: symbols) partial rest
               | None ->
                   Error "completed reference class lacks its canonical identity"
               )
+          | Some (owner, publication, None)
+            when record.table == table && owner == namespace
+                 && Declaration_collection.namespace_owns_publication namespace
+                      publication
+                 && record.symbol
+                    == Declaration_collection.publication_symbol publication
+                 && aggregate_snapshot_is_current record -> (
+              match
+                ( Declaration_collection.publication_source_aggregate publication,
+                  Declaration_collection.publication_aggregate_identity
+                    publication,
+                  Declaration_collection.current_aggregate_publication namespace
+                    publication )
+              with
+              | Some source, Some symbol, Some current
+                when current == publication
+                     && Option.is_none source.aggregate_header.binding
+                     && source.aggregate_environment
+                        == Parser.selected_environment reference
+                     && source.aggregate_entry == record.entry ->
+                  completed symbols ((symbol, record) :: partial) rest
+              | _ ->
+                  Error "partial member visibility has another original class")
           | _ ->
               Error
                 "aggregate reference visibility requires current completed \
                  original class records")
     in
-    completed [] records
+    completed [] [] records
 
 let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
   visibility.reference_table == table
@@ -1077,6 +1104,20 @@ let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
   && Parser.selected_identifier visibility.reference_source == identifier
   && Symbol_table.owns_symbol table symbol
   && List.exists (( == ) symbol) visibility.reference_completed_symbols
+
+let aggregate_reference_partial ~table ~parent ~identifier ~symbol visibility =
+  if
+    visibility.reference_table != table
+    || Declaration_collection.namespace_scope visibility.reference_namespace
+       != parent
+    || Parser.selected_identifier visibility.reference_source != identifier
+    || not (Symbol_table.owns_symbol table symbol)
+  then None
+  else
+    List.find_map
+      (fun (original, record) ->
+        if original == symbol then Some record else None)
+      visibility.reference_partial_records
 
 type aggregate_progress = {
   progress_compiler_positions : compiler_positions;
@@ -1312,6 +1353,9 @@ let aggregate_initializer_is_definition (record : t) =
   | None -> false
 
 let aggregate_field_type field = field.field_type
+let aggregate_field_type_reference field = field.field_type_reference
+let aggregate_field_offset field = field.field_offset
+let aggregate_field_placement_size field = field.field_element_size
 let aggregate_field_counts field = field.field_counts
 let aggregate_field_record field = field.field_record
 let aggregate_field_metadata field = field.field_metadata
@@ -1332,6 +1376,33 @@ let aggregate_field_callback field =
   match field.field_phase.Parser.phase_step with
   | Parser.Aggregate_member_prepared member -> member.member_callback
   | _ -> assert false
+
+let aggregate_reached_field record name =
+  let rec find visited depth record =
+    match record.aggregate_owner with
+    | None -> None
+    | Some (_, publication, _) -> (
+        match
+          Declaration_collection.publication_aggregate_identity publication
+        with
+        | None -> None
+        | Some symbol when List.memq symbol visited -> None
+        | Some symbol -> (
+            let field =
+              List.fold_left
+                (fun found field ->
+                  if (aggregate_field_name field).spelling = name then
+                    Some field
+                  else found)
+                None (aggregate_fields record)
+            in
+            match field with
+            | Some field -> Some (symbol, depth, field)
+            | None ->
+                Option.bind record.aggregate_base_snapshot
+                  (find (symbol :: visited) (depth + 1))))
+  in
+  find [] 0 record
 
 let aggregate_initializer_backing record = record.aggregate_initializer_backing
 
@@ -1570,7 +1641,7 @@ let advance_aggregate
       | Parser.Aggregate_member_prepared member ->
           let record =
             let* record = progress.progress_record in
-            let* element_size, selected_record, field_type =
+            let* element_size, selected_record, field_type_reference =
               match (member.member_callback, member.member_type) with
               | None, Ast.Named_type_specifier _ ->
                   let* selected = members phase in
@@ -1587,7 +1658,7 @@ let advance_aggregate
                     Ok
                       ( selected.member_size,
                         selected.member_record,
-                        Type_reference.resolved_type selected.member_type ))
+                        selected.member_type ))
               | callback, _ ->
                   let* type_ =
                     match callback with
@@ -1607,7 +1678,7 @@ let advance_aggregate
                   let* size =
                     scalar_size (Type_reference.resolved_type type_)
                   in
-                  Ok (size, None, Type_reference.resolved_type type_)
+                  Ok (size, None, type_)
             in
             let checked = List.filter_map dimensions member.member_dimensions in
             let* field_count =
@@ -1641,7 +1712,13 @@ let advance_aggregate
                         field_phase = phase;
                         field_namespace = progress.progress_namespace;
                         field_publication = progress.progress_publication;
-                        field_type;
+                        field_type =
+                          Type_reference.resolved_type field_type_reference;
+                        field_type_reference;
+                        field_offset =
+                          (match kind with
+                          | Ast.Class_aggregate -> record.byte_size
+                          | Ast.Union_aggregate -> union_base);
                         field_element_size = element_size;
                         field_count;
                         field_counts = List.map dimension_count checked;

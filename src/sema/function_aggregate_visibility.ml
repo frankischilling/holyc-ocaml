@@ -82,6 +82,16 @@ let permits_aggregate (value : function_) ~source ~item_index ~symbol =
               occurrence.first_identifier)
           value.aggregate_references
 
+let partial_aggregate (value : function_) ~source ~symbol =
+  Option.bind
+    (Option.join (Expressions.find_opt value.occurrences source))
+    (fun occurrence ->
+      Option.bind occurrence.first_identifier (fun identifier ->
+          Option.bind value.aggregate_references (fun resolve ->
+              Option.bind (resolve identifier)
+                (Compiler_record.aggregate_reference_partial ~table:value.table
+                   ~parent:value.parent ~identifier ~symbol))))
+
 let create ~table ~declarations ~bodies ?aggregate_references module_ =
   let parent = Declaration_collection.scope declarations in
   let items = Ast.declaration_items module_ in
@@ -166,7 +176,8 @@ let create ~table ~declarations ~bodies ?aggregate_references module_ =
                         let index = visit_expression value.index_value in
                         prefer base index
                     | Ast.Member_expression value ->
-                        visit_expression value.member_base
+                        ignore (visit_expression value.member_base);
+                        Some value.member_name
                     | _ -> None
                   in
                   (match Expressions.find_opt occurrences value with

@@ -91,6 +91,19 @@ let grammar_faults () =
         (Native.output_bytes report))
     Cases.grammar_faults
 
+let partial_member_faults () =
+  List.iter
+    (fun mode ->
+      List.iteri
+        (fun index (_, source) ->
+          let report = run ~mode source in
+          failure (if index < 2 then "HCSEMA0046" else "HCIRVM0019") report;
+          Alcotest.(check string)
+            "earlier output remains" "A"
+            (Native.output_bytes report))
+        Cases.partial_member_faults)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Native live scalar initializer copies"
     [
@@ -118,6 +131,8 @@ let () =
               quotas;
             Alcotest.test_case "static delimiter grammar and prior effects"
               `Quick grammar_faults;
+            Alcotest.test_case "partial member visibility and original bounds"
+              `Quick partial_member_faults;
             Alcotest.test_case "original native capture and copy authority"
               `Quick (fun () -> Authority.source_copy ());
             Alcotest.test_case "missing copy cannot complete the initializer"

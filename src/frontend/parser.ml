@@ -559,6 +559,7 @@ type reference_selection = {
   lookup : Symbol_visibility.lookup;
   selected_local : local_publication option;
   selected_command : command_start;
+  member_reference : bool;
   mutable reference_active : bool;
 }
 
@@ -567,6 +568,7 @@ let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
 let selected_local selection = selection.selected_local
 let selected_command selection = selection.selected_command
+let selected_member_reference selection = selection.member_reference
 let reference_selection_is_current selection = selection.reference_active
 
 type exception_arm = Try_arm | Catch_arm
@@ -2668,7 +2670,7 @@ let cache_dimension_count cursor at receipt =
           raise Stop_command)
     cursor.dimension_count
 
-let expression_identifier cursor item =
+let expression_identifier ?(member_reference = false) cursor item =
   let identifier =
     Ast.make_identifier ~spelling:item.token.raw
       ~location:(token_location item.token)
@@ -2682,6 +2684,7 @@ let expression_identifier cursor item =
           lookup;
           selected_local = item.local_selection;
           selected_command = Option.get cursor.current_command;
+          member_reference;
           reference_active = false;
         }
       in
@@ -5148,8 +5151,9 @@ and parse_member_suffix cursor ~context (base : parsed_expression) access_kind :
     let member_item = take cursor in
     let operator = make_expression_operator operator_item.token in
     let member =
-      Ast.make_identifier ~spelling:member_item.token.raw
-        ~location:(token_location member_item.token)
+      match expression_identifier ~member_reference:true cursor member_item with
+      | Ast.Identifier_expression identifier -> identifier
+      | _ -> assert false
     in
     let tokens = base.tokens @ [ operator_item.token; member_item.token ] in
     let node =

@@ -506,3 +506,66 @@ let lookup result ~aggregate ~name =
                 inheritance_depth;
                 member;
               }))
+
+let lookup_partial result ~visibility ~source ~aggregate ~name =
+  if
+    not
+      (Function_aggregate_visibility.function_owns visibility
+         ~table:result.table ~parent:result.parent)
+  then
+    Error (invalid_input "partial member lookup has another function namespace")
+  else
+    match
+      Function_aggregate_visibility.partial_aggregate visibility ~source
+        ~symbol:aggregate
+    with
+    | None -> Ok None
+    | Some record -> (
+        match Compiler_record.aggregate_reached_field record name with
+        | None ->
+            Error
+              (invalid_input
+                 (Printf.sprintf "aggregate `%s` has no reached member `%s`"
+                    (Symbol.name aggregate) name))
+        | Some (_, _, field)
+          when Option.is_some (Compiler_record.aggregate_field_callback field)
+          ->
+            Error
+              (invalid_input
+                 "partial callback member requires its original signature index")
+        | Some (declaring_aggregate, inheritance_depth, field) ->
+            let original = Compiler_record.aggregate_field_name field in
+            let origin = Closed_numeric_expression.origin original.location in
+            Result.bind
+              (Symbol_table.create_scope result.table ~parent:result.parent
+                 ~kind:Symbol_table.Aggregate
+                 ~name:(Symbol.name declaring_aggregate)
+                 ())
+              (fun scope ->
+                Result.bind
+                  (Symbol_table.add result.table ~scope ~name
+                     ~kind:Symbol.Member ~origin) (fun symbol ->
+                    Result.map
+                      (fun layout ->
+                        Some
+                          {
+                            queried_aggregate = aggregate;
+                            declaring_aggregate;
+                            inheritance_depth;
+                            member =
+                              {
+                                symbol;
+                                declaring_aggregate;
+                                member_type =
+                                  Compiler_record.aggregate_field_type field;
+                                member_type_reference =
+                                  Compiler_record.aggregate_field_type_reference
+                                    field;
+                                is_function_pointer = false;
+                                function_pointer = None;
+                                layout;
+                              };
+                          })
+                      (Aggregate_layout.reached_member ~table:result.table
+                         ~symbol field)))
+            |> Result.map_error invalid_input)

@@ -3606,10 +3606,27 @@ and type_member table members policies ~before_item_index ~context
                            aggregate_symbol))
                     (Function_call_resolution.argument_expression_source source)
             in
-            resolve_member_lookup ~layout_visible members ~before_item_index
-              ~aggregate_symbol
-              ~member_name:(Function_call_resolution.member_name member)
-              ~member_origin
+            let partial =
+              match
+                ( state.function_visibility,
+                  Function_call_resolution.argument_expression_source source )
+              with
+              | Some visibility, Some source ->
+                  Aggregate_member_index.lookup_partial members ~visibility
+                    ~source ~aggregate:aggregate_symbol
+                    ~name:(Function_call_resolution.member_name member)
+                  |> Result.map_error (fun error ->
+                      invalid_input ~origin:member_origin
+                        (Aggregate_member_index.error_message error))
+              | _ -> Ok None
+            in
+            Result.bind partial (function
+              | Some lookup -> Ok lookup
+              | None ->
+                  resolve_member_lookup ~layout_visible members
+                    ~before_item_index ~aggregate_symbol
+                    ~member_name:(Function_call_resolution.member_name member)
+                    ~member_origin)
       in
       let resolve_aggregate source_type =
         match access_kind with

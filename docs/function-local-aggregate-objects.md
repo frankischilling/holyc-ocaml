@@ -58,7 +58,8 @@ declaration replaces its name. A value conversion does not copy the whole object
 allocation and member-layout proofs in IR. Their ownership shadows retain the
 target's original allocation identity; overlapping scalar writes invalidate
 pointer ownership. Loading a field does not extend the target's lifetime.
-Native execution of these fields remains gated with `HCBACK0002`.
+Native source execution also retains owned targets through supported one-level
+integer and class pointer fields.
 
 The declaration-order evidence keeps the original function identity separate
 from the point where a layout became available. Member, pointer-stride and
@@ -78,17 +79,19 @@ gated. The pinned `PrsType` resets declaration mode to zero for that form, so
 `PrsVarLst` does not reach its automatic allocation branch. Parsing the form
 alone does not establish executable local storage.
 
-Completing a forward in a directive between a base operand and its member or
-index suffix also remains gated. The current proof records the original base
-reference; admitting a later completion at the suffix needs a separate parser
-receipt. This boundary is narrower than the pinned member lookup path.
+Member-name observations follow dot/arrow lookahead. A directive between the
+base operand and that name can complete the selected forward before lookup.
+Completion after the name cannot authorize the earlier member selection.
+Reached ordinary class bodies also supply direct and inherited member
+projections through their original placement metadata; see
+[class-body member reads](aggregate-initializers.md). Pointer arithmetic and
+index strides retain their separate original layout proofs.
 
 [Persistent class globals and statics](persistent-aggregates.md) now retain
 original byte roots, including function-local static classes. General object
-copies,
-callback fields and class pointer returns retain their separate implementation
-boundaries. Runtime AOT layout expressions still require their relocation
-support. This feature is tracked by
+copies, extra callback indirection and wider pointer return domains retain
+their separate implementation boundaries. Runtime AOT layout expressions still
+require their relocation support. This feature is tracked by
 [issue #818](https://github.com/frankischilling/holyc-ocaml/issues/818)
 within the broader aggregate and compiler work.
 

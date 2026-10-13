@@ -160,7 +160,9 @@ let () =
                        [ Printf.sprintf "--step-limit=%d" (steps - 1) ]
                        1))
                 [
-                  "backed-forward-initializers.hc"; "class-body-initializers.hc";
+                  "backed-forward-initializers.hc";
+                  "class-body-initializers.hc";
+                  "class-body-member-reads.hc";
                 ])
             [ "jit"; "aot" ];
           write Cases.static_before_nested_brace;

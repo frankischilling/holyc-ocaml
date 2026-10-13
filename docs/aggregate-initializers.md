@@ -181,10 +181,24 @@ JIT or 7 in AOT. The second call sees the first call's mutation; it does not
 repeat the initializer or its class completion. IR and native source tasks retain
 the actual reached leaf destinations when joining the completed frame.
 
-Isolated preparation of incomplete selections and other runtime class changes
-remain unfinished. Partial member reads inside a function still require the
-completed member index (`HCSEMA0046`); partial direct-member initializer traversal
-does not qualify that separate consumer. Floating,
+The [class-body member example](../examples/class-body-member-reads.hc) compiles
+its function while `Item` is still being parsed. Member-name observations retain
+the reached direct fields and the original attached base snapshot. Reads and
+writes use those fields' selected types, offsets, array dimensions and placement
+sizes. Anonymous union fields retain their shared offset. The later `Item.later`
+declaration does not enlarge the earlier `Box` allocation or enter the function's
+member snapshot. The example prints `A` and returns 42 through IR and native
+source execution in both outer modes.
+
+The observation follows dot/arrow lookahead and precedes skipping the member
+name, matching `PrsUnaryModifier`'s call to `MemberFind`. A class completion
+reached before the name can supply its members; completion reached after that
+selection cannot authorize the earlier read. Missing reached fields still report
+`HCSEMA0046`. Existing root bounds and initialized-byte checks apply to these
+projections.
+
+Isolated preparation of incomplete selections, partial callback calls and other
+runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under
@@ -205,6 +219,10 @@ The audit covers complete `PrsVarInit`, `PrsVarInit2`, `PrsGlblInit` and
 `Compiler/PrsStmt.HC:209-463`. `OptClassFwd` at `Compiler/OptLib.HC:9-15`
 selects backing before traversal. Complete `MemberAdd` at
 `Compiler/LexLib.HC:103-148` explains the direct source member chain.
+Complete `MemberFind` at `Compiler/LexLib.HC:67-85` searches reached direct
+members before the attached base. `PrsUnaryModifier` at
+`Compiler/PrsExp.HC:960-1115` selects the raw member after dot/arrow lookahead,
+then uses its offset, class and array dimensions.
 `PrsClass` at `Compiler/PrsStmt.HC:1-60` reuses the selected extern class record
 on completion. `PrsStreamBlk` at `Compiler/PrsStmt.HC:805-840` switches `#exe`
 input to the task table and JIT flags before restoring the enclosing context.

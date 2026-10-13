@@ -1306,12 +1306,19 @@ let observe_reference ledger selection =
         fail identifier.location.span
           "identifier selection was already consumed";
       let target =
-        selection_target ledger identifier.location.span
-          (Parser.selected_lookup selection)
+        if Parser.selected_member_reference selection then Selected_absent
+        else
+          selection_target ledger identifier.location.span
+            (Parser.selected_lookup selection)
       in
       let native_record =
-        match Parser.selected_lookup selection with
-        | Visibility.Present entry -> native_record_for_entry ledger entry
+        match
+          ( Parser.selected_member_reference selection,
+            Parser.selected_lookup selection )
+        with
+        | true, _ -> None
+        | false, Visibility.Present entry ->
+            native_record_for_entry ledger entry
         | _ -> None
       in
       let aggregate_visibility =
@@ -1320,17 +1327,13 @@ let observe_reference ledger selection =
             Entries.fold
               (fun _ assigned records ->
                 match assigned.source with
-                | Aggregate
-                    {
-                      completed =
-                        Some { aggregate_item = Ast.Aggregate_definition _; _ };
-                      record = Some (Ok record);
-                      _;
-                    }
-                  when Option.fold ~none:false
-                         ~some:(( == ) assigned.publication)
-                         (Collection.current_aggregate_publication
-                            ledger.namespace assigned.publication) ->
+                | Aggregate { record = Some (Ok record); _ }
+                  when Sema.Compiler_record.aggregate_initializer_is_definition
+                         record
+                       && Option.fold ~none:false
+                            ~some:(( == ) assigned.publication)
+                            (Collection.current_aggregate_publication
+                               ledger.namespace assigned.publication) ->
                     record :: records
                 | _ -> records)
               ledger.entries []
@@ -1609,14 +1612,16 @@ let validate_source_reference ledger selection =
         | Some reference when reference.selection == selection -> reference
         | _ -> fail span "source read lacks its exact observed selection"
       in
-      match reference.target with
-      | Selected_absent ->
-          fail ~code:"HCRUN0003" span
-            "source expression identifier is absent at its source read"
-      | Selected_unbound _ ->
-          fail ~code:"HCRUN0003" span
-            "source expression entry has no checked source publication"
-      | Selected_local | Selected_source _ | Selected_runtime _ -> ())
+      if Parser.selected_member_reference selection then ()
+      else
+        match reference.target with
+        | Selected_absent ->
+            fail ~code:"HCRUN0003" span
+              "source expression identifier is absent at its source read"
+        | Selected_unbound _ ->
+            fail ~code:"HCRUN0003" span
+              "source expression entry has no checked source publication"
+        | Selected_local | Selected_source _ | Selected_runtime _ -> ())
 
 let validate_execution_target_at span command target =
   let unavailable message = fail ~code:"HCRUN0003" span message in
@@ -1644,10 +1649,12 @@ let validate_execution_target_at span command target =
   | Selected_local | Selected_runtime _ | Selected_source _ -> ()
 
 let validate_execution_target selection target =
-  validate_execution_target_at
-    (Parser.selected_identifier selection).location.span
-    (Parser.selected_command selection)
-    target
+  if Parser.selected_member_reference selection then ()
+  else
+    validate_execution_target_at
+      (Parser.selected_identifier selection).location.span
+      (Parser.selected_command selection)
+      target
 
 let observe_execution_reference ledger selection =
   let identifier = Parser.selected_identifier selection in

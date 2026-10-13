@@ -21,7 +21,8 @@
   ../../examples/live-scalar-initializers.hc
   ../../examples/live-static-scalar-initializers.hc
   ../../examples/backed-forward-initializers.hc
-  ../../examples/class-body-initializers.hc)
+  ../../examples/class-body-initializers.hc
+  ../../examples/class-body-member-reads.hc)
  (action
   (run
    %{test}
@@ -34,7 +35,8 @@
   ../../examples/live-scalar-initializers.hc
   ../../examples/live-static-scalar-initializers.hc
   ../../examples/backed-forward-initializers.hc
-  ../../examples/class-body-initializers.hc)
+  ../../examples/class-body-initializers.hc
+  ../../examples/class-body-member-reads.hc)
  (action
   (run
    %{exe:test_live_scalar_initializer_cli.exe}

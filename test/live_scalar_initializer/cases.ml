@@ -110,7 +110,31 @@ let backed_values =
       {|#exe{U16 class Item{U8 value;#exe{Print("A");class Box{Item item;$$=8;};Box object={{42}};}};StreamPrint("%d;",object.item.value);}|},
       "A" );
     ( "static preparation uses reached partial direct members",
-      {|#exe{U16 class Item{U8 value;#exe{Print("A");class Box{Item item;$$=8;};I64 F(){static Box object={{42}};U8 *p=(&object)(U8*);return p[0];}}};StreamPrint("%d;",F());}|},
+      {|#exe{U16 class Item{U8 value;#exe{Print("A");class Box{Item item;$$=8;};I64 F(){static Box object={{42}};return object.item.value;}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial member reads retain explicit offsets and array dimensions",
+      {|#exe{class Item{U8 tag;$$=3;U16 values[2];#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{1,{7,40}}};object.item.values[1]=40;U8 *p=(&object)(U8*);if(p[5]!=40)return -1;return object.item.values[1]+2;}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial signed member reads preserve original scalar storage",
+      {|#exe{class Item{I8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{-1}};return object.item.value+43;}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial member writes keep their original placement",
+      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{40}};object.item.value+=2;return object.item.value;}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial inherited member reads keep the selected base snapshot",
+      {|#exe{class Base{U8 value;};class Item:Base{#exe{Print("A");class Box{Item item;};I64 F(){static Box object;object.item.value=40;return object.item.value+2;}}U8 tail;};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial anonymous union fields retain their shared original offset",
+      {|#exe{class Item{U8 tag;union{U16 value;U8 bytes[2];};#exe{Print("A");class Box{Item item;};I64 F(){static Box object;object.item.value=0x12a;return object.item.bytes[0];}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial pointer fields retain owned static targets",
+      {|#exe{class Item{U8 *value;#exe{Print("A");class Box{Item item;};I64 F(){static U8 target[1]={42};static Box object;object.item.value=target;return object.item.value[0];}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "member lookahead observes class completion after the base identifier",
+      {|#exe{extern class Item;class Box{Item item;$$=8;};I64 F(){static Box object;U8 *p=(&object)(U8*);p[0]=42;return object.item.#exe{Print("A");class Item{U8 value;};}value;}StreamPrint("%d;",F());}|},
+      "A" );
+    ( "pointer member lookahead observes completion after the base read",
+      {|#exe{extern class Item;I64 F(Item *p){return p#exe{Print("A");class Item{I64 value;};}->value;}Item object={42};StreamPrint("%d;",F(&object));}|},
       "A" );
     ( "completion retains old forwarding until the new body finishes",
       {|#exe{extern U16 class Item;U8 class Item #exe{Print("A");class Box{Item item;$$=8;};Box object={0x12a};}{U8 value;};I64 F(){U8 *p=(&object)(U8*);return p[1]+41;}StreamPrint("%d;",F());}|},
@@ -258,6 +282,19 @@ let static_both_values =
     ( "static incomplete member consumes zero bytes",
       {|#exe {extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Side(){Print("A");return 7;}I64 F(){static Box object={Side(),42};return object.tail;}StreamPrint("%d;",F());}|},
       "A" );
+  ]
+
+let partial_member_faults =
+  [
+    ( "unreached partial member cannot borrow later body completion",
+      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{42}};return object.item.later;}}U8 later;};StreamPrint("%d;",F());}|}
+    );
+    ( "completion after member selection cannot authorize the earlier read",
+      {|#exe{extern class Item;class Box{Item item;$$=8;};Print("A");I64 F(){static Box object;return object.item.value#exe{class Item{U8 value;};};}StreamPrint("%d;",F());}|}
+    );
+    ( "partial member projection retains the original root bounds",
+      {|#exe{class Item{U16 values[2];#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{{40,42}}};return object.item.values[2];}}};StreamPrint("%d;",F());}|}
+    );
   ]
 
 let static_faults =

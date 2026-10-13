@@ -141,6 +141,13 @@ type aggregate_layout = private {
 
 type t
 
+val reached_member :
+  table:Symbol_table.t ->
+  symbol:Symbol.t ->
+  Compiler_record.aggregate_field ->
+  (member_layout, string) result
+(** Read original member placement metadata; this creates no allocation. *)
+
 type error_kind =
   | Invalid_input of string
   | Unresolved_dependency of {

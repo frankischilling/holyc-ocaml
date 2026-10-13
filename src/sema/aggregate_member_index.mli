@@ -75,6 +75,17 @@ val lookup :
 (** Search the queried aggregate before following its single base chain. This
     operation is pure; use-count accounting belongs to the consuming pass. *)
 
+val lookup_partial :
+  t ->
+  visibility:Function_aggregate_visibility.function_ ->
+  source:Frontend.Ast.expression ->
+  aggregate:Symbol.t ->
+  name:string ->
+  (lookup option, error) result
+(** Select a direct or inherited member from the original partial class snapshot
+    captured at this function expression. Later body phases cannot replace its
+    placement. *)
+
 val lookup_queried_aggregate : lookup -> Symbol.t
 val lookup_declaring_aggregate : lookup -> Symbol.t
 val lookup_inheritance_depth : lookup -> int
