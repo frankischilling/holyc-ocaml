@@ -1604,6 +1604,7 @@ and aggregate_step =
   | Aggregate_union_left
   | Aggregate_offset_reached of Ast.expression
   | Aggregate_body_finished
+  | Aggregate_backing_attached of Ast.aggregate_backing
   | Aggregate_position_reset
 
 and aggregate_base_selection = {
@@ -6929,6 +6930,11 @@ let parse_aggregate_definition ?backing_selection ?(local = false)
               let following_item = peek cursor in
               advance_aggregate cursor following_item publication
                 Aggregate_body_finished;
+              Option.iter
+                (fun (backing : parsed_aggregate_backing) ->
+                  advance_aggregate cursor following_item publication
+                    (Aggregate_backing_attached backing.node))
+                backing;
               let parsed_tail =
                 if type_tail then Some ([], [], None)
                 else if

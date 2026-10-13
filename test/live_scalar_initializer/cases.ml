@@ -97,6 +97,27 @@ let named_backed_array =
 
 let backed_values =
   [
+    ( "ordinary backing retains its original named target through body effects",
+      {|#exe{U16 class Base{U8 value;};Base class Item{#exe{Print("A");U8 class Base{U8 value;};}U8 value;};class Box{Item item;$$=8;};Box actual={0x12a};I64 F(){U8 *p=(&actual)(U8*);return p[1]+41;}StreamPrint("%d;",F());}|},
+      "A" );
+    ( "ordinary backing waits for class-name lookahead",
+      {|#exe{U16 class Item #exe{Print("A");class Box{Item item;U8 tail;$$=8;};Box object={9,42};}{U8 value;};StreamPrint("%d;",object.tail);}|},
+      "A" );
+    ( "ordinary backing waits for following-token lookahead",
+      {|#exe{U16 class Item{U8 value;}#exe{Print("A");class Box{Item item;$$=8;};Box object={{42}};};StreamPrint("%d;",object.item.value);}|},
+      "A" );
+    ( "partial ordinary body exposes its reached direct members",
+      {|#exe{U16 class Item{U8 value;#exe{Print("A");class Box{Item item;$$=8;};Box object={{42}};}};StreamPrint("%d;",object.item.value);}|},
+      "A" );
+    ( "static preparation uses reached partial direct members",
+      {|#exe{U16 class Item{U8 value;#exe{Print("A");class Box{Item item;$$=8;};I64 F(){static Box object={{42}};U8 *p=(&object)(U8*);return p[0];}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "completion retains old forwarding until the new body finishes",
+      {|#exe{extern U16 class Item;U8 class Item #exe{Print("A");class Box{Item item;$$=8;};Box object={0x12a};}{U8 value;};I64 F(){U8 *p=(&object)(U8*);return p[1]+41;}StreamPrint("%d;",F());}|},
+      "A" );
+    ( "unbacked completion retains prior extern forwarding",
+      {|#exe{extern U16 class Item;class Item{U8 value;};class Box{Item item;$$=8;};Box object={0x12a};I64 F(){U8 *p=(&object)(U8*);return p[1]+41;}Print("A");StreamPrint("%d;",F());}|},
+      "A" );
     ( "cached zero-width forwarding still evaluates its leaf",
       {|#exe{extern U0 class Item;class Box{Item items[2];U8 tail;$$=8;};I64 Side(){Print("A");StreamExePrint("U8 class Item{U8 value;};");return 7;}Box object={{Side(),9},42};StreamPrint("%d;",object.tail);}|},
       "A" );
@@ -131,6 +152,9 @@ let both_values =
 
 let faults =
   [
+    ( "new ordinary forwarding cannot shrink a captured nominal copy",
+      {|#exe{extern class Item;class Box{Item item;$$=8;};I64 Complete(){Print("A");StreamExePrint("U16 class Item{U8 value[9];};");return 42;}Box object={Complete()};}|},
+      "HCRUN0006" );
     ( "cached global array backing cannot shrink around original bounds",
       {|#exe{extern U64 class Item;class Box{Item items[2];$$=1;};Box object={{#exe{Print("A");U8 class Item{U8 value;};}42,7}};}|},
       "HCRUN0006" );

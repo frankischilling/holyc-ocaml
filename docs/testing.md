@@ -2338,6 +2338,16 @@ effects, named-target replacement, nested strings and zero-width copies. Bounds
 failures preserve earlier output. The maintained backed-forward example verifies
 its original four copied bytes and exact/one-below execution limits.
 
-Isolated incomplete-class preparation, backing installation during a reentrant
-ordinary class body, other leaf families and full aggregate parity remain open.
+Ordinary body cases exercise class-name and following-token lookahead, reached
+partial direct members, global/static initialization, prior forwarding during
+completion, unbacked completion and named-target replacement. Parser/metadata
+tests verify body completion before the exact backing phase, retained nominal
+scalar width, callback expiry and rejected replay/clones. Public JSON CLI runs
+the maintained class-body example in both outer modes with exact/one-below
+execution limits. New forwarding cannot shorten an already captured nominal copy
+to bypass the original root bounds.
+
+Isolated incomplete-class preparation, partial function-body member reads that
+still need a completed member index, other leaf families and full aggregate parity
+remain open.
 No TempleOS runtime or emitted-byte capture is included.

@@ -239,8 +239,11 @@ let of_record ?resolve ~type_ original =
                              (Type_reference.resolved_type backing)
                              saved)
                     | Some None
-                      when not (Record.aggregate_initializer_is_complete record)
-                      ->
+                      when (not
+                              (Record.aggregate_initializer_is_complete record))
+                           && not
+                                (Record.aggregate_initializer_is_definition
+                                   record) ->
                         invalid
                           "requires a completed selected class; live forward \
                            completion is not yet supported"

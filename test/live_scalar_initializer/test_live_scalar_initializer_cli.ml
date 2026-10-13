@@ -141,21 +141,27 @@ let () =
                   write source;
                   success "42" (invoke compiler probe target mode [] 0))
                 Cases.backed_values;
-              let forward_example =
-                Filename.concat (Filename.dirname example)
-                  "backed-forward-initializers.hc"
-              in
-              let baseline = invoke compiler forward_example target mode [] 0 in
-              success "42" baseline;
-              let steps = member "executed_steps" baseline |> to_int in
-              success "42"
-                (invoke compiler forward_example target mode
-                   [ Printf.sprintf "--step-limit=%d" steps ]
-                   0);
-              failure "HCIRVM0007"
-                (invoke compiler forward_example target mode
-                   [ Printf.sprintf "--step-limit=%d" (steps - 1) ]
-                   1))
+              List.iter
+                (fun filename ->
+                  let forward_example =
+                    Filename.concat (Filename.dirname example) filename
+                  in
+                  let baseline =
+                    invoke compiler forward_example target mode [] 0
+                  in
+                  success "42" baseline;
+                  let steps = member "executed_steps" baseline |> to_int in
+                  success "42"
+                    (invoke compiler forward_example target mode
+                       [ Printf.sprintf "--step-limit=%d" steps ]
+                       0);
+                  failure "HCIRVM0007"
+                    (invoke compiler forward_example target mode
+                       [ Printf.sprintf "--step-limit=%d" (steps - 1) ]
+                       1))
+                [
+                  "backed-forward-initializers.hc"; "class-body-initializers.hc";
+                ])
             [ "jit"; "aot" ];
           write Cases.static_before_nested_brace;
           success "42" (invoke compiler probe target "jit" [] 0);

@@ -54,6 +54,22 @@ by the forwarding assignment in `PrsType`. An initializer reached during that
 lookahead still sees the preceding zero-byte class. Its reached destination
 remains attached when the forward declaration completes.
 
+Ordinary definitions retain a separate backing-installation phase after their
+body and following-token lookahead. A fresh class has no backing during its body;
+completion of an extern class retains the prior backing until this phase.
+An unbacked completion preserves that prior forwarding. The new phase keeps the
+original backing selection, so body effects and same-name replacement cannot
+retarget it. Each reached direct member can supply initializer grammar while
+the ordinary body is still being parsed.
+
+The [class-body example](../examples/class-body-initializers.hc) prints `A` and
+returns 42 in both outer modes through IR and native source tasks. Its first
+initializer runs during class-name lookahead: the `Item` leaf writes zero bytes,
+then the tail writes 42. After the body finishes and forwarding is installed,
+the second initializer copies `0x12a` as two `U16` bytes and writes 7 afterward.
+Both objects retain their original eight-byte allocations and actual reached
+destinations.
+
 The [backed forward example](../examples/backed-forward-initializers.hc) prints
 `A` and returns 42 through IR and native source tasks in both outer modes. Its
 static array copies `0x12a` and 7 as two `U16` words, even though lookahead changes
@@ -166,8 +182,9 @@ repeat the initializer or its class completion. IR and native source tasks retai
 the actual reached leaf destinations when joining the completed frame.
 
 Isolated preparation of incomplete selections and other runtime class changes
-remain unfinished, including backing installation during a reentrant ordinary
-class body. Floating,
+remain unfinished. Partial member reads inside a function still require the
+completed member index (`HCSEMA0046`); partial direct-member initializer traversal
+does not qualify that separate consumer. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under

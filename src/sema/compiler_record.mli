@@ -252,6 +252,7 @@ val aggregate_offset_work : aggregate_offset -> int
 val begin_aggregate :
   ?compiler_positions:compiler_positions ->
   ?backing_record:t ->
+  ?previous_record:t ->
   ?initializer_records:(Type.t -> t option) ->
   ?selected_aggregate:Function_type_resolution.selected_aggregate_resolver ->
   table:Symbol_table.t ->
@@ -308,6 +309,7 @@ val aggregate_fields : t -> aggregate_field list
 val aggregate_initializer_size : t -> int64
 val aggregate_initializer_has_members : t -> bool
 val aggregate_initializer_is_complete : t -> bool
+val aggregate_initializer_is_definition : t -> bool
 val aggregate_field_type : aggregate_field -> Type.t
 val aggregate_field_counts : aggregate_field -> int64 list
 val aggregate_field_record : aggregate_field -> t option

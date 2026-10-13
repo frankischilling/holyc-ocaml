@@ -25,7 +25,8 @@ let checked = function
 let reject label result =
   Alcotest.(check bool) label true (Result.is_error result)
 
-let with_records ?(on_declared = fun _ _ _ -> ()) contents on_completed =
+let with_records ?(on_declared = fun _ _ _ -> ()) ?(on_phase = fun _ _ _ -> ())
+    contents on_completed =
   let session = Session.create () in
   let table = Session.semantic_symbols session in
   let namespace = C.create_namespace ~table () |> checked in
@@ -47,10 +48,21 @@ let with_records ?(on_declared = fun _ _ _ -> ()) contents on_completed =
   in
   let declaration = function
     | Parser.Aggregate_declared source ->
+        let previous_record =
+          if Option.is_some source.aggregate_header.binding then None
+          else
+            Option.bind source.aggregate_previous (fun entry ->
+                Option.bind (Entries.find_opt entries entry) (fun state ->
+                    match C.publication_source_aggregate state.publication with
+                    | Some original
+                      when Option.is_some original.aggregate_header.binding ->
+                        Some state.record
+                    | _ -> None))
+        in
         let publication = C.publish_aggregate namespace source |> checked in
         let progress =
           Record.begin_aggregate ~initializer_records:resolve ~table ~namespace
-            publication
+            ?previous_record publication
           |> checked
         in
         let record = Record.aggregate_metadata progress |> checked in
@@ -89,6 +101,7 @@ let with_records ?(on_declared = fun _ _ _ -> ()) contents on_completed =
           state.progress receipt
         |> checked;
         state.record <- Record.aggregate_metadata state.progress |> checked;
+        on_phase resolve state receipt;
         Ok ()
     | Parser.Aggregate_completed receipt ->
         let state =
@@ -724,6 +737,78 @@ let backed_forward_syntax () =
         items)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let ordinary_body_backing_phases () =
+  let scalar = ref None and saved = ref [] in
+  let on_declared resolve state source =
+    if source.Parser.aggregate_name.spelling = "Item" then (
+      let symbol =
+        C.publication_aggregate_identity state.publication |> Option.get
+      in
+      let type_ = Type.make_aggregate ~symbol ~pointer_depth:0 |> checked in
+      let node = Init.of_record ~resolve ~type_ state.record |> checked in
+      scalar := Some (Init.begin_scalar_evaluation node |> checked);
+      Alcotest.(check int)
+        "ordinary header has no new forwarding yet" 0
+        (Init.scalar_evaluation_before (Option.get !scalar)
+        |> Init.scalar_byte_size))
+  in
+  let on_phase resolve state phase =
+    if phase.Parser.phase_aggregate.aggregate_name.spelling = "Item" then
+      match phase.phase_step with
+      | Parser.Aggregate_body_finished ->
+          let symbol =
+            C.publication_aggregate_identity state.publication |> Option.get
+          in
+          let type_ = Type.make_aggregate ~symbol ~pointer_depth:0 |> checked in
+          let node = Init.of_record ~resolve ~type_ state.record |> checked in
+          Alcotest.(check bool)
+            "body finishes before backing is installed" true
+            (match Init.view node |> checked with
+            | Init.Aggregate [ _ ] -> true
+            | _ -> false)
+      | Parser.Aggregate_backing_attached backing ->
+          Alcotest.(check bool)
+            "forwarding retains exact source backing" true
+            (Option.fold ~none:false ~some:(( == ) backing)
+               phase.phase_aggregate.aggregate_backing);
+          Alcotest.(check int)
+            "cached scalar reads nominal width, not new backing" 1
+            (Init.finish_scalar_evaluation (Option.get !scalar)
+            |> checked |> Init.scalar_byte_size);
+          reject "backing phase cannot replay"
+            (Record.advance_aggregate
+               ~dimensions:(fun _ -> None)
+               state.progress phase);
+          reject "cloned backing phase cannot replay"
+            (Record.advance_aggregate
+               ~dimensions:(fun _ -> None)
+               state.progress
+               (Obj.obj (Obj.dup (Obj.repr phase))));
+          saved := phase :: !saved
+      | _ -> ()
+  in
+  with_records ~on_declared ~on_phase "U16 class Item{U8 value;};"
+    (fun resolve state _ ->
+      let symbol =
+        C.publication_aggregate_identity state.publication |> Option.get
+      in
+      let type_ = Type.make_aggregate ~symbol ~pointer_depth:0 |> checked in
+      let target =
+        Init.of_record ~resolve ~type_ state.record
+        |> checked |> Init.select_forwarding |> checked
+      in
+      Alcotest.(check int)
+        "completed definition retains installed forwarding" 2
+        (Init.begin_scalar_evaluation target
+        |> checked |> Init.scalar_evaluation_before |> Init.scalar_byte_size));
+  Alcotest.(check int) "one original backing phase" 1 (List.length !saved);
+  List.iter
+    (fun phase ->
+      Alcotest.(check bool)
+        "saved backing callback expires" false
+        (Parser.aggregate_phase_is_current phase))
+    !saved
+
 let () =
   Alcotest.run "Original initializer scalar phases"
     [
@@ -752,5 +837,8 @@ let () =
             backed_forward_selection;
           Alcotest.test_case "backed forward syntax, provenance and public JSON"
             `Quick backed_forward_syntax;
+          Alcotest.test_case
+            "ordinary body and forwarding phases retain original timing" `Quick
+            ordinary_body_backing_phases;
         ] );
     ]

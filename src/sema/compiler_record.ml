@@ -1094,6 +1094,7 @@ type aggregate_progress = {
   mutable progress_base : inherited_base option;
   mutable progress_body_started : bool;
   mutable progress_body_finished : bool;
+  mutable progress_backing_attached : bool;
   mutable progress_offset_attempt : Parser.aggregate_phase option;
   mutable progress_offsets : aggregate_offset list;
   mutable progress_members : aggregate_member list;
@@ -1133,7 +1134,8 @@ let runtime_aggregate_offset_dimension_dependencies preparation =
 let runtime_aggregate_offset_dependencies preparation =
   preparation.runtime_offset_dependencies
 
-let begin_aggregate ?compiler_positions ?backing_record ?initializer_records
+let begin_aggregate ?compiler_positions ?backing_record ?previous_record
+    ?initializer_records
     ?(selected_aggregate : Function_type_resolution.selected_aggregate_resolver =
       fun _ -> None) ~table ~namespace publication =
   match Declaration_collection.publication_source_aggregate publication with
@@ -1196,6 +1198,38 @@ let begin_aggregate ?compiler_positions ?backing_record ?initializer_records
                   "initializer backing record has no original class selection")
       in
       let stamp = { current_stamp = ref () } in
+      let* initial_backing =
+        match previous_record with
+        | None -> Ok (Some None)
+        | Some previous -> (
+            match previous.aggregate_owner with
+            | Some (owner, previous_publication, _)
+              when previous.table == table && owner == namespace
+                   && Option.is_none source.aggregate_header.binding
+                   && Option.equal ( == )
+                        (Declaration_collection.publication_aggregate_identity
+                           previous_publication)
+                        (Declaration_collection.publication_aggregate_identity
+                           publication)
+                   && Option.fold ~none:false
+                        ~some:(fun original ->
+                          Option.fold ~none:false
+                            ~some:(( == ) original.Parser.aggregate_entry)
+                            source.aggregate_previous
+                          && original.aggregate_environment
+                             == source.aggregate_environment
+                          && Option.fold ~none:false
+                               ~some:(fun binding ->
+                                 binding.Ast.kind = Ast.Extern)
+                               original.aggregate_header.binding)
+                        (Declaration_collection.publication_source_aggregate
+                           previous_publication) ->
+                Ok previous.aggregate_initializer_backing
+            | _ ->
+                Error
+                  "initial forwarding has no original completed forward \
+                   selection")
+      in
       let compiler_positions =
         match compiler_positions with
         | Some positions -> positions
@@ -1219,6 +1253,7 @@ let begin_aggregate ?compiler_positions ?backing_record ?initializer_records
           progress_base = None;
           progress_body_started = false;
           progress_body_finished = false;
+          progress_backing_attached = false;
           progress_offset_attempt = None;
           progress_offsets = [];
           progress_members = [];
@@ -1240,10 +1275,7 @@ let begin_aggregate ?compiler_positions ?backing_record ?initializer_records
                 aggregate_stamp = Some (stamp, stamp.current_stamp);
                 aggregate_base_snapshot = None;
                 aggregate_fields = Some [];
-                aggregate_initializer_backing =
-                  (if Option.is_some source.aggregate_header.binding then
-                     Some None
-                   else initializer_backing);
+                aggregate_initializer_backing = initial_backing;
                 aggregate_initializer_body = None;
                 aggregate_initializer_records = initializer_records;
               };
@@ -1269,6 +1301,15 @@ let aggregate_initializer_is_complete (record : t) =
   | Some (_, _, Some { Parser.aggregate_item = Ast.Aggregate_definition _; _ })
     -> true
   | _ -> Option.is_some record.aggregate_initializer_body
+
+let aggregate_initializer_is_definition (record : t) =
+  match record.aggregate_owner with
+  | Some (_, publication, _) ->
+      Option.fold ~none:false
+        ~some:(fun source ->
+          Option.is_none source.Parser.aggregate_header.binding)
+        (Declaration_collection.publication_source_aggregate publication)
+  | None -> false
 
 let aggregate_field_type field = field.field_type
 let aggregate_field_counts field = field.field_counts
@@ -1462,6 +1503,29 @@ let advance_aggregate
                 }
             in
             Ok (record, scopes))
+      | Parser.Aggregate_backing_attached backing ->
+          if
+            (not progress.progress_body_finished)
+            || progress.progress_backing_attached
+            || not
+                 (Option.fold ~none:false ~some:(( == ) backing)
+                    progress.progress_source.aggregate_backing)
+          then
+            Error
+              "aggregate forwarding is foreign, repeated or precedes body \
+               completion"
+          else (
+            progress.progress_backing_attached <- true;
+            Ok
+              ( Result.map
+                  (fun record ->
+                    {
+                      record with
+                      aggregate_initializer_backing =
+                        progress.progress_initializer_backing;
+                    })
+                  progress.progress_record,
+                scopes ))
       | Parser.Aggregate_offset_reached _ -> (
           match progress.progress_offsets with
           | offset :: _ when offset.offset_phase == phase -> (
@@ -1690,6 +1754,9 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
                   (same_phase progress.progress_phase
                      receipt.aggregate_final_phase))
             || List.length progress.progress_scopes <> 1
+            || Option.is_none source.aggregate_header.binding
+               && Option.is_some source.aggregate_backing
+               && not progress.progress_backing_attached
           then
             Error
               "aggregate completion lacks its original complete layout phase \
@@ -1707,7 +1774,9 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
              && Option.equal ( == ) forward.backing source.aggregate_backing ->
           Ok 0L
       | Ast.Aggregate_definition definition
-        when definition.name == source.aggregate_name ->
+        when definition.name == source.aggregate_name
+             && Option.equal ( == ) definition.backing source.aggregate_backing
+        ->
           let member_dimensions (member : Ast.aggregate_member_declarator) =
             let checked =
               List.filter_map dimensions member.member_array_dimensions

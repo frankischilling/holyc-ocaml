@@ -1051,6 +1051,7 @@ type aggregate_step =
   | Aggregate_union_left
   | Aggregate_offset_reached of Ast.expression
   | Aggregate_body_finished
+  | Aggregate_backing_attached of Ast.aggregate_backing
   | Aggregate_position_reset
 
 type aggregate_publication = private {

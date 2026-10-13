@@ -16,8 +16,12 @@ the lexer; completion after a nested opening brace cannot restart that branch.
 Backed extern forwards retain their type and pointer provenance. Source-task
 initializers install their backing after class-name lookahead and cache forwarding
 at each array rank before opening-brace lookahead or callee effects.
+Ordinary definitions install new backing after their body and following-token
+lookahead. They preserve prior extern forwarding during the body and on unbacked
+completion; reached partial direct members can supply initializer grammar.
 Isolated incomplete-class preparation, other runtime class changes and the
-remaining aggregate execution families stay open.
+remaining aggregate execution families stay open. Function-body member reads
+from an unfinished class still need a completed member index.
 
 [Class pointer views](class-pointer-views.md) retain owned bytes through casts
 between supported integer and class pointers. IR and native paths preserve

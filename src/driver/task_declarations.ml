@@ -2935,6 +2935,25 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
           if not (Parser.aggregate_publication_is_current publication) then
             fail publication.aggregate_name.location.span
               "aggregate publication is outside its original callback";
+          let previous_record =
+            if Option.is_some publication.aggregate_header.binding then None
+            else
+              Option.bind publication.aggregate_previous (fun entry ->
+                  Option.bind (Entries.find_opt ledger.entries entry)
+                    (fun assigned ->
+                      match assigned.source with
+                      | Aggregate
+                          {
+                            publication = original;
+                            record = Some (Ok record);
+                            _;
+                          }
+                        when Option.fold ~none:false
+                               ~some:(fun binding ->
+                                 binding.Ast.kind = Ast.Extern)
+                               original.aggregate_header.binding -> Some record
+                      | _ -> None))
+          in
           assign ledger publication.aggregate_name Sema.Symbol.Aggregate_type
             (Aggregate
                { publication; progress = None; completed = None; record = None })
@@ -2953,6 +2972,7 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
           | Aggregate state ->
               let progress =
                 Sema.Compiler_record.begin_aggregate ~table:ledger.table
+                  ?previous_record
                   ~initializer_records:(initializer_record ledger)
                   ?backing_record:(selected_backing_record ledger publication)
                   ~selected_aggregate:(selected_aggregate_for ledger)
