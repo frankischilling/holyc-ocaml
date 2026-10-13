@@ -682,7 +682,8 @@ let find_static globals symbol =
     (fun slot -> Integer_statics.symbol slot == symbol)
     globals.statics_
 
-let with_statics ~span ~frames ~functions ~records globals =
+let with_statics ?(source_allocations = []) ~span ~frames ~functions ~records
+    globals =
   let ( let* ) = Result.bind in
   let mode =
     match globals.mode with
@@ -690,8 +691,8 @@ let with_statics ~span ~frames ~functions ~records globals =
     | Resolution.Aot -> Sema.Function_resolution.Aot
   in
   let* statics_ =
-    Integer_statics.create ~span ~mode ~start:globals.global_cell_count_ ~frames
-      ~functions ~records
+    Integer_statics.create ~allocations:source_allocations ~span ~mode
+      ~start:globals.global_cell_count_ ~frames ~functions ~records
   in
   if
     List.exists

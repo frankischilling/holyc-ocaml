@@ -13,6 +13,7 @@ type t = {
   next_ : Integer_initializer_layout.stream;
   operation_ : Integer_initializer_layout.operation;
   scalar_ : Sema.Initializer_type.scalar option;
+  preparation_ : Integer_initializer_layout.stream_preparation option;
   span_ : Common.Span.t;
 }
 
@@ -23,8 +24,33 @@ let typed t = t.typed_
 let root t = t.root_
 let cell_offset t = t.cell_
 let byte_offset t = t.byte_
-let next t = t.next_
-let scalar t = t.scalar_
+
+let prepared_result t =
+  match t.preparation_ with
+  | None -> (t.next_, (t.cell_, t.byte_, t.operation_, t.scalar_))
+  | Some preparation ->
+      Integer_initializer_layout.stream_preparation_result preparation
+      |> Result.get_ok
+
+let next t = fst (prepared_result t)
+
+let scalar t =
+  let _, (_, _, _, scalar) = prepared_result t in
+  scalar
+
+let requires_settlement t =
+  Option.fold ~none:false
+    ~some:Integer_initializer_layout.stream_preparation_requires_settlement
+    t.preparation_
+
+let settle t =
+  if not (Fragment.is_current t.fragment_) then
+    Error "static settlement has an expired source leaf"
+  else
+    match t.preparation_ with
+    | Some preparation ->
+        Integer_initializer_layout.settle_stream_preparation preparation
+    | None -> Error "static settlement has no original expression phase"
 
 let copy_byte_count t =
   match t.operation_ with
@@ -42,6 +68,10 @@ let storage t = Globals.declared_static_storage t.allocation_
 
 let create ~allocation ~task_view ~cursor typed =
   let ( let* ) = Result.bind in
+  let* () =
+    if cursor == Integer_static_allocation.cursor allocation then Ok ()
+    else Error "static initializer has another original cursor"
+  in
   let* root_ =
     match
       Typed.top_level_statements typed
@@ -91,10 +121,8 @@ let create ~allocation ~task_view ~cursor typed =
       Error "static initializer replaced its live allocation or checked shape"
     else Ok ()
   in
-  let* next_, (cell_, byte_, operation_, scalar_) =
-    Integer_initializer_layout.prepare_stream_typed cursor
-      ~delimiters:receipt.static_leaf_delimiters
-      ~value:receipt.static_leaf_value
+  let* preparation_, (next_, (cell_, byte_, operation_, scalar_)) =
+    Integer_static_allocation.prepare_leaf allocation receipt
   in
   let value = Typed.top_level_root_value root_ in
   let* () =
@@ -144,5 +172,6 @@ let create ~allocation ~task_view ~cursor typed =
       next_;
       operation_;
       scalar_;
+      preparation_;
       span_;
     }

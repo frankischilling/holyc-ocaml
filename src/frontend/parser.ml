@@ -1047,6 +1047,15 @@ type static_initializer_start = {
   static_start_activity : static_initializer_activity;
 }
 
+and static_leaf_preparation = {
+  static_expression_start : static_initializer_start;
+  static_expression_index : int;
+  static_expression_predecessor : static_initializer_preparation option;
+  static_expression_path : int list;
+  static_expression_first : Token.t;
+  static_expression_delimiters : initializer_delimiter list;
+}
+
 and static_initializer_preparation = {
   static_initializer : static_initializer_start;
   static_allocation : function_local_allocation;
@@ -1054,6 +1063,7 @@ and static_initializer_preparation = {
   static_leaf_predecessor : static_initializer_preparation option;
   static_leaf_path : int list;
   static_leaf_value : Ast.initial_value;
+  static_expression_preparation : static_leaf_preparation;
   static_leaf_delimiters : initializer_delimiter list;
   static_activity : static_initializer_activity;
 }
@@ -1065,6 +1075,7 @@ and completed_static_initializer = {
 }
 
 and static_initializer_activity = {
+  mutable static_current_expression : static_leaf_preparation option;
   mutable static_current : static_initializer_preparation option;
   mutable static_completion_current : completed_static_initializer option;
   mutable static_completed : Ast.local_declarator option;
@@ -1080,6 +1091,13 @@ let static_initializer_allocation_context_is_current allocation =
 let static_initializer_context_is_current
     (receipt : static_initializer_preparation) =
   static_initializer_allocation_context_is_current receipt.static_allocation
+
+let static_leaf_preparation_is_current receipt =
+  let start = receipt.static_expression_start in
+  Option.fold ~none:false ~some:(( == ) receipt)
+    start.static_start_activity.static_current_expression
+  && static_initializer_allocation_context_is_current
+       start.static_start_allocation
 
 let static_initializer_is_current (receipt : static_initializer_preparation) =
   Option.fold ~none:false ~some:(( == ) receipt)
@@ -1628,6 +1646,7 @@ type declaration_event =
   | Function_declared of function_publication
   | Function_position_written of function_position_write
   | Function_local_allocated of function_local_allocation
+  | Static_initializer_expression_preparing of static_leaf_preparation
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
   | Callback_position_written of callback_position_write
@@ -5726,6 +5745,7 @@ type live_initializer = {
 type live_static_initializer = {
   static_start : static_initializer_start;
   mutable static_previous : static_initializer_preparation option;
+  mutable static_preparing_expression : static_leaf_preparation option;
   mutable static_delimiters_rev : initializer_delimiter list;
 }
 
@@ -5833,6 +5853,34 @@ let publish_initializer_leaf cursor live node =
 let initializer_child live index =
   Option.map (fun (state, path_rev) -> (state, index :: path_rev)) live
 
+let publish_static_expression_preparation cursor ~first live =
+  Option.iter
+    (fun (state, path_rev) ->
+      if Option.is_some state.static_preparing_expression then
+        invalid_arg "static expression preparation is already active";
+      let preparation =
+        {
+          static_expression_start = state.static_start;
+          static_expression_index =
+            Option.fold ~none:0
+              ~some:(fun prior -> prior.static_leaf_index + 1)
+              state.static_previous;
+          static_expression_predecessor = state.static_previous;
+          static_expression_path = List.rev path_rev;
+          static_expression_first = first.token;
+          static_expression_delimiters = List.rev state.static_delimiters_rev;
+        }
+      in
+      state.static_preparing_expression <- Some preparation;
+      let activity = state.static_start.static_start_activity in
+      activity.static_current_expression <- Some preparation;
+      Fun.protect
+        ~finally:(fun () -> activity.static_current_expression <- None)
+        (fun () ->
+          publish_declaration cursor first
+            (Static_initializer_expression_preparing preparation)))
+    live
+
 let publish_static_initializer_leaf cursor live node =
   Option.iter
     (fun (state, path_rev) ->
@@ -5850,6 +5898,8 @@ let publish_static_initializer_leaf cursor live node =
           static_leaf_predecessor = state.static_previous;
           static_leaf_path = List.rev path_rev;
           static_leaf_value = node;
+          static_expression_preparation =
+            Option.get state.static_preparing_expression;
           static_leaf_delimiters = List.rev state.static_delimiters_rev;
           static_activity = start.static_start_activity;
         }
@@ -5861,6 +5911,7 @@ let publish_static_initializer_leaf cursor live node =
           publish_declaration cursor (peek cursor)
             (Static_initializer_preparing preparation));
       state.static_previous <- Some preparation;
+      state.static_preparing_expression <- None;
       state.static_delimiters_rev <- [])
     live
 
@@ -5905,6 +5956,7 @@ let rec parse_initializer_value ?live ?static_live cursor ~declarator_context
                (token_description item.token))
     | _ -> (
         publish_initializer_preparation cursor live;
+        publish_static_expression_preparation cursor ~first:item static_live;
         let expression_context =
           match declarator_context with
           | Global_initializer_declarator -> Global_initializer_expression
@@ -5917,6 +5969,9 @@ let rec parse_initializer_value ?live ?static_live cursor ~declarator_context
         with
         | None ->
             Option.iter (fun (state, _) -> state.preparing_leaf <- None) live;
+            Option.iter
+              (fun (state, _) -> state.static_preparing_expression <- None)
+              static_live;
             None
         | Some expression ->
             let node = Ast.Scalar_initializer expression.node in
@@ -9267,6 +9322,7 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                     | Some _, Some static_allocation ->
                         let static_activity =
                           {
+                            static_current_expression = None;
                             static_current = None;
                             static_completion_current = None;
                             static_completed = None;
@@ -9283,6 +9339,7 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                           ( {
                               static_start;
                               static_previous = None;
+                              static_preparing_expression = None;
                               static_delimiters_rev = [];
                             },
                             [] )

@@ -413,6 +413,87 @@ let failed_expression_recovery () =
         (Parser.initializer_leaf_preparation_is_current receipt))
     !phases
 
+let static_parser_phases () =
+  let session = Session.create () in
+  let saved = ref [] and pending = ref None and order = ref [] in
+  let append item = order := item :: !order in
+  let declaration = function
+    | Parser.Static_initializer_expression_preparing receipt ->
+        Alcotest.(check bool)
+          "original static preparation is current" true
+          (Parser.static_leaf_preparation_is_current receipt);
+        Alcotest.(check bool)
+          "cloned static preparation has no callback authority" false
+          (Parser.static_leaf_preparation_is_current
+             (Obj.obj (Obj.dup (Obj.repr receipt))));
+        saved := receipt :: !saved;
+        pending := Some receipt;
+        append ("before " ^ receipt.static_expression_first.raw);
+        Ok ()
+    | Parser.Static_initializer_preparing receipt ->
+        let original = Option.get !pending in
+        Alcotest.(check bool)
+          "completed static leaf keeps the same preparation" true
+          (original == receipt.static_expression_preparation);
+        Alcotest.(check bool)
+          "static preparation expires before completion" false
+          (Parser.static_leaf_preparation_is_current original);
+        append "after";
+        Ok ()
+    | _ -> Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = None;
+      reference =
+        Some
+          (fun _ ->
+            append "reference";
+            Ok ());
+      call = None;
+      implicit_output = None;
+      declaration = Some declaration;
+      query = None;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let parse name contents =
+    let source = Session.add_source session ~path:name ~contents in
+    Parser.parse ~commands ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session)
+      ~config:(Preprocessor.Config.create ~compilation_mode:Jit () |> checked)
+      source
+  in
+  let good =
+    parse "static-phase-order.hc"
+      "I64 N;I64 F(){static I64 A=N+1;static I64 B=42;return A;}"
+  in
+  Alcotest.(check bool)
+    "static preparation source parses" false (Parser.has_errors good);
+  Alcotest.(check (list string))
+    "static preparation precedes expression references"
+    [ "before N"; "reference"; "after"; "before 42"; "after"; "reference" ]
+    (List.rev !order);
+  let bad = parse "static-phase-failure.hc" "I64 G(){static I64 C=1+;}" in
+  Alcotest.(check bool)
+    "failed static expression retains its error" true (Parser.has_errors bad);
+  let next =
+    parse "static-phase-next.hc" "I64 H(){static I64 D=42;return D;}"
+  in
+  Alcotest.(check bool)
+    "next source parses after a failed static expression" false
+    (Parser.has_errors next);
+  List.iter
+    (fun receipt ->
+      Alcotest.(check bool)
+        "saved static phases have no later authority" false
+        (Parser.static_leaf_preparation_is_current receipt))
+    !saved
+
 let () =
   Alcotest.run "Original initializer scalar phases"
     [
@@ -430,5 +511,8 @@ let () =
             `Quick parser_timing;
           Alcotest.test_case "failed expressions expire before the next source"
             `Quick failed_expression_recovery;
+          Alcotest.test_case
+            "static preparation timing, identity and failed-source expiry"
+            `Quick static_parser_phases;
         ] );
     ]

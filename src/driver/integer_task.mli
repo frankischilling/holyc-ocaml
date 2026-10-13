@@ -221,6 +221,35 @@ module Native_static_initializer : sig
   type t = request -> (unit, Common.Diagnostic.t list) result
 
   val program : request -> Ir.Static_initializer_program.t
+  val initializer_remaining : request -> int
+  val record_steps : request -> int -> (unit, string) result
+
+  val prepare_copy :
+    request ->
+    Ir.Static_initializer_program.t Ir.Native_scalar_capture.t ->
+    work:int ->
+    (Ir.Integer_interpreter.native_static_initializer_copy, string) result
+
+  val check_copy :
+    request ->
+    Ir.Integer_interpreter.native_static_initializer_copy ->
+    (unit, string) result
+
+  val copy_bytes :
+    Ir.Integer_interpreter.native_static_initializer_copy -> string
+
+  val claim_copy :
+    request ->
+    Ir.Integer_interpreter.native_static_initializer_copy ->
+    (unit, string) result
+
+  val finish_copy :
+    request ->
+    Ir.Integer_interpreter.native_static_initializer_copy ->
+    Ir.Integer_interpreter.native_static_initializer_copy
+    Ir.Native_initializer_copy_receipt.t ->
+    (unit, string) result
+
   val generation : request -> Ir.Integer_interpreter.native_generation
   val source_callback : request -> native_source_callback option
   val check : request -> (unit, string) result

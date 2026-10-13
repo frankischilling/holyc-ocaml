@@ -290,6 +290,7 @@ val publish_task : task_catalog -> t -> task_publication list
 val same_storage : storage_slot -> storage_slot -> bool
 
 val with_statics :
+  ?source_allocations:Integer_static_allocation.t list ->
   span:Common.Span.t ->
   frames:Sema.Function_frame_layout.t ->
   functions:Sema.Function_call_expression_result.t ->

@@ -38,6 +38,24 @@ val runtime_dependencies :
 val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list
 val cursor : t -> Integer_initializer_layout.stream
 
+val prepare_expression :
+  ?activation:Sema.Source_activation.t ->
+  t ->
+  Frontend.Parser.static_leaf_preparation ->
+  (unit, string) result
+
+val prepare_leaf :
+  t ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( Integer_initializer_layout.stream_preparation option
+    * (Integer_initializer_layout.stream
+      * (int
+        * int
+        * Integer_initializer_layout.operation
+        * Sema.Initializer_type.scalar option)),
+    string )
+  result
+
 val record_native_leaf :
   ?activation:Sema.Source_activation.t ->
   t ->
@@ -61,6 +79,12 @@ val check_native_layout :
   (unit, string) result
 
 val owns_table : t -> Sema.Symbol_table.t -> bool
+
+val retained_layout :
+  t ->
+  shape:Integer_storage_shape.t ->
+  Sema.Initializer_source.t ->
+  (Integer_initializer_layout.t, string) result
 
 val check_completed : t -> Sema.Static_local_source.t -> (unit, string) result
 (** Join only the original allocation and symbol to their checked completed

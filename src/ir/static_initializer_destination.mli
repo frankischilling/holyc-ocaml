@@ -16,6 +16,8 @@ val cell_offset : t -> int
 val byte_offset : t -> int
 val next : t -> Integer_initializer_layout.stream
 val scalar : t -> Sema.Initializer_type.scalar option
+val requires_settlement : t -> bool
+val settle : t -> (unit, string) result
 val copy_byte_count : t -> int option
 
 val operation : t -> Integer_initializer_layout.operation

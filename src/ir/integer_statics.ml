@@ -92,7 +92,7 @@ let with_source_allocation ~allocation ~source slot =
 
 let ( let* ) = Result.bind
 
-let create ~span ~mode ~start ~frames ~functions ~records =
+let create ~allocations ~span ~mode ~start ~frames ~functions ~records =
   let invalid ?(code = "HCIRL0004") ?(at = span) message =
     Error
       [
@@ -311,7 +311,20 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                                   "array initializer has no original source \
                                    manifest"
                             | Some source ->
-                                Arrays.create ~shape ~source ~roots:owned
+                                let create =
+                                  match
+                                    List.find_opt
+                                      (fun allocation ->
+                                        Integer_static_allocation.symbol
+                                          allocation
+                                        == symbol)
+                                      allocations
+                                  with
+                                  | None -> Arrays.create
+                                  | Some allocation ->
+                                      Arrays.create_retained_static ~allocation
+                                in
+                                create ~shape ~source ~roots:owned
                                   ~source_leaf:(fun root ->
                                     root |> Typed.initializer_source
                                     |> Source.initializer_leaf)

@@ -422,12 +422,64 @@ module Native_static_initializer = struct
     compiler_options_handler : VM.compiler_options option;
     domain : Domain.id;
     phase : phase Atomic.t;
+    mutable accounted_steps : int option;
   }
 
   type t = request -> (unit, Common.Diagnostic.t list) result
 
   let generation request = request.generation_
   let program request = request.program_
+  let initializer_remaining request = VM.task_initializer_remaining request.task
+
+  let record_steps request steps =
+    if
+      Domain.self () <> request.domain
+      || Atomic.get request.phase <> Entered
+      || Option.is_some request.accounted_steps
+      || steps < 0
+    then
+      Error "static evaluation work has another request or was already recorded"
+    else
+      let before = VM.task_initializer_steps request.task in
+      let available = VM.task_initializer_remaining request.task in
+      let charged = min steps available in
+      VM.record_task_preparation request.task ~before ~steps:charged;
+      request.accounted_steps <- Some steps;
+      if steps <= available then Ok ()
+      else
+        Error
+          "HCIRVM0007: static evaluation exhausted the initializer allowance"
+
+  let check_copy request copy =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native static copy requires its entered original request"
+    else
+      VM.check_native_static_initializer_copy request.task request.program_ copy
+
+  let prepare_copy request capture ~work =
+    if
+      Domain.self () <> request.domain
+      || Atomic.get request.phase <> Entered
+      || request.accounted_steps <> Some work
+    then
+      Error
+        "native static scalar capture has another domain, work count or request"
+    else
+      VM.prepare_native_static_initializer_copy request.task request.program_
+        capture ~work
+
+  let copy_bytes copy = VM.native_static_initializer_copy_bytes copy
+
+  let claim_copy request copy =
+    let ( let* ) = Result.bind in
+    let* () = check_copy request copy in
+    VM.claim_native_static_initializer_copy request.task request.program_ copy
+
+  let finish_copy request copy receipt =
+    let ( let* ) = Result.bind in
+    let* () = check_copy request copy in
+    VM.finish_native_static_initializer_copy request.task request.program_ copy
+      receipt
 
   let check request =
     if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
@@ -511,6 +563,7 @@ module Native_static_initializer = struct
       compiler_options_handler = compiler_options;
       domain = Domain.self ();
       phase = Atomic.make Offered;
+      accounted_steps = None;
     }
 
   let entered request = Atomic.get request.phase = Entered
@@ -2601,6 +2654,9 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     | Frontend.Parser.Global_initializer_leaf_preparing receipt ->
         Task_declarations.observe_initializer_preparation task.declarations
           ~runtime:task.state receipt
+    | Frontend.Parser.Static_initializer_expression_preparing receipt ->
+        Task_declarations.observe_static_expression_preparation
+          task.declarations ~runtime:task.state receipt
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
         execute_initializer_leaf ~use_active_stream ?stream_exe_print task
           receipt
@@ -3066,6 +3122,10 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
           publication.function_header.declaration_command
       | Function_position_written p ->
           p.position_function.function_header.declaration_command
+      | Static_initializer_expression_preparing p ->
+          p.static_expression_start.static_start_allocation.allocation_function
+            .function_header
+            .declaration_command
       | Static_initializer_preparing p ->
           p.static_allocation.allocation_function.function_header
             .declaration_command

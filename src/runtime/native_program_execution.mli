@@ -372,6 +372,22 @@ val finish_task_initializer :
 (** Take the original image's actual scalar capture once in its execution domain
     while the retained arena lives. *)
 
+val finish_task_static_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Static_initializer_program.t Ir.Native_scalar_capture.t, string) result
+
+val copy_task_static_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Driver.Integer_task.Native_static_initializer.request ->
+  Ir.Integer_interpreter.native_static_initializer_copy ->
+  ( Ir.Integer_interpreter.native_static_initializer_copy
+    Ir.Native_initializer_copy_receipt.t,
+    string )
+  result
+
 val copy_task_initializer :
   ?scope:Ir.Native_source_suspension.t ->
   task_arena ->

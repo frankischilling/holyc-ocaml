@@ -693,13 +693,23 @@ type static_initializer_start = private {
   static_start_activity : static_initializer_activity;
 }
 
-type static_initializer_preparation = private {
+type static_leaf_preparation = private {
+  static_expression_start : static_initializer_start;
+  static_expression_index : int;
+  static_expression_predecessor : static_initializer_preparation option;
+  static_expression_path : int list;
+  static_expression_first : Token.t;
+  static_expression_delimiters : initializer_delimiter list;
+}
+
+and static_initializer_preparation = private {
   static_initializer : static_initializer_start;
   static_allocation : function_local_allocation;
   static_leaf_index : int;
   static_leaf_predecessor : static_initializer_preparation option;
   static_leaf_path : int list;
   static_leaf_value : Ast.initial_value;
+  static_expression_preparation : static_leaf_preparation;
   static_leaf_delimiters : initializer_delimiter list;
   static_activity : static_initializer_activity;
 }
@@ -709,6 +719,12 @@ type completed_static_initializer = private {
   static_preparation : static_initializer_preparation option;
   static_declarator : Ast.local_declarator;
 }
+
+val static_leaf_preparation_is_current : static_leaf_preparation -> bool
+(** The original callback before expression parsing. Its already reached token,
+    predecessor, syntax path and delimiters stay attached to the completed leaf.
+    It expires before expression completion and grants no execution authority.
+*)
 
 val static_initializer_is_current : static_initializer_preparation -> bool
 
@@ -731,7 +747,7 @@ val static_initializer_allocation :
     callback to the AST later retained by the completed declarator. Completion
     records the last leaf (or [None] for an empty initializer) only after the
     declarator delimiter is consumed and the entire retained root is verified.
-    Callback-free parsing emits neither event. *)
+    Callback-free parsing emits none of these static events. *)
 
 type function_position_write = private {
   position_function : function_publication;
@@ -1085,6 +1101,7 @@ type declaration_event = private
   | Function_declared of function_publication
   | Function_position_written of function_position_write
   | Function_local_allocated of function_local_allocation
+  | Static_initializer_expression_preparing of static_leaf_preparation
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
   | Callback_position_written of callback_position_write

@@ -2312,6 +2312,15 @@ The native source progress records zero interpreted instructions.
 The maintained live scalar example also runs through public JSON CLI reports in
 both outer modes, with exact and one-below execution and preparation limits.
 
-Static and isolated incomplete-class preparation, earlier grammar selection
+Static fixtures use the same scalar selection and copy timing. They cover
+callee completion during an uncalled function's parsing, expression lookahead,
+array branch changes, full words after late backing, zero-width members and
+original bounds. Repeated function calls keep prior static mutations without
+rerunning initialization. Both saved-table outer modes retain their distinct
+cursor results. Native capture/copy authority rejects foreign programs, images,
+work counts, domains, arenas, replay and missing completion. Public JSON CLI
+checks run the maintained static example with exact and one-below limits.
+
+Isolated incomplete-class preparation, earlier grammar selection
 snapshots, other leaf families and full aggregate parity remain open.
 No TempleOS runtime or emitted-byte capture is included.

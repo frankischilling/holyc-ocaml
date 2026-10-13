@@ -3,8 +3,36 @@ type entry
 type t
 type live
 type stream
+type stream_preparation
 
 val begin_stream : Integer_storage_shape.t -> stream
+
+val prepare_stream_expression :
+  stream ->
+  first:Frontend.Token.t ->
+  delimiters:Frontend.Parser.initializer_delimiter list ->
+  (stream_preparation, string) result
+
+val prepare_stream_leaf :
+  stream_preparation ->
+  value:Frontend.Ast.initial_value ->
+  ( stream * (int * int * operation * Sema.Initializer_type.scalar option),
+    string )
+  result
+
+val stream_preparation_result :
+  stream_preparation ->
+  ( stream * (int * int * operation * Sema.Initializer_type.scalar option),
+    string )
+  result
+
+val stream_preparation_requires_settlement : stream_preparation -> bool
+
+val settle_stream_preparation : stream_preparation -> (unit, string) result
+(** Retain the selected scalar branch before expression parsing and settle the
+    reached nominal width once afterward. The original root bounds and fixed
+    counts remain in force. These metadata reads grant no successful-copy or
+    runtime execution authority. *)
 
 val prepare_stream_typed :
   stream ->
@@ -66,6 +94,20 @@ val create :
     Copied strings retain only source-owned bytes, including the terminator. *)
 
 val source : t -> Sema.Initializer_source.t
+
+val create_static_retained :
+  allocation:Sema.Compiler_record.static_allocation ->
+  shape:Integer_storage_shape.t ->
+  cursor:stream ->
+  Sema.Initializer_source.t ->
+  (Frontend.Parser.static_initializer_preparation
+  * int
+  * int
+  * operation
+  * Sema.Initializer_type.scalar option)
+  list ->
+  (t, string) result
+
 val entries : t -> entry list
 
 val belongs_to_declared_shape :

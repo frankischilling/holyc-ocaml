@@ -459,6 +459,16 @@ and native_initializer_copy = {
   mutable copy_complete : bool;
 }
 
+type native_static_initializer_copy = {
+  static_copy_catalog : Integer_globals.task_catalog;
+  static_copy_program : Static_initializer_program.t;
+  static_copy_destination : Static_initializer_destination.t;
+  static_copy_bytes : string;
+  static_copy_domain : Domain.id;
+  mutable static_copy_started : bool;
+  mutable static_copy_complete : bool;
+}
+
 type default_attempt = {
   default_catalog : Integer_globals.task_catalog;
   default_source : Sema.Default_fragment.source;
@@ -739,6 +749,7 @@ and task_state = {
   native_storage_authority : bool;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
   mutable static_attempts : Frontend.Parser.static_initializer_preparation list;
+  mutable static_initializer_copies : native_static_initializer_copy list;
   mutable literal_arenas : runtime_storage list;
   mutable started : X87.t list;
   mutable functions : retained_executable list;
@@ -926,6 +937,7 @@ let make_task_state ~resources ~native_storage_authority ~table =
     native_storage_authority;
     arenas = [];
     static_attempts = [];
+    static_initializer_copies = [];
     literal_arenas = [];
     started = [];
     functions = [];
@@ -3565,6 +3577,32 @@ let check_native_static_allocation task allocation view =
     require_initializer_namespace task
       (Sema.Compiler_record.static_allocation_namespace source)
 
+let observe_task_static_preparation task receipt =
+  let ( let* ) = Result.bind in
+  let* view = task_snapshot task in
+  let original =
+    receipt.Frontend.Parser.static_expression_start.static_start_allocation
+  in
+  let* allocation =
+    match
+      List.find_opt
+        (fun allocation ->
+          Sema.Compiler_record.static_allocation_receipt
+            (Integer_static_allocation.source allocation)
+          == original)
+        (Integer_globals.private_static_allocations view)
+    with
+    | Some allocation -> Ok allocation
+    | None -> Error "static preparation has no original admitted allocation"
+  in
+  let* () =
+    require_initializer_namespace task
+      (Sema.Compiler_record.static_allocation_namespace
+         (Integer_static_allocation.source allocation))
+  in
+  Integer_static_allocation.prepare_expression
+    ?activation:task.source_activation allocation receipt
+
 let check_static_destination task destination =
   let module Destination = Static_initializer_destination in
   let allocation = Destination.allocation destination in
@@ -3613,6 +3651,97 @@ let check_native_static_initializer task program =
   check_native_static_destination task
     (Static_initializer_program.destination program)
 
+let check_native_static_initializer_copy task program copy =
+  if
+    copy.static_copy_domain <> Domain.self ()
+    || copy.static_copy_catalog != task.catalog
+    || copy.static_copy_program != program
+    || copy.static_copy_destination
+       != Static_initializer_program.destination program
+    || copy.static_copy_complete
+    || not (List.exists (( == ) copy) task.static_initializer_copies)
+  then Error "native static copy has another original task, program or domain"
+  else check_native_static_initializer task program
+
+let prepare_native_static_initializer_copy task program capture ~work =
+  let ( let* ) = Result.bind in
+  let* () = check_native_static_initializer task program in
+  let destination = Static_initializer_program.destination program in
+  let receipt =
+    Sema.Static_initializer_fragment.receipt
+      (Static_initializer_destination.fragment destination)
+  in
+  if
+    (not (Static_initializer_program.is_scalar_evaluation program))
+    || List.exists
+         (fun copy ->
+           Sema.Static_initializer_fragment.receipt
+             (Static_initializer_destination.fragment
+                copy.static_copy_destination)
+           == receipt)
+         task.static_initializer_copies
+  then
+    Error "native static scalar copy was already prepared or has another branch"
+  else
+    let* bits =
+      Native_scalar_capture.consume
+        ?scope:
+          (match task.resources.native_source_scopes with
+          | [] -> None
+          | scope :: _ -> Some scope)
+        capture ~program ~work
+    in
+    let* () = Static_initializer_destination.settle destination in
+    let* bytes =
+      Integer_initializer_layout.word_bytes
+        (Option.get (Static_initializer_destination.scalar destination))
+        bits
+    in
+    if String.length bytes > task_initializer_remaining task then
+      Error "HCIRVM0007: native static scalar copy work limit was exhausted"
+    else (
+      task.resources.initializer_steps <-
+        task.resources.initializer_steps + String.length bytes;
+      let copy =
+        {
+          static_copy_catalog = task.catalog;
+          static_copy_program = program;
+          static_copy_destination = destination;
+          static_copy_bytes = bytes;
+          static_copy_domain = Domain.self ();
+          static_copy_started = false;
+          static_copy_complete = false;
+        }
+      in
+      task.static_initializer_copies <- copy :: task.static_initializer_copies;
+      Ok copy)
+
+let native_static_initializer_copy_bytes copy =
+  Bytes.to_string (Bytes.of_string copy.static_copy_bytes)
+
+let claim_native_static_initializer_copy task program copy =
+  let ( let* ) = Result.bind in
+  let* () = check_native_static_initializer_copy task program copy in
+  if copy.static_copy_started then
+    Error "native static scalar copy was already entered"
+  else (
+    copy.static_copy_started <- true;
+    Ok ())
+
+let finish_native_static_initializer_copy task program copy receipt =
+  let ( let* ) = Result.bind in
+  let* () = check_native_static_initializer_copy task program copy in
+  let* () =
+    if copy.static_copy_started then Ok ()
+    else Error "native static scalar copy has no original entry"
+  in
+  let* () =
+    Native_initializer_copy_receipt.consume receipt ~copy
+      ~bytes:(String.length copy.static_copy_bytes)
+  in
+  copy.static_copy_complete <- true;
+  Ok ()
+
 let complete_native_static_destination task destination =
   let ( let* ) = Result.bind in
   let* () = check_native_static_destination task destination in
@@ -3626,8 +3755,20 @@ let complete_native_static_destination task destination =
     ~scalar:(Static_initializer_destination.scalar destination)
 
 let complete_native_static_initializer task program =
-  complete_native_static_destination task
-    (Static_initializer_program.destination program)
+  if
+    Static_initializer_program.is_scalar_evaluation program
+    && not
+         (List.exists
+            (fun copy ->
+              copy.static_copy_program == program && copy.static_copy_complete)
+            task.static_initializer_copies)
+  then
+    Error
+      "HCRUN0006: native static scalar initializer has no original completed \
+       copy"
+  else
+    complete_native_static_destination task
+      (Static_initializer_program.destination program)
 
 let check_native_static_copy task destination =
   let ( let* ) = Result.bind in
@@ -13380,8 +13521,7 @@ let execute_program_with_output ?task ?isolated_budget
                   ~primary:(Option.get initializer_execution_span)
                   ~severity:Common.Diagnostic.Error
                   ~message:
-                    "member metadata execution exhausted the preparation \
-                     allowance"
+                    "initializer execution exhausted the preparation allowance"
                   ();
               ]
   in
@@ -14192,8 +14332,11 @@ let execute_task_static_initializer ?(use_active_stream = true)
       result
   in
   let* () = begin_interpreted_static task destination |> diagnose in
-  let* _ =
+  let* result =
     execute_program_with_output ~task ~initializer_mode:true ~use_active_stream
+      ~capture_fragment_value:(Program.is_scalar_evaluation program)
+      ?initializer_execution_span:
+        (if Program.is_scalar_evaluation program then Some span else None)
       ?compiler_options ?stream_exe_print
       ~runtime_calls:(Program.runtime_calls program)
       ~output:task.resources.output
@@ -14207,6 +14350,74 @@ let execute_task_static_initializer ?(use_active_stream = true)
       ~max_call_depth:
         (task.resources.max_call_depth - task.resources.nested_call_depth)
       ~functions:[] (Program.entry program)
+  in
+  let* () =
+    if not (Program.is_scalar_evaluation program) then Ok ()
+    else
+      let copy =
+        let* word =
+          match result.final_value_ with
+          | Some word -> Ok word
+          | None ->
+              Error "HCIRVM0026: static scalar evaluation lost its actual word"
+        in
+        let* () = Destination.settle destination in
+        let* bytes =
+          Integer_initializer_layout.word_bytes
+            (Option.get (Destination.scalar destination))
+            word.bits
+        in
+        let count = String.length bytes in
+        let* () =
+          if count <= task_initializer_remaining task then Ok ()
+          else Error "HCIRVM0007: static scalar copy work limit was exhausted"
+        in
+        let slot = Destination.storage destination in
+        let* storage =
+          match
+            List.find_map
+              (fun (owner, storage) ->
+                match
+                  Integer_globals.find_allocated_storage owner
+                    (Integer_globals.storage_symbol slot)
+                with
+                | Some original when Integer_globals.same_storage original slot
+                  -> Some storage
+                | _ -> None)
+              task.arenas
+          with
+          | Some storage when storage.live -> Ok storage
+          | _ ->
+              Error "HCIRVM0026: static scalar copy has no original live arena"
+        in
+        task.resources.initializer_steps <-
+          task.resources.initializer_steps + count;
+        publish_array_payload ~slot
+          ~cell_offset:(Destination.cell_offset destination)
+          (Integer_array_initializers.Bytes bytes) (fun cell bits ->
+            invalidate_pointer_cells storage
+              (Int64.of_int (8 * cell))
+              (Int64.of_int (8 * cell));
+            Hashtbl.remove storage.partial_words cell;
+            storage.cells.(cell) <- Some (Runtime_word bits));
+        Ok ()
+      in
+      Result.map_error
+        (fun message ->
+          let code, message =
+            match String.index_opt message ':' with
+            | Some index when String.starts_with ~prefix:"HC" message ->
+                ( String.sub message 0 index,
+                  String.trim
+                    (String.sub message (index + 1)
+                       (String.length message - index - 1)) )
+            | _ -> ("HCIRVM0026", message)
+          in
+          [
+            make_error ~stage:Execution ~span
+              ~executed_steps:task.resources.steps code message;
+          ])
+        copy
   in
   record_interpreted_static task destination |> diagnose
 

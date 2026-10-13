@@ -695,7 +695,67 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   ~max_stack_bytes ~max_blocks ~max_ir_instructions
                   ~max_code_bytes ~layout request)
           in
-          execute ~arena Initializer image |> Result.map ignore
+          let before = (Native.budget_progress budget).executed_steps in
+          let module Request = Task.Native_static_initializer in
+          let dynamic =
+            Ir.Static_initializer_program.is_scalar_evaluation
+              (Request.program request)
+          in
+          let initializer_span =
+            Request.program request |> Ir.Static_initializer_program.destination
+            |> Ir.Static_initializer_destination.span
+          in
+          let outcome =
+            if not dynamic then execute ~arena Initializer image
+            else
+              with_initializer_execution ~span:initializer_span
+                ~remaining:(fun () -> Request.initializer_remaining request)
+                image
+                (fun () -> execute ~arena Initializer image)
+          in
+          let work = (Native.budget_progress budget).executed_steps - before in
+          let* () =
+            if (not dynamic) || (work = 0 && Result.is_error outcome) then Ok ()
+            else
+              Request.record_steps request work
+              |> Result.map_error (fun message ->
+                  [
+                    Driver.Integer_source.message_diagnostic
+                      ~span:initializer_span message;
+                  ])
+          in
+          let* _ = outcome in
+          if
+            not
+              (Ir.Static_initializer_program.is_scalar_evaluation
+                 (Request.program request))
+          then Ok ()
+          else
+            let diagnose result =
+              Result.map_error
+                (fun message ->
+                  let span =
+                    Request.program request
+                    |> Ir.Static_initializer_program.destination
+                    |> Ir.Static_initializer_destination.span
+                  in
+                  [ Driver.Integer_source.message_diagnostic ~span message ])
+                result
+            in
+            let* capture =
+              Native.finish_task_static_initializer ?scope:(current_scope ())
+                arena image
+              |> diagnose
+            in
+            let* token =
+              Request.prepare_copy request capture ~work |> diagnose
+            in
+            let* receipt =
+              Native.copy_task_static_initializer ?scope:(current_scope ())
+                arena request token
+              |> diagnose
+            in
+            Request.finish_copy request token receipt |> diagnose
         in
         let native_default request =
           let module Request = Task.Native_default in

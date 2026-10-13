@@ -47,7 +47,9 @@ let failure code report =
 
 let saved_tables () =
   value "A" (run Preprocessor.Jit Cases.saved_tables);
-  value ~expected:7L "A" (run Preprocessor.Aot Cases.saved_tables)
+  value ~expected:7L "A" (run Preprocessor.Aot Cases.saved_tables);
+  value "A" (run Preprocessor.Jit Cases.static_saved_tables);
+  value ~expected:7L "A" (run Preprocessor.Aot Cases.static_saved_tables)
 
 let faults () =
   List.iter
@@ -57,7 +59,7 @@ let faults () =
       Alcotest.(check string)
         "output precedes reached failure" "A"
         (integer_program_report_output_bytes report))
-    Cases.faults
+    (Cases.faults @ Cases.static_faults)
 
 let quotas () =
   List.iter
@@ -82,7 +84,14 @@ let quotas () =
         "evaluation output survives copy quota" "A"
         (integer_program_report_output_bytes failed);
       failure "HCIRVM0007" (run ~max_steps:(steps - 1) Preprocessor.Jit source))
-    [ Cases.current_leaf; Cases.saved_tables; Cases.nested_metadata ]
+    [
+      Cases.current_leaf;
+      Cases.saved_tables;
+      Cases.nested_metadata;
+      Cases.static_current_leaf;
+      Cases.static_saved_tables;
+      Cases.static_nested_metadata;
+    ]
 
 let () =
   Alcotest.run "Live scalar initializer copies"
@@ -92,7 +101,7 @@ let () =
           (fun (name, source, output) ->
             Alcotest.test_case name `Quick (fun () ->
                 value output (run Preprocessor.Jit source)))
-          Cases.jit_values
+          (Cases.jit_values @ Cases.static_jit_values)
         @ List.concat_map
             (fun mode ->
               List.map
@@ -101,7 +110,7 @@ let () =
                     ((if mode = Preprocessor.Jit then "JIT " else "AOT ") ^ name)
                     `Quick
                     (fun () -> value output (run mode source)))
-                Cases.both_values)
+                (Cases.both_values @ Cases.static_both_values))
             [ Preprocessor.Jit; Preprocessor.Aot ]
         @ [
             Alcotest.test_case "saved compiler table selects the reached class"

@@ -87,7 +87,7 @@ expression parsing. It retains the reached first token, syntax path and both
 predecessor chains. The completed leaf keeps that same receipt. Callback
 authority expires before expression completion, including after failed parsing.
 
-Global scalar leaves in source tasks retain the class selected before expression
+Global and static scalar leaves in source tasks retain the class selected before expression
 parsing and read its reached nominal width after evaluation. Backing is followed
 at the initial selection. Completion inside a callee or during expression
 lookahead can change the copy width. Newly added direct members do not restart
@@ -114,11 +114,23 @@ use an actual scalar capture, an original checked destination plan and a private
 receipt from the native byte copy. A copy enters once; completion consumes its
 receipt once. Foreign programs, work counts, arenas, domains, expired requests
 and replay reject. The retained completed layout preserves these source choices
-when the global declaration is published. Expression work and actual copy bytes
+when the global declaration or completed function frame is published. Expression work and actual copy bytes
 share the initializer allowance. Earlier output survives a reached width, root
 bound or quota failure.
 
-Static and isolated preparation of incomplete selections, earlier grammar
+Static expressions retain a separate receipt before parsing, including their
+first token, syntax path, predecessor and already reached delimiters. The
+completed static leaf keeps that receipt. Copies use the same cached-class timing
+as global leaves and run once during declaration parsing. Later function calls
+reuse their original static bytes and initialization flags.
+
+The [static live scalar example](../examples/live-static-scalar-initializers.hc)
+calls its function twice after preparation. It prints `A` once and returns 42 in
+JIT or 7 in AOT. The second call sees the first call's mutation; it does not
+repeat the initializer or its class completion. IR and native source tasks retain
+the actual reached leaf destinations when joining the completed frame.
+
+Isolated preparation of incomplete selections, earlier grammar
 selection snapshots and other runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution

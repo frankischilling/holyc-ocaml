@@ -198,6 +198,40 @@ val check_native_static_allocation :
   Integer_globals.task_view ->
   (unit, string) result
 
+type native_static_initializer_copy
+
+val prepare_native_static_initializer_copy :
+  task_state ->
+  Static_initializer_program.t ->
+  Static_initializer_program.t Native_scalar_capture.t ->
+  work:int ->
+  (native_static_initializer_copy, string) result
+
+val check_native_static_initializer_copy :
+  task_state ->
+  Static_initializer_program.t ->
+  native_static_initializer_copy ->
+  (unit, string) result
+
+val native_static_initializer_copy_bytes :
+  native_static_initializer_copy -> string
+
+val claim_native_static_initializer_copy :
+  task_state ->
+  Static_initializer_program.t ->
+  native_static_initializer_copy ->
+  (unit, string) result
+
+val finish_native_static_initializer_copy :
+  task_state ->
+  Static_initializer_program.t ->
+  native_static_initializer_copy ->
+  native_static_initializer_copy Native_initializer_copy_receipt.t ->
+  (unit, string) result
+
+val observe_task_static_preparation :
+  task_state -> Frontend.Parser.static_leaf_preparation -> (unit, string) result
+
 val check_native_static_initializer :
   task_state -> Static_initializer_program.t -> (unit, string) result
 

@@ -78,36 +78,48 @@ let () =
     (Array.length Sys.argv = 3 || Array.length Sys.argv = 4)
     "expected compiler, live scalar example and optional --native";
   let compiler = Sys.argv.(1) and example = Sys.argv.(2) in
+  let examples =
+    [
+      example;
+      Filename.concat (Filename.dirname example)
+        "live-static-scalar-initializers.hc";
+    ]
+  in
   let targets =
     if Array.length Sys.argv = 4 then [ "ir"; "host-jit-task" ] else [ "ir" ]
   in
   List.iter
-    (fun target ->
+    (fun example ->
       List.iter
-        (fun (mode, expected) ->
-          let run options status =
-            invoke compiler example target mode options status
-          in
-          let baseline = run [] 0 in
-          success expected baseline;
-          let work = member "compiled_initializer_steps" baseline |> to_int
-          and steps = member "executed_steps" baseline |> to_int in
-          success expected
-            (run
-               [
-                 Printf.sprintf "--initializer-step-limit=%d" work;
-                 Printf.sprintf "--step-limit=%d" steps;
-               ]
-               0);
-          let failed =
-            run [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ] 1
-          in
-          failure "HCIRVM0007" failed;
-          require
-            (member "output_hex" failed = `String "41")
-            "output survives deferred copy quota";
-          failure "HCIRVM0007"
-            (run [ Printf.sprintf "--step-limit=%d" (steps - 1) ] 1))
-        [ ("jit", "42"); ("aot", "7") ])
-    targets;
+        (fun target ->
+          List.iter
+            (fun (mode, expected) ->
+              let run options status =
+                invoke compiler example target mode options status
+              in
+              let baseline = run [] 0 in
+              success expected baseline;
+              let work = member "compiled_initializer_steps" baseline |> to_int
+              and steps = member "executed_steps" baseline |> to_int in
+              success expected
+                (run
+                   [
+                     Printf.sprintf "--initializer-step-limit=%d" work;
+                     Printf.sprintf "--step-limit=%d" steps;
+                   ]
+                   0);
+              let failed =
+                run
+                  [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ]
+                  1
+              in
+              failure "HCIRVM0007" failed;
+              require
+                (member "output_hex" failed = `String "41")
+                "output survives deferred copy quota";
+              failure "HCIRVM0007"
+                (run [ Printf.sprintf "--step-limit=%d" (steps - 1) ] 1))
+            [ ("jit", "42"); ("aot", "7") ])
+        targets)
+    examples;
   Printf.printf "Live scalar initializer CLI values and exact quotas passed\n"

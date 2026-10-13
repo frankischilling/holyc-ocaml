@@ -207,6 +207,11 @@ let event_context = function
         | Parser.Function_declared p -> p.function_header.declaration_command
         | Parser.Function_position_written p ->
             p.position_function.function_header.declaration_command
+        | Parser.Static_initializer_expression_preparing p ->
+            p.static_expression_start.static_start_allocation
+              .allocation_function
+              .function_header
+              .declaration_command
         | Parser.Static_initializer_preparing p ->
             p.static_allocation.allocation_function.function_header
               .declaration_command
@@ -530,6 +535,12 @@ let declaration activation receipt =
 let static_allocation activation receipt =
   allows activation (function
     | Declaration (Parser.Function_local_allocated original) ->
+        original == receipt
+    | _ -> false)
+
+let static_expression_preparation activation receipt =
+  allows activation (function
+    | Declaration (Parser.Static_initializer_expression_preparing original) ->
         original == receipt
     | _ -> false)
 

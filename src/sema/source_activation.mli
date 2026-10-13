@@ -129,6 +129,9 @@ val declaration : t option -> Frontend.Parser.declaration_event -> bool
 val static_allocation :
   t option -> Frontend.Parser.function_local_allocation -> bool
 
+val static_expression_preparation :
+  t option -> Frontend.Parser.static_leaf_preparation -> bool
+
 val static_initializer :
   t option -> Frontend.Parser.static_initializer_preparation -> bool
 

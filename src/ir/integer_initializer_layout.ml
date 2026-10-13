@@ -304,7 +304,79 @@ let advance ~shape ~final work input =
       })
     work input
 
+type prepared_kind =
+  | Prepared_scalar of Initializer_type.scalar_evaluation
+  | Prepared_string of int
+
+let rec select_prepared_kind ~(first : Frontend.Token.t) = function
+  | Consume (type_, []) :: rest ->
+      let* phase = Initializer_type.begin_scalar_evaluation type_ in
+      Ok (Prepared_scalar phase, rest)
+  | Consume (type_, count :: tail) :: rest -> (
+      if count <= 0L || count > Int64.of_int Int.max_int then
+        invalid "has an invalid fixed array count"
+      else
+        let byte_string =
+          if first.kind <> Frontend.Token_kind.String then None
+          else
+            match Initializer_type.begin_scalar_evaluation type_ with
+            | Ok phase ->
+                let scalar = Initializer_type.scalar_evaluation_before phase in
+                let type_ = Initializer_type.scalar_type scalar in
+                if
+                  Initializer_type.scalar_byte_size scalar = 1
+                  && Sema.Type.pointer_depth type_ = 0
+                  &&
+                  match Sema.Type.base type_ with
+                  | Sema.Type.Primitive (_, (Sema.Primitive_type.I8 | U8 | Bool))
+                    -> true
+                  | _ -> false
+                then Some (Prepared_string (Int64.to_int count), rest)
+                else None
+            | Error _ -> None
+        in
+        match byte_string with
+        | Some result -> Ok result
+        | None ->
+            select_prepared_kind ~first
+              (Array_next (Int64.to_int count, type_, tail, 0) :: rest))
+  | Array_start (count, type_, tail) :: rest ->
+      select_prepared_kind ~first (Array_next (count, type_, tail, 0) :: rest)
+  | Array_next (count, _, _, index) :: rest when count = index ->
+      select_prepared_kind ~first (Optional_close :: rest)
+  | Array_next (count, type_, tail, index) :: rest ->
+      select_prepared_kind ~first
+        (Consume (type_, tail)
+        :: Optional_comma (count > 1)
+        :: Array_next (count, type_, tail, index + 1)
+        :: rest)
+  | Aggregate_next (member :: members) :: rest ->
+      select_prepared_kind ~first
+        (Consume
+           ( Initializer_type.element_type member,
+             Initializer_type.element_dimensions member )
+        :: Optional_comma true :: Aggregate_next members :: rest)
+  | Optional_comma _ :: rest | Optional_close :: rest ->
+      select_prepared_kind ~first rest
+  | Scalar_value _ :: _ ->
+      invalid "scalar preparation lost its original selected type"
+  | _ -> invalid "requires its original scalar branch before expression parsing"
+
 type stream = { stream_shape : Shape.t; stream_work : progress }
+
+type stream_preparation = {
+  selected_stream : stream;
+  selected_kind : prepared_kind;
+  selected_rest : continuation list;
+  selected_offset : int;
+  selected_dynamic : bool;
+  mutable selected_value : Frontend.Ast.initial_value option;
+  mutable selected_result :
+    (stream * (int * int * operation * Sema.Initializer_type.scalar option))
+    option;
+  mutable selected_settled : bool;
+  mutable selected_failed : bool;
+}
 
 let begin_stream shape =
   { stream_shape = shape; stream_work = initial_progress shape }
@@ -313,6 +385,148 @@ let delimiter_token = function
   | Frontend.Parser.Initializer_open _ -> Open
   | Frontend.Parser.Initializer_close _ -> Close
   | Frontend.Parser.Initializer_comma _ -> Comma
+
+let prepare_stream_expression stream ~first ~delimiters =
+  let* work, entries =
+    advance_tokens ~shape:stream.stream_shape ~final:false
+      ~expression_of_leaf:Fun.id
+      ~make_entry:(fun _ _ _ _ _ -> ())
+      stream.stream_work
+      (List.map delimiter_token delimiters)
+  in
+  if entries <> [] then invalid "expression preparation consumed a source leaf"
+  else
+    let* selected_kind, selected_rest =
+      select_prepared_kind ~first work.pending
+    in
+    let selected_dynamic =
+      match selected_kind with
+      | Prepared_scalar phase ->
+          Initializer_type.scalar_evaluation_may_change phase
+      | Prepared_string _ -> false
+    in
+    Ok
+      {
+        selected_stream = stream;
+        selected_kind;
+        selected_rest;
+        selected_offset = work.next_byte;
+        selected_dynamic;
+        selected_value = None;
+        selected_result = None;
+        selected_settled = not selected_dynamic;
+        selected_failed = false;
+      }
+
+let stream_preparation_requires_settlement preparation =
+  preparation.selected_dynamic && not preparation.selected_settled
+
+let stream_preparation_result preparation =
+  match (preparation.selected_failed, preparation.selected_result) with
+  | true, _ -> invalid "prepared scalar settlement failed"
+  | false, Some result -> Ok result
+  | false, None -> invalid "prepared expression has no original completed leaf"
+
+let prepare_stream_leaf preparation ~value =
+  match preparation.selected_value with
+  | Some original when original == value ->
+      stream_preparation_result preparation
+  | Some _ ->
+      invalid "completed expression substituted its original prepared leaf"
+  | None ->
+      let shape = preparation.selected_stream.stream_shape in
+      let* expression =
+        match value with
+        | Frontend.Ast.Scalar_initializer expression -> Ok expression
+        | _ -> invalid "prepared stream requires one original scalar leaf"
+      in
+      let* operation, scalar, bytes =
+        match preparation.selected_kind with
+        | Prepared_scalar phase ->
+            let scalar = Initializer_type.scalar_evaluation_before phase in
+            Ok
+              ( Scalar_store,
+                (if Shape.is_aggregate shape then Some scalar else None),
+                Initializer_type.scalar_byte_size scalar )
+        | Prepared_string count -> (
+            match expression with
+            | Frontend.Ast.String_literal
+                { literal_value = Frontend.Ast.Bytes_value bytes; _ }
+              when count <= String.length bytes + 1 ->
+                let copied =
+                  if count <= String.length bytes then String.sub bytes 0 count
+                  else bytes ^ "\000"
+                in
+                Ok (Copy_bytes copied, None, count)
+            | _ -> invalid "prepared stream string lost its original literal")
+      in
+      let offset = preparation.selected_offset in
+      if
+        offset < 0
+        || offset > Shape.byte_size shape
+        || bytes < 0
+        || bytes > Shape.byte_size shape - offset
+      then invalid "prepared stream destination exceeds its original allocation"
+      else
+        let next =
+          {
+            preparation.selected_stream with
+            stream_work =
+              {
+                pending = preparation.selected_rest;
+                next_byte = offset + bytes;
+              };
+          }
+        in
+        let result =
+          ( next,
+            ( offset / Integer_scalar_storage.byte_size (Shape.scalar shape),
+              offset,
+              operation,
+              scalar ) )
+        in
+        preparation.selected_value <- Some value;
+        preparation.selected_result <- Some result;
+        Ok result
+
+let settle_stream_preparation preparation =
+  let* _, (cell, byte, operation, _) = stream_preparation_result preparation in
+  if not (stream_preparation_requires_settlement preparation) then
+    invalid "stream settlement is fixed, repeated or has no original evaluation"
+  else
+    let outcome =
+      let* scalar =
+        match preparation.selected_kind with
+        | Prepared_scalar phase ->
+            Initializer_type.finish_scalar_evaluation phase
+        | Prepared_string _ ->
+            invalid "string copy cannot settle a scalar phase"
+      in
+      let shape = preparation.selected_stream.stream_shape in
+      let bytes = Initializer_type.scalar_byte_size scalar in
+      preparation.selected_settled <- true;
+      if
+        byte < 0
+        || byte > Shape.byte_size shape
+        || bytes < 0
+        || bytes > Shape.byte_size shape - byte
+      then invalid "reached stream destination exceeds its original allocation"
+      else
+        let next =
+          {
+            preparation.selected_stream with
+            stream_work =
+              { pending = preparation.selected_rest; next_byte = byte + bytes };
+          }
+        in
+        let result = (next, (cell, byte, operation, Some scalar)) in
+        preparation.selected_result <- Some result;
+        Ok ()
+    in
+    (match outcome with
+    | Ok () -> ()
+    | Error _ -> preparation.selected_failed <- true);
+    outcome
 
 let prepare_stream_typed stream ~delimiters ~value =
   match value with
@@ -346,9 +560,80 @@ let create ~shape source =
   in
   Ok { source; entries; layout_declaration = None; layout_shape = shape }
 
-type prepared_kind =
-  | Prepared_scalar of Initializer_type.scalar_evaluation
-  | Prepared_string of int
+let create_static_retained ~allocation ~shape ~cursor source reached =
+  let allocation = Sema.Compiler_record.static_allocation_receipt allocation in
+  let leaves = Source.leaves source in
+  if List.length leaves <> List.length reached then
+    invalid "static completion omitted or added original source leaves"
+  else
+    let rec join reversed leaves reached =
+      match (leaves, reached) with
+      | [], [] -> Ok (List.rev reversed)
+      | ( leaf :: tail,
+          (receipt, cell_offset, byte_offset, operation, scalar_) :: rest ) ->
+          let matches =
+            match receipt.Frontend.Parser.static_leaf_value with
+            | Frontend.Ast.Scalar_initializer expression ->
+                Source.leaf_expression_ast leaf == expression
+                && Source.leaf_path leaf = receipt.static_leaf_path
+                && Source.leaf_index leaf = receipt.static_leaf_index
+            | _ -> false
+          in
+          let bytes =
+            match (operation, scalar_) with
+            | Copy_bytes bytes, _ -> String.length bytes
+            | Scalar_store, Some scalar ->
+                Initializer_type.scalar_byte_size scalar
+            | Scalar_store, None ->
+                Integer_scalar_storage.byte_size (Shape.scalar shape)
+          in
+          let completed =
+            Option.bind
+              (Frontend.Parser.static_initializer_completed_declarator receipt)
+              (fun declarator -> declarator.Frontend.Ast.local_initializer)
+            |> Option.fold ~none:false ~some:(fun initial ->
+                initial.Frontend.Ast.local_initializer_value
+                == Source.source_ast source)
+          in
+          if
+            (not matches)
+            || receipt.static_allocation != allocation
+            || (not completed) || byte_offset < 0
+            || byte_offset > Shape.byte_size shape
+            || bytes < 0
+            || bytes > Shape.byte_size shape - byte_offset
+            || cell_offset
+               <> byte_offset
+                  / Integer_scalar_storage.byte_size (Shape.scalar shape)
+          then
+            invalid
+              "static completion replaced an original source leaf or allocation"
+          else
+            let entry =
+              {
+                leaf;
+                cell_offset;
+                byte_offset;
+                operation;
+                scalar_;
+                declared_owner_ = None;
+                evaluation_ = None;
+                settled_ = true;
+              }
+            in
+            join (entry :: reversed) tail rest
+      | _ -> assert false
+    in
+    let* entries = join [] leaves reached in
+    let rec suffix last = function
+      | [] -> last
+      | Expression _ :: rest -> suffix rest rest
+      | _ :: rest -> suffix last rest
+    in
+    let source_tokens = tokens source in
+    let trailing = suffix source_tokens source_tokens in
+    let* _, _ = advance ~shape ~final:true cursor.stream_work trailing in
+    Ok { source; entries; layout_declaration = None; layout_shape = shape }
 
 type prepared_leaf = {
   receipt : Frontend.Parser.initializer_leaf_preparation;
@@ -435,65 +720,9 @@ let prepare_live_expression live
             receipt.preparation_delimiters)
   then invalid "expression preparation is foreign, repeated or out of order"
   else
-    let rec select = function
-      | Consume (type_, []) :: rest ->
-          let* phase = Initializer_type.begin_scalar_evaluation type_ in
-          Ok (Prepared_scalar phase, rest)
-      | Consume (type_, count :: tail) :: rest -> (
-          if count <= 0L || count > Int64.of_int Int.max_int then
-            invalid "has an invalid fixed array count"
-          else
-            let byte_string =
-              if receipt.preparation_first.kind <> Frontend.Token_kind.String
-              then None
-              else
-                match Initializer_type.begin_scalar_evaluation type_ with
-                | Ok phase ->
-                    let scalar =
-                      Initializer_type.scalar_evaluation_before phase
-                    in
-                    let type_ = Initializer_type.scalar_type scalar in
-                    if
-                      Initializer_type.scalar_byte_size scalar = 1
-                      && Sema.Type.pointer_depth type_ = 0
-                      &&
-                      match Sema.Type.base type_ with
-                      | Sema.Type.Primitive
-                          (_, (Sema.Primitive_type.I8 | U8 | Bool)) -> true
-                      | _ -> false
-                    then Some (Prepared_string (Int64.to_int count), rest)
-                    else None
-                | Error _ -> None
-            in
-            match byte_string with
-            | Some result -> Ok result
-            | None ->
-                select (Array_next (Int64.to_int count, type_, tail, 0) :: rest)
-          )
-      | Array_start (count, type_, tail) :: rest ->
-          select (Array_next (count, type_, tail, 0) :: rest)
-      | Array_next (count, _, _, index) :: rest when count = index ->
-          select (Optional_close :: rest)
-      | Array_next (count, type_, tail, index) :: rest ->
-          select
-            (Consume (type_, tail)
-            :: Optional_comma (count > 1)
-            :: Array_next (count, type_, tail, index + 1)
-            :: rest)
-      | Aggregate_next (member :: members) :: rest ->
-          select
-            (Consume
-               ( Initializer_type.element_type member,
-                 Initializer_type.element_dimensions member )
-            :: Optional_comma true :: Aggregate_next members :: rest)
-      | Optional_comma _ :: rest | Optional_close :: rest -> select rest
-      | Scalar_value _ :: _ ->
-          invalid "scalar preparation lost its original selected type"
-      | _ ->
-          invalid
-            "requires its original scalar branch before expression parsing"
+    let* kind, rest =
+      select_prepared_kind ~first:receipt.preparation_first live.work.pending
     in
-    let* kind, rest = select live.work.pending in
     Ok { live with preparation = Some { receipt; kind; rest }; phased = true }
 
 let prepared_entry live preparation leaf =

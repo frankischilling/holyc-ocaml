@@ -13,7 +13,17 @@ type t = {
     option;
   shape_ : Shape.t;
   mutable cursor_ : Integer_initializer_layout.stream;
-  mutable executed_ : (Parser.static_initializer_preparation * int * int) list;
+  mutable preparing_ :
+    (Parser.static_leaf_preparation
+    * Integer_initializer_layout.stream_preparation)
+    option;
+  mutable executed_ :
+    (Parser.static_initializer_preparation
+    * int
+    * int
+    * Integer_initializer_layout.operation
+    * Sema.Initializer_type.scalar option)
+    list;
 }
 
 let source value = value.source_
@@ -37,6 +47,64 @@ let offset_dependencies value =
 
 let cursor value = value.cursor_
 
+let prepare_expression ?activation value receipt =
+  let ( let* ) = Result.bind in
+  let previous =
+    match List.rev value.executed_ with
+    | [] -> None
+    | (prior, _, _, _, _) :: _ -> Some prior
+  in
+  let ordered =
+    match (receipt.Parser.static_expression_predecessor, previous) with
+    | None, None -> receipt.static_expression_index = 0
+    | Some prior, Some original ->
+        prior == original
+        && receipt.static_expression_index = prior.static_leaf_index + 1
+    | _ -> false
+  in
+  if
+    Option.is_some value.preparing_
+    || (not ordered)
+    || receipt.static_expression_start.static_start_allocation
+       != Record.static_allocation_receipt value.source_
+    || not
+         (Parser.static_leaf_preparation_is_current receipt
+         || Sema.Source_activation.static_expression_preparation activation
+              receipt)
+  then
+    Error "static expression preparation is foreign, repeated or out of order"
+  else
+    let* selected =
+      Integer_initializer_layout.prepare_stream_expression value.cursor_
+        ~first:receipt.static_expression_first
+        ~delimiters:receipt.static_expression_delimiters
+    in
+    value.preparing_ <- Some (receipt, selected);
+    Ok ()
+
+let prepare_leaf value receipt =
+  match value.preparing_ with
+  | Some (original, selected)
+    when original == receipt.Parser.static_expression_preparation
+         && original.static_expression_start == receipt.static_initializer
+         && original.static_expression_index = receipt.static_leaf_index
+         && Option.equal ( == ) original.static_expression_predecessor
+              receipt.static_leaf_predecessor
+         && original.static_expression_path = receipt.static_leaf_path
+         && List.length original.static_expression_delimiters
+            = List.length receipt.static_leaf_delimiters
+         && List.for_all2 ( == ) original.static_expression_delimiters
+              receipt.static_leaf_delimiters ->
+      Integer_initializer_layout.prepare_stream_leaf selected
+        ~value:receipt.static_leaf_value
+      |> Result.map (fun result -> (Some selected, result))
+  | Some _ -> Error "static leaf replaced its original expression preparation"
+  | None ->
+      Integer_initializer_layout.prepare_stream_typed value.cursor_
+        ~delimiters:receipt.static_leaf_delimiters
+        ~value:receipt.static_leaf_value
+      |> Result.map (fun result -> (None, result))
+
 let native_leaf_executed value root =
   let module Typed = Sema.Function_call_expression_result in
   match
@@ -46,7 +114,7 @@ let native_leaf_executed value root =
   | None -> false
   | Some leaf ->
       List.exists
-        (fun (receipt, _, _) ->
+        (fun (receipt, _, _, _, _) ->
           match receipt.Parser.static_leaf_value with
           | Frontend.Ast.Scalar_initializer expression ->
               Sema.Initializer_source.leaf_expression_ast leaf == expression
@@ -66,21 +134,31 @@ let record_native_leaf ?activation value receipt ~cell_offset ~byte_offset
        || Sema.Source_activation.static_initializer activation receipt))
     || receipt.Parser.static_allocation
        != Sema.Compiler_record.static_allocation_receipt value.source_
-    || List.exists (fun (original, _, _) -> original == receipt) value.executed_
+    || List.exists
+         (fun (original, _, _, _, _) -> original == receipt)
+         value.executed_
     ||
     match (receipt.static_leaf_predecessor, List.rev value.executed_) with
     | None, [] -> receipt.static_leaf_index <> 0
-    | Some prior, (previous, _, _) :: _ ->
+    | Some prior, (previous, _, _, _, _) :: _ ->
         prior != previous
         || receipt.static_leaf_index <> prior.static_leaf_index + 1
     | _ -> true
   then
     Error "static initializer completion replaced or replayed its original leaf"
   else
+    let* selected, (next, (cell, bytes, operation, scalar)) =
+      prepare_leaf value receipt
+    in
     let* next, (cell, bytes, operation, scalar) =
-      Integer_initializer_layout.prepare_stream_typed value.cursor_
-        ~delimiters:receipt.static_leaf_delimiters
-        ~value:receipt.static_leaf_value
+      match selected with
+      | None -> Ok (next, (cell, bytes, operation, scalar))
+      | Some prepared
+        when Integer_initializer_layout.stream_preparation_requires_settlement
+               prepared ->
+          Error "static completion has no settled original scalar destination"
+      | Some prepared ->
+          Integer_initializer_layout.stream_preparation_result prepared
     in
     if
       cell <> cell_offset || bytes <> byte_offset || operation <> expected
@@ -89,14 +167,16 @@ let record_native_leaf ?activation value receipt ~cell_offset ~byte_offset
               expected_scalar)
     then Error "native static completion has another original leaf destination"
     else (
-      value.executed_ <- value.executed_ @ [ (receipt, cell, bytes) ];
+      value.executed_ <-
+        value.executed_ @ [ (receipt, cell, bytes, operation, scalar) ];
       value.cursor_ <- next;
+      value.preparing_ <- None;
       Ok ())
 
 let check_native_layout value roots =
   if
     List.for_all
-      (fun (receipt, cell, bytes) ->
+      (fun (receipt, cell, bytes, _, _) ->
         List.length
           (List.filter
              (fun (root, actual_cell, actual_bytes) ->
@@ -120,6 +200,22 @@ let check_native_layout value roots =
     Error
       "completed static layout replaced a successfully executed original leaf \
        destination"
+
+let retained_layout value ~shape source =
+  if
+    Option.is_some value.preparing_
+    || Shape.byte_size shape <> Shape.byte_size value.shape_
+    || Shape.element_size shape <> Shape.element_size value.shape_
+    || Shape.dimensions shape <> Shape.dimensions value.shape_
+    || Shape.scalar shape <> Shape.scalar value.shape_
+    || Shape.is_aggregate shape
+       && not
+            (Shape.matches shape ~symbol:value.symbol_ ~type_:value.type_
+               ~dimensions:(Shape.dimensions value.shape_))
+  then Error "retained static layout has another original allocation shape"
+  else
+    Integer_initializer_layout.create_static_retained ~allocation:value.source_
+      ~shape ~cursor:value.cursor_ source value.executed_
 
 let owns_table value table =
   Record.static_allocation_owns_table value.source_ table
@@ -218,6 +314,7 @@ let create ?activation ?callback
       callback_;
       shape_;
       cursor_ = Integer_initializer_layout.begin_stream shape_;
+      preparing_ = None;
       executed_ = [];
     }
 

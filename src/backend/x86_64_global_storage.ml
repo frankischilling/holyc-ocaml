@@ -125,6 +125,16 @@ type initializer_copy = {
   initializer_copy_bytes : string;
 }
 
+type static_initializer_copy = {
+  scalar_static_layout : task_layout;
+  scalar_static_state : task_layout_state;
+  scalar_static_request : Driver.Integer_task.Native_static_initializer.request;
+  scalar_static_token : Ir.Integer_interpreter.native_static_initializer_copy;
+  scalar_static_data : int;
+  scalar_static_flag : int;
+  scalar_static_bytes : string;
+}
+
 let hard_max_global_bytes = 16 * 1024 * 1024
 let hard_max_arena_bytes = 32 * 1024 * 1024
 let hard_max_task_layout_work = 1_000_000
@@ -1385,6 +1395,71 @@ let initializer_copy_payload copy =
     copy.initializer_copy_data,
     copy.initializer_copy_flag,
     Bytes.to_string (Bytes.of_string copy.initializer_copy_bytes) )
+
+let prepare_static_initializer_copy layout request token ~admitted_arena_bytes =
+  let ( let* ) = Result.bind in
+  let module Request = Driver.Integer_task.Native_static_initializer in
+  let module Destination = Ir.Static_initializer_destination in
+  let* () = Request.check_copy request token in
+  let destination =
+    Request.program request |> Ir.Static_initializer_program.destination
+  in
+  let allocation = Destination.allocation destination in
+  let state = Atomic.get layout.task_state in
+  let symbol = Ir.Integer_static_allocation.symbol allocation in
+  let* slot =
+    match Symbol_map.find_opt (Symbol.id symbol) state.task_symbols with
+    | Some slot
+      when slot.symbol == symbol
+           && Option.fold ~none:false ~some:(( == ) allocation)
+                slot.static_source
+           && Globals.same_storage slot.source_slot
+                (Destination.storage destination) -> Ok slot
+    | _ ->
+        Error
+          "native static scalar copy replaced its original private allocation"
+  in
+  let bytes = Request.copy_bytes token in
+  let byte = Destination.byte_offset destination in
+  let cell = Destination.cell_offset destination in
+  if
+    state.task_arena_bytes <> admitted_arena_bytes
+    || (not
+          (Option.fold ~none:false
+             ~some:(fun owner ->
+               Globals.same_task_storage owner (Destination.globals destination))
+             state.task_owner))
+    || Scalar.byte_size slot.scalar <> 1
+    || byte <> cell || byte < 0 || byte > slot.extent_bytes
+    || String.length bytes > slot.extent_bytes - byte
+  then
+    Error "native static scalar copy leaves its original admitted byte extent"
+  else
+    Ok
+      {
+        scalar_static_layout = layout;
+        scalar_static_state = state;
+        scalar_static_request = request;
+        scalar_static_token = token;
+        scalar_static_data = slot.data_offset + byte;
+        scalar_static_flag = slot.flag_offset + 7 - cell;
+        scalar_static_bytes = bytes;
+      }
+
+let check_static_initializer_copy plan ~layout ~request ~token =
+  if
+    plan.scalar_static_layout != layout
+    || plan.scalar_static_request != request
+    || plan.scalar_static_token != token
+    || Atomic.get layout.task_state != plan.scalar_static_state
+  then Error "native static scalar copy has another original plan or arena"
+  else Driver.Integer_task.Native_static_initializer.check_copy request token
+
+let static_initializer_copy_payload plan =
+  ( plan.scalar_static_state.task_arena_bytes,
+    plan.scalar_static_data,
+    plan.scalar_static_flag,
+    Bytes.to_string (Bytes.of_string plan.scalar_static_bytes) )
 
 let append_task_literals snapshot ~sources ~work =
   let ( let* ) = Result.bind in

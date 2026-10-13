@@ -307,6 +307,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           in
           let* globals_ =
             Ir.Integer_globals.with_statics ~span:ast.span
+              ?source_allocations:
+                (Option.map Ir.Integer_globals.private_static_allocations
+                   task_view)
               ~frames:(Integer_source.frames prepared)
               ~functions:(Integer_source.functions prepared)
               ~records:(Integer_source.records prepared)
