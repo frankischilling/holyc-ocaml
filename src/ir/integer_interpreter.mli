@@ -232,6 +232,11 @@ val finish_native_static_initializer_copy :
 val observe_task_static_preparation :
   task_state -> Frontend.Parser.static_leaf_preparation -> (unit, string) result
 
+val observe_task_static_delimiter :
+  task_state ->
+  Frontend.Parser.completed_static_initializer_delimiter ->
+  (unit, string) result
+
 val check_native_static_initializer :
   task_state -> Static_initializer_program.t -> (unit, string) result
 

@@ -3577,12 +3577,9 @@ let check_native_static_allocation task allocation view =
     require_initializer_namespace task
       (Sema.Compiler_record.static_allocation_namespace source)
 
-let observe_task_static_preparation task receipt =
+let original_static_allocation task original =
   let ( let* ) = Result.bind in
   let* view = task_snapshot task in
-  let original =
-    receipt.Frontend.Parser.static_expression_start.static_start_allocation
-  in
   let* allocation =
     match
       List.find_opt
@@ -3600,8 +3597,25 @@ let observe_task_static_preparation task receipt =
       (Sema.Compiler_record.static_allocation_namespace
          (Integer_static_allocation.source allocation))
   in
+  Ok allocation
+
+let observe_task_static_preparation task receipt =
+  let ( let* ) = Result.bind in
+  let* allocation =
+    original_static_allocation task
+      receipt.Frontend.Parser.static_expression_start.static_start_allocation
+  in
   Integer_static_allocation.prepare_expression
     ?activation:task.source_activation allocation receipt
+
+let observe_task_static_delimiter task receipt =
+  let ( let* ) = Result.bind in
+  let* allocation =
+    original_static_allocation task
+      receipt.Frontend.Parser.static_delimiter_start.static_start_allocation
+  in
+  Integer_static_allocation.observe_delimiter ?activation:task.source_activation
+    allocation receipt
 
 let check_static_destination task destination =
   let module Destination = Static_initializer_destination in

@@ -2657,6 +2657,9 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     | Frontend.Parser.Static_initializer_expression_preparing receipt ->
         Task_declarations.observe_static_expression_preparation
           task.declarations ~runtime:task.state receipt
+    | Frontend.Parser.Static_initializer_delimiter_completed receipt ->
+        Task_declarations.observe_static_delimiter task.declarations
+          ~runtime:task.state receipt
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
         execute_initializer_leaf ~use_active_stream ?stream_exe_print task
           receipt
@@ -3124,6 +3127,10 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
           p.position_function.function_header.declaration_command
       | Static_initializer_expression_preparing p ->
           p.static_expression_start.static_start_allocation.allocation_function
+            .function_header
+            .declaration_command
+      | Static_initializer_delimiter_completed p ->
+          p.static_delimiter_start.static_start_allocation.allocation_function
             .function_header
             .declaration_command
       | Static_initializer_preparing p ->

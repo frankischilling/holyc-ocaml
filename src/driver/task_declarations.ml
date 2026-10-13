@@ -316,6 +316,8 @@ type t = {
   mutable prepared_internal_bindings : Sema.Prepared_internal_binding.t list;
   mutable static_preparations : Parser.static_initializer_preparation list;
   mutable static_expression_preparations : Parser.static_leaf_preparation list;
+  mutable static_delimiters :
+    Parser.completed_static_initializer_delimiter list;
   mutable static_completions : Parser.completed_static_initializer list;
   mutable static_allocations_rev : Sema.Compiler_record.static_allocation list;
   mutable native_initializer_attempts : Sema.Initializer_source.leaf list;
@@ -470,6 +472,7 @@ let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
                   prepared_internal_bindings = [];
                   static_preparations = [];
                   static_expression_preparations = [];
+                  static_delimiters = [];
                   static_completions = [];
                   static_allocations_rev = [];
                   storage_boundaries = Names.create 16;
@@ -3420,6 +3423,44 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
                     allocation :: state.automatic_aggregate_allocations)
                 automatic_aggregate
           | _ -> fail span "local allocation belongs to another declaration")
+      | Parser.Static_initializer_delimiter_completed receipt ->
+          let publication =
+            receipt.static_delimiter_start.static_start_allocation
+              .allocation_function
+          in
+          let span = receipt.static_delimiter_start.static_equals.span in
+          validate_command ledger publication.function_header;
+          let previous =
+            List.find_opt
+              (fun prior ->
+                prior.Parser.static_delimiter_start
+                == receipt.static_delimiter_start)
+              ledger.static_delimiters
+          in
+          let previous_leaf =
+            List.find_opt
+              (fun prior ->
+                prior.Parser.static_initializer
+                == receipt.static_delimiter_start)
+              ledger.static_preparations
+          in
+          if
+            (not (Parser.static_initializer_delimiter_is_current receipt))
+            || (not
+                  (Option.equal ( == ) previous_leaf
+                     receipt.static_delimiter_leaf_predecessor))
+            || (not
+                  (Option.equal ( == ) previous
+                     receipt.static_delimiter_predecessor))
+            || receipt.static_delimiter_index
+               <> Option.fold ~none:0
+                    ~some:(fun prior -> prior.Parser.static_delimiter_index + 1)
+                    previous
+          then fail span "static delimiter is expired, repeated or out of order";
+          (match (find ledger publication.function_name).source with
+          | Function state when state.publication == publication -> ()
+          | _ -> fail span "static delimiter belongs to another declaration");
+          ledger.static_delimiters <- receipt :: ledger.static_delimiters
       | Parser.Static_initializer_expression_preparing receipt ->
           let publication =
             receipt.static_expression_start.static_start_allocation
@@ -3427,8 +3468,18 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
           in
           let span = receipt.static_expression_first.span in
           validate_command ledger publication.function_header;
+          let delimiter =
+            List.find_opt
+              (fun prior ->
+                prior.Parser.static_delimiter_start
+                == receipt.static_expression_start)
+              ledger.static_delimiters
+          in
           if
             (not (Parser.static_leaf_preparation_is_current receipt))
+            || (not
+                  (Option.equal ( == ) delimiter
+                     receipt.static_expression_delimiter_predecessor))
             || List.exists (( == ) receipt)
                  ledger.static_expression_preparations
           then fail span "static expression preparation is expired or repeated";
@@ -6575,6 +6626,12 @@ let observe_static_expression_preparation ledger ~runtime receipt =
       let span = receipt.Parser.static_expression_first.span in
       require_initializer_runtime ledger runtime span;
       VM.observe_task_static_preparation runtime receipt |> checked span)
+
+let observe_static_delimiter ledger ~runtime receipt =
+  protect (fun () ->
+      let span = receipt.Parser.static_delimiter_start.static_equals.span in
+      require_initializer_runtime ledger runtime span;
+      VM.observe_task_static_delimiter runtime receipt |> checked span)
 
 let observe_initializer_preparation ledger ~runtime receipt =
   protect (fun () ->

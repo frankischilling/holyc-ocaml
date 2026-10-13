@@ -386,6 +386,17 @@ let delimiter_token = function
   | Frontend.Parser.Initializer_close _ -> Close
   | Frontend.Parser.Initializer_comma _ -> Comma
 
+let observe_stream_delimiter stream delimiter =
+  let* work, entries =
+    advance_tokens ~shape:stream.stream_shape ~final:false
+      ~expression_of_leaf:Fun.id
+      ~make_entry:(fun _ _ _ _ _ -> ())
+      stream.stream_work
+      [ delimiter_token delimiter ]
+  in
+  if entries <> [] then invalid "delimiter produced a scalar destination"
+  else Ok { stream with stream_work = work }
+
 let prepare_stream_expression stream ~first ~delimiters =
   let* work, entries =
     advance_tokens ~shape:stream.stream_shape ~final:false
@@ -560,7 +571,8 @@ let create ~shape source =
   in
   Ok { source; entries; layout_declaration = None; layout_shape = shape }
 
-let create_static_retained ~allocation ~shape ~cursor source reached =
+let create_static_retained ~allocation ~shape ~cursor ~delimiters source reached
+    =
   let allocation = Sema.Compiler_record.static_allocation_receipt allocation in
   let leaves = Source.leaves source in
   if List.length leaves <> List.length reached then
@@ -625,15 +637,19 @@ let create_static_retained ~allocation ~shape ~cursor source reached =
       | _ -> assert false
     in
     let* entries = join [] leaves reached in
-    let rec suffix last = function
-      | [] -> last
-      | Expression _ :: rest -> suffix rest rest
-      | _ :: rest -> suffix last rest
-    in
     let source_tokens = tokens source in
-    let trailing = suffix source_tokens source_tokens in
-    let* _, _ = advance ~shape ~final:true cursor.stream_work trailing in
-    Ok { source; entries; layout_declaration = None; layout_shape = shape }
+    let source_delimiters =
+      List.filter
+        (function
+          | Expression _ -> false
+          | _ -> true)
+        source_tokens
+    in
+    if source_delimiters <> List.map delimiter_token delimiters then
+      invalid "static completion replaced or omitted original delimiters"
+    else
+      let* _, _ = advance ~shape ~final:true cursor.stream_work [] in
+      Ok { source; entries; layout_declaration = None; layout_shape = shape }
 
 type prepared_leaf = {
   receipt : Frontend.Parser.initializer_leaf_preparation;

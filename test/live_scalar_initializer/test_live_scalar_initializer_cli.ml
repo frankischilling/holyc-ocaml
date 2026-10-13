@@ -122,4 +122,30 @@ let () =
             [ ("jit", "42"); ("aot", "7") ])
         targets)
     examples;
-  Printf.printf "Live scalar initializer CLI values and exact quotas passed\n"
+  let probe = Filename.temp_file "holyc static grammar " ".hc" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove probe)
+    (fun () ->
+      let write source =
+        let channel = open_out_bin probe in
+        Fun.protect
+          ~finally:(fun () -> close_out channel)
+          (fun () -> output_string channel (Cases.headers ^ source))
+      in
+      List.iter
+        (fun target ->
+          write Cases.static_before_nested_brace;
+          success "42" (invoke compiler probe target "jit" [] 0);
+          List.iter
+            (fun (_, source, output) ->
+              write source;
+              let report = invoke compiler probe target "jit" [] 1 in
+              failure "HCRUN0006" report;
+              require
+                (member "output_hex" report
+                = `String (if output = "A" then "41" else ""))
+                "static grammar preserves only reached earlier output")
+            Cases.grammar_faults)
+        targets);
+  Printf.printf
+    "Live scalar initializer CLI values, grammar timing and exact quotas passed\n"

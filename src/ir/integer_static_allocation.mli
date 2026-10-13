@@ -38,6 +38,12 @@ val runtime_dependencies :
 val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list
 val cursor : t -> Integer_initializer_layout.stream
 
+val observe_delimiter :
+  ?activation:Sema.Source_activation.t ->
+  t ->
+  Frontend.Parser.completed_static_initializer_delimiter ->
+  (unit, string) result
+
 val prepare_expression :
   ?activation:Sema.Source_activation.t ->
   t ->

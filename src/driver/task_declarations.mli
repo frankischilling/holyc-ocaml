@@ -272,6 +272,12 @@ val observe_static_expression_preparation :
   Frontend.Parser.static_leaf_preparation ->
   (unit, Common.Diagnostic.t list) result
 
+val observe_static_delimiter :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_static_initializer_delimiter ->
+  (unit, Common.Diagnostic.t list) result
+
 val observe_initializer_preparation :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

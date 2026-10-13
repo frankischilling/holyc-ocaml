@@ -132,6 +132,9 @@ val static_allocation :
 val static_expression_preparation :
   t option -> Frontend.Parser.static_leaf_preparation -> bool
 
+val static_initializer_delimiter :
+  t option -> Frontend.Parser.completed_static_initializer_delimiter -> bool
+
 val static_initializer :
   t option -> Frontend.Parser.static_initializer_preparation -> bool
 

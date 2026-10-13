@@ -229,6 +229,26 @@ I64 F(){static Box object={0x12a#exe{class Item{U16 value;};}};return object.ite
   in
   let initialize request =
     let program = Request.program request in
+    let module Program = Holyc_lib__Ir.Static_initializer_program in
+    let module Destination = Holyc_lib__Ir.Static_initializer_destination in
+    let module Allocation = Holyc_lib__Ir.Integer_static_allocation in
+    let module Fragment = Holyc_lib__Sema.Static_initializer_fragment in
+    let destination = Program.destination program in
+    let allocation = Destination.allocation destination in
+    let preparation = Fragment.receipt (Destination.fragment destination) in
+    let delimiter =
+      preparation.static_expression_preparation
+        .static_expression_delimiter_predecessor |> Option.get
+    in
+    let cursor = Allocation.cursor allocation in
+    reject "static delimiter cannot replay during leaf evaluation"
+      (Allocation.observe_delimiter allocation delimiter);
+    reject "cloned static delimiter cannot change grammar"
+      (Allocation.observe_delimiter allocation
+         (Obj.obj (Obj.dup (Obj.repr delimiter))));
+    Alcotest.(check bool)
+      "rejected delimiter retains the exact cursor" true
+      (Allocation.cursor allocation == cursor);
     List.iter
       (fun status_abi ->
         ignore

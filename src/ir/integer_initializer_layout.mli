@@ -7,6 +7,12 @@ type stream_preparation
 
 val begin_stream : Integer_storage_shape.t -> stream
 
+val observe_stream_delimiter :
+  stream -> Frontend.Parser.initializer_delimiter -> (stream, string) result
+(** Select reached grammar before advancing past the delimiter. Metadata only;
+    original parser receipts and allocation ownership remain the consumer's
+    responsibility. *)
+
 val prepare_stream_expression :
   stream ->
   first:Frontend.Token.t ->
@@ -99,6 +105,7 @@ val create_static_retained :
   allocation:Sema.Compiler_record.static_allocation ->
   shape:Integer_storage_shape.t ->
   cursor:stream ->
+  delimiters:Frontend.Parser.initializer_delimiter list ->
   Sema.Initializer_source.t ->
   (Frontend.Parser.static_initializer_preparation
   * int

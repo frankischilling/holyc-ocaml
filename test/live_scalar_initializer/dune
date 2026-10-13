@@ -15,7 +15,7 @@
 
 (test
  (name test_live_scalar_initializer_cli)
- (modules test_live_scalar_initializer_cli)
+ (modules test_live_scalar_initializer_cli cases)
  (libraries unix yojson)
  (deps
   ../../examples/live-scalar-initializers.hc

@@ -112,8 +112,35 @@ StreamPrint("%%d;",F());
 }|}
     raw
 
+let static_before_nested_brace =
+  {|extern class Item;class Box{Item item;U8 tail;$$=8;};
+I64 Next(){return 42;}
+I64 F(){static Box object={#exe{Print("A");class Item{U16 value;};}{Next()},7};U8 *p=(&object)(U8*);if(p[2]!=7)return -1;return object.item.value;}F();|}
+
+let static_before_nested_brace_task =
+  "#exe{" ^ static_before_nested_brace ^ "StreamPrint(\"%d;\",F());}"
+
+let grammar_faults =
+  [
+    ( "static nested branch is selected before opening-brace lookahead",
+      {|extern class Item;class Box{Item item;$$=8;};I64 F(){static Box object={{#exe{Print("L");class Item{U16 value;};}42}};return object.item.value;}F();|},
+      "" );
+    ( "global nested branch is selected before opening-brace lookahead",
+      {|extern class Item;class Box{Item item;$$=8;};Box object={{#exe{Print("L");class Item{U16 value;};}42}};I64 F(){return object.item.value;}F();|},
+      "" );
+    ( "static grammar failure retains the earlier successful leaf",
+      {|extern class Item;class Box{U16 first;Item item;$$=8;};I64 First(){Print("A");return 7;}I64 F(){static Box object={First(),{#exe{Print("L");class Item{U16 value;};}42}};return object.item.value;}F();|},
+      "A" );
+  ]
+
 let static_jit_values =
   [
+    ( "completion before nested opening brace selects direct members",
+      static_before_nested_brace,
+      "A" );
+    ( "active task retains grammar selected before nested braces",
+      static_before_nested_brace_task,
+      "A" );
     ( "static completion shares the child metadata allowance",
       static_nested_metadata,
       "A" );

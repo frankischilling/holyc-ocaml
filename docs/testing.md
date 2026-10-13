@@ -2321,6 +2321,14 @@ cursor results. Native capture/copy authority rejects foreign programs, images,
 work counts, domains, arenas, replay and missing completion. Public JSON CLI
 checks run the maintained static example with exact and one-below limits.
 
-Isolated incomplete-class preparation, earlier grammar selection
-snapshots, other leaf families and full aggregate parity remain open.
+Static delimiter tests check exact predecessor chains, receipt identity,
+callback expiry and failed-source recovery. IR, native and public JSON CLI cases
+distinguish class completion before a nested opening brace from completion after
+it. The latter rejects before later directive output; prior successful leaf output
+survives. Native checks reject delimiter replay and cloned receipts without
+changing the original cursor. Existing array, string, saved-table and exact quota
+fixtures run through the same delimiter path.
+
+Isolated incomplete-class preparation, earlier array-entry forwarding selections,
+other leaf families and full aggregate parity remain open.
 No TempleOS runtime or emitted-byte capture is included.

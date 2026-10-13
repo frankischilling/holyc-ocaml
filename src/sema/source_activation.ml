@@ -212,6 +212,10 @@ let event_context = function
               .allocation_function
               .function_header
               .declaration_command
+        | Parser.Static_initializer_delimiter_completed p ->
+            p.static_delimiter_start.static_start_allocation.allocation_function
+              .function_header
+              .declaration_command
         | Parser.Static_initializer_preparing p ->
             p.static_allocation.allocation_function.function_header
               .declaration_command
@@ -541,6 +545,12 @@ let static_allocation activation receipt =
 let static_expression_preparation activation receipt =
   allows activation (function
     | Declaration (Parser.Static_initializer_expression_preparing original) ->
+        original == receipt
+    | _ -> false)
+
+let static_initializer_delimiter activation receipt =
+  allows activation (function
+    | Declaration (Parser.Static_initializer_delimiter_completed original) ->
         original == receipt
     | _ -> false)
 

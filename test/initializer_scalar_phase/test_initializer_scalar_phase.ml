@@ -494,6 +494,123 @@ let static_parser_phases () =
         (Parser.static_leaf_preparation_is_current receipt))
     !saved
 
+let static_delimiter_phases () =
+  let session = Session.create () in
+  let saved = ref [] and previous_leaf = ref None and order = ref [] in
+  let append value = order := value :: !order in
+  let declaration = function
+    | Parser.Static_initializer_delimiter_completed receipt ->
+        let previous = List.nth_opt !saved 0 in
+        Alcotest.(check bool)
+          "delimiter callback is current" true
+          (Parser.static_initializer_delimiter_is_current receipt);
+        Alcotest.(check bool)
+          "cloned delimiter has no callback authority" false
+          (Parser.static_initializer_delimiter_is_current
+             (Obj.obj (Obj.dup (Obj.repr receipt))));
+        Alcotest.(check bool)
+          "exact delimiter predecessor" true
+          (Option.equal ( == ) receipt.static_delimiter_predecessor previous);
+        Alcotest.(check bool)
+          "exact successful leaf predecessor" true
+          (Option.equal ( == ) receipt.static_delimiter_leaf_predecessor
+             !previous_leaf);
+        Alcotest.(check int)
+          "monotone delimiter index" (List.length !saved)
+          receipt.static_delimiter_index;
+        append
+          (match receipt.static_delimiter_value with
+          | Parser.Initializer_open _ -> "open"
+          | Initializer_comma _ -> "comma"
+          | Initializer_close _ -> "close");
+        saved := receipt :: !saved;
+        Ok ()
+    | Parser.Static_initializer_expression_preparing receipt ->
+        Alcotest.(check bool)
+          "expression retains the reached delimiter" true
+          (Option.equal ( == ) receipt.static_expression_delimiter_predecessor
+             (List.nth_opt !saved 0));
+        List.iter
+          (fun delimiter ->
+            Alcotest.(check bool)
+              "delimiter expires before expression parsing" false
+              (Parser.static_initializer_delimiter_is_current delimiter))
+          !saved;
+        append ("before " ^ receipt.static_expression_first.raw);
+        Ok ()
+    | Parser.Static_initializer_preparing receipt ->
+        previous_leaf := Some receipt;
+        append "after";
+        Ok ()
+    | _ -> Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = None;
+      call = None;
+      implicit_output = None;
+      query = None;
+      dimension_count = None;
+      reference =
+        Some
+          (fun _ ->
+            append "reference";
+            Ok ());
+      declaration = Some declaration;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let parse path contents =
+    let source = Session.add_source session ~path ~contents in
+    Parser.parse ~commands ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session)
+      ~config:(Preprocessor.Config.create ~compilation_mode:Jit () |> checked)
+      source
+  in
+  let good =
+    parse "static-delimiter-order.hc" "I64 N;I64 F(){static I64 A[2]={N,42};}"
+  in
+  Alcotest.(check bool) "delimiter source parses" false (Parser.has_errors good);
+  Alcotest.(check (list string))
+    "delimiter callbacks precede next expression"
+    [
+      "open";
+      "before N";
+      "reference";
+      "after";
+      "comma";
+      "before 42";
+      "after";
+      "close";
+    ]
+    (List.rev !order);
+  let good_saved = !saved in
+  saved := [];
+  previous_leaf := None;
+  order := [];
+  let bad =
+    parse "static-delimiter-failure.hc" "I64 G(){static I64 B[2]={1,2+;};}"
+  in
+  Alcotest.(check bool)
+    "failed leaf retains its parse error" true (Parser.has_errors bad);
+  List.iter
+    (fun receipt ->
+      Alcotest.(check bool)
+        "failed source leaves no delimiter authority" false
+        (Parser.static_initializer_delimiter_is_current receipt))
+    (good_saved @ !saved);
+  saved := [];
+  previous_leaf := None;
+  order := [];
+  let next =
+    parse "static-delimiter-next.hc" "I64 H(){static I64 C[1]={42};}"
+  in
+  Alcotest.(check bool)
+    "next source parses after failed delimiters" false (Parser.has_errors next)
+
 let () =
   Alcotest.run "Original initializer scalar phases"
     [
@@ -514,5 +631,8 @@ let () =
           Alcotest.test_case
             "static preparation timing, identity and failed-source expiry"
             `Quick static_parser_phases;
+          Alcotest.test_case
+            "static delimiter order, identity and failure expiry" `Quick
+            static_delimiter_phases;
         ] );
     ]

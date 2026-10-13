@@ -81,6 +81,16 @@ let quotas () =
       Cases.static_nested_metadata;
     ]
 
+let grammar_faults () =
+  List.iter
+    (fun (_, source, output) ->
+      let report = run source in
+      failure "HCRUN0006" report;
+      Alcotest.(check string)
+        "grammar is selected before later lexer effects" output
+        (Native.output_bytes report))
+    Cases.grammar_faults
+
 let () =
   Alcotest.run "Native live scalar initializer copies"
     [
@@ -106,6 +116,8 @@ let () =
               faults;
             Alcotest.test_case "actual copy bytes share exact quotas" `Quick
               quotas;
+            Alcotest.test_case "static delimiter grammar and prior effects"
+              `Quick grammar_faults;
             Alcotest.test_case "original native capture and copy authority"
               `Quick (fun () -> Authority.source_copy ());
             Alcotest.test_case "missing copy cannot complete the initializer"

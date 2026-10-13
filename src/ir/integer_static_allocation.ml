@@ -13,6 +13,10 @@ type t = {
     option;
   shape_ : Shape.t;
   mutable cursor_ : Integer_initializer_layout.stream;
+  mutable last_delimiter_ :
+    Parser.completed_static_initializer_delimiter option;
+  mutable delimiters_rev_ : Parser.initializer_delimiter list;
+  mutable delimiters_since_leaf_rev_ : Parser.initializer_delimiter list;
   mutable preparing_ :
     (Parser.static_leaf_preparation
     * Integer_initializer_layout.stream_preparation)
@@ -47,13 +51,48 @@ let offset_dependencies value =
 
 let cursor value = value.cursor_
 
+let previous_leaf value =
+  match List.rev value.executed_ with
+  | [] -> None
+  | (prior, _, _, _, _) :: _ -> Some prior
+
+let observe_delimiter ?activation value receipt =
+  let ( let* ) = Result.bind in
+  if
+    Option.is_some value.preparing_
+    || receipt.Parser.static_delimiter_start.static_start_allocation
+       != Record.static_allocation_receipt value.source_
+    || (not
+          (Option.equal ( == ) receipt.static_delimiter_predecessor
+             value.last_delimiter_))
+    || (not
+          (Option.equal ( == ) receipt.static_delimiter_leaf_predecessor
+             (previous_leaf value)))
+    || receipt.static_delimiter_index
+       <> Option.fold ~none:0
+            ~some:(fun prior -> prior.Parser.static_delimiter_index + 1)
+            value.last_delimiter_
+    || not
+         (Parser.static_initializer_delimiter_is_current receipt
+         || Sema.Source_activation.static_initializer_delimiter activation
+              receipt)
+  then Error "static delimiter is foreign, repeated or out of order"
+  else
+    let* next =
+      Integer_initializer_layout.observe_stream_delimiter value.cursor_
+        receipt.static_delimiter_value
+    in
+    value.cursor_ <- next;
+    value.last_delimiter_ <- Some receipt;
+    value.delimiters_rev_ <-
+      receipt.static_delimiter_value :: value.delimiters_rev_;
+    value.delimiters_since_leaf_rev_ <-
+      receipt.static_delimiter_value :: value.delimiters_since_leaf_rev_;
+    Ok ()
+
 let prepare_expression ?activation value receipt =
   let ( let* ) = Result.bind in
-  let previous =
-    match List.rev value.executed_ with
-    | [] -> None
-    | (prior, _, _, _, _) :: _ -> Some prior
-  in
+  let previous = previous_leaf value in
   let ordered =
     match (receipt.Parser.static_expression_predecessor, previous) with
     | None, None -> receipt.static_expression_index = 0
@@ -65,6 +104,14 @@ let prepare_expression ?activation value receipt =
   if
     Option.is_some value.preparing_
     || (not ordered)
+    || (not
+          (Option.equal ( == ) receipt.static_expression_delimiter_predecessor
+             value.last_delimiter_))
+    || List.length receipt.static_expression_delimiters
+       <> List.length value.delimiters_since_leaf_rev_
+    || (not
+          (List.for_all2 ( == ) receipt.static_expression_delimiters
+             (List.rev value.delimiters_since_leaf_rev_)))
     || receipt.static_expression_start.static_start_allocation
        != Record.static_allocation_receipt value.source_
     || not
@@ -76,8 +123,7 @@ let prepare_expression ?activation value receipt =
   else
     let* selected =
       Integer_initializer_layout.prepare_stream_expression value.cursor_
-        ~first:receipt.static_expression_first
-        ~delimiters:receipt.static_expression_delimiters
+        ~first:receipt.static_expression_first ~delimiters:[]
     in
     value.preparing_ <- Some (receipt, selected);
     Ok ()
@@ -171,6 +217,7 @@ let record_native_leaf ?activation value receipt ~cell_offset ~byte_offset
         value.executed_ @ [ (receipt, cell, bytes, operation, scalar) ];
       value.cursor_ <- next;
       value.preparing_ <- None;
+      value.delimiters_since_leaf_rev_ <- [];
       Ok ())
 
 let check_native_layout value roots =
@@ -215,7 +262,9 @@ let retained_layout value ~shape source =
   then Error "retained static layout has another original allocation shape"
   else
     Integer_initializer_layout.create_static_retained ~allocation:value.source_
-      ~shape ~cursor:value.cursor_ source value.executed_
+      ~shape ~cursor:value.cursor_
+      ~delimiters:(List.rev value.delimiters_rev_)
+      source value.executed_
 
 let owns_table value table =
   Record.static_allocation_owns_table value.source_ table
@@ -314,6 +363,9 @@ let create ?activation ?callback
       callback_;
       shape_;
       cursor_ = Integer_initializer_layout.begin_stream shape_;
+      last_delimiter_ = None;
+      delimiters_rev_ = [];
+      delimiters_since_leaf_rev_ = [];
       preparing_ = None;
       executed_ = [];
     }

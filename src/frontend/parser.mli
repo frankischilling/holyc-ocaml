@@ -700,6 +700,8 @@ type static_leaf_preparation = private {
   static_expression_path : int list;
   static_expression_first : Token.t;
   static_expression_delimiters : initializer_delimiter list;
+  static_expression_delimiter_predecessor :
+    completed_static_initializer_delimiter option;
 }
 
 and static_initializer_preparation = private {
@@ -714,6 +716,14 @@ and static_initializer_preparation = private {
   static_activity : static_initializer_activity;
 }
 
+and completed_static_initializer_delimiter = private {
+  static_delimiter_start : static_initializer_start;
+  static_delimiter_index : int;
+  static_delimiter_predecessor : completed_static_initializer_delimiter option;
+  static_delimiter_leaf_predecessor : static_initializer_preparation option;
+  static_delimiter_value : initializer_delimiter;
+}
+
 type completed_static_initializer = private {
   static_completed_start : static_initializer_start;
   static_preparation : static_initializer_preparation option;
@@ -725,6 +735,12 @@ val static_leaf_preparation_is_current : static_leaf_preparation -> bool
     predecessor, syntax path and delimiters stay attached to the completed leaf.
     It expires before expression completion and grants no execution authority.
 *)
+
+val static_initializer_delimiter_is_current :
+  completed_static_initializer_delimiter -> bool
+(** Original delimiter callback before lexer advancement. It retains both
+    predecessor chains and expires when its callback ends, including on failure.
+    These syntax receipts grant no execution or successful-copy authority. *)
 
 val static_initializer_is_current : static_initializer_preparation -> bool
 
@@ -1102,6 +1118,8 @@ type declaration_event = private
   | Function_position_written of function_position_write
   | Function_local_allocated of function_local_allocation
   | Static_initializer_expression_preparing of static_leaf_preparation
+  | Static_initializer_delimiter_completed of
+      completed_static_initializer_delimiter
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
   | Callback_position_written of callback_position_write

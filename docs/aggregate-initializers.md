@@ -124,14 +124,28 @@ completed static leaf keeps that receipt. Copies use the same cached-class timin
 as global leaves and run once during declaration parsing. Later function calls
 reuse their original static bytes and initialization flags.
 
+Static delimiters also publish an original receipt before lexer advancement.
+The layout consumes each opening brace, comma and closing brace during that
+callback. Both predecessor chains and the original allocation remain attached;
+expression preparation does not replay those delimiters. Completion checks the
+retained delimiter sequence against the completed initializer.
+
+This timing matters for a forward member. If its nested opening brace is already
+reached while the selected class has no direct members, a directive after that
+brace cannot change the selected branch. The hosted path rejects before running
+the directive. Completion reached before the nested brace can supply its member
+grammar. Earlier successful leaves and their output remain observable when a
+later branch fails. The same checks apply during source-task adoption and native
+execution.
+
 The [static live scalar example](../examples/live-static-scalar-initializers.hc)
 calls its function twice after preparation. It prints `A` once and returns 42 in
 JIT or 7 in AOT. The second call sees the first call's mutation; it does not
 repeat the initializer or its class completion. IR and native source tasks retain
 the actual reached leaf destinations when joining the completed frame.
 
-Isolated preparation of incomplete selections, earlier grammar
-selection snapshots and other runtime class changes remain unfinished. Floating,
+Isolated preparation of incomplete selections, earlier forwarding selections
+at array entry and other runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under
