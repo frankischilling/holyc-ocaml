@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+Initializer scalar-phase tests use original parser declarations to check cached
+forward classes, reached widths, late backing and same-name replacements. They
+also check foreign records, domain ownership, repeated settlement and preparation
+before expression references. A failed source expires its preparation before the
+next source is parsed. These are source and metadata checks; dynamic initializer
+copy execution remains unfinished. See [class initializers](aggregate-initializers.md).
+
 Member metadata preparation tests retain original values, duplicate lookup order,
 raw floating bits, joined string bytes, source phases and class replacements.
 Source and native inherited-layout suites cover metadata on class, union,

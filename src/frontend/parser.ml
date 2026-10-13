@@ -854,6 +854,7 @@ let global_publication_is_current publication =
 
 type initializer_phase =
   | Starting_initializer
+  | Preparing_leaf of int
   | Completing_leaf of int
   | Completing_delimiter of int
 
@@ -865,6 +866,7 @@ type initializer_delimiter =
 type initializer_activity = {
   mutable initializer_phase : initializer_phase option;
   mutable initializer_current_start : global_initializer_start option;
+  mutable initializer_current_preparation : initializer_leaf_preparation option;
   mutable initializer_current_leaf : completed_initializer_leaf option;
   mutable initializer_current_delimiter : completed_initializer_delimiter option;
 }
@@ -875,7 +877,18 @@ and global_initializer_start = {
   initializer_activity : initializer_activity;
 }
 
+and initializer_leaf_preparation = {
+  preparation_initializer : global_initializer_start;
+  preparation_index : int;
+  preparation_predecessor : completed_initializer_leaf option;
+  preparation_path : int list;
+  preparation_first : Token.t;
+  preparation_delimiters : initializer_delimiter list;
+  preparation_delimiter_predecessor : completed_initializer_delimiter option;
+}
+
 and completed_initializer_leaf = {
+  leaf_preparation : initializer_leaf_preparation;
   leaf_initializer : global_initializer_start;
   leaf_index : int;
   leaf_predecessor : completed_initializer_leaf option;
@@ -907,6 +920,17 @@ let initializer_leaf_is_current leaf =
        leaf.leaf_initializer.initializer_activity.initializer_current_leaf
   && context_has_focus
        leaf.leaf_initializer.initializer_owner.global_header.declaration_command
+         .command_context
+
+let initializer_leaf_preparation_is_current preparation =
+  preparation.preparation_initializer.initializer_activity.initializer_phase
+  = Some (Preparing_leaf preparation.preparation_index)
+  && Option.fold ~none:false ~some:(( == ) preparation)
+       preparation.preparation_initializer.initializer_activity
+         .initializer_current_preparation
+  && context_has_focus
+       preparation.preparation_initializer.initializer_owner.global_header
+         .declaration_command
          .command_context
 
 let initializer_delimiter_is_current delimiter =
@@ -1597,6 +1621,7 @@ type declaration_event =
   | Switch_completed of completed_switch
   | Global_declared of global_publication
   | Global_initializer_started of global_initializer_start
+  | Global_initializer_leaf_preparing of initializer_leaf_preparation
   | Global_initializer_leaf_completed of completed_initializer_leaf
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
@@ -5692,6 +5717,7 @@ let initializer_failure ?(secondary = []) ?(local_open_braces = 0) cursor
 
 type live_initializer = {
   start : global_initializer_start;
+  mutable preparing_leaf : initializer_leaf_preparation option;
   mutable previous_leaf : completed_initializer_leaf option;
   mutable delimiters_rev : initializer_delimiter list;
   mutable previous_delimiter : completed_initializer_delimiter option;
@@ -5709,6 +5735,8 @@ let publish_initializer_phase cursor at start phase event =
   (match event with
   | Global_initializer_started receipt ->
       activity.initializer_current_start <- Some receipt
+  | Global_initializer_leaf_preparing receipt ->
+      activity.initializer_current_preparation <- Some receipt
   | Global_initializer_leaf_completed receipt ->
       activity.initializer_current_leaf <- Some receipt
   | Global_initializer_delimiter_completed receipt ->
@@ -5718,6 +5746,7 @@ let publish_initializer_phase cursor at start phase event =
     ~finally:(fun () ->
       activity.initializer_phase <- None;
       activity.initializer_current_start <- None;
+      activity.initializer_current_preparation <- None;
       activity.initializer_current_leaf <- None;
       activity.initializer_current_delimiter <- None)
     (fun () -> publish_declaration cursor at event)
@@ -5746,6 +5775,34 @@ let publish_initializer_delimiter cursor at live delimiter_value =
       state.delimiters_rev <- delimiter_value :: state.delimiters_rev)
     live
 
+let publish_initializer_preparation cursor live =
+  Option.iter
+    (fun (state, path_rev) ->
+      if Option.is_some state.preparing_leaf then
+        invalid_arg "initializer leaf preparation is already active";
+      let preparation_index =
+        Option.fold ~none:0
+          ~some:(fun previous -> previous.leaf_index + 1)
+          state.previous_leaf
+      in
+      let first = peek cursor in
+      let preparation =
+        {
+          preparation_initializer = state.start;
+          preparation_index;
+          preparation_predecessor = state.previous_leaf;
+          preparation_path = List.rev path_rev;
+          preparation_first = first.token;
+          preparation_delimiters = List.rev state.delimiters_rev;
+          preparation_delimiter_predecessor = state.previous_delimiter;
+        }
+      in
+      state.preparing_leaf <- Some preparation;
+      publish_initializer_phase cursor first state.start
+        (Preparing_leaf preparation_index)
+        (Global_initializer_leaf_preparing preparation))
+    live
+
 let publish_initializer_leaf cursor live node =
   Option.iter
     (fun (state, path_rev) ->
@@ -5757,6 +5814,7 @@ let publish_initializer_leaf cursor live node =
       let leaf =
         {
           leaf_initializer = state.start;
+          leaf_preparation = Option.get state.preparing_leaf;
           leaf_index;
           leaf_predecessor = state.previous_leaf;
           leaf_path = List.rev path_rev;
@@ -5768,6 +5826,7 @@ let publish_initializer_leaf cursor live node =
       publish_initializer_phase cursor (peek cursor) state.start
         (Completing_leaf leaf_index) (Global_initializer_leaf_completed leaf);
       state.previous_leaf <- Some leaf;
+      state.preparing_leaf <- None;
       state.delimiters_rev <- [])
     live
 
@@ -5845,6 +5904,7 @@ let rec parse_initializer_value ?live ?static_live cursor ~declarator_context
                "expected a static local initializer value, but found %s"
                (token_description item.token))
     | _ -> (
+        publish_initializer_preparation cursor live;
         let expression_context =
           match declarator_context with
           | Global_initializer_declarator -> Global_initializer_expression
@@ -5855,7 +5915,9 @@ let rec parse_initializer_value ?live ?static_live cursor ~declarator_context
           parse_expression cursor ~context:expression_context ~depth:0
             ~minimum_binding_power:0
         with
-        | None -> None
+        | None ->
+            Option.iter (fun (state, _) -> state.preparing_leaf <- None) live;
+            None
         | Some expression ->
             let node = Ast.Scalar_initializer expression.node in
             publish_initializer_leaf cursor live node;
@@ -6104,6 +6166,7 @@ let parse_global_initializer ?publication cursor ~array_dimensions =
                 {
                   initializer_phase = None;
                   initializer_current_start = None;
+                  initializer_current_preparation = None;
                   initializer_current_leaf = None;
                   initializer_current_delimiter = None;
                 };
@@ -6113,6 +6176,7 @@ let parse_global_initializer ?publication cursor ~array_dimensions =
             Starting_initializer (Global_initializer_started start);
           ( {
               start;
+              preparing_leaf = None;
               previous_leaf = None;
               delimiters_rev = [];
               previous_delimiter = None;

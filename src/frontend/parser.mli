@@ -542,7 +542,18 @@ type initializer_delimiter =
   | Initializer_close of Ast.location
   | Initializer_comma of Ast.location
 
-type completed_initializer_leaf = private {
+type initializer_leaf_preparation = private {
+  preparation_initializer : global_initializer_start;
+  preparation_index : int;
+  preparation_predecessor : completed_initializer_leaf option;
+  preparation_path : int list;
+  preparation_first : Token.t;
+  preparation_delimiters : initializer_delimiter list;
+  preparation_delimiter_predecessor : completed_initializer_delimiter option;
+}
+
+and completed_initializer_leaf = private {
+  leaf_preparation : initializer_leaf_preparation;
   leaf_initializer : global_initializer_start;
   leaf_index : int;
   leaf_predecessor : completed_initializer_leaf option;
@@ -569,6 +580,13 @@ val initializer_start_is_current : global_initializer_start -> bool
 val initializer_leaf_is_current : completed_initializer_leaf -> bool
 (** True only during the original synchronous declaration callback. Remembered
     events cannot be observed later, even while their command remains open. *)
+
+val initializer_leaf_preparation_is_current :
+  initializer_leaf_preparation -> bool
+(** Original scalar-branch callback before parsing its expression. It retains
+    the already reached first token and both predecessor chains without adding a
+    lexer read. The completed leaf keeps this exact preparation. These witnesses
+    supply source timing, not a scalar destination or execution authority. *)
 
 val initializer_delimiter_is_current : completed_initializer_delimiter -> bool
 (** Original delimiter callback, before requesting the following token. Both
@@ -1060,6 +1078,7 @@ type declaration_event = private
   | Switch_completed of completed_switch
   | Global_declared of global_publication
   | Global_initializer_started of global_initializer_start
+  | Global_initializer_leaf_preparing of initializer_leaf_preparation
   | Global_initializer_leaf_completed of completed_initializer_leaf
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
@@ -1092,20 +1111,22 @@ type declaration_event = private
           initializer inference.
 
           A global is declared after its dimensions, before its initializer.
-          Initializer start precedes reading the first value. Each leaf retains
-          its original scalar node after expression lookahead and before parent
-          delimiter validation or the next leaf's lexer reads. Adjacent strings
-          remain one expression and one leaf. Paths describe the original syntax
-          tree, not checked destination indices or byte offsets. These callbacks
-          also describe unsupported initializer shapes; they grant no layout or
-          execution authority. Global completion precedes lookahead past its
-          delimiter. A function is provisional before parameter parsing. Header
-          completion follows the first lookahead past ')' or an unterminated
-          variadic marker; body completion follows body parsing and its
-          terminating lookahead, including a native empty body at EOF.
-          Completion records reuse exact source nodes and their declaration
-          witness. Runtime validation, installation and replay admission remain
-          the consumer's work. *)
+          Initializer start precedes reading the first value. Scalar preparation
+          precedes expression parsing and retains its reached first token. Each
+          completed leaf keeps that exact preparation and its original scalar
+          node after expression lookahead and before parent delimiter validation
+          or the next leaf's lexer reads. Adjacent strings remain one expression
+          and one leaf. Paths describe the original syntax tree, not checked
+          destination indices or byte offsets. These callbacks also describe
+          unsupported initializer shapes; they grant no layout or execution
+          authority. Global completion precedes lookahead past its delimiter. A
+          function is provisional before parameter parsing. Header completion
+          follows the first lookahead past ')' or an unterminated variadic
+          marker; body completion follows body parsing and its terminating
+          lookahead, including a native empty body at EOF. Completion records
+          reuse exact source nodes and their declaration witness. Runtime
+          validation, installation and replay admission remain the consumer's
+          work. *)
 
 type source_observation =
   | Command of command_event

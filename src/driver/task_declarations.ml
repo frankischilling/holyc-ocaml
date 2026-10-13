@@ -3144,6 +3144,24 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
           | _ ->
               fail start.initializer_equals.span
                 "initializer start is foreign, repeated or out of order")
+      | Parser.Global_initializer_leaf_preparing preparation -> (
+          let start = preparation.preparation_initializer in
+          let publication = start.initializer_owner in
+          validate_command ledger publication.global_header;
+          match (find ledger publication.global_name).source with
+          | Global
+              {
+                publication = original;
+                completed = None;
+                initializing = Some pending;
+              }
+            when original == publication ->
+              Sema.Initializer_source.observe_parser_preparation pending
+                preparation
+              |> checked start.initializer_equals.span
+          | _ ->
+              fail start.initializer_equals.span
+                "initializer preparation has no active original initializer")
       | Parser.Global_initializer_delimiter_completed delimiter -> (
           let start = delimiter.delimiter_initializer in
           let publication = start.initializer_owner in

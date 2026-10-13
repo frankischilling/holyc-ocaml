@@ -80,8 +80,25 @@ JIT lookahead can complete the selected member through a `#exe` directive before
 its nested braces are consumed. AOT directives use the task's separate JIT table;
 an unrelated task class cannot complete an assembler-selected forward class.
 Attached globals retain the original body-completion receipt before the enclosing
-statement finishes. Incomplete selections and changes during an executing leaf
-still need their own phase support. Floating,
+statement finishes.
+
+Each global scalar expression now has an original preparation receipt before
+expression parsing. It retains the reached first token, syntax path and both
+predecessor chains. The completed leaf keeps that same receipt. Callback
+authority expires before expression completion, including after failed parsing.
+
+Scalar metadata can also retain the class selected before evaluation and settle
+its reached nominal width afterward. Backing is followed at the initial
+selection. Completion of a cached forward class can change its copy width;
+later same-name classes cannot replace it. The cached class also keeps its
+original raw representation when new backing is declared. Integer results remain
+complete register words, including late integer and floating backing.
+Settlement rejects foreign records, another domain and repeated consumption.
+These metadata reads grant no execution or storage authority. Runtime stores
+still need to consume the phases before current-leaf completion can execute.
+
+Incomplete selections and changes during an executing leaf remain unfinished.
+Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under

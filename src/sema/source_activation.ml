@@ -195,6 +195,9 @@ let event_context = function
             p.global_header.declaration_command
         | Parser.Global_initializer_started p ->
             p.initializer_owner.global_header.declaration_command
+        | Parser.Global_initializer_leaf_preparing p ->
+            p.preparation_initializer.initializer_owner.global_header
+              .declaration_command
         | Parser.Global_initializer_leaf_completed p ->
             p.leaf_initializer.initializer_owner.global_header
               .declaration_command
@@ -492,6 +495,12 @@ let initializer_start activation receipt =
 let initializer_leaf activation receipt =
   allows activation (function
     | Declaration (Parser.Global_initializer_leaf_completed original) ->
+        original == receipt
+    | _ -> false)
+
+let initializer_preparation activation receipt =
+  allows activation (function
+    | Declaration (Parser.Global_initializer_leaf_preparing original) ->
         original == receipt
     | _ -> false)
 

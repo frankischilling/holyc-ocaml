@@ -3013,6 +3013,9 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
           publication.global_header.declaration_command
       | Global_initializer_started start ->
           start.initializer_owner.global_header.declaration_command
+      | Global_initializer_leaf_preparing preparation ->
+          preparation.preparation_initializer.initializer_owner.global_header
+            .declaration_command
       | Global_initializer_leaf_completed leaf ->
           leaf.leaf_initializer.initializer_owner.global_header
             .declaration_command

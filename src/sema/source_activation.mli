@@ -115,6 +115,9 @@ val initializer_start :
 val initializer_leaf :
   t option -> Frontend.Parser.completed_initializer_leaf -> bool
 
+val initializer_preparation :
+  t option -> Frontend.Parser.initializer_leaf_preparation -> bool
+
 val initializer_delimiter :
   t option -> Frontend.Parser.completed_initializer_delimiter -> bool
 

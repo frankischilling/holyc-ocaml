@@ -8,7 +8,18 @@ type scalar = {
   callback_source : Frontend.Ast.function_pointer_declarator option;
 }
 
-type t = { read : unit -> (view, string) result }
+type scalar_evaluation = {
+  before : scalar;
+  settle : unit -> (scalar, string) result;
+  domain : Domain.id;
+  mutable finished : bool;
+}
+
+type t = {
+  read : unit -> (view, string) result;
+  capture_scalar : unit -> (scalar_evaluation, string) result;
+}
+
 and element = { type_ : t; dimensions : int64 list }
 and view = Scalar of scalar | Aggregate of element list
 
@@ -27,6 +38,30 @@ let scalar_equal left right =
 let view type_ = type_.read ()
 let ( let* ) = Result.bind
 let invalid message = Error ("HCRUN0006: initializer type " ^ message)
+
+let evaluation before settle =
+  { before; settle; domain = Domain.self (); finished = false }
+
+let fixed_node read =
+  {
+    read;
+    capture_scalar =
+      (fun () ->
+        let* value = read () in
+        match value with
+        | Scalar before -> Ok (evaluation before (fun () -> Ok before))
+        | Aggregate _ -> invalid "requires its original direct member traversal");
+  }
+
+let begin_scalar_evaluation type_ = type_.capture_scalar ()
+let scalar_evaluation_before phase = phase.before
+
+let finish_scalar_evaluation phase =
+  if phase.domain <> Domain.self () || phase.finished then
+    invalid "scalar evaluation is foreign or was already settled"
+  else (
+    phase.finished <- true;
+    phase.settle ())
 
 let scalar ?owner ?value_type ?callback_source ~type_ bytes =
   if bytes < 0L || bytes > Int64.of_int Int.max_int then
@@ -53,7 +88,7 @@ let primitive type_ =
 
 let of_type type_ =
   let* value = primitive type_ in
-  Ok { read = (fun () -> Ok value) }
+  Ok (fixed_node (fun () -> Ok value))
 
 let default_word =
   Type.make_primitive ~form:Type.Internal_storage ~primitive:Primitive_type.I64
@@ -64,32 +99,85 @@ let scalar_value_type (scalar : scalar) =
   if scalar.byte_size = 0 then default_word else scalar.value_type
 
 let callback ?type_ source =
-  {
-    read =
-      (fun () ->
-        let depth = List.length source.Frontend.Ast.indirection_layers in
-        let* expected =
-          Type.make_primitive ~form:Type.Internal_storage
-            ~primitive:Primitive_type.I64 ~pointer_depth:depth
-        in
-        if
-          depth = 0
-          || Option.fold ~none:false
-               ~some:(fun type_ -> not (Type.equal expected type_))
-               type_
-        then invalid "callback storage replaced its original pointer shape"
-        else
-          scalar ~type_:expected ~value_type:default_word
-            ~callback_source:source
-            (Int64.of_int Primitive_type.pointer_byte_size));
-  }
+  fixed_node (fun () ->
+      let depth = List.length source.Frontend.Ast.indirection_layers in
+      let* expected =
+        Type.make_primitive ~form:Type.Internal_storage
+          ~primitive:Primitive_type.I64 ~pointer_depth:depth
+      in
+      if
+        depth = 0
+        || Option.fold ~none:false
+             ~some:(fun type_ -> not (Type.equal expected type_))
+             type_
+      then invalid "callback storage replaced its original pointer shape"
+      else
+        scalar ~type_:expected ~value_type:default_word ~callback_source:source
+          (Int64.of_int Primitive_type.pointer_byte_size))
 
 let of_record ?resolve ~type_ original =
   let resolve =
     Option.value resolve ~default:(Record.aggregate_initializer_record original)
   in
+  let selected_record type_ saved =
+    match (resolve type_, saved) with
+    | Some current, _
+      when Record.aggregate_record_matches ~owner:original ~type_ current ->
+        Ok current
+    | Some _, _ -> invalid "replaced its original class namespace or identity"
+    | None, Some record
+      when Record.aggregate_record_matches ~owner:original ~type_ record ->
+        Ok record
+    | _ -> invalid "has no original class record"
+  in
   let rec node seen type_ saved =
     {
+      capture_scalar =
+        (fun () ->
+          if Type.pointer_depth type_ > 0 then
+            begin_scalar_evaluation (fixed_node (fun () -> primitive type_))
+          else
+            match Type.base type_ with
+            | Type.Primitive _ ->
+                begin_scalar_evaluation (fixed_node (fun () -> primitive type_))
+            | Type.Aggregate symbol -> (
+                if List.exists (( == ) symbol) seen then
+                  invalid "has cyclic class forwarding or members"
+                else
+                  let* record = selected_record type_ saved in
+                  let seen = symbol :: seen in
+                  match Record.aggregate_initializer_backing record with
+                  | Some (Some (backing, saved)) ->
+                      begin_scalar_evaluation
+                        (node seen (Type_reference.resolved_type backing) saved)
+                  | None -> invalid "has no original forwarding selection"
+                  | Some None -> (
+                      if
+                        (not (Record.aggregate_initializer_has_members record))
+                        || Record.aggregate_fields record <> []
+                      then
+                        invalid "requires its original direct member traversal"
+                      else
+                        let* before =
+                          scalar ~owner:symbol ~type_:default_word
+                            (Record.aggregate_initializer_size record)
+                        in
+                        match before with
+                        | Aggregate _ -> assert false
+                        | Scalar before ->
+                            Ok
+                              (evaluation before (fun () ->
+                                   let* current =
+                                     selected_record type_ (Some record)
+                                   in
+                                   let* settled =
+                                     scalar ~owner:symbol ~type_:default_word
+                                       (Record.aggregate_initializer_size
+                                          current)
+                                   in
+                                   match settled with
+                                   | Scalar settled -> Ok settled
+                                   | Aggregate _ -> assert false)))));
       read =
         (fun () ->
           if Type.pointer_depth type_ > 0 then primitive type_
@@ -100,19 +188,7 @@ let of_record ?resolve ~type_ original =
                 if List.exists (( == ) symbol) seen then
                   invalid "has cyclic class forwarding or members"
                 else
-                  let* record =
-                    match (resolve type_, saved) with
-                    | Some current, _
-                      when Record.aggregate_record_matches ~owner:original
-                             ~type_ current -> Ok current
-                    | Some _, _ ->
-                        invalid
-                          "replaced its original class namespace or identity"
-                    | None, Some record
-                      when Record.aggregate_record_matches ~owner:original
-                             ~type_ record -> Ok record
-                    | _ -> invalid "has no original class record"
-                  in
+                  let* record = selected_record type_ saved in
                   let seen = symbol :: seen in
                   if not (Record.aggregate_initializer_is_complete record) then
                     invalid
@@ -171,83 +247,77 @@ let of_members ~headers ~members ~before_item_index ~type_ =
   let module Members = Aggregate_member_index in
   let module Headers = Aggregate_header_resolution in
   let callback_field field =
-    {
-      read =
-        (fun () ->
-          match
-            Option.bind
-              (Members.member_function_pointer field)
-              Function_type_resolution.function_pointer_source
-          with
-          | Some source -> view (callback source)
-          | None -> invalid "callback has no original source header");
-    }
+    fixed_node (fun () ->
+        match
+          Option.bind
+            (Members.member_function_pointer field)
+            Function_type_resolution.function_pointer_source
+        with
+        | Some source -> view (callback source)
+        | None -> invalid "callback has no original source header")
   in
   let rec node seen type_ =
-    {
-      read =
-        (fun () ->
-          if Type.pointer_depth type_ > 0 then primitive type_
-          else
-            match Type.base type_ with
-            | Type.Primitive _ -> primitive type_
-            | Type.Aggregate symbol -> (
-                if List.exists (( == ) symbol) seen then
-                  invalid "has cyclic class forwarding or members"
-                else
-                  match Members.find_aggregate members symbol with
-                  | Some aggregate
-                    when Members.owns_symbol members symbol
-                         && Members.aggregate_symbol aggregate == symbol
-                         && Members.aggregate_item_index aggregate
-                            <= before_item_index -> (
-                      let* header =
-                        match
-                          List.find_opt
-                            (fun header ->
-                              Headers.header_symbol header == symbol
-                              && Headers.header_item_index header
-                                 = Members.aggregate_item_index aggregate)
-                            (Headers.headers headers)
-                        with
-                        | Some header -> Ok header
-                        | None -> invalid "has no exact original class header"
-                      in
-                      let seen = symbol :: seen in
-                      match Headers.header_backing header with
-                      | Some backing ->
-                          view (node seen (Headers.backing_type backing))
-                      | None -> (
-                          match aggregate.Members.direct_members with
-                          | [] ->
-                              scalar ~owner:symbol ~type_:default_word
-                                (Members.aggregate_size aggregate)
-                          | fields ->
-                              Ok
-                                (Aggregate
-                                   (List.map
-                                      (fun field ->
-                                        let layout =
-                                          Members.member_layout field
-                                        in
-                                        {
-                                          type_ =
-                                            (if
-                                               Members
-                                               .member_is_function_pointer field
-                                             then callback_field field
-                                             else
-                                               node seen
-                                                 (Members.member_type field));
-                                          dimensions =
-                                            layout.Aggregate_layout.dimensions;
-                                        })
-                                      fields))))
-                  | _ ->
-                      invalid
-                        "requires the original completed class before its \
-                         consumer"));
-    }
+    fixed_node (fun () ->
+        if Type.pointer_depth type_ > 0 then primitive type_
+        else
+          match Type.base type_ with
+          | Type.Primitive _ -> primitive type_
+          | Type.Aggregate symbol -> (
+              if List.exists (( == ) symbol) seen then
+                invalid "has cyclic class forwarding or members"
+              else
+                match Members.find_aggregate members symbol with
+                | Some aggregate
+                  when Members.owns_symbol members symbol
+                       && Members.aggregate_symbol aggregate == symbol
+                       && Members.aggregate_item_index aggregate
+                          <= before_item_index -> (
+                    let* header =
+                      match
+                        List.find_opt
+                          (fun header ->
+                            Headers.header_symbol header == symbol
+                            && Headers.header_item_index header
+                               = Members.aggregate_item_index aggregate)
+                          (Headers.headers headers)
+                      with
+                      | Some header -> Ok header
+                      | None -> invalid "has no exact original class header"
+                    in
+                    let seen = symbol :: seen in
+                    match Headers.header_backing header with
+                    | Some backing ->
+                        view (node seen (Headers.backing_type backing))
+                    | None -> (
+                        match aggregate.Members.direct_members with
+                        | [] ->
+                            scalar ~owner:symbol ~type_:default_word
+                              (Members.aggregate_size aggregate)
+                        | fields ->
+                            Ok
+                              (Aggregate
+                                 (List.map
+                                    (fun field ->
+                                      let layout =
+                                        Members.member_layout field
+                                      in
+                                      {
+                                        type_ =
+                                          (if
+                                             Members.member_is_function_pointer
+                                               field
+                                           then callback_field field
+                                           else
+                                             node seen
+                                               (Members.member_type field));
+                                        dimensions =
+                                          layout.Aggregate_layout.dimensions;
+                                      })
+                                    fields))))
+                | _ ->
+                    invalid
+                      "requires the original completed class before its \
+                       consumer"))
   in
   let result = node [] type_ in
   let* _ = view result in
