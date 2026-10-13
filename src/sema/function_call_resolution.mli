@@ -153,13 +153,17 @@ val make_argument_expression :
   kind:argument_expression_kind -> origin:Symbol.origin -> argument_expression
 
 val retain_source_expression :
+  ?offset_fragment:Offset_fragment.t ->
+  ?metadata_fragment:Member_metadata_fragment.t ->
+  ?default_fragment:Default_fragment.t ->
   source:Frontend.Ast.expression ->
   argument_expression ->
   (argument_expression, string) result
 (** Retain the original parser occurrence for later checked source consumers.
     Origin, payload, operators and exact ordered child occurrences must match.
     Calls still require their separate checked call receipts. This association
-    grants no execution or layout authority on its own. *)
+    grants no execution or layout authority on its own. Original offset,
+    metadata and default fragments validate their special position nodes. *)
 
 val argument_expression_source :
   argument_expression -> Frontend.Ast.expression option

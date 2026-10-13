@@ -2354,8 +2354,15 @@ member-name observations distinguish completion during dot lookahead from
 completion after the name; unreached fields reject. Out-of-bounds projections
 retain the original byte root and earlier output. Public JSON CLI runs the
 maintained `class-body-member-reads.hc` example through both targets and modes
-with exact/one-below execution limits. Existing local aggregate tests continue
-to reject later, unreachable and same-name replacement layouts.
+with exact/one-below execution limits. Top-level cases execute reads and writes
+before the class body resumes, covering direct and inherited members, union
+aliases, explicit offsets, arrays, name lookahead and same-name replacement.
+The maintained `class-body-top-level-members.hc` example runs in both targets
+and modes with exact/one-below limits. Missing reached fields, later completion
+and original root overflow retain their errors and earlier output. Namespace
+tests reject source visibility from another table or module. Existing local
+aggregate tests continue to reject later and unreachable layouts, and fields
+found only in a replacement class.
 
 Isolated incomplete-class preparation, partial callback calls, other leaf
 families and full aggregate parity remain open.

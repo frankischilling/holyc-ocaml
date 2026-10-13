@@ -413,10 +413,13 @@ let cast_type_reference state = function
 
 let rec expression state (source : Frontend.Ast.expression) =
   let finish state kind =
-    Ok
-      ( state,
-        Sema.Function_call_resolution.make_argument_expression ~kind
-          ~origin:(origin (Frontend.Ast.expression_location source)) )
+    Sema.Function_call_resolution.make_argument_expression ~kind
+      ~origin:(origin (Frontend.Ast.expression_location source))
+    |> Sema.Function_call_resolution.retain_source_expression
+         ?offset_fragment:state.offset_fragment
+         ?metadata_fragment:state.metadata_fragment
+         ?default_fragment:state.default_fragment ~source
+    |> Result.map (fun expression -> (state, expression))
   in
   match source with
   | Frontend.Ast.Integer_literal literal -> (
@@ -649,83 +652,89 @@ and call_expression state source (call : Frontend.Ast.call_expression) =
         (Sema.Function_call_resolution.Unresolved_expression
            Sema.Function_call_resolution.Call_expression)
       ~origin:(origin (Frontend.Ast.expression_location source))
+    |> Sema.Function_call_resolution.retain_source_expression ~source
   in
-  let finish state = Ok (state, result_expression) in
-  match first_identifier call.call_callee with
-  | None -> (
-      match expression state call.call_callee with
-      | Error _ as error -> error
-      | Ok (state, _) -> (
-          match call_arguments state call.call_arguments with
+  match result_expression with
+  | Error _ as error -> error
+  | Ok result_expression -> (
+      let finish state = Ok (state, result_expression) in
+      match first_identifier call.call_callee with
+      | None -> (
+          match expression state call.call_callee with
           | Error _ as error -> error
-          | Ok (state, _) -> finish state))
-  | Some callee_identifier -> (
-      let call_index = state.next_call in
-      let callee_occurrence_index = state.next_occurrence in
-      let callee_binding =
-        if state.occurrence_cursor >= Array.length state.occurrences then None
-        else Some state.occurrences.(state.occurrence_cursor)
-      in
-      match increment "top-level call" state.next_call with
-      | Error _ as error -> error
-      | Ok next_call -> (
-          match expression { state with next_call } call.call_callee with
-          | Error _ as error -> error
-          | Ok (state, callee_expression) -> (
+          | Ok (state, _) -> (
               match call_arguments state call.call_arguments with
               | Error _ as error -> error
-              | Ok (state, arguments) -> (
-                  match callee_binding with
-                  | None -> Error "top-level call has no bound callee"
-                  | Some callee -> (
-                      let callee_form =
-                        match identifier_callee 0 call.call_callee with
-                        | Some (_, form) -> form
-                        | None -> Sema.Function_call_resolution.Member_callee
-                      in
-                      let computed_callee =
-                        match callee_form with
-                        | Sema.Function_call_resolution.Member_callee ->
-                            Some callee_expression
-                        | Sema.Function_call_resolution.Identifier_callee
-                        | Sema.Function_call_resolution
-                          .Dereferenced_identifier_callee
-                            _ -> None
-                      in
-                      let callee_value =
-                        if Option.is_none computed_callee then
-                          Some callee_expression
-                        else None
-                      in
-                      let ( let* ) = Result.bind in
-                      let* original_phase = state.call_phases call in
-                      match
-                        Sema.Function_call_resolution.make_call
-                          ~index:call_index ~callee_occurrence_index
-                          ~callee_name:callee_identifier.spelling
-                          ~callee_origin:(origin callee_identifier.location)
-                          ~callee_form ?computed_callee ?callee_value
-                          ?original_phase
-                          ~origin:(origin call.call_location)
-                          ~syntax:(call_syntax call) arguments
-                      with
-                      | Error _ as error -> error
-                      | Ok source_call -> (
+              | Ok (state, _) -> finish state))
+      | Some callee_identifier -> (
+          let call_index = state.next_call in
+          let callee_occurrence_index = state.next_occurrence in
+          let callee_binding =
+            if state.occurrence_cursor >= Array.length state.occurrences then
+              None
+            else Some state.occurrences.(state.occurrence_cursor)
+          in
+          match increment "top-level call" state.next_call with
+          | Error _ as error -> error
+          | Ok next_call -> (
+              match expression { state with next_call } call.call_callee with
+              | Error _ as error -> error
+              | Ok (state, callee_expression) -> (
+                  match call_arguments state call.call_arguments with
+                  | Error _ as error -> error
+                  | Ok (state, arguments) -> (
+                      match callee_binding with
+                      | None -> Error "top-level call has no bound callee"
+                      | Some callee -> (
+                          let callee_form =
+                            match identifier_callee 0 call.call_callee with
+                            | Some (_, form) -> form
+                            | None ->
+                                Sema.Function_call_resolution.Member_callee
+                          in
+                          let computed_callee =
+                            match callee_form with
+                            | Sema.Function_call_resolution.Member_callee ->
+                                Some callee_expression
+                            | Sema.Function_call_resolution.Identifier_callee
+                            | Sema.Function_call_resolution
+                              .Dereferenced_identifier_callee
+                                _ -> None
+                          in
+                          let callee_value =
+                            if Option.is_none computed_callee then
+                              Some callee_expression
+                            else None
+                          in
+                          let ( let* ) = Result.bind in
+                          let* original_phase = state.call_phases call in
                           match
-                            Sema.Top_level_expression_tree.make_call
-                              ~source:source_call ~callee ~callee_expression
-                              ~result_expression
+                            Sema.Function_call_resolution.make_call
+                              ~index:call_index ~callee_occurrence_index
+                              ~callee_name:callee_identifier.spelling
+                              ~callee_origin:(origin callee_identifier.location)
+                              ~callee_form ?computed_callee ?callee_value
+                              ?original_phase
+                              ~origin:(origin call.call_location)
+                              ~syntax:(call_syntax call) arguments
                           with
-                          | Error error ->
-                              Error
-                                (Sema.Top_level_expression_tree.error_to_string
-                                   error)
-                          | Ok prepared ->
-                              finish
-                                {
-                                  state with
-                                  calls_rev = prepared :: state.calls_rev;
-                                }))))))
+                          | Error _ as error -> error
+                          | Ok source_call -> (
+                              match
+                                Sema.Top_level_expression_tree.make_call
+                                  ~source:source_call ~callee ~callee_expression
+                                  ~result_expression
+                              with
+                              | Error error ->
+                                  Error
+                                    (Sema.Top_level_expression_tree
+                                     .error_to_string error)
+                              | Ok prepared ->
+                                  finish
+                                    {
+                                      state with
+                                      calls_rev = prepared :: state.calls_rev;
+                                    })))))))
 
 and call_arguments state arguments =
   let rec loop index state rev = function

@@ -190,6 +190,20 @@ declaration does not enlarge the earlier `Box` allocation or enter the function'
 member snapshot. The example prints `A` and returns 42 through IR and native
 source execution in both outer modes.
 
+The [top-level member example](../examples/class-body-top-level-members.hc)
+performs those reads and writes during the nested `#exe` block itself. It saves
+the result before the class body resumes, then emits the final statement after
+the class finishes. Top-level expression nodes retain their original AST
+occurrences, including call results before their call records are created.
+Offset, metadata and default fragments retain the original context needed to
+validate special position nodes.
+
+Member-name observations also retain an older class hidden by a new ordinary
+definition with the same spelling. `MemberFind` uses the operand's raw class;
+the operand's original canonical type selects that reached record. Old direct
+and inherited members remain readable. Fields found only in the replacement
+class cannot retarget the earlier object.
+
 The observation follows dot/arrow lookahead and precedes skipping the member
 name, matching `PrsUnaryModifier`'s call to `MemberFind`. A class completion
 reached before the name can supply its members; completion reached after that

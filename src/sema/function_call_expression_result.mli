@@ -156,6 +156,7 @@ val analyze_top_level :
   members:Aggregate_member_index.t ->
   policies:Function_call_conversion_policy.t ->
   identifiers:Top_level_identifier_resolution.t ->
+  ?aggregate_visibility:Function_aggregate_visibility.t ->
   Top_level_expression_tree.t ->
   (top_level_t, error) result
 (** Type scalar roots, aggregate object members, aggregate offset paths, direct

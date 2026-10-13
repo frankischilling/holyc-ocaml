@@ -31,6 +31,9 @@ type t = {
   table : Symbol_table.t;
   parent : Symbol_table.scope;
   functions : function_ list;
+  aggregate_references :
+    (Ast.identifier -> Compiler_record.aggregate_reference_visibility option)
+    option;
 }
 
 let origin = Initializer_source.origin_of_location
@@ -44,6 +47,16 @@ let function_owns (value : function_) ~table ~parent =
   value.table == table && value.parent == parent
 
 let function_table (value : function_) = value.table
+
+let member_reference (value : t) ~source =
+  match source with
+  | Ast.Member_expression member ->
+      Option.bind value.aggregate_references (fun resolve ->
+          Option.bind (resolve member.member_name) (fun proof ->
+              if Compiler_record.aggregate_reference_is_member proof then
+                Some (member.member_name, proof)
+              else None))
+  | _ -> None
 
 let find_function value ~symbol ~item_index =
   List.find_opt
@@ -101,7 +114,14 @@ let create ~table ~declarations ~bodies ?aggregate_references module_ =
     invalid "declarations belong to another table"
   else
     let rec functions reversed = function
-      | [] -> Ok { table; parent; functions = List.rev reversed }
+      | [] ->
+          Ok
+            {
+              table;
+              parent;
+              functions = List.rev reversed;
+              aggregate_references;
+            }
       | (item_index, Ast.Function_definition definition) :: rest -> (
           let entry =
             List.find_opt

@@ -1330,10 +1330,11 @@ let observe_reference ledger selection =
                 | Aggregate { record = Some (Ok record); _ }
                   when Sema.Compiler_record.aggregate_initializer_is_definition
                          record
-                       && Option.fold ~none:false
-                            ~some:(( == ) assigned.publication)
-                            (Collection.current_aggregate_publication
-                               ledger.namespace assigned.publication) ->
+                       && (Parser.selected_member_reference selection
+                          || Option.fold ~none:false
+                               ~some:(( == ) assigned.publication)
+                               (Collection.current_aggregate_publication
+                                  ledger.namespace assigned.publication)) ->
                     record :: records
                 | _ -> records)
               ledger.entries []

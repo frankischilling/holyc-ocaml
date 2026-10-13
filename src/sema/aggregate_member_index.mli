@@ -87,6 +87,17 @@ val lookup_partial :
     placement. *)
 
 val lookup_queried_aggregate : lookup -> Symbol.t
+
+val lookup_reference :
+  t ->
+  identifier:Frontend.Ast.identifier ->
+  visibility:Compiler_record.aggregate_reference_visibility ->
+  aggregate:Symbol.t ->
+  name:string ->
+  (lookup option, error) result
+(** Read reached member metadata from this exact identifier, table and
+    namespace. *)
+
 val lookup_declaring_aggregate : lookup -> Symbol.t
 val lookup_inheritance_depth : lookup -> int
 val lookup_member : lookup -> member

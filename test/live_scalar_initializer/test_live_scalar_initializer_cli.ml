@@ -163,6 +163,7 @@ let () =
                   "backed-forward-initializers.hc";
                   "class-body-initializers.hc";
                   "class-body-member-reads.hc";
+                  "class-body-top-level-members.hc";
                 ])
             [ "jit"; "aot" ];
           write Cases.static_before_nested_brace;

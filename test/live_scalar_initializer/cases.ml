@@ -97,6 +97,24 @@ let named_backed_array =
 
 let backed_values =
   [
+    ( "top-level partial member reads use the reached direct fields",
+      {|#exe{I64 answer;class Item{U8 value;#exe{Print("A");class Box{Item item;};Box object={{42}};answer=object.item.value;}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "top-level partial writes retain inherited and anonymous union fields",
+      {|#exe{I64 answer;class Base{U8 value;};class Item:Base{union{U16 word;U8 bytes[2];};#exe{Print("A");class Box{Item item;};Box object;object.item.value=40;object.item.word=0x12a;answer=object.item.bytes[0]+object.item.value-40;}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "top-level partial arrays retain explicit member offsets",
+      {|#exe{I64 answer;class Item{U8 tag;$$=3;U16 values[2];#exe{Print("A");class Box{Item item;};Box object;object.item.values[1]=40;answer=object.item.values[1]+2;}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "top-level partial reads retain the old class after same-name replacement",
+      {|#exe{I64 answer;class Item{U8 value;#exe{Print("A");class Box{Item item;};Box object={{42}};class Item{U8 replacement;};answer=object.item.value;}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "top-level completed members retain the object's original class",
+      {|#exe{class Item{U8 value;};Item object={42};class Item{U8 replacement;};Print("A");StreamPrint("%d;",object.value);}|},
+      "A" );
+    ( "top-level member lookahead can complete the selected forward",
+      {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object={0,{42,0,0,0,0,0,0,0}};StreamPrint("%d;",object.item.#exe{Print("A");class Item{U8 value;};}value);}|},
+      "A" );
     ( "ordinary backing retains its original named target through body effects",
       {|#exe{U16 class Base{U8 value;};Base class Item{#exe{Print("A");U8 class Base{U8 value;};}U8 value;};class Box{Item item;$$=8;};Box actual={0x12a};I64 F(){U8 *p=(&actual)(U8*);return p[1]+41;}StreamPrint("%d;",F());}|},
       "A" );
@@ -287,14 +305,26 @@ let static_both_values =
 let partial_member_faults =
   [
     ( "unreached partial member cannot borrow later body completion",
-      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{42}};return object.item.later;}}U8 later;};StreamPrint("%d;",F());}|}
-    );
+      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{42}};return object.item.later;}}U8 later;};StreamPrint("%d;",F());}|},
+      "HCSEMA0046" );
     ( "completion after member selection cannot authorize the earlier read",
-      {|#exe{extern class Item;class Box{Item item;$$=8;};Print("A");I64 F(){static Box object;return object.item.value#exe{class Item{U8 value;};};}StreamPrint("%d;",F());}|}
-    );
+      {|#exe{extern class Item;class Box{Item item;$$=8;};Print("A");I64 F(){static Box object;return object.item.value#exe{class Item{U8 value;};};}StreamPrint("%d;",F());}|},
+      "HCSEMA0046" );
     ( "partial member projection retains the original root bounds",
-      {|#exe{class Item{U16 values[2];#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{{40,42}}};return object.item.values[2];}}};StreamPrint("%d;",F());}|}
-    );
+      {|#exe{class Item{U16 values[2];#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{{40,42}}};return object.item.values[2];}}};StreamPrint("%d;",F());}|},
+      "HCIRVM0019" );
+    ( "top-level partial reads cannot borrow an unreached field",
+      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};Box object={{42}};StreamPrint("%d;",object.item.later);}U8 later;};}|},
+      "HCSEMA0046" );
+    ( "top-level completion after member selection cannot authorize the read",
+      {|#exe{extern class Item;class Box{Item item;$$=8;};Box object;Print("A");StreamPrint("%d;",object.item.value#exe{class Item{U8 value;};});}|},
+      "HCSEMA0046" );
+    ( "top-level partial projections retain original root bounds",
+      {|#exe{class Item{U16 values[2];#exe{Print("A");class Box{Item item;};Box object={{{40,42}}};StreamPrint("%d;",object.item.values[2]);}};}|},
+      "HCIRVM0019" );
+    ( "top-level replacement members cannot retarget the original object",
+      {|#exe{class Item{U8 value;};Item object={42};class Item{U8 replacement;};Print("A");StreamPrint("%d;",object.replacement);}|},
+      "HCSEMA0046" );
   ]
 
 let static_faults =

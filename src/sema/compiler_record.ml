@@ -1054,9 +1054,10 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
                       ~some:(( == ) source.aggregate_publication)
                       (Declaration_collection.publication_source_aggregate
                          publication)
-                 && Option.fold ~none:false ~some:(( == ) publication)
-                      (Declaration_collection.current_aggregate_publication
-                         namespace publication) -> (
+                 && (Parser.selected_member_reference reference
+                    || Option.fold ~none:false ~some:(( == ) publication)
+                         (Declaration_collection.current_aggregate_publication
+                            namespace publication)) -> (
               match
                 Declaration_collection.publication_aggregate_identity
                   publication
@@ -1079,8 +1080,10 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
                   Declaration_collection.current_aggregate_publication namespace
                     publication )
               with
-              | Some source, Some symbol, Some current
-                when current == publication
+              | Some source, Some symbol, current
+                when (Parser.selected_member_reference reference
+                     || Option.fold ~none:false ~some:(( == ) publication)
+                          current)
                      && Option.is_none source.aggregate_header.binding
                      && source.aggregate_environment
                         == Parser.selected_environment reference
@@ -1104,6 +1107,9 @@ let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
   && Parser.selected_identifier visibility.reference_source == identifier
   && Symbol_table.owns_symbol table symbol
   && List.exists (( == ) symbol) visibility.reference_completed_symbols
+
+let aggregate_reference_is_member visibility =
+  Parser.selected_member_reference visibility.reference_source
 
 let aggregate_reference_partial ~table ~parent ~identifier ~symbol visibility =
   if

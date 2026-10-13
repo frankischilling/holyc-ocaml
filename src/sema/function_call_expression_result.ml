@@ -3589,9 +3589,26 @@ and type_member table members policies ~before_item_index ~context
         | Type.Primitive _ ->
             invalid_operator "member access base is not an aggregate"
         | Type.Aggregate aggregate_symbol ->
+            let module_reference =
+              match
+                ( state.function_visibility,
+                  state.aggregate_visibility,
+                  Function_call_resolution.argument_expression_source source )
+              with
+              | None, Some visibility, Some source ->
+                  Function_aggregate_visibility.member_reference visibility
+                    ~source
+              | _ -> None
+            in
             let layout_visible =
               match state.function_visibility with
-              | None -> true
+              | None ->
+                  Option.fold ~none:true
+                    ~some:(fun (identifier, visibility) ->
+                      Compiler_record.aggregate_reference_allows ~table
+                        ~parent:(Aggregate_member_index.parent_scope members)
+                        ~identifier ~symbol:aggregate_symbol visibility)
+                    module_reference
               | Some visibility ->
                   Option.fold ~none:false
                     ~some:(fun source ->
@@ -3618,7 +3635,16 @@ and type_member table members policies ~before_item_index ~context
                   |> Result.map_error (fun error ->
                       invalid_input ~origin:member_origin
                         (Aggregate_member_index.error_message error))
-              | _ -> Ok None
+              | _ -> (
+                  match module_reference with
+                  | None -> Ok None
+                  | Some (identifier, visibility) ->
+                      Aggregate_member_index.lookup_reference members
+                        ~identifier ~visibility ~aggregate:aggregate_symbol
+                        ~name:(Function_call_resolution.member_name member)
+                      |> Result.map_error (fun error ->
+                          invalid_input ~origin:member_origin
+                            (Aggregate_member_index.error_message error)))
             in
             Result.bind partial (function
               | Some lookup -> Ok lookup
@@ -5818,7 +5844,8 @@ let function_mode_of_outer_mode = function
   | Outer_environment.Jit -> Function_resolution.Jit
   | Outer_environment.Aot -> Function_resolution.Aot
 
-let analyze_top_level ~table ~members ~policies ~identifiers source =
+let analyze_top_level ~table ~members ~policies ~identifiers
+    ?aggregate_visibility source =
   let module_parent =
     source |> Top_level_expression_tree.source
     |> Top_level_outer_expression_binding.source
@@ -5855,6 +5882,17 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
     Error
       (invalid_top_level_input "aggregate member index describes another module")
   else if
+    Option.fold ~none:false
+      ~some:(fun visibility ->
+        not
+          (Function_aggregate_visibility.owns visibility ~table
+             ~parent:module_parent))
+      aggregate_visibility
+  then
+    Error
+      (invalid_top_level_input
+         "aggregate visibility describes another source namespace")
+  else if
     not (Function_call_conversion_policy.owns_parent policies module_parent)
   then
     Error
@@ -5874,7 +5912,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
            (type_top_level_statement table members policies)
            {
              next_id = 0;
-             aggregate_visibility = None;
+             aggregate_visibility;
              function_visibility = None;
              backing_context = None;
              results_rev = [];

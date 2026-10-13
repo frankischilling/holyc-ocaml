@@ -18,6 +18,14 @@ val create :
 
 val owns : t -> table:Symbol_table.t -> parent:Symbol_table.scope -> bool
 
+val member_reference :
+  t ->
+  source:Frontend.Ast.expression ->
+  (Frontend.Ast.identifier * Compiler_record.aggregate_reference_visibility)
+  option
+(** Resolve the original member-name observation from this source namespace.
+    Copied names and expressions without a member occurrence have no proof. *)
+
 val function_owns :
   function_ -> table:Symbol_table.t -> parent:Symbol_table.scope -> bool
 

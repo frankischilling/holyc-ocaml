@@ -106,10 +106,10 @@ let grammar_faults () =
 let partial_member_faults () =
   List.iter
     (fun mode ->
-      List.iteri
-        (fun index (_, source) ->
+      List.iter
+        (fun (_, source, code) ->
           let report = run mode source in
-          failure (if index < 2 then "HCSEMA0046" else "HCIRVM0019") report;
+          failure code report;
           Alcotest.(check string)
             "earlier output remains" "A"
             (integer_program_report_output_bytes report))

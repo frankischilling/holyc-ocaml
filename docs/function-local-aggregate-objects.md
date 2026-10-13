@@ -87,6 +87,11 @@ projections through their original placement metadata; see
 [class-body member reads](aggregate-initializers.md). Pointer arithmetic and
 index strides retain their separate original layout proofs.
 
+The same member-name snapshots support top-level execution during a class body.
+When a new ordinary definition reuses a spelling, member lookup still follows
+the operand's original class identity. Replacement-only fields cannot enter
+that object's layout.
+
 [Persistent class globals and statics](persistent-aggregates.md) now retain
 original byte roots, including function-local static classes. General object
 copies, extra callback indirection and wider pointer return domains retain

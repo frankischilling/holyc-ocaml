@@ -2202,7 +2202,8 @@ let validate_source_expression ~source ~expression ~calls ?offset_fragment
     ~calls ?offset_fragment ?metadata_fragment ?default_fragment
     ?callee_expressions ?call_expressions ()
 
-let retain_source_expression ~source expression =
+let retain_source_expression ?offset_fragment ?metadata_fragment
+    ?default_fragment ~source expression =
   if
     Option.fold ~none:false
       ~some:(fun owned -> owned != source)
@@ -2211,7 +2212,8 @@ let retain_source_expression ~source expression =
   else
     let expression = { expression with source_expression = Some source } in
     validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
-      ~calls:[] ~source_occurrences:true ()
+      ~calls:[] ?offset_fragment ?metadata_fragment ?default_fragment
+      ~source_occurrences:true ()
     |> Result.map (fun () -> expression)
 
 let validate_initializer_expression ~leaf ~expression ~calls ?callee_expressions

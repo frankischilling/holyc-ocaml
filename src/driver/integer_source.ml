@@ -550,7 +550,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* typed =
-    Typed.analyze_top_level ~table ~members ~policies ~identifiers expressions
+    Typed.analyze_top_level ~table ~members ~policies ~identifiers
+      ~aggregate_visibility expressions
     |> Result.map_error Typed.error_to_string
     |> checked
   in

@@ -419,7 +419,9 @@ val capture_aggregate_reference_visibility :
 (** Record completed class identities and reached ordinary class bodies at a
     live identifier read. Each record must be current in the original table,
     namespace and parser environment. Forward declarations cannot establish
-    completion. Later phases cannot enlarge the saved member snapshots. *)
+    completion. Member-name observations also retain reached original classes
+    hidden by a later same-name definition: the operand's canonical type still
+    selects the old class. Later phases cannot enlarge the saved snapshots. *)
 
 val aggregate_reference_allows :
   table:Symbol_table.t ->
@@ -431,6 +433,8 @@ val aggregate_reference_allows :
 (** True only for this exact original identifier and a class identity captured
     as complete there. Foreign owners and missing identities return [false].
     This is a visibility limit and grants no member layout or storage. *)
+
+val aggregate_reference_is_member : aggregate_reference_visibility -> bool
 
 val aggregate_reference_partial :
   table:Symbol_table.t ->
