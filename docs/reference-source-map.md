@@ -2345,3 +2345,27 @@ lookahead can complete a member through the task table selected by `PrsStreamBlk
 at `Compiler/PrsStmt.HC:805-840`. AOT directives retain their separate JIT table.
 Changes during a leaf, other leaf families and full aggregate parity remain
 open. This evidence includes no TempleOS runtime or emitted-byte capture.
+
+## Reached callback fields
+
+Complete `PrsType` at `Compiler/PrsVar.HC:285-371` retains the anonymous
+`PrsFunJoin` signature while assigning the physical pointer type. Complete
+`PrsVarLst` at lines 408-742 installs that signature with `MLF_FUN` and preserves
+the field's dimensions and placement. Complete `MemberFind` and `MemberAdd` at
+`Compiler/LexLib.HC:67-148` supply direct and inherited lookup on the operand's
+original class. Complete `PrsUnaryModifier` at `Compiler/PrsExp.HC:960-1115`
+selects the reached member after dot/arrow lookahead, retains `fun_ptr` and routes
+the following call to complete `PrsFunCall` at lines 383-592. That consumer
+captures the callee before argument evaluation and uses the selected header's
+defaults, variadic slots and return class.
+
+The hosted implementation retains the checked signature and return reference
+at original member placement. Original member-name observations authorize
+partial or completed lookup; later completion cannot authorize an earlier
+selection. Outer global bases keep their exact source occurrence and nominal
+type. Shared IR/native fixtures and the
+[maintained example](../examples/class-body-callback-fields.hc) exercise both
+modes, callback arrays, defaults, pointer arguments and returns, variadic slots,
+inherited lookup, replacement and argument mutation. Bounds and executable
+ownership guards are hosted policy. No TempleOS runtime or emitted-byte capture
+is included; wider callback and aggregate families remain open.

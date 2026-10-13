@@ -2364,6 +2364,15 @@ tests reject source visibility from another table or module. Existing local
 aggregate tests continue to reject later and unreachable layouts, and fields
 found only in a replacement class.
 
-Isolated incomplete-class preparation, partial callback calls, other leaf
+Partial callback cases cover direct and pointer access, original outer global
+metadata, inherited fields, same-name replacement, member arrays, saved defaults,
+named class pointer parameters, owned data pointer returns and integer variadic
+slots. Argument mutation checks callee capture before evaluation. Negative cases
+check signature mismatch, out-of-bounds indexing, overlapping byte writes,
+unreached fields and completion after the member name. The maintained
+`class-body-callback-fields.hc` example runs through both targets and modes with
+exact and one-below execution limits.
+
+Isolated incomplete-class preparation, other leaf
 families and full aggregate parity remain open.
 No TempleOS runtime or emitted-byte capture is included.

@@ -26,6 +26,14 @@ val member_reference :
 (** Resolve the original member-name observation from this source namespace.
     Copied names and expressions without a member occurrence have no proof. *)
 
+val reference_allows :
+  t ->
+  identifier:Frontend.Ast.identifier ->
+  symbol:Symbol.t ->
+  Compiler_record.aggregate_reference_visibility ->
+  bool
+(** Check the original completed-class observation in this exact namespace. *)
+
 val function_owns :
   function_ -> table:Symbol_table.t -> parent:Symbol_table.scope -> bool
 

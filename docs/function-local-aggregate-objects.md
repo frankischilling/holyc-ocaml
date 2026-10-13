@@ -92,6 +92,13 @@ When a new ordinary definition reuses a spelling, member lookup still follows
 the operand's original class identity. Replacement-only fields cannot enter
 that object's layout.
 
+Reached callback fields also retain the original checked signature and return
+type, separately from pointer-sized physical storage. Functions can call them
+through direct or pointer access before the class body completes, including
+fully indexed member arrays and globals selected from an earlier source task.
+See the [class-body callback example](../examples/class-body-callback-fields.hc).
+Completion after the member name cannot authorize the earlier call.
+
 [Persistent class globals and statics](persistent-aggregates.md) now retain
 original byte roots, including function-local static classes. General object
 copies, extra callback indirection and wider pointer return domains retain

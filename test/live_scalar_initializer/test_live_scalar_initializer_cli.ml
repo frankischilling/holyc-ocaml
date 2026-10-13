@@ -164,6 +164,7 @@ let () =
                   "class-body-initializers.hc";
                   "class-body-member-reads.hc";
                   "class-body-top-level-members.hc";
+                  "class-body-callback-fields.hc";
                 ])
             [ "jit"; "aot" ];
           write Cases.static_before_nested_brace;

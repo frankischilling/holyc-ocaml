@@ -518,11 +518,19 @@ let lookup_partial_record result ~aggregate ~name record =
                (Printf.sprintf "aggregate `%s` has no reached member `%s`"
                   (Symbol.name aggregate) name))
       | Some (_, _, field)
-        when Option.is_some (Compiler_record.aggregate_field_callback field) ->
+        when Option.is_some (Compiler_record.aggregate_field_callback field)
+             && Option.is_none
+                  (Compiler_record.aggregate_field_callback_signature field) ->
           Error
             (invalid_input
                "partial callback member requires its original signature index")
       | Some (declaring_aggregate, inheritance_depth, field) ->
+          let reference, function_pointer =
+            match Compiler_record.aggregate_field_callback_signature field with
+            | None ->
+                (Compiler_record.aggregate_field_type_reference field, None)
+            | Some (reference, pointer) -> (reference, Some pointer)
+          in
           let original = Compiler_record.aggregate_field_name field in
           let origin = Closed_numeric_expression.origin original.location in
           Result.bind
@@ -546,12 +554,11 @@ let lookup_partial_record result ~aggregate ~name record =
                               symbol;
                               declaring_aggregate;
                               member_type =
-                                Compiler_record.aggregate_field_type field;
-                              member_type_reference =
-                                Compiler_record.aggregate_field_type_reference
-                                  field;
-                              is_function_pointer = false;
-                              function_pointer = None;
+                                Type_reference.resolved_type reference;
+                              member_type_reference = reference;
+                              is_function_pointer =
+                                Option.is_some function_pointer;
+                              function_pointer;
                               layout;
                             };
                         })

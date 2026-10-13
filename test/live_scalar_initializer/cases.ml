@@ -97,6 +97,45 @@ let named_backed_array =
 
 let backed_values =
   [
+    ( "callback member lookahead completes the selected forward",
+      {|#exe{extern class Item;I64 F(Item *p){return p->#exe{Print("A");class Item{I64 (*callback)(I64 n);};}callback(40);}I64 Next(I64 n){return n+2;}Item object;object.callback=&Next;StreamPrint("%d;",F(&object));}|},
+      "A" );
+    ( "partial pointer member callbacks keep original storage",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 Read(Item *p){return p->callback(40);}I64 F(){static Box object;object.item.callback=&Next;return Read(&object.item);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback member calls retain the original signature",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback(40);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial global callback fields retain original outer metadata",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};Box object;I64 Next(I64 n){return n+2;}I64 F(){object.item.callback=&Next;return object.item.callback(40);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback calls retain original named parameter types",
+      {|#exe{class Value{I64 value;};class Item{I64 (*callback)(Value *p);#exe{Print("A");class Box{Item item;};I64 Next(Value *p){return p->value+2;}I64 F(){static Value value={40};static Box object;object.item.callback=&Next;return object.item.callback(&value);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback returns retain owned data pointers",
+      {|#exe{class Item{U8 *(*callback)(U8 *p);#exe{Print("A");class Box{Item item;};U8 *Next(U8 *p){return p;}I64 F(){static U8 values[1]={42};static Box object;object.item.callback=&Next;U8 *p=object.item.callback(values);return p[0];}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callbacks retain variadic argument slots",
+      {|#exe{class Item{I64 (*callback)(I64 base,...);#exe{Print("A");class Box{Item item;};I64 Next(I64 base,...){return base+argv[argc-1];}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback(40,2);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback callee is captured before argument mutation",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};Box object;I64 Old(I64 n){return 40+n;}I64 New(I64 n){return 100+n;}I64 Change(){object.item.callback=&New;return 2;}I64 F(){object.item.callback=&Old;return object.item.callback(Change());}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "top-level partial callback calls run before the body resumes",
+      {|#exe{I64 answer;class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};Box object;I64 Next(I64 n){return n+2;}object.item.callback=&Next;answer=object.item.callback(40);}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "partial callback arrays retain original dimensions",
+      {|#exe{class Item{I64 (*callbacks)(I64 n)[2];#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callbacks[1]=&Next;return object.item.callbacks[1](40);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback calls retain saved defaults",
+      {|#exe{class Item{I64 (*callback)(I64 n=40);#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback();}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial inherited callback calls retain the original base",
+      {|#exe{class Base{I64 (*callback)(I64 n);};class Item:Base{#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback(40);}}U8 tail;};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback signatures survive same-name replacement",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};class Item{U8 replacement;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback(40);}}};StreamPrint("%d;",F());}|},
+      "A" );
     ( "top-level partial member reads use the reached direct fields",
       {|#exe{I64 answer;class Item{U8 value;#exe{Print("A");class Box{Item item;};Box object={{42}};answer=object.item.value;}};StreamPrint("%d;",answer);}|},
       "A" );
@@ -304,6 +343,21 @@ let static_both_values =
 
 let partial_member_faults =
   [
+    ( "callback completion after the member name cannot authorize selection",
+      {|#exe{extern class Item;I64 F(Item *p){return p->callback#exe{Print("A");class Item{I64 (*callback)(I64 n);};}(40);}StreamPrint("%d;",42);}|},
+      "HCSEMA0039" );
+    ( "partial callback ownership rejects an overlapping byte write",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;U8 *p=(&object)(U8*);p[3]=p[3];return object.item.callback(40);}}};StreamPrint("%d;",F());}|},
+      "HCIRVM0024" );
+    ( "partial callback calls require their selected signature",
+      {|#exe{class Item{I64 (*callback)();#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback();}}};StreamPrint("%d;",F());}|},
+      "HCIRVM0014" );
+    ( "partial callback arrays retain their original root bounds",
+      {|#exe{class Item{I64 (*callbacks)(I64 n)[2];#exe{Print("A");class Box{Item item;};I64 F(){static Box object;return object.item.callbacks[2](40);}}};StreamPrint("%d;",F());}|},
+      "HCIRVM0019" );
+    ( "partial callback lookup cannot borrow an unreached member",
+      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object;return object.item.callback(40);}}I64 (*callback)(I64 n);};StreamPrint("%d;",F());}|},
+      "HCSEMA0039" );
     ( "unreached partial member cannot borrow later body completion",
       {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{42}};return object.item.later;}}U8 later;};StreamPrint("%d;",F());}|},
       "HCSEMA0046" );

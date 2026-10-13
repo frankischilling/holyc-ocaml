@@ -3227,12 +3227,20 @@ let rec type_expression table members policies ~before_item_index ~context
                      (Function_call_resolution.Indirect_call indirect as call))
                 -> (
                   let selected =
-                    Option.bind state.outer_function (fun function_ ->
-                        Outer_expression_binding.function_occurrences function_
-                        |> List.find_opt (fun selected ->
-                            Outer_expression_binding.occurrence_source selected
-                            == Function_call_resolution.indirect_occurrence
-                                 indirect))
+                    if
+                      Option.is_some
+                        (Function_call_resolution.indirect_member_lookup
+                           indirect)
+                    then None
+                    else
+                      Option.bind state.outer_function (fun function_ ->
+                          Outer_expression_binding.function_occurrences
+                            function_
+                          |> List.find_opt (fun selected ->
+                              Outer_expression_binding.occurrence_source
+                                selected
+                              == Function_call_resolution.indirect_occurrence
+                                   indirect))
                   in
                   match
                     Option.bind selected (fun occurrence ->

@@ -312,6 +312,11 @@ val aggregate_initializer_is_complete : t -> bool
 val aggregate_initializer_is_definition : t -> bool
 val aggregate_field_type : aggregate_field -> Type.t
 val aggregate_field_type_reference : aggregate_field -> Type_reference.t
+
+val aggregate_field_callback_signature :
+  aggregate_field ->
+  (Type_reference.t * Function_type_resolution.function_pointer) option
+
 val aggregate_field_offset : aggregate_field -> int64
 val aggregate_field_placement_size : aggregate_field -> int64
 val aggregate_field_counts : aggregate_field -> int64 list
@@ -452,6 +457,9 @@ val advance_aggregate :
   ?callbacks:
     (Frontend.Ast.function_pointer_declarator ->
     Frontend.Parser.completed_callback_signature option) ->
+  ?callback_types:
+    (Frontend.Ast.function_pointer_declarator ->
+    (Type_reference.t * Function_type_resolution.function_pointer) option) ->
   ?bases:(Frontend.Parser.aggregate_phase -> (inherited_base, string) result) ->
   dimensions:(Frontend.Ast.array_dimension -> declared_dimension option) ->
   aggregate_progress ->

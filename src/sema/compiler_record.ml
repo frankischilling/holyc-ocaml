@@ -122,6 +122,8 @@ type aggregate_field = {
   field_publication : Declaration_collection.publication;
   field_type : Type.t;
   field_type_reference : Type_reference.t;
+  field_callback_signature :
+    (Type_reference.t * Function_type_resolution.function_pointer) option;
   field_offset : int64;
   field_element_size : int64;
   field_count : int64;
@@ -1360,6 +1362,7 @@ let aggregate_initializer_is_definition (record : t) =
 
 let aggregate_field_type field = field.field_type
 let aggregate_field_type_reference field = field.field_type_reference
+let aggregate_field_callback_signature field = field.field_callback_signature
 let aggregate_field_offset field = field.field_offset
 let aggregate_field_placement_size field = field.field_element_size
 let aggregate_field_counts field = field.field_counts
@@ -1469,7 +1472,7 @@ let same_phase left right =
 let advance_aggregate
     ?(members =
       fun _ -> Error "member lacks its original selected class layout")
-    ?(callbacks = fun _ -> None)
+    ?(callbacks = fun _ -> None) ?(callback_types = fun _ -> None)
     ?(bases =
       fun _ -> Error "inherited layout lacks its original selected record")
     ~dimensions progress (phase : Parser.aggregate_phase) =
@@ -1687,6 +1690,55 @@ let advance_aggregate
                   Ok (size, None, type_)
             in
             let checked = List.filter_map dimensions member.member_dimensions in
+            let* field_callback_signature =
+              match Option.bind member.member_callback callback_types with
+              | None -> Ok None
+              | Some (return_type, pointer) as signature ->
+                  let* storage_type =
+                    Function_type_resolution.function_pointer_storage_type
+                      pointer
+                  in
+                  if
+                    (not
+                       (Option.equal ( == )
+                          (Function_type_resolution.function_pointer_source
+                             pointer)
+                          member.member_callback))
+                    || Type_reference.spelling_origin return_type
+                       <> Closed_numeric_expression.origin
+                            (Ast.type_specifier_location member.member_type)
+                    || Type_reference.spelling return_type
+                       <> Ast.type_specifier_spelling member.member_type
+                    || Type_reference.pointer_origins return_type
+                       <> List.map
+                            (fun (layer : Ast.pointer_layer) ->
+                              Closed_numeric_expression.origin layer.location)
+                            member.member_pointers
+                    || (match
+                          Type.base (Type_reference.resolved_type return_type)
+                        with
+                      | Type.Aggregate symbol ->
+                          not (Symbol_table.owns_symbol record.table symbol)
+                      | Type.Primitive _ -> (
+                          match
+                            Source_type_reference.builtin member.member_type
+                              member.member_pointers
+                          with
+                          | Ok expected ->
+                              not
+                                (Type.equal
+                                   (Type_reference.resolved_type expected)
+                                   (Type_reference.resolved_type return_type))
+                          | Error _ -> true))
+                    || not
+                         (Type.equal storage_type
+                            (Type_reference.resolved_type field_type_reference))
+                  then
+                    Error
+                      "callback member substituted its original signature or \
+                       return type"
+                  else Ok signature
+            in
             let* field_count =
               declared_array_size ~table:record.table
                 ~namespace:progress.progress_namespace
@@ -1721,6 +1773,7 @@ let advance_aggregate
                         field_type =
                           Type_reference.resolved_type field_type_reference;
                         field_type_reference;
+                        field_callback_signature;
                         field_offset =
                           (match kind with
                           | Ast.Class_aggregate -> record.byte_size

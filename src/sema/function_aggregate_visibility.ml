@@ -48,6 +48,10 @@ let function_owns (value : function_) ~table ~parent =
 
 let function_table (value : function_) = value.table
 
+let reference_allows (value : t) ~identifier ~symbol proof =
+  Compiler_record.aggregate_reference_allows ~table:value.table
+    ~parent:value.parent ~identifier ~symbol proof
+
 let member_reference (value : t) ~source =
   match source with
   | Ast.Member_expression member ->

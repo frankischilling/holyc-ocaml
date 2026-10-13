@@ -2756,6 +2756,22 @@ let declared_callback_for ledger span =
       in
       (header, pointer))
 
+let aggregate_callback_type ledger source =
+  let span = source.Ast.function_pointer_location.span in
+  Option.map
+    (fun (header, pointer) ->
+      let publication = header.Parser.callback_signature_publication in
+      let return_type =
+        Sema.Source_type_reference.callback_return ~table:ledger.table
+          ~namespace:ledger.namespace
+          ~selected_aggregate:(selected_aggregate_for ledger)
+          ~header publication.callback_return_type_specifier
+          publication.callback_return_pointer_layers
+        |> checked span
+      in
+      (return_type, pointer))
+    (declared_callback_for ledger span (Some source))
+
 let observe ?offset_runtime ?metadata_work_limit ledger event =
   protect (fun () ->
       match event with
@@ -3122,6 +3138,7 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
               Sema.Compiler_record.advance_aggregate
                 ~members:(selected_member_record ledger)
                 ~callbacks:(completed_callback_header ledger)
+                ~callback_types:(aggregate_callback_type ledger)
                 ~bases:(selected_base_record ledger)
                 ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
                 progress phase

@@ -922,3 +922,14 @@ overlapping scalar stores remove pointer ownership. Numeric bytes and word
 class parameters cannot recreate it. Native descriptors retain activation
 identities, and source-task arenas share their persistent field shadows.
 Expired locals fail before their old stack bytes are read.
+
+Reached partial class bodies now supply original callback field signatures to
+the checked function and top-level call paths. Direct and pointer access,
+fully indexed arrays, saved defaults, integer variadic slots, named class pointer
+arguments and supported owned pointer returns use the field's original header.
+Outer globals preserve the selected object's nominal type. Inherited fields and
+same-name replacement preserve the original class. The
+[class-body callback example](../examples/class-body-callback-fields.hc) checks
+callee capture before argument mutation in both IR and native source modes.
+Extra callback indirection, wider return domains and full aggregate parity
+remain open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686).

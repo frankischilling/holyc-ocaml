@@ -211,7 +211,26 @@ selection cannot authorize the earlier read. Missing reached fields still report
 `HCSEMA0046`. Existing root bounds and initialized-byte checks apply to these
 projections.
 
-Isolated preparation of incomplete selections, partial callback calls and other
+Reached callback fields retain their original anonymous signature and return
+type separately from their eight-byte storage type. The same member-name
+observation selects scalar callbacks and fully indexed callback arrays during
+the class body. Direct and pointer access work in functions and at executable
+top level, including globals selected from an earlier source-task fragment.
+Saved defaults, named class pointer arguments, owned data pointer returns and
+integer variadic slots use the existing checked call path. The callee is captured
+before argument effects. Inherited fields and same-name class replacement keep
+the operand's original class and signature.
+
+The [callback-field example](../examples/class-body-callback-fields.hc) calls
+an array element before `Item` completes, changes that element during argument
+evaluation and verifies the captured call still returns 42. A second call sees
+the replacement. Pointer access uses the original saved default. The example
+prints `A` once and returns 42 through IR and native execution in both modes.
+Unreached fields, completion after the member name, invalid array bounds,
+mismatched executable signatures and overlapping byte writes retain their
+errors and earlier output.
+
+Isolated preparation of incomplete selections and other
 runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution

@@ -598,6 +598,8 @@ val bind_indirect_arguments :
     function bodies and executable top-level statements. *)
 
 val resolve_member_callable :
+  ?aggregate_visibility:Function_aggregate_visibility.t ->
+  ?outer:Outer_expression_binding.t ->
   Aggregate_member_index.t ->
   before_item_index:int ->
   argument_expression ->
