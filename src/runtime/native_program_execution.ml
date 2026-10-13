@@ -186,6 +186,8 @@ type scalar_capture =
   | Switch_case_capture of
       Ir.Switch_case_fragment_program.t Ir.Native_scalar_capture.t
   | Offset_capture of Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t
+  | Metadata_capture of
+      Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t
 
 type task_arena = {
   layout_ : Task_storage.task_layout;
@@ -584,6 +586,17 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                 scalar_capture :=
                                   Option.map
                                     (fun value -> Offset_capture value)
+                                    capture;
+                                report
+                            | Some (Image.Member_metadata program) ->
+                                let report, capture =
+                                  execute_retained_budget_scalar_program
+                                    (Option.get retained) task limits consumed
+                                    (Option.get entered, program)
+                                in
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value -> Metadata_capture value)
                                     capture;
                                 report)
                         | None, Some _ ->
@@ -1040,6 +1053,26 @@ let finish_task_offset ?scope arena image =
       let reached = Atomic.get arena.scalar_capture_ in
       match (Image.task_snapshot image, Image.offset image, reached) with
       | Some snapshot, Some _, Some (entered, Offset_capture captured)
+        when (not (Atomic.get arena.arena_revoked_))
+             && entered == image
+             && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
+          Ok captured
+      | _ ->
+          Error
+            "native scalar capture has another original image, kind or arena")
+
+let finish_task_member_metadata ?scope arena image =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let reached = Atomic.get arena.scalar_capture_ in
+      match
+        (Image.task_snapshot image, Image.member_metadata image, reached)
+      with
+      | Some snapshot, Some _, Some (entered, Metadata_capture captured)
         when (not (Atomic.get arena.arena_revoked_))
              && entered == image
              && Task_storage.task_snapshot_matches_layout snapshot arena.layout_

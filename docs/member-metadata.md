@@ -1,5 +1,9 @@
 # Member metadata preparation
 
+[The example](../examples/member-metadata.hc) prints `MM` during declaration
+parsing, generates `42;` and returns 42 through IR and native source tasks in
+both outer modes.
+
 Class and union members retain their original metadata names and prepared values.
 The parser publishes each entry after member placement and before validating the
 member delimiter. Completion checks the same AST nodes in source order. Later
@@ -10,6 +14,25 @@ numeric expressions retain their result word. F64 expressions keep their raw
 bits without an integer conversion. Original `sizeof` reads and captured `$$`
 positions can supply numeric operands. In a union, `$$` reads the original union
 base rather than its largest member extent.
+
+Live integer expressions also execute in original JIT source tasks. This includes
+variable reads and updates, named and callback calls, original `sizeof` reads and
+`$$` values. Calls follow the pinned reverse argument order. Metadata in an
+uncalled function still executes while its class declaration is parsed.
+Lookahead directives run before the expression is evaluated, as in the original
+expression parser. Earlier output survives a later expression or delimiter error.
+
+Each live expression has a separate metadata fragment and source authority. Its
+typed root, original member, snapshot, graph and call context must match. Only
+successful execution can publish the saved word. Foreign runtimes, substituted
+graphs or work counts, repeated completion and expired parser phases fail checks.
+Native execution claims its request once and returns its own scalar capture.
+
+Live preparation and execution share the initializer allowance with other source
+work. IR reserves reached work before entering child source, and recomputes its
+allowance when the caller resumes. Nested child preparation remains charged.
+One-below limits return `HCIRVM0007` with the reached counter, including failures
+after output. Physical graph work can differ between IR and native execution.
 
 The compiler record stores entries in the prepended order used by TempleOS.
 `aggregate_field_metadata_find` returns the first matching entry, so duplicate
@@ -31,8 +54,10 @@ union, inherited, nested, callback, multiple-declarator and function-local
 members, original class replacement, raw floating bits, joined strings, and
 exact and one-below preparation allowances.
 
-Live expressions, data and function addresses still need runtime preparation.
-They report `HCRUN0006`; IR no longer silently skips their effects. Runtime
+Live floating expressions, data and function addresses still need their
+preparation and owned transport. Ordinary AOT and isolated native live metadata
+also remain unfinished; original JIT `#exe` tasks run in either outer mode. These
+boundaries report `HCRUN0006`. Runtime
 compiler reflection through `CHashClass`, `CMemberLst`, `CMemberLstMeta`,
 `HashFind`, `MemberMetaData` and `MemberMetaFind` remains unfinished. The complete
 `Demo/ClassMeta.HC` example depends on those consumers and live addresses. This

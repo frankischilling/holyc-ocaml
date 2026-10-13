@@ -113,7 +113,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
     ?native_dispatch ?native_static_allocation ?native_static_initializer
     ?native_static_copy ?native_default ?native_dimension ?native_switch_case
-    ?native_offset ?native_internal_binding session ~config ~source =
+    ?native_offset ?native_member_metadata ?native_internal_binding session
+    ~config ~source =
   let limits =
     {
       steps = max_steps;
@@ -213,8 +214,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       ?native_dispatch ?native_static_allocation
                       ?native_static_initializer ?native_static_copy
                       ?native_default ?native_dimension ?native_switch_case
-                      ?native_offset ?native_internal_binding session ~source
-                      ~ledger
+                      ?native_offset ?native_member_metadata
+                      ?native_internal_binding session ~source ~ledger
             in
             let* retained =
               create ()
@@ -343,6 +344,15 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       let* () =
                         Task_declarations.defer_source_runtime_offset ledger
                           ~phase:receipt event
+                      in
+                      let* _ = ensure_task receipt.phase_location.span in
+                      Ok true
+                  | true, None, Parser.Aggregate_advanced receipt
+                    when Task_declarations.member_metadata_requires_runtime
+                           receipt ->
+                      let* () =
+                        Task_declarations.defer_source_runtime_member_metadata
+                          ledger ~phase:receipt event
                       in
                       let* _ = ensure_task receipt.phase_location.span in
                       Ok true
@@ -493,14 +503,16 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     ?max_output_bytes ?max_output_work ?native_dispatch
     ?native_static_allocation ?native_static_initializer ?native_static_copy
     ?native_default ?native_dimension ?native_switch_case ?native_offset
-    ?native_internal_binding session ~config ~source ~max_steps =
+    ?native_member_metadata ?native_internal_binding session ~config ~source
+    ~max_steps =
   let compilation =
     compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
       ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
       ?max_output_bytes ?max_output_work ?native_dispatch
       ?native_static_allocation ?native_static_initializer ?native_static_copy
       ?native_default ?native_dimension ?native_switch_case ?native_offset
-      ?native_internal_binding ~max_steps session ~config ~source
+      ?native_member_metadata ?native_internal_binding ~max_steps session
+      ~config ~source
   in
   let span = Integer_source.source_span source in
   let program_ =

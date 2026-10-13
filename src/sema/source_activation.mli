@@ -80,7 +80,11 @@ val switch_case_admission :
 
 val aggregate_offset_phases : t -> Frontend.Parser.aggregate_phase list
 val member_metadata_phases : t -> Frontend.Parser.aggregate_phase list
+val trailing_member_metadata : t -> Frontend.Parser.aggregate_phase option
 val offset_admission : t option -> Frontend.Parser.aggregate_phase -> bool
+
+val member_metadata_admission :
+  t option -> Frontend.Parser.aggregate_phase -> bool
 
 val aggregate_offset_preparing :
   t option -> Frontend.Parser.aggregate_phase -> bool

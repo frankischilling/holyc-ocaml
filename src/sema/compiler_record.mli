@@ -600,6 +600,36 @@ type query_role = Query_source.role =
   | Defined_operand
 
 type query_read
+type runtime_member_metadata
+
+val begin_runtime_member_metadata :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (runtime_member_metadata, string) result
+
+val runtime_member_metadata_is_current : runtime_member_metadata -> bool
+
+val runtime_member_metadata_dimension_dependencies :
+  runtime_member_metadata -> runtime_dimension_proposal list
+
+val runtime_member_metadata_offset_dependencies :
+  runtime_member_metadata -> aggregate_offset list
+
+val finish_runtime_member_metadata :
+  runtime_member_metadata ->
+  value:int64 ->
+  work:int ->
+  (member_metadata, string) result
+
+val member_metadata_positions :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  ((Frontend.Ast.expression * compiler_position) list, string) result
 
 val member_metadata_dependencies :
   table:Symbol_table.t ->

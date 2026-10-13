@@ -3095,7 +3095,8 @@ let rec type_expression table members policies ~before_item_index ~context
               finish ~source_type:rip_address_type Address_value Integer_result
                 state
           | Function_call_resolution.Default_position_expression _
-          | Function_call_resolution.Aggregate_position_expression _ ->
+          | Function_call_resolution.Aggregate_position_expression _
+          | Function_call_resolution.Metadata_position_expression _ ->
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Offset_expression ->
               finish ~source_type:integer_type Object_value Integer_result state
@@ -5753,6 +5754,7 @@ let type_top_level_root table members policies ~before_item_index state source =
           | Top_level_expression_tree.Dimension_fragment _
           | Top_level_expression_tree.Switch_case_fragment _
           | Top_level_expression_tree.Offset_fragment _
+          | Top_level_expression_tree.Member_metadata_fragment _
           | Top_level_expression_tree.Static_initializer_fragment _
           | Top_level_expression_tree.Default_fragment _
           | Top_level_expression_tree.Implicit_output_argument _

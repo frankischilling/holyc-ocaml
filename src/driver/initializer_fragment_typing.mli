@@ -53,6 +53,11 @@ val prepare_offset :
   Sema.Offset_fragment.t ->
   (Sema.Function_call_expression_result.top_level_t, string) result
 
+val prepare_member_metadata :
+  context ->
+  Sema.Member_metadata_fragment.t ->
+  (Sema.Function_call_expression_result.top_level_t, string) result
+
 val prepare_static :
   context ->
   Sema.Static_initializer_fragment.t ->

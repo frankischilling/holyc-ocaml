@@ -709,6 +709,7 @@ val promote_task_source :
 val promote_task_source_activation :
   ?offsets:Sema.Compiler_record.aggregate_offset list ->
   ?member_metadata:Sema.Compiler_record.member_metadata list ->
+  ?pending_runtime_metadata:Frontend.Parser.aggregate_phase ->
   ?pending_runtime_dimension:Frontend.Parser.array_dimension_preparation ->
   ?pending_runtime_offset:Frontend.Parser.aggregate_phase ->
   ?pending_runtime_switch_case:Frontend.Parser.switch_case_preparation ->
@@ -1322,6 +1323,52 @@ val execute_task_offset :
   task_state ->
   offset_attempt ->
   Offset_fragment_program.execution ->
+  (unit, error list) result
+
+type member_metadata_attempt
+
+val check_native_task_member_metadata :
+  task_state ->
+  member_metadata_attempt ->
+  Member_metadata_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_member_metadata :
+  task_state ->
+  member_metadata_attempt ->
+  Member_metadata_fragment_program.t ->
+  (unit, string) result
+
+val record_native_member_metadata_steps :
+  task_state -> member_metadata_attempt -> int -> (unit, string) result
+
+val complete_native_task_member_metadata :
+  task_state ->
+  member_metadata_attempt ->
+  Member_metadata_fragment_program.t ->
+  Member_metadata_fragment_program.t Native_scalar_capture.t ->
+  (unit, string) result
+
+val begin_task_member_metadata :
+  task_state ->
+  Sema.Member_metadata_fragment.authority ->
+  (member_metadata_attempt, string) result
+
+val fail_task_member_metadata :
+  task_state -> member_metadata_attempt -> (unit, string) result
+
+val task_member_metadata :
+  task_state ->
+  Frontend.Parser.aggregate_phase ->
+  Sema.Compiler_record.member_metadata option
+
+val execute_task_member_metadata :
+  ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
+  ?stream_exe_print:stream_exe_print ->
+  task_state ->
+  member_metadata_attempt ->
+  Member_metadata_fragment_program.execution ->
   (unit, error list) result
 
 val begin_task_callback_default :

@@ -188,6 +188,17 @@ val prepare_offset :
   Ir.Offset_fragment_destination.t ->
   (classification * int, Common.Diagnostic.t list) result
 
+val prepare_member_metadata :
+  ?top_callback_calls:Ir.Callback_source.t list ->
+  ?retained_function_source:
+    (Ir.Retained_function.t ->
+    Ir.Integer_interpreter.task_function_source option) ->
+  ?on_progress:(int -> unit) ->
+  max_steps:int ->
+  top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  Ir.Member_metadata_fragment_destination.t ->
+  (classification * int, Common.Diagnostic.t list) result
+
 val prepare_native_static :
   scalar:Sema.Initializer_type.scalar option ->
   fragment:Sema.Static_initializer_fragment.t ->

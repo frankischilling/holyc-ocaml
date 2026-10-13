@@ -1110,6 +1110,22 @@ type runtime_aggregate_offset = {
   runtime_offset_dependencies : aggregate_offset list;
 }
 
+type runtime_member_metadata = {
+  runtime_metadata_progress : aggregate_progress;
+  runtime_metadata_phase : Parser.aggregate_phase;
+  runtime_metadata_table : Symbol_table.t;
+  runtime_metadata_source : Ast.aggregate_member_metadata;
+  mutable runtime_metadata_finished : bool;
+  runtime_metadata_dimensions : runtime_dimension_proposal list;
+  runtime_metadata_offsets : aggregate_offset list;
+}
+
+let runtime_member_metadata_dimension_dependencies value =
+  value.runtime_metadata_dimensions
+
+let runtime_member_metadata_offset_dependencies value =
+  value.runtime_metadata_offsets
+
 let runtime_aggregate_offset_dimension_dependencies preparation =
   preparation.runtime_dimension_dependencies
 
@@ -3032,6 +3048,86 @@ let member_metadata_dependencies ~table ~namespace ~queries progress phase =
     Ok
       ( offset_dimension_dependencies record queries positions,
         offset_input_dependencies record queries positions )
+
+let member_metadata_positions ~table ~namespace progress phase =
+  if not (member_metadata_is_current ~table ~namespace progress phase) then
+    Error "metadata positions require their original unconsumed member phase"
+  else resolve_position_reads progress phase
+
+let begin_runtime_member_metadata ~table ~namespace ~queries progress phase =
+  let* dimensions, offsets =
+    member_metadata_dependencies ~table ~namespace ~queries progress phase
+  in
+  let* record = progress.progress_record in
+  match phase.Parser.phase_step with
+  | Parser.Aggregate_member_metadata_reached original ->
+      let* () =
+        match
+          (record.aggregate_fields, original.metadata.member_metadata_value)
+        with
+        | Some (field :: _), Ast.Member_metadata_expression _
+          when aggregate_field_name field == original.member_name -> Ok ()
+        | _ ->
+            Error
+              "runtime metadata requires its original placed member and \
+               expression"
+      in
+      let* () =
+        if
+          List.for_all
+            (fun query ->
+              query.receipt.query_root.query_command
+              == progress.progress_source.aggregate_header.declaration_command
+              && query.receipt.query_root.query_environment
+                 == progress.progress_source.aggregate_environment)
+            queries
+        then Ok ()
+        else Error "runtime metadata has foreign source query reads"
+      in
+      progress.progress_metadata_attempt <- Some phase;
+      Ok
+        {
+          runtime_metadata_progress = progress;
+          runtime_metadata_phase = phase;
+          runtime_metadata_table = table;
+          runtime_metadata_source = original.metadata;
+          runtime_metadata_finished = false;
+          runtime_metadata_dimensions = dimensions;
+          runtime_metadata_offsets = offsets;
+        }
+  | _ -> assert false
+
+let runtime_member_metadata_is_current value =
+  let progress = value.runtime_metadata_progress in
+  (not value.runtime_metadata_finished)
+  && (not progress.progress_finished)
+  && (not progress.progress_body_finished)
+  && Parser.aggregate_phase_is_current value.runtime_metadata_phase
+  && same_phase progress.progress_phase
+       value.runtime_metadata_phase.phase_predecessor
+  && same_phase progress.progress_metadata_attempt
+       (Some value.runtime_metadata_phase)
+
+let finish_runtime_member_metadata preparation ~value ~work =
+  if (not (runtime_member_metadata_is_current preparation)) || work < 0 then
+    Error
+      "runtime metadata completion is foreign, expired, repeated or has \
+       invalid work"
+  else (
+    preparation.runtime_metadata_finished <- true;
+    let progress = preparation.runtime_metadata_progress in
+    let metadata =
+      {
+        metadata_table = preparation.runtime_metadata_table;
+        metadata_namespace = progress.progress_namespace;
+        metadata_phase = preparation.runtime_metadata_phase;
+        metadata_source = preparation.runtime_metadata_source;
+        metadata_value = Metadata_word value;
+        metadata_work = work;
+      }
+    in
+    progress.progress_metadata <- metadata :: progress.progress_metadata;
+    Ok metadata)
 
 let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
   if not (aggregate_offset_is_current ~table ~namespace progress phase) then

@@ -13,6 +13,7 @@ module Internal_binding = Ir.Internal_binding_fragment_destination
 module Dimension = Ir.Dimension_fragment_destination
 module Switch_case = Ir.Switch_case_fragment_destination
 module Offset = Ir.Offset_fragment_destination
+module Metadata = Ir.Member_metadata_fragment_destination
 module Runtime = Ir.Runtime_call_context
 
 let initializer_value_type declaration =
@@ -92,6 +93,7 @@ type owner =
   | Dimension of Dimension.t
   | Switch_case of Switch_case.t
   | Offset of Offset.t
+  | Member_metadata of Metadata.t
 
 type t = {
   globals_ : Globals.t;
@@ -104,6 +106,7 @@ type t = {
   dimension_items_ : Dimension.t prepared_item list;
   switch_case_items_ : Switch_case.t prepared_item list;
   offset_items_ : Offset.t prepared_item list;
+  metadata_items_ : Metadata.t prepared_item list;
   native_items_ : owner prepared_item list;
   native_evidence_ : native_preparation list;
   static_evidence_ : native_static_preparation list;
@@ -139,9 +142,9 @@ let value_instructions graph =
       | _ -> true)
 
 let prepare_internal ?fragment ?default ?default_execution ?internal_binding
-    ?dimension ?switch_case ?offset ?native_global ?native_static
-    ?(already_prepared = []) ?(statics_prepared = []) ?(function_calls = [])
-    ?(callback_calls = []) ?(top_callback_calls = [])
+    ?dimension ?switch_case ?offset ?member_metadata ?native_global
+    ?native_static ?(already_prepared = []) ?(statics_prepared = [])
+    ?(function_calls = []) ?(callback_calls = []) ?(top_callback_calls = [])
     ?(allow_zero_budget = false) ?(check_only = false)
     ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
     ~max_steps ~span ~globals ~top_calls ~functions () =
@@ -156,78 +159,98 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
     invalid "HCIRVM0001" "max_initializer_steps must be greater than zero"
   else
     let work =
-      match (native_global, native_static) with
-      | Some (fragment, root, destination), None ->
-          [ Native_global (fragment, root, destination) ]
-      | None, Some (fragment, root, destination) ->
-          [ Native_static (fragment, root, destination) ]
-      | Some _, Some _ -> invalid_arg "conflicting native preparation owners"
-      | None, None when Option.is_some switch_case -> (
-          match (fragment, default, internal_binding, dimension, offset) with
-          | None, None, None, None, None ->
-              [ Switch_case (Option.get switch_case) ]
-          | _ -> invalid_arg "conflicting switch case preparation owners")
-      | None, None -> (
-          match offset with
-          | Some destination
-            when Option.is_none internal_binding
-                 && Option.is_none dimension && Option.is_none fragment
-                 && Option.is_none default -> [ Offset destination ]
-          | Some _ -> invalid_arg "conflicting offset preparation owners"
-          | None -> (
-              match (internal_binding, dimension, fragment, default) with
-              | Some destination, None, None, None ->
-                  [ Internal_binding destination ]
-              | Some _, _, _, _ ->
-                  invalid_arg "conflicting internal binding preparation owners"
-              | None, Some destination, None, None -> [ Dimension destination ]
-              | None, Some _, _, _ ->
-                  invalid_arg "conflicting dimension preparation owners"
-              | None, None, Some destination, None -> [ Fragment destination ]
-              | None, None, None, Some destination -> [ Default destination ]
-              | None, None, Some _, Some _ ->
-                  invalid_arg "conflicting fragment preparation owners"
-              | None, None, None, None ->
-                  (Globals.slots globals
-                  |> List.concat_map (fun slot ->
-                      List.map
-                        (fun root -> Global (slot, root))
-                        (Globals.slot_initializers slot
-                        |> List.filter (fun root ->
-                            (not (Globals.slot_root_executed slot root))
-                            && not (List.exists (( == ) root) already_prepared))
-                        )))
-                  @ (Globals.statics globals
-                    |> List.concat_map (fun slot ->
-                        List.map
-                          (fun root -> Static (slot, root))
-                          (Globals.static_initializers slot
-                          |> List.filter (fun root ->
-                              (not (Globals.static_root_executed slot root))
-                              && not
-                                   (List.exists (( == ) root) statics_prepared))
-                          )))
-                  |> List.stable_sort (fun left right ->
-                      let index = function
-                        | Native_static _
-                        | Native_global _
-                        | Fragment _
-                        | Default _
-                        | Internal_binding _
-                        | Dimension _
-                        | Switch_case _
-                        | Offset _ -> 0
-                        | Global (slot, _) ->
-                            Globals.slot_record slot
-                            |> Sema.Global_record_classification
-                               .classified_record_source
-                            |> Sema.Global_resolution.global_record_global
-                            |> Sema.Global_type_resolution.global_item_index
-                        | Static (slot, _) ->
-                            Globals.static_frame slot
-                            |> Sema.Function_frame_layout.function_item_index
-                      in
-                      Int.compare (index left) (index right))))
+      match member_metadata with
+      | Some destination
+        when Option.is_none native_global
+             && Option.is_none native_static
+             && Option.is_none switch_case && Option.is_none offset
+             && Option.is_none fragment && Option.is_none default
+             && Option.is_none internal_binding
+             && Option.is_none dimension -> [ Member_metadata destination ]
+      | Some _ -> invalid_arg "conflicting member metadata preparation owners"
+      | None -> (
+          match (native_global, native_static) with
+          | Some (fragment, root, destination), None ->
+              [ Native_global (fragment, root, destination) ]
+          | None, Some (fragment, root, destination) ->
+              [ Native_static (fragment, root, destination) ]
+          | Some _, Some _ ->
+              invalid_arg "conflicting native preparation owners"
+          | None, None when Option.is_some switch_case -> (
+              match
+                (fragment, default, internal_binding, dimension, offset)
+              with
+              | None, None, None, None, None ->
+                  [ Switch_case (Option.get switch_case) ]
+              | _ -> invalid_arg "conflicting switch case preparation owners")
+          | None, None -> (
+              match offset with
+              | Some destination
+                when Option.is_none internal_binding
+                     && Option.is_none dimension && Option.is_none fragment
+                     && Option.is_none default -> [ Offset destination ]
+              | Some _ -> invalid_arg "conflicting offset preparation owners"
+              | None -> (
+                  match (internal_binding, dimension, fragment, default) with
+                  | Some destination, None, None, None ->
+                      [ Internal_binding destination ]
+                  | Some _, _, _, _ ->
+                      invalid_arg
+                        "conflicting internal binding preparation owners"
+                  | None, Some destination, None, None ->
+                      [ Dimension destination ]
+                  | None, Some _, _, _ ->
+                      invalid_arg "conflicting dimension preparation owners"
+                  | None, None, Some destination, None ->
+                      [ Fragment destination ]
+                  | None, None, None, Some destination ->
+                      [ Default destination ]
+                  | None, None, Some _, Some _ ->
+                      invalid_arg "conflicting fragment preparation owners"
+                  | None, None, None, None ->
+                      (Globals.slots globals
+                      |> List.concat_map (fun slot ->
+                          List.map
+                            (fun root -> Global (slot, root))
+                            (Globals.slot_initializers slot
+                            |> List.filter (fun root ->
+                                (not (Globals.slot_root_executed slot root))
+                                && not
+                                     (List.exists (( == ) root) already_prepared))
+                            )))
+                      @ (Globals.statics globals
+                        |> List.concat_map (fun slot ->
+                            List.map
+                              (fun root -> Static (slot, root))
+                              (Globals.static_initializers slot
+                              |> List.filter (fun root ->
+                                  (not (Globals.static_root_executed slot root))
+                                  && not
+                                       (List.exists (( == ) root)
+                                          statics_prepared)))))
+                      |> List.stable_sort (fun left right ->
+                          let index = function
+                            | Native_static _
+                            | Native_global _
+                            | Fragment _
+                            | Default _
+                            | Internal_binding _
+                            | Dimension _
+                            | Switch_case _
+                            | Member_metadata _
+                            | Offset _ -> 0
+                            | Global (slot, _) ->
+                                Globals.slot_record slot
+                                |> Sema.Global_record_classification
+                                   .classified_record_source
+                                |> Sema.Global_resolution.global_record_global
+                                |> Sema.Global_type_resolution.global_item_index
+                            | Static (slot, _) ->
+                                Globals.static_frame slot
+                                |> Sema.Function_frame_layout
+                                   .function_item_index
+                          in
+                          Int.compare (index left) (index right)))))
     in
     let rec collect total updates reversed work =
       on_progress total;
@@ -256,6 +279,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
               || Option.is_some internal_binding
               || Option.is_some dimension || Option.is_some switch_case
               || Option.is_some offset
+              || Option.is_some member_metadata
               || Option.is_some native_global
               || Option.is_some native_static
             then Ok globals
@@ -287,6 +311,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
               || Option.is_some internal_binding
               || Option.is_some dimension || Option.is_some switch_case
               || Option.is_some offset
+              || Option.is_some member_metadata
               || Option.is_some native_global
               || Option.is_some native_static
             then Ok globals_
@@ -308,6 +333,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Internal_binding _
                 | Dimension _
                 | Switch_case _
+                | Member_metadata _
                 | Offset _ -> None)
               prepared
           in
@@ -332,6 +358,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Internal_binding _
                 | Dimension _
                 | Switch_case _
+                | Member_metadata _
                 | Offset _ -> None)
               prepared
           in
@@ -372,6 +399,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   (fun item ->
                     match item.root_ with
                     | Offset root_ -> Some { item with root_ }
+                    | _ -> None)
+                  prepared;
+              metadata_items_ =
+                List.filter_map
+                  (fun item ->
+                    match item.root_ with
+                    | Member_metadata root_ -> Some { item with root_ }
                     | _ -> None)
                   prepared;
               dimension_items_ =
@@ -419,6 +453,10 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 ( None,
                   Typed.top_level_root_value (Offset.root destination),
                   None )
+            | Member_metadata destination ->
+                ( None,
+                  Typed.top_level_root_value (Metadata.root destination),
+                  None )
             | Dimension destination ->
                 ( None,
                   Typed.top_level_root_value (Dimension.root destination),
@@ -458,7 +496,9 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
           let notes =
             match symbol with
             | None ->
-                if Option.is_some offset then
+                if Option.is_some member_metadata then
+                  [ "member-metadata=runtime-expression" ]
+                else if Option.is_some offset then
                   [ "aggregate-offset=runtime-expression" ]
                 else if Option.is_some internal_binding then
                   [ "internal-binding=runtime-expression" ]
@@ -480,6 +520,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
             | Internal_binding _
             | Dimension _
             | Switch_case _
+            | Member_metadata _
             | Offset _ -> None
             | Fragment destination ->
                 Some (Layout.operation (Destination.layout destination))
@@ -528,6 +569,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                     | Internal_binding _
                     | Dimension _
                     | Switch_case _
+                    | Member_metadata _
                     | Offset _ -> errors
                     | Static _ ->
                         List.map
@@ -576,7 +618,9 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   | [] -> Ok ()
                   | (item : Seq.description) :: rest ->
                       let* () =
-                        if Option.is_some offset || Option.is_some switch_case
+                        if
+                          Option.is_some offset || Option.is_some switch_case
+                          || Option.is_some member_metadata
                         then
                           match item.opcode with
                           | Ir.Opcode.Ic_rip ->
@@ -691,6 +735,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                             ("HCRUN0006: " ^ message);
                         ])
                 | Offset destination -> Ok (Offset.type_ destination, 0L)
+                | Member_metadata destination ->
+                    Ok (Metadata.type_ destination, 0L)
                 | Internal_binding destination ->
                     Ok (Internal_binding.type_ destination, 0L)
                 | Dimension destination -> Ok (Dimension.type_ destination, 0L)
@@ -802,6 +848,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                       | Internal_binding _
                       | Dimension _
                       | Switch_case _
+                      | Member_metadata _
                       | Offset _ -> None
                     in
                     let find source_globals source_functions =
@@ -980,6 +1027,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Internal_binding _
                 | Dimension _
                 | Switch_case _
+                | Member_metadata _
                 | Offset _ -> false
               then
                 invalid ~at ~notes "HCRUN0006"
@@ -1851,6 +1899,20 @@ let prepare_offset ?top_callback_calls ?retained_function_source ?on_progress
       Ok (item.classification_, prepared.steps)
   | _ -> invalid_arg "offset preparation lost its original work item"
 
+let prepare_member_metadata ?top_callback_calls ?retained_function_source
+    ?on_progress ~max_steps ~top_calls destination =
+  let* prepared =
+    prepare_internal ~member_metadata:destination ~allow_zero_budget:true
+      ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
+      ~span:(Metadata.span destination)
+      ~globals:(Metadata.globals destination)
+      ~top_calls ~functions:[] ()
+  in
+  match prepared.metadata_items_ with
+  | [ item ] when item.root_ == destination ->
+      Ok (item.classification_, prepared.steps)
+  | _ -> invalid_arg "member metadata preparation lost its original work item"
+
 let global_human prepared =
   match prepared.items_ with
   | [] -> ""
@@ -1923,6 +1985,7 @@ let human prepared =
                  | Internal_binding _
                  | Dimension _
                  | Switch_case _
+                 | Member_metadata _
                  | Offset _ -> invalid_arg "dimension cannot own copied bytes"
                  | Default destination -> Default.symbol destination
                  | Fragment destination ->

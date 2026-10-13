@@ -135,6 +135,14 @@ val defer_source_runtime_offset :
 (** Record the original pending offset event before JIT activation without
     advancing its layout, evaluating its expression or charging work. *)
 
+val defer_source_runtime_member_metadata :
+  t ->
+  phase:Frontend.Parser.aggregate_phase ->
+  Frontend.Parser.declaration_event ->
+  (unit, Common.Diagnostic.t list) result
+(** Record the original pending offset event before JIT activation without
+    advancing its layout, evaluating its expression or charging work. *)
+
 val finish_runtime_dimension :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
@@ -962,6 +970,7 @@ val source_checked_offset_for :
   (Sema.Compiler_record.aggregate_offset, Common.Diagnostic.t list) result
 
 val offset_requires_runtime : Frontend.Parser.aggregate_phase -> bool
+val member_metadata_requires_runtime : Frontend.Parser.aggregate_phase -> bool
 
 val begin_runtime_offset :
   t ->
@@ -972,7 +981,25 @@ val begin_runtime_offset :
     Common.Diagnostic.t list )
   result
 
+val begin_runtime_member_metadata :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.aggregate_phase ->
+  ( Sema.Member_metadata_fragment.authority
+    * Ir.Integer_interpreter.member_metadata_attempt,
+    Common.Diagnostic.t list )
+  result
+
 val finish_runtime_offset :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  before:int ->
+  succeeded:bool ->
+  Frontend.Parser.aggregate_phase ->
+  (unit, Common.Diagnostic.t list) result
+
+val finish_runtime_member_metadata :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
   before:int ->

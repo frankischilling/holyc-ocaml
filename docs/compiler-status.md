@@ -2,8 +2,10 @@
 
 [Member metadata preparation](member-metadata.md) now retains strings and closed
 numeric words at original member phases in IR and native source tasks. Duplicate
-names resolve to the last source entry. Live expressions and runtime compiler
-reflection remain part of #686.
+names resolve to the last source entry. Live integer metadata now executes calls,
+updates and captured queries in original JIT tasks through IR and native source
+execution. Data/code addresses, live floating expressions, ordinary AOT live
+metadata and runtime compiler reflection remain part of #686.
 
 [Data pointer fields](aggregate-pointer-fields.md) execute through IR, native
 programs and native source tasks in both modes. Separate ownership shadows and

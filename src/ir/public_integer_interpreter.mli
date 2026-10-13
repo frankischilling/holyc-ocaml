@@ -418,6 +418,7 @@ val promote_task_source :
 val promote_task_source_activation :
   ?offsets:Sema.Compiler_record.aggregate_offset list ->
   ?member_metadata:Sema.Compiler_record.member_metadata list ->
+  ?pending_runtime_metadata:Frontend.Parser.aggregate_phase ->
   ?pending_runtime_dimension:Frontend.Parser.array_dimension_preparation ->
   ?pending_runtime_offset:Frontend.Parser.aggregate_phase ->
   ?pending_runtime_switch_case:Frontend.Parser.switch_case_preparation ->

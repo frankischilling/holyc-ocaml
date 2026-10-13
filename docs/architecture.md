@@ -4,6 +4,10 @@ Original member metadata phases retain prepared strings and numeric words in
 `Sema.Compiler_record.aggregate_field`. Completion checks the original source
 chain; task promotion and replay preserve its preparation work. See
 [member metadata](member-metadata.md) for lookup order and remaining consumers.
+Live integer metadata uses its own fragment, typed root and task attempt.
+Completion checks actual execution before attaching the word to the original
+member. Native requests retain their scalar capture; IR charges reached work
+before entering nested source and checks the shared allowance on resumption.
 
 `Sema.Compiler_record` retains original aggregate field types and dimension
 counts from live member phases. Member `sizeof` callbacks follow the exact

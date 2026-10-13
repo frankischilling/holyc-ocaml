@@ -4,7 +4,11 @@ Member metadata preparation tests retain original values, duplicate lookup order
 raw floating bits, joined string bytes, source phases and class replacements.
 Source and native inherited-layout suites cover metadata on class, union,
 callback, nested and local members. Exact and one-below initializer allowances
-check preparation and promotion costs. Live expressions remain explicit errors.
+check preparation and promotion costs. Live integer metadata tests cover calls,
+updates, lookahead, reverse arguments, uncalled function parsing, callback
+selection, preserved output on failure and nested source quotas. The metadata
+authority test checks saved values, foreign owners, graph substitution, work
+counts and replay. Other runtime value families remain explicit errors.
 See [member metadata preparation](member-metadata.md).
 
 The shared aggregate suites exercise [class pointer views](class-pointer-views.md)

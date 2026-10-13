@@ -93,8 +93,43 @@ let metadata_preparation () =
       let source =
         {|I64 N=0;I64 Side(){N++;return 42;}class B{I64 x data Side();};N;|}
       in
-      failure "HCRUN0006" (run mode source))
+      if mode = Preprocessor.Jit then value ~expected:1L (run mode source)
+      else failure "HCRUN0006" (run mode source))
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let runtime_metadata () =
+  failure "HCRUN0006"
+    (run Preprocessor.Jit {|I64 F(){return 42;}class B{I64 x data &F;};42;|});
+  let report = run Preprocessor.Jit Cases.metadata_effects in
+  value report;
+  Alcotest.(check string)
+    "metadata output occurs once per entry" "MM"
+    (integer_program_report_output_bytes report);
+  List.iter
+    (fun (source, code, output) ->
+      let report = run Preprocessor.Jit source in
+      failure code report;
+      Alcotest.(check string)
+        "earlier metadata output survives failure" output
+        (integer_program_report_output_bytes report))
+    Cases.metadata_faults;
+  List.iter
+    (fun source ->
+      let baseline = run Preprocessor.Jit source in
+      value baseline;
+      let work =
+        integer_program_report_preparation_work baseline |> Option.get
+      in
+      value (run ~max_initializer_steps:work Preprocessor.Jit source);
+      let failed =
+        run ~max_initializer_steps:(work - 1) Preprocessor.Jit source
+      in
+      failure "HCIRVM0007" failed;
+      Alcotest.(check (option int))
+        "failed runtime metadata spends only its allowance"
+        (Some (work - 1))
+        (integer_program_report_preparation_work failed))
+    (Cases.metadata_counter :: Cases.metadata_children)
 
 let () =
   Alcotest.run "Original source inherited layout metadata"
@@ -119,6 +154,9 @@ let () =
             Alcotest.test_case "original effects and base attachment order"
               `Quick effects;
             Alcotest.test_case "exact shared budgets" `Quick quotas;
+            Alcotest.test_case
+              "runtime metadata effects, failures and nested quotas" `Quick
+              runtime_metadata;
             Alcotest.test_case
               "metadata preparation quotas and live expression boundary" `Quick
               metadata_preparation;

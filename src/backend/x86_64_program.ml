@@ -83,6 +83,7 @@ type scalar_program =
   | Dimension of Ir.Dimension_fragment_program.t
   | Switch_case of Ir.Switch_case_fragment_program.t
   | Offset of Ir.Offset_fragment_program.t
+  | Member_metadata of Ir.Member_metadata_fragment_program.t
 
 type t = {
   image : Codegen.program_image;
@@ -97,6 +98,7 @@ type t = {
   dimension_ : Ir.Dimension_fragment_program.t option;
   switch_case_ : Ir.Switch_case_fragment_program.t option;
   offset_ : Ir.Offset_fragment_program.t option;
+  member_metadata_ : Ir.Member_metadata_fragment_program.t option;
   internal_binding_ : Ir.Internal_binding_fragment_program.t option;
 }
 
@@ -106,18 +108,21 @@ let internal_binding value = value.internal_binding_
 let dimension value = value.dimension_
 let switch_case value = value.switch_case_
 let offset value = value.offset_
+let member_metadata value = value.member_metadata_
 
 let scalar_program value =
   match
     ( value.internal_binding_,
       value.dimension_,
       value.switch_case_,
-      value.offset_ )
+      value.offset_,
+      value.member_metadata_ )
   with
-  | Some program, None, None, None -> Some (Internal_binding program)
-  | None, Some program, None, None -> Some (Dimension program)
-  | None, None, Some program, None -> Some (Switch_case program)
-  | None, None, None, Some program -> Some (Offset program)
+  | Some program, None, None, None, None -> Some (Internal_binding program)
+  | None, Some program, None, None, None -> Some (Dimension program)
+  | None, None, Some program, None, None -> Some (Switch_case program)
+  | None, None, None, Some program, None -> Some (Offset program)
+  | None, None, None, None, Some program -> Some (Member_metadata program)
   | _ -> None
 
 let data_default value = value.data_default_
@@ -159,6 +164,7 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         dimension_ = None;
         switch_case_ = None;
         offset_ = None;
+        member_metadata_ = None;
         internal_binding_ = None;
       })
 
@@ -185,6 +191,7 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         dimension_ = None;
         switch_case_ = None;
         offset_ = None;
+        member_metadata_ = None;
         internal_binding_ = None;
       })
 
@@ -204,11 +211,12 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ?data_default ?dimension ?switch_case ?offset
-    ?internal_binding ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim
-    ~generation ~source_callback ~runtime_calls ~retained_function_source
-    ~retained_slot_binding ~retained_slot_address_binding
-    ~retained_slot_address_refresh ~retained_parameter_default
-    ~retained_callback_default ~initialization ~entry ~functions () =
+    ?member_metadata ?internal_binding ~max_ir_instructions ~max_code_bytes
+    ~layout ~check ~claim ~generation ~source_callback ~runtime_calls
+    ~retained_function_source ~retained_slot_binding
+    ~retained_slot_address_binding ~retained_slot_address_refresh
+    ~retained_parameter_default ~retained_callback_default ~initialization
+    ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -257,6 +265,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         dimension_ = dimension;
         switch_case_ = switch_case;
         offset_ = offset;
+        member_metadata_ = member_metadata;
         internal_binding_ = internal_binding;
         data_default_misc_ =
           Option.is_some data_default
@@ -436,6 +445,27 @@ let compile_task_offset ?status_abi ?max_stack_bytes ?max_blocks
   let program = Request.program request in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks ~offset:program
     ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_member_metadata ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_member_metadata in
+  let module Program = Ir.Member_metadata_fragment_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~member_metadata:program ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~generation:(fun () -> Request.generation request)

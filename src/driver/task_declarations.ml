@@ -338,6 +338,7 @@ type t = {
   mutable source_events_rev : Parser.command_event list;
   mutable activation_events_rev : Sema.Source_activation.event list;
   mutable pending_runtime_offset : Parser.aggregate_phase option;
+  mutable pending_runtime_metadata : Parser.aggregate_phase option;
   mutable activation : Sema.Source_activation.t option;
   switch_budget : Switch.budget;
   switch_tracker : Switch.tracker;
@@ -349,6 +350,8 @@ type t = {
   mutable offsets_rev : Sema.Compiler_record.aggregate_offset list;
   mutable member_metadata_rev : Sema.Compiler_record.member_metadata list;
   mutable runtime_offset_completions :
+    (Parser.aggregate_phase * int * bool ref) list;
+  mutable runtime_metadata_completions :
     (Parser.aggregate_phase * int * bool ref) list;
   mutable source_dimensions_rev :
     Sema.Compiler_record.dimension_preparation list;
@@ -496,6 +499,7 @@ let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
                   source_events_rev = [];
                   activation_events_rev = [];
                   pending_runtime_offset = None;
+                  pending_runtime_metadata = None;
                   runtime_switch_cases = [];
                   activation = None;
                   switch_budget;
@@ -507,6 +511,7 @@ let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
                   offsets_rev = [];
                   member_metadata_rev = [];
                   runtime_offset_completions = [];
+                  runtime_metadata_completions = [];
                   source_dimensions_rev = [];
                   runtime_entries = Entries.create 32;
                   runtime_records = Entries.create 32;
@@ -619,6 +624,7 @@ let promote_source_with_activation ~activate ledger ~runtime session ~source =
                    in
                    VM.promote_task_source_activation ?pending_runtime_dimension
                      ?pending_runtime_offset:ledger.pending_runtime_offset
+                     ?pending_runtime_metadata:ledger.pending_runtime_metadata
                      ?pending_runtime_switch_case
                      ~offsets:(List.rev ledger.offsets_rev)
                      ~member_metadata:(List.rev ledger.member_metadata_rev)
@@ -2431,6 +2437,15 @@ let offset_requires_runtime (phase : Parser.aggregate_phase) =
       Sema.Initializer_source.expression_identifier_nodes expression <> []
   | _ -> false
 
+let member_metadata_requires_runtime (phase : Parser.aggregate_phase) =
+  match phase.phase_step with
+  | Parser.Aggregate_member_metadata_reached original -> (
+      match original.metadata.member_metadata_value with
+      | Ast.Member_metadata_expression expression ->
+          Sema.Initializer_source.expression_identifier_nodes expression <> []
+      | _ -> false)
+  | _ -> false
+
 let dimension_requires_runtime
     (preparation : Parser.array_dimension_preparation) =
   Option.fold ~none:false
@@ -2952,6 +2967,12 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
           if Option.is_some offset_runtime then
             fail phase.phase_location.span
               "runtime offset cannot borrow isolated authority";
+          validate_command ledger phase.phase_aggregate.aggregate_header
+      | Parser.Aggregate_advanced phase
+        when (match ledger.authority with
+               | Task_runtime _ -> true
+               | _ -> false)
+             && member_metadata_requires_runtime phase ->
           validate_command ledger phase.phase_aggregate.aggregate_header
       | Parser.Aggregate_advanced phase -> (
           let publication = phase.phase_aggregate in
@@ -3903,6 +3924,42 @@ let defer_source_runtime_offset ledger ~phase event =
           record_activation_event ledger
             (Sema.Source_activation.Declaration event)
       | _ -> fail span "deferred offset requires its exact original phase event")
+
+let defer_source_runtime_member_metadata ledger ~phase event =
+  protect (fun () ->
+      let span = phase.Parser.phase_location.span in
+      match event with
+      | Parser.Aggregate_advanced original when original == phase ->
+          let context =
+            phase.phase_aggregate.aggregate_header.declaration_command
+              .command_context
+          in
+          if
+            (match ledger.authority with
+              | Source_compilation _ -> false
+              | _ -> true)
+            || (not (member_metadata_requires_runtime phase))
+            || Parser.context_mode context <> Frontend.Preprocessor.Jit
+            || Option.is_some (Parser.context_parent context)
+            || not (Parser.aggregate_phase_is_current phase)
+          then
+            fail span
+              "deferred member metadata requires its original live JIT callback";
+          validate_command ledger phase.phase_aggregate.aggregate_header;
+          (match (find ledger phase.phase_aggregate.aggregate_name).source with
+          | Aggregate { publication; progress = Some _; _ }
+            when publication == phase.phase_aggregate -> ()
+          | _ ->
+              fail span
+                "deferred member metadata lacks its original aggregate progress");
+          if Option.is_some ledger.pending_runtime_metadata then
+            fail span "source member metadata was already deferred";
+          ledger.pending_runtime_metadata <- Some phase;
+          record_activation_event ledger
+            (Sema.Source_activation.Declaration event)
+      | _ ->
+          fail span
+            "deferred member metadata requires its exact original phase event")
 
 let admit_global ledger ~runtime (publication : Parser.global_publication) =
   protect (fun () ->
@@ -5457,6 +5514,95 @@ let finish_runtime_offset ledger ~runtime ~before ~succeeded phase =
               Some (Sema.Compiler_record.aggregate_metadata progress)
         | _ -> assert false))
 
+let runtime_member_metadata_progress ledger ~runtime phase =
+  let span = phase.Parser.phase_location.span in
+  require_initializer_runtime ledger runtime span;
+  if not (Parser.aggregate_phase_is_current phase) then
+    fail span "runtime member metadata is outside its original callback";
+  validate_command ledger phase.phase_aggregate.aggregate_header;
+  match (find ledger phase.phase_aggregate.aggregate_name).source with
+  | Aggregate { publication; progress = Some progress; _ }
+    when publication == phase.phase_aggregate -> progress
+  | _ -> fail span "runtime member metadata has no original aggregate progress"
+
+let begin_runtime_member_metadata ledger ~runtime ~task_view phase =
+  protect (fun () ->
+      let span = phase.Parser.phase_location.span in
+      let progress = runtime_member_metadata_progress ledger ~runtime phase in
+      if not (VM.task_owns_snapshot runtime task_view) then
+        fail span "runtime member metadata has another task snapshot";
+      let expression =
+        match phase.phase_step with
+        | Parser.Aggregate_member_metadata_reached original -> (
+            match original.metadata.member_metadata_value with
+            | Ast.Member_metadata_expression expression -> expression
+            | _ -> fail span "runtime metadata requires an expression")
+        | _ -> fail span "runtime member metadata requires an offset expression"
+      in
+      let environment, references, queries =
+        selected_fragment_transcript ledger ~task_view ~span expression
+      in
+      let fragment =
+        Sema.Member_metadata_fragment.create ~table:ledger.table
+          ~namespace:ledger.namespace ~progress ~receipt:phase ~environment
+          ~references ~queries
+        |> checked span
+      in
+      let authority =
+        Sema.Member_metadata_fragment.authorize fragment |> checked span
+      in
+      let attempt =
+        VM.begin_task_member_metadata runtime authority |> checked span
+      in
+      ledger.runtime_metadata_completions <-
+        (phase, VM.task_initializer_steps runtime, ref false)
+        :: ledger.runtime_metadata_completions;
+      (authority, attempt))
+
+let finish_runtime_member_metadata ledger ~runtime ~before ~succeeded phase =
+  protect (fun () ->
+      let span = phase.Parser.phase_location.span in
+      let progress = runtime_member_metadata_progress ledger ~runtime phase in
+      let consumed =
+        match
+          List.find_opt
+            (fun (original, _, _) -> original == phase)
+            ledger.runtime_metadata_completions
+        with
+        | Some (_, original_before, consumed)
+          when original_before = before && not !consumed -> consumed
+        | _ ->
+            fail span
+              "runtime member metadata completion is foreign, repeated or \
+               unprepared"
+      in
+      consumed := true;
+      let work = VM.task_initializer_steps runtime - before in
+      if work < 0 then fail span "runtime member metadata work moved backward";
+      ledger.offset_work <- ledger.offset_work + work;
+      if succeeded then (
+        let offset =
+          match VM.task_member_metadata runtime phase with
+          | Some offset
+            when Sema.Compiler_record.member_metadata_work offset = work ->
+              offset
+          | _ ->
+              fail span
+                "runtime member metadata has no original successful typed \
+                 execution"
+        in
+        ledger.member_metadata_rev <- offset :: ledger.member_metadata_rev;
+        Sema.Compiler_record.advance_aggregate
+          ~callbacks:(completed_callback_header ledger)
+          ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
+          progress phase
+        |> checked span;
+        match (find ledger phase.phase_aggregate.aggregate_name).source with
+        | Aggregate state ->
+            state.record <-
+              Some (Sema.Compiler_record.aggregate_metadata progress)
+        | _ -> assert false))
+
 let begin_runtime_internal_binding ledger ~runtime ~task_view receipt =
   protect (fun () ->
       let span = receipt.Parser.binding_ast.location.span in
@@ -6590,6 +6736,13 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
                     fail phase.phase_location.span
                       "deferred source offset expired";
                   ledger.pending_runtime_offset <- None
+              | Parser.Aggregate_advanced phase
+                when Option.fold ~none:false ~some:(( == ) phase)
+                       ledger.pending_runtime_metadata ->
+                  if not (Parser.aggregate_phase_is_current phase) then
+                    fail phase.phase_location.span
+                      "deferred member metadata expired";
+                  ledger.pending_runtime_metadata <- None
               | Parser.Aggregate_advanced
                   ({ phase_step = Parser.Aggregate_offset_reached _; _ } as
                    phase) -> (

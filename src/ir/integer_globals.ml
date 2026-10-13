@@ -80,6 +80,7 @@ type fragment_kind =
   | Dimension_context
   | Switch_case_context
   | Offset_context
+  | Member_metadata_context
   | Static_allocation_context of Integer_static_allocation.t
   | Static_initializer_context of Sema.Static_initializer_fragment.t
 
@@ -237,6 +238,30 @@ let offset_context view fragment =
       }
 
 let is_offset_fragment globals = globals.fragment_kind_ = Some Offset_context
+
+let member_metadata_context view fragment =
+  if view.environment != Sema.Member_metadata_fragment.environment fragment then
+    Error "member metadata fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Member_metadata_context;
+        source_callback_defaults = [];
+        source_defaults = [];
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let is_member_metadata_fragment globals =
+  globals.fragment_kind_ = Some Member_metadata_context
 
 let is_initializer_fragment globals =
   globals.fragment_kind_ = Some Initializer_context
@@ -1259,6 +1284,10 @@ let check_internal_binding_source ?require_admitted catalog receipt =
 
 let check_offset_source catalog receipt =
   Sema.Task_command_order.check_offset catalog.source_order
+    ~admitted:catalog.admitted_commands receipt
+
+let check_member_metadata_source catalog receipt =
+  Sema.Task_command_order.check_member_metadata catalog.source_order
     ~admitted:catalog.admitted_commands receipt
 
 let with_source_command ?(aggregate_imports = []) view ~ast command =

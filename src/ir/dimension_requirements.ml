@@ -26,6 +26,9 @@ let direct_expression value =
       (Resolution.Aggregate_position_expression position) ->
       Sema.Offset_fragment.position_runtime_dependencies position
   | Resolution.Unresolved_expression
+      (Resolution.Metadata_position_expression position) ->
+      Sema.Member_metadata_fragment.position_runtime_dependencies position
+  | Resolution.Unresolved_expression
       (Resolution.Default_position_expression position) ->
       Sema.Default_fragment.position_runtime_dependencies position
   | _ -> query_expression value

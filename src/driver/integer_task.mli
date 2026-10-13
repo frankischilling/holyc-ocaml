@@ -591,6 +591,76 @@ module Native_offset : sig
   val record_steps : request -> int -> (unit, string) result
 end
 
+module Native_member_metadata : sig
+  type request
+
+  type t =
+    request ->
+    ( Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  val program : request -> Ir.Member_metadata_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val initializer_remaining : request -> int
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+  (** Inspect original saved objects only while offered. Entry claims once in
+      the originating domain; native work can be recorded once after entry. The
+      request expires when its synchronous source callback returns. *)
+
+  val record_steps : request -> int -> (unit, string) result
+end
+
 module Native_static_copy : sig
   type request
   type t = request -> (unit, Common.Diagnostic.t list) result
@@ -663,6 +733,7 @@ val create :
   ?native_dimension:Native_dimension.t ->
   ?native_switch_case:Native_switch_case.t ->
   ?native_offset:Native_offset.t ->
+  ?native_member_metadata:Native_member_metadata.t ->
   ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
   (t, string) result
@@ -761,6 +832,7 @@ val adopt_source :
   ?native_dimension:Native_dimension.t ->
   ?native_switch_case:Native_switch_case.t ->
   ?native_offset:Native_offset.t ->
+  ?native_member_metadata:Native_member_metadata.t ->
   ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
   source:Common.Source_file.t ->
@@ -790,6 +862,7 @@ val adopt_source_for_activation :
   ?native_dimension:Native_dimension.t ->
   ?native_switch_case:Native_switch_case.t ->
   ?native_offset:Native_offset.t ->
+  ?native_member_metadata:Native_member_metadata.t ->
   ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
   source:Common.Source_file.t ->

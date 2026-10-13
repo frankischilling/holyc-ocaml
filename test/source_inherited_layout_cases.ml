@@ -87,6 +87,54 @@ let jit_values =
       {|I64 N=7;class B{$$=++N;I64 x data $$;};sizeof(B)+N+18;|} );
     ( "metadata retains executed dimension query dependencies",
       {|I64 N=1;class B{U8 x[++N] data sizeof(B);};sizeof(B)+N+38;|} );
+    ( "live metadata evaluates once per source entry",
+      {|I64 N=0;I64 Next(){return ++N;}class B{I64 x data Next() data Next();I64 y data Next();};N+39;|}
+    );
+    ( "live metadata variable updates preserve source order",
+      {|I64 N=0;class B{I64 x a N++ b ++N;};N+40;|} );
+    ( "live metadata uses placed size and compiler position",
+      {|I64 N=0;I64 Save(I64 value){N=value;return value;}class B{U8 x data Save($$+sizeof(B));};N+40;|}
+    );
+    ( "live metadata runs during uncalled function parsing",
+      {|I64 N=0;I64 Next(){return ++N;}U0 Never(){class B{I64 x data Next();};}N+41;|}
+    );
+    ( "live metadata calls retained callbacks",
+      {|I64 N=0;I64 Next(){return ++N;}I64 (*Cb)();Cb=&Next;class B{I64 x data Cb();};N+41;|}
+    );
+    ( "metadata lookahead precedes saved runtime evaluation",
+      {|I64 N=1;I64 Next(){return ++N;}class B{I64 x data Next() #exe{N=40;};};N+1;|}
+    );
+    ( "metadata arguments use original reverse source order",
+      {|I64 N=0;I64 Pair(I64 a,I64 b){N=a*10+b;return N;}class B{I64 x data Pair(++N,++N);};N+21;|}
+    );
+    ( "metadata source input can execute nested child input",
+      {|#exe {I64 N=0;I64 Next(){StreamExePrint("N=41;");return ++N;}class B{I64 x data Next();};StreamPrint("%d;",N);}|}
+    );
+    ( "metadata child retains its own closed metadata work",
+      {|#exe {I64 Next(){StreamExePrint("class C{I64 x data 40+2;};");return 42;}class B{I64 x data Next();};StreamPrint("42;");}|}
+    );
+  ]
+
+let metadata_effects =
+  {|I64 Next(){Print("M");return 42;}class B{I64 x a Next() b Next();};42;|}
+
+let metadata_faults =
+  [
+    ( {|I64 Z=0;I64 Bad(){Print("A");return 1/Z;}class B{I64 x data Bad();};Print("B");42;|},
+      "HCIRVM0009",
+      "A" );
+    ( {|I64 Next(){Print("A");return 42;}class B{I64 x data Next() 9;};42;|},
+      "HCPARSE0114",
+      "A" );
+  ]
+
+let metadata_counter =
+  {|I64 N=0;I64 Side(){N++;return 42;}class B{I64 x data Side();};N+41;|}
+
+let metadata_children =
+  [
+    {|#exe {I64 N=0;I64 Next(){StreamExePrint("N=41;");return ++N;}class B{I64 x data Next();};StreamPrint("%d;",N);}|};
+    {|#exe {I64 Next(){StreamExePrint("class C{I64 x data 40+2;};");return 42;}class B{I64 x data Next();};StreamPrint("42;");}|};
   ]
 
 let effects =

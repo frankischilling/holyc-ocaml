@@ -522,6 +522,17 @@ type offset_attempt = {
   mutable offset_native_work : int option;
 }
 
+type member_metadata_attempt = {
+  metadata_catalog : Integer_globals.task_catalog;
+  metadata_authority : Sema.Member_metadata_fragment.authority;
+  metadata_receipt : Frontend.Parser.aggregate_phase;
+  metadata_preparation_before : int;
+  mutable metadata_state : initializer_attempt_state;
+  mutable metadata_result : Sema.Compiler_record.member_metadata option;
+  mutable metadata_native_program : Member_metadata_fragment_program.t option;
+  mutable metadata_native_work : int option;
+}
+
 type task_input = {
   input_context : Frontend.Parser.command_context;
   input_streams : task_stream list;
@@ -532,6 +543,7 @@ type task_input = {
   input_dimensions : dimension_attempt list;
   input_switch_cases : switch_case_attempt list;
   input_offsets : offset_attempt list;
+  input_metadata : member_metadata_attempt list;
   input_defaults : default_attempt list;
   input_default_constants : default_constant list;
   input_initializers : task_initializer list;
@@ -664,6 +676,7 @@ and child_work = {
   work_dimensions : dimension_attempt list;
   work_switch_cases : switch_case_attempt list;
   work_offsets : offset_attempt list;
+  work_metadata : member_metadata_attempt list;
   work_defaults : default_attempt list;
   work_default_constants : default_constant list;
   work_initializers : task_initializer list;
@@ -689,6 +702,7 @@ and task_state = {
   mutable dimensions : dimension_attempt list;
   mutable switch_cases : switch_case_attempt list;
   mutable runtime_offsets : offset_attempt list;
+  mutable runtime_metadata : member_metadata_attempt list;
   mutable defaults : default_attempt list;
   mutable default_constants : default_constant list;
   mutable saved_data_values :
@@ -703,6 +717,7 @@ and task_state = {
   mutable deferred_metadata : Sema.Compiler_record.member_metadata list;
   mutable charged_metadata : Sema.Compiler_record.member_metadata list;
   mutable attempted_offsets : Frontend.Parser.aggregate_phase list;
+  mutable attempted_metadata : Frontend.Parser.aggregate_phase list;
   mutable source_execution_failed : bool;
   mutable source_result : (Frontend.Parser.completed_sequence * t) option;
   catalog : Integer_globals.task_catalog;
@@ -873,6 +888,7 @@ let make_task_state ~resources ~native_storage_authority ~table =
     dimensions = [];
     switch_cases = [];
     runtime_offsets = [];
+    runtime_metadata = [];
     initializers = [];
     declared_admissions = [];
     source_promotion_open = true;
@@ -883,6 +899,7 @@ let make_task_state ~resources ~native_storage_authority ~table =
     deferred_metadata = [];
     charged_metadata = [];
     attempted_offsets = [];
+    attempted_metadata = [];
     seen_dimensions = [];
     closed_dimensions = [];
     completed_dimensions = [];
@@ -1186,6 +1203,7 @@ let child_work task =
     work_dimensions = task.dimensions;
     work_switch_cases = task.switch_cases;
     work_offsets = task.runtime_offsets;
+    work_metadata = task.runtime_metadata;
     work_defaults = task.defaults;
     work_default_constants = task.default_constants;
     work_initializers = task.initializers;
@@ -1588,6 +1606,14 @@ let input_has_active_work task =
                  attempt))
        task.runtime_offsets
   || List.exists
+       (fun attempt ->
+         active attempt.metadata_state
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_metadata)
+                 attempt))
+       task.runtime_metadata
+  || List.exists
        (fun state ->
          Option.fold ~none:false
            ~some:(fun attempt -> active attempt.attempt_state)
@@ -1633,6 +1659,10 @@ let completed_input task input =
        (fun attempt ->
          attempt.offset_state = Successful_initializer
          || child_work_is_excluded task (fun work -> work.work_offsets) attempt)
+  && input_prefix_complete input.input_metadata task.runtime_metadata
+       (fun attempt ->
+         attempt.metadata_state = Successful_initializer
+         || child_work_is_excluded task (fun work -> work.work_metadata) attempt)
   && input_prefix_complete input.input_dimensions task.dimensions
        (fun attempt ->
          attempt.dimension_state = Successful_initializer
@@ -1713,6 +1743,10 @@ let complete_task_child_input scope sequence =
          (done_or_excluded
             (fun work -> work.work_offsets)
             (fun item -> item.offset_state = Successful_initializer))
+    && input_prefix_complete before.work_metadata task.runtime_metadata
+         (done_or_excluded
+            (fun work -> work.work_metadata)
+            (fun item -> item.metadata_state = Successful_initializer))
     && input_prefix_complete before.work_defaults task.defaults
          (done_or_excluded
             (fun work -> work.work_defaults)
@@ -1833,6 +1867,7 @@ let observe_task_source_event task event =
               input_dimensions = task.dimensions;
               input_switch_cases = task.switch_cases;
               input_offsets = task.runtime_offsets;
+              input_metadata = task.runtime_metadata;
               input_defaults = task.defaults;
               input_default_constants = task.default_constants;
               input_initializers = task.initializers;
@@ -2035,7 +2070,7 @@ let bind_source_activation task ~namespace activation =
     Ok ())
 
 let promote_task_source_activation ?(offsets = []) ?(member_metadata = [])
-    ?pending_runtime_dimension ?pending_runtime_offset
+    ?pending_runtime_metadata ?pending_runtime_dimension ?pending_runtime_offset
     ?pending_runtime_switch_case task ~namespace ~activation ~dimensions =
   let pending_switch_valid =
     let originals =
@@ -2096,6 +2131,12 @@ let promote_task_source_activation ?(offsets = []) ?(member_metadata = [])
   in
   let metadata_valid =
     let originals = Sema.Source_activation.member_metadata_phases activation in
+    let originals =
+      match (pending_runtime_metadata, List.rev originals) with
+      | None, _ -> originals
+      | Some pending, last :: rest when last == pending -> List.rev rest
+      | Some _, _ -> originals
+    in
     List.length originals = List.length member_metadata
     && List.for_all2
          (fun phase value ->
@@ -2111,6 +2152,26 @@ let promote_task_source_activation ?(offsets = []) ?(member_metadata = [])
     || (not (Sema.Source_activation.owns_namespace activation namespace))
     || (not pending_valid) || (not pending_offset_valid)
     || (not pending_switch_valid) || (not metadata_valid)
+    || Option.fold ~none:false
+         ~some:(fun pending ->
+           Option.is_some pending_runtime_dimension
+           || Option.is_some pending_runtime_offset
+           || Option.is_some pending_runtime_switch_case
+           || (not (Frontend.Parser.aggregate_phase_is_current pending))
+           || (not
+                 (Option.fold ~none:false ~some:(( == ) pending)
+                    (Sema.Source_activation.trailing_member_metadata activation)))
+           ||
+           match pending.phase_step with
+           | Frontend.Parser.Aggregate_member_metadata_reached original -> (
+               match original.metadata.member_metadata_value with
+               | Frontend.Ast.Member_metadata_expression expression ->
+                   Sema.Initializer_source.expression_identifier_nodes
+                     expression
+                   = []
+               | _ -> true)
+           | _ -> true)
+         pending_runtime_metadata
     || (let phases = closed_offsets in
         List.length phases <> List.length offsets
         || not
@@ -2587,7 +2648,12 @@ let check_native_task_program task ~runtime_calls ~globals ~initialization
             (fun attempt ->
               attempt.offset_state = Preparing_initializer
               || attempt.offset_state = Executing_initializer)
-            task.runtime_offsets)
+            task.runtime_offsets
+       || List.exists
+            (fun attempt ->
+              attempt.metadata_state = Preparing_initializer
+              || attempt.metadata_state = Executing_initializer)
+            task.runtime_metadata)
   then Error "native source command cannot interleave active preparation"
   else if List.exists (fun started -> started == entry) task.started then
     Error "native source command has already entered this task"
@@ -4213,6 +4279,65 @@ let task_offset task receipt =
       else None)
     task.runtime_offsets
 
+let begin_task_member_metadata task authority =
+  let ( let* ) = Result.bind in
+  let fragment = Sema.Member_metadata_fragment.authorized_fragment authority in
+  let receipt = Sema.Member_metadata_fragment.receipt fragment in
+  let* () =
+    require_initializer_namespace task
+      (Sema.Member_metadata_fragment.namespace fragment)
+  in
+  let* () = Integer_globals.check_member_metadata_source task.catalog receipt in
+  if
+    (not
+       (Sema.Compiler_record.runtime_member_metadata_is_current
+          (Sema.Member_metadata_fragment.preparation authority)))
+    || (not
+          (Sema.Source_activation.member_metadata_admission
+             task.source_activation receipt))
+    || (not (source_dimensions_ready task))
+    || List.exists (( == ) receipt) task.attempted_metadata
+  then
+    Error "member metadata preparation has another source or consumed boundary"
+  else
+    let attempt =
+      {
+        metadata_catalog = task.catalog;
+        metadata_authority = authority;
+        metadata_receipt = receipt;
+        metadata_preparation_before = task.resources.initializer_steps;
+        metadata_state = Preparing_initializer;
+        metadata_result = None;
+        metadata_native_program = None;
+        metadata_native_work = None;
+      }
+    in
+    task.runtime_metadata <- attempt :: task.runtime_metadata;
+    task.attempted_metadata <- receipt :: task.attempted_metadata;
+    task.source_promotion_open <- false;
+    Ok attempt
+
+let fail_task_member_metadata task attempt =
+  if
+    attempt.metadata_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.runtime_metadata))
+    || attempt.metadata_state <> Preparing_initializer
+       && attempt.metadata_state <> Executing_initializer
+  then Error "member metadata failure has another task or inactive attempt"
+  else (
+    attempt.metadata_state <- Failed_initializer;
+    Ok ())
+
+let task_member_metadata task receipt =
+  List.find_map
+    (fun attempt ->
+      if
+        attempt.metadata_receipt == receipt
+        && attempt.metadata_state = Successful_initializer
+      then attempt.metadata_result
+      else None)
+    task.runtime_metadata
+
 let begin_task_dimension task authority =
   let ( let* ) = Result.bind in
   let fragment = Sema.Dimension_fragment.authorized_fragment authority in
@@ -4814,6 +4939,128 @@ let complete_native_task_offset task attempt program capture =
   task.charged_offsets <- offset :: task.charged_offsets;
   Ok ()
 
+let check_native_task_member_metadata task attempt program =
+  let module Program = Member_metadata_fragment_program in
+  let module Destination = Member_metadata_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || attempt.metadata_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.runtime_metadata))
+    || attempt.metadata_state <> Preparing_initializer
+    || (not
+          (Frontend.Parser.aggregate_phase_is_current attempt.metadata_receipt))
+    || (not
+          (Sema.Source_activation.member_metadata_admission
+             task.source_activation attempt.metadata_receipt))
+    || (not
+          (Sema.Compiler_record.runtime_member_metadata_is_current
+             (Sema.Member_metadata_fragment.preparation
+                attempt.metadata_authority)))
+    || Program.source_authority program != attempt.metadata_authority
+    || Sema.Member_metadata_fragment.receipt fragment
+       != attempt.metadata_receipt
+    || Sema.Member_metadata_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_member_metadata_fragment
+             (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.resources.initializer_steps <> attempt.metadata_preparation_before
+  then
+    Error
+      "native member metadata requires its original live task, attempt and \
+       expression"
+  else
+    let ( let* ) = Result.bind in
+    let* () =
+      validate_dimension_dependencies (Some task)
+        (Sema.Compiler_record.runtime_member_metadata_dimension_dependencies
+           (Sema.Member_metadata_fragment.preparation attempt.metadata_authority)
+        @ Dimension_requirements.top_level (Destination.typed destination))
+    in
+    validate_offset_dependencies (Some task)
+      (Sema.Compiler_record.runtime_member_metadata_offset_dependencies
+         (Sema.Member_metadata_fragment.preparation attempt.metadata_authority)
+      @ Offset_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_member_metadata task attempt program =
+  Result.map
+    (fun () ->
+      attempt.metadata_state <- Executing_initializer;
+      attempt.metadata_native_program <- Some program;
+      retain_native_provider_sources task
+        (Member_metadata_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Member_metadata_fragment_program.entry program)))
+    (check_native_task_member_metadata task attempt program)
+
+let record_native_member_metadata_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || attempt.metadata_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.runtime_metadata))
+    || attempt.metadata_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.metadata_native_work
+    || Option.is_none attempt.metadata_native_program
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
+  then
+    Error
+      "native member metadata work has another task, attempt or exhausted \
+       allowance"
+  else (
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
+    attempt.metadata_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_member_metadata task attempt program capture =
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      (not task.native_storage_authority)
+      || attempt.metadata_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.runtime_metadata))
+      || attempt.metadata_state <> Executing_initializer
+      || Option.is_none attempt.metadata_native_work
+      || (not
+            (Option.fold ~none:false ~some:(( == ) program)
+               attempt.metadata_native_program))
+      || not
+           (Frontend.Parser.aggregate_phase_is_current attempt.metadata_receipt)
+    then
+      Error
+        "native member metadata completion has another task or expired \
+         original expression"
+    else Ok ()
+  in
+  let* bits =
+    Native_scalar_capture.consume
+      ?scope:
+        (match task.resources.native_source_scopes with
+        | [] -> None
+        | scope :: _ -> Some scope)
+      capture ~program
+      ~work:(Option.get attempt.metadata_native_work)
+  in
+  let* offset =
+    Sema.Compiler_record.finish_runtime_member_metadata
+      (Sema.Member_metadata_fragment.preparation attempt.metadata_authority)
+      ~value:bits
+      ~work:
+        (task.resources.initializer_steps - attempt.metadata_preparation_before)
+  in
+  attempt.metadata_result <- Some offset;
+  attempt.metadata_state <- Successful_initializer;
+  task.charged_metadata <- offset :: task.charged_metadata;
+  Ok ()
+
 let begin_task_internal_binding task authority =
   let ( let* ) = Result.bind in
   let fragment = Sema.Internal_binding_fragment.authorized_fragment authority in
@@ -5266,6 +5513,14 @@ let task_result task ~sequence =
                    (fun work -> work.work_offsets)
                    attempt))
          task.runtime_offsets
+    || List.exists
+         (fun attempt ->
+           attempt.metadata_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_metadata)
+                   attempt))
+         task.runtime_metadata
     || (not (Sema.Source_activation.finished task.source_activation))
     || (not
           (Sema.Source_activation.owns_context task.source_activation
@@ -12905,12 +13160,13 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
 
 let execute_program_with_output ?task ?isolated_budget
     ?(initializer_mode = false) ?(capture_fragment_value = false)
-    ?(constant_preparation = false) ?(use_active_stream = true)
-    ?compiler_options ?stream_exe_print ?runtime_calls ~output ?globals
-    ?initialization ?(max_global_bytes = 1_048_576)
-    ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
-    ~functions checked =
+    ?initializer_execution_span ?(constant_preparation = false)
+    ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+    ?runtime_calls ~output ?globals ?initialization
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576) ~max_steps
+    ~max_frame_bytes ~max_call_depth ~functions checked =
   let ( let* ) = Result.bind in
+  let initializer_execution = Option.is_some initializer_execution_span in
   let* () =
     let dependencies =
       Option.fold ~none:[] ~some:Integer_globals.dimension_dependencies globals
@@ -12949,6 +13205,34 @@ let execute_program_with_output ?task ?isolated_budget
     Option.bind accounting (fun task -> task.resources.switch_execution)
   in
   let switch_accounted_steps = ref 0 in
+  let initializer_accounted_steps = ref 0 in
+  let charge_initializer_steps steps =
+    if not initializer_execution then Ok ()
+    else
+      match accounting with
+      | None -> invalid_arg "initializer execution has no owning task"
+      | Some task ->
+          let work = steps - !initializer_accounted_steps in
+          if work < 0 then
+            invalid_arg
+              "initializer execution moved its step boundary backwards";
+          let remaining = task_initializer_remaining task in
+          task.resources.initializer_steps <-
+            task.resources.initializer_steps + min work remaining;
+          initializer_accounted_steps := steps;
+          if work <= remaining then Ok ()
+          else
+            Error
+              [
+                Common.Diagnostic.make ~code:"HCIRVM0007"
+                  ~primary:(Option.get initializer_execution_span)
+                  ~severity:Common.Diagnostic.Error
+                  ~message:
+                    "member metadata execution exhausted the preparation \
+                     allowance"
+                  ();
+              ]
+  in
   let charge_switch_steps steps =
     let work = steps - !switch_accounted_steps in
     if work < 0 then
@@ -12987,6 +13271,11 @@ let execute_program_with_output ?task ?isolated_budget
           (Sema.Integer_switch_preparation.runtime_remaining endpoint))
       switch_endpoint
   in
+  let max_steps =
+    if initializer_execution then
+      min max_steps (task_initializer_remaining (Option.get accounting))
+    else max_steps
+  in
   let* () =
     if Option.is_some switch_endpoint && max_steps = 0 then
       let endpoint = Option.get switch_endpoint in
@@ -13015,7 +13304,10 @@ let execute_program_with_output ?task ?isolated_budget
             task.resources.steps <-
               task.resources.steps + (steps - !accounted_steps);
             accounted_steps := steps;
-            let prepare = charge_switch_steps steps in
+            let prepare =
+              Result.bind (charge_switch_steps steps) (fun () ->
+                  charge_initializer_steps steps)
+            in
             let before_nested = task.resources.steps in
             let saved_frame_bytes = task.resources.nested_frame_bytes in
             let saved_call_depth = task.resources.nested_call_depth in
@@ -13618,10 +13910,23 @@ let execute_program_with_output ?task ?isolated_budget
         ~output ?stream_output ?generation_output ?compiler_options
         ?stream_exe_print:nested_stream_exe_print
         ?resumed_step_allowance:
-          (Option.map
-             (fun endpoint () ->
-               Sema.Integer_switch_preparation.runtime_remaining endpoint)
-             switch_endpoint)
+          (if initializer_execution then
+             Some
+               (fun () ->
+                 let remaining =
+                   task_initializer_remaining (Option.get accounting)
+                 in
+                 Option.fold ~none:remaining
+                   ~some:(fun endpoint ->
+                     min remaining
+                       (Sema.Integer_switch_preparation.runtime_remaining
+                          endpoint))
+                   switch_endpoint)
+           else
+             Option.map
+               (fun endpoint () ->
+                 Sema.Integer_switch_preparation.runtime_remaining endpoint)
+               switch_endpoint)
         ~capture_last:((not initializer_mode) || capture_fragment_value)
         ~saved_data:
           (Option.fold ~none:[] ~some:(fun task -> task.saved_data_values) task)
@@ -13657,7 +13962,10 @@ let execute_program_with_output ?task ?isolated_budget
         task.resources.steps <- task.resources.steps + (steps - !accounted_steps))
       accounting;
     let* () =
-      match charge_switch_steps steps with
+      match
+        Result.bind (charge_switch_steps steps) (fun () ->
+            charge_initializer_steps steps)
+      with
       | Ok () -> Ok ()
       | Error diagnostics ->
           Option.iter
@@ -14718,6 +15026,147 @@ let execute_task_offset ?(use_active_stream = true) ?compiler_options
           task.charged_offsets <- offset :: task.charged_offsets;
           Ok ())
 
+let execute_task_member_metadata ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
+  let module Program = Member_metadata_fragment_program in
+  let module Destination = Member_metadata_fragment_destination in
+  let ( let* ) = Result.bind in
+  let destination = Program.execution_destination execution in
+  let fragment = Destination.fragment destination in
+  let span = Destination.span destination in
+  let invalid message =
+    Error
+      [
+        make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026" message;
+      ]
+  in
+  let* () =
+    if
+      attempt.metadata_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.runtime_metadata))
+      || attempt.metadata_state <> Preparing_initializer
+      || (not
+            (Sema.Source_activation.member_metadata_admission
+               task.source_activation attempt.metadata_receipt))
+      || (not
+            (Sema.Compiler_record.runtime_member_metadata_is_current
+               (Sema.Member_metadata_fragment.preparation
+                  attempt.metadata_authority)))
+      || (not
+            (Frontend.Parser.aggregate_phase_is_current attempt.metadata_receipt))
+      || Program.authority execution != attempt.metadata_authority
+      || Sema.Member_metadata_fragment.receipt fragment
+         != attempt.metadata_receipt
+      || Sema.Member_metadata_fragment.authorized_fragment
+           (Program.authority execution)
+         != fragment
+      || (not
+            (Integer_globals.owns_task_storage task.catalog
+               (Destination.globals destination)))
+      || (not
+            (Integer_globals.is_member_metadata_fragment
+               (Destination.globals destination)))
+      || Integer_globals.byte_size (Destination.globals destination) <> 0
+      || Program.steps execution
+         <> task.resources.initializer_steps
+            - attempt.metadata_preparation_before
+    then
+      invalid
+        "member metadata execution has another task, source attempt or \
+         preparation"
+    else Ok ()
+  in
+  attempt.metadata_state <- Executing_initializer;
+  let outcome =
+    let* () =
+      validate_dimension_dependencies (Some task)
+        (Sema.Compiler_record.runtime_member_metadata_dimension_dependencies
+           (Sema.Member_metadata_fragment.preparation
+              (Program.authority execution))
+        @ Dimension_requirements.top_level (Destination.typed destination))
+      |> Result.map_error (fun message ->
+          [
+            make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+              message;
+          ])
+    in
+    let* () =
+      validate_offset_dependencies (Some task)
+        (Sema.Compiler_record.runtime_member_metadata_offset_dependencies
+           (Sema.Member_metadata_fragment.preparation
+              (Program.authority execution))
+        @ Offset_requirements.top_level (Destination.typed destination))
+      |> Result.map_error (fun message ->
+          [
+            make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+              message;
+          ])
+    in
+    match Program.code execution with
+    | Program.Scheduled program -> (
+        if
+          task.resources.steps >= task.resources.max_steps
+          || task_initializer_remaining task = 0
+        then
+          Error
+            [
+              make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
+                "the task cumulative execution step limit was exhausted";
+            ]
+        else
+          let outcome =
+            execute_program_with_output ~task ~initializer_mode:true
+              ~capture_fragment_value:true ~initializer_execution_span:span
+              ~use_active_stream ?compiler_options ?stream_exe_print
+              ~runtime_calls:(Program.runtime_calls program)
+              ~output:task.resources.output
+              ~globals:(Destination.globals destination)
+              ~initialization:(Program.initialization program)
+              ~max_global_bytes:task.resources.max_global_bytes
+              ~max_literal_bytes:task.resources.max_literal_bytes
+              ~max_steps:
+                (min
+                   (task.resources.max_steps - task.resources.steps)
+                   (task_initializer_remaining task))
+              ~max_frame_bytes:
+                (task.resources.max_frame_bytes
+               - task.resources.nested_frame_bytes)
+              ~max_call_depth:
+                (task.resources.max_call_depth
+               - task.resources.nested_call_depth)
+              ~functions:[] (Program.entry program)
+          in
+          let* result = outcome in
+          match result.final_value_ with
+          | Some word -> Ok word.bits
+          | None ->
+              invalid
+                "member metadata evaluation produced no checked parameter value"
+        )
+  in
+  match outcome with
+  | Error errors ->
+      ignore (fail_task_member_metadata task attempt);
+      Error errors
+  | Ok bits -> (
+      let result =
+        Sema.Compiler_record.finish_runtime_member_metadata
+          (Sema.Member_metadata_fragment.preparation attempt.metadata_authority)
+          ~value:bits
+          ~work:
+            (task.resources.initializer_steps
+           - attempt.metadata_preparation_before)
+      in
+      match result with
+      | Error message ->
+          ignore (fail_task_member_metadata task attempt);
+          invalid message
+      | Ok offset ->
+          attempt.metadata_result <- Some offset;
+          attempt.metadata_state <- Successful_initializer;
+          task.charged_metadata <- offset :: task.charged_metadata;
+          Ok ())
+
 let execute_task_program ?(use_active_stream = true) ?compiler_options
     ?stream_exe_print task ~runtime_calls ~globals ~initialization ~functions
     checked =
@@ -14751,6 +15200,12 @@ let execute_task_program ?(use_active_stream = true) ?compiler_options
                 attempt.offset_state = Preparing_initializer
                 || attempt.offset_state = Executing_initializer)
               task.runtime_offsets
+      || task.resources.nested_source_depth = 0
+         && List.exists
+              (fun attempt ->
+                attempt.metadata_state = Preparing_initializer
+                || attempt.metadata_state = Executing_initializer)
+              task.runtime_metadata
     then
       Error
         [

@@ -115,6 +115,15 @@ let trailing_aggregate_offset t =
     :: _ -> Some phase
   | _ -> None
 
+let trailing_member_metadata t =
+  match List.rev t.events with
+  | Declaration
+      (Parser.Aggregate_advanced
+         ({ phase_step = Parser.Aggregate_member_metadata_reached _; _ } as
+          phase))
+    :: _ -> Some phase
+  | _ -> None
+
 let before_event t matches =
   if not (current t) then false
   else
@@ -600,6 +609,14 @@ let internal_binding_admission activation preparation =
 let offset_admission activation phase =
   admission activation (function
     | Declaration (Parser.Aggregate_advanced original) -> original == phase
+    | _ -> false)
+
+let member_metadata_admission activation phase =
+  admission activation (function
+    | Declaration
+        (Parser.Aggregate_advanced
+           ({ phase_step = Parser.Aggregate_member_metadata_reached _; _ } as
+            original)) -> original == phase
     | _ -> false)
 
 let function_phase_admission activation event =

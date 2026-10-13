@@ -55,6 +55,13 @@ val resolve_offset_fragment :
   Sema.Offset_fragment.t ->
   (Sema.Top_level_expression_binding.t, string) result
 
+val resolve_member_metadata_fragment :
+  table:Sema.Symbol_table.t ->
+  parent:Sema.Symbol_table.scope ->
+  module_expressions:Sema.Module_expression_binding.t ->
+  Sema.Member_metadata_fragment.t ->
+  (Sema.Top_level_expression_binding.t, string) result
+
 val resolve_static_fragment :
   table:Sema.Symbol_table.t ->
   parent:Sema.Symbol_table.scope ->

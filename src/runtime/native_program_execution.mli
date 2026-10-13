@@ -355,5 +355,13 @@ val finish_task_offset :
   task_arena ->
   Backend.X86_64_program.t ->
   (Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t, string) result
+
+val finish_task_member_metadata :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  ( Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t,
+    string )
+  result
 (** Take this original image's actual scalar capture once while its arena lives.
 *)

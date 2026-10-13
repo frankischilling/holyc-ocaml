@@ -382,6 +382,19 @@ let check_offset ?(require_admitted = true) order ~admitted
       ~predecessor:
         (if require_admitted then start.command_predecessor else None)
 
+let check_member_metadata ?(require_admitted = true) order ~admitted
+    (receipt : Parser.aggregate_phase) =
+  match receipt.phase_step with
+  | Parser.Aggregate_member_metadata_reached _
+    when Parser.aggregate_phase_is_current receipt ->
+      let start =
+        receipt.phase_aggregate.aggregate_header.declaration_command
+      in
+      check_preparation order ~admitted ~start
+        ~predecessor:
+          (if require_admitted then start.command_predecessor else None)
+  | _ -> Error "member metadata source callback is not original and current"
+
 let contains_global command ~(publication : Parser.global_publication)
     ~(completed : Frontend.Ast.global_declarator) ~item_index ~declarator_index
     =

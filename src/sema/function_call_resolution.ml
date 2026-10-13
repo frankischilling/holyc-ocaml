@@ -11,6 +11,7 @@ type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
   | Aggregate_position_expression of Offset_fragment.position
+  | Metadata_position_expression of Member_metadata_fragment.position
   | Default_position_expression of Default_fragment.position
   | Offset_expression
   | Postfix_cast_expression
@@ -771,6 +772,7 @@ let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
   | Aggregate_position_expression _ -> "aggregate-position"
+  | Metadata_position_expression _ -> "member-metadata-position"
   | Default_position_expression _ -> "default-position"
   | Offset_expression -> "offset"
   | Postfix_cast_expression -> "postfix-cast"
@@ -1900,8 +1902,8 @@ let make_return ~index ~keyword_origin ~expression ~origin =
   else Ok { index; keyword_origin; expression; origin }
 
 let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
-    ?default_fragment ?(callee_expressions = []) ?(call_expressions = [])
-    ?(source_occurrences = false) () =
+    ?metadata_fragment ?default_fragment ?(callee_expressions = [])
+    ?(call_expressions = []) ?(source_occurrences = false) () =
   let module Ast = Frontend.Ast in
   let origin = Initializer_source.origin_of_location in
   let same_list check left right =
@@ -2036,6 +2038,7 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
     | ( Ast.Current_position_expression _,
         Unresolved_expression Current_position_expression ) ->
         Option.is_none offset_fragment
+        && Option.is_none metadata_fragment
         && Option.fold ~none:true
              ~some:(fun fragment ->
                Default_fragment.position_is_instruction fragment ast)
@@ -2052,6 +2055,12 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
           ~some:(fun fragment ->
             Offset_fragment.position_matches position fragment ast)
           offset_fragment
+    | ( Ast.Current_position_expression _,
+        Unresolved_expression (Metadata_position_expression position) ) ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
+            Member_metadata_fragment.position_matches position fragment ast)
+          metadata_fragment
     | Ast.Sizeof_expression ast, Sizeof_expression checked ->
         ast.sizeof_keyword_spelling = checked.sizeof_keyword_spelling_
         && origin ast.sizeof_keyword_location = checked.sizeof_keyword_origin_
@@ -2187,10 +2196,11 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
       "initializer expression or calls do not match its retained source leaf"
 
 let validate_source_expression ~source ~expression ~calls ?offset_fragment
-    ?default_fragment ?callee_expressions ?call_expressions () =
+    ?metadata_fragment ?default_fragment ?callee_expressions ?call_expressions
+    () =
   validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
-    ~calls ?offset_fragment ?default_fragment ?callee_expressions
-    ?call_expressions ()
+    ~calls ?offset_fragment ?metadata_fragment ?default_fragment
+    ?callee_expressions ?call_expressions ()
 
 let retain_source_expression ~source expression =
   if

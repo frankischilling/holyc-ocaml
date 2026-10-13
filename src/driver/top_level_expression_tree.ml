@@ -8,6 +8,7 @@ let origin (location : Frontend.Ast.location) =
     }
 
 type state = {
+  metadata_fragment : Sema.Member_metadata_fragment.t option;
   offset_fragment : Sema.Offset_fragment.t option;
   default_fragment : Sema.Default_fragment.t option;
   call_phases :
@@ -36,13 +37,14 @@ type state = {
   switch_cases_rev : Sema.Top_level_expression_tree.switch_case list;
 }
 
-let initial_state ?default_fragment ?offset_fragment
+let initial_state ?default_fragment ?offset_fragment ?metadata_fragment
     ?(call_phases = fun _ -> Ok None) ~next_occurrence ~next_query ~next_root
     ~next_call ~next_expression_statement ~next_output ~next_condition
     ~next_selector ~next_case ~next_local_declaration ~next_return
     ~module_expressions ~item_index occurrences queries =
   {
     offset_fragment;
+    metadata_fragment;
     default_fragment;
     call_phases;
     module_expressions;
@@ -558,32 +560,45 @@ let rec expression state (source : Frontend.Ast.expression) =
           | Ok kind -> finish state kind))
   | Frontend.Ast.Call_expression call -> call_expression state source call
   | Frontend.Ast.Current_position_expression _ -> (
-      match (state.default_fragment, state.offset_fragment) with
-      | Some fragment, _
-        when Sema.Default_fragment.position_is_instruction fragment source ->
-          finish state
-            (Sema.Function_call_resolution.Unresolved_expression
-               Sema.Function_call_resolution.Current_position_expression)
-      | Some fragment, _ -> (
-          match Sema.Default_fragment.position_for fragment source with
+      match state.metadata_fragment with
+      | Some fragment -> (
+          match Sema.Member_metadata_fragment.position_for fragment source with
           | Error _ as error -> error
           | Ok position ->
               finish state
                 (Sema.Function_call_resolution.Unresolved_expression
-                   (Sema.Function_call_resolution.Default_position_expression
+                   (Sema.Function_call_resolution.Metadata_position_expression
                       position)))
-      | None, Some fragment -> (
-          match Sema.Offset_fragment.position_for fragment source with
-          | Error _ as error -> error
-          | Ok position ->
+      | None -> (
+          match (state.default_fragment, state.offset_fragment) with
+          | Some fragment, _
+            when Sema.Default_fragment.position_is_instruction fragment source
+            ->
               finish state
                 (Sema.Function_call_resolution.Unresolved_expression
-                   (Sema.Function_call_resolution.Aggregate_position_expression
-                      position)))
-      | None, None ->
-          finish state
-            (Sema.Function_call_resolution.Unresolved_expression
-               Sema.Function_call_resolution.Current_position_expression))
+                   Sema.Function_call_resolution.Current_position_expression)
+          | Some fragment, _ -> (
+              match Sema.Default_fragment.position_for fragment source with
+              | Error _ as error -> error
+              | Ok position ->
+                  finish state
+                    (Sema.Function_call_resolution.Unresolved_expression
+                       (Sema.Function_call_resolution
+                        .Default_position_expression
+                          position)))
+          | None, Some fragment -> (
+              match Sema.Offset_fragment.position_for fragment source with
+              | Error _ as error -> error
+              | Ok position ->
+                  finish state
+                    (Sema.Function_call_resolution.Unresolved_expression
+                       (Sema.Function_call_resolution
+                        .Aggregate_position_expression
+                          position)))
+          | None, None ->
+              finish state
+                (Sema.Function_call_resolution.Unresolved_expression
+                   Sema.Function_call_resolution.Current_position_expression)))
   | Frontend.Ast.Sizeof_expression sizeof -> (
       match take_sizeof_query state source sizeof with
       | Error _ as error -> error
@@ -1331,8 +1346,8 @@ let build ?call_phases ~table ~declarations ~compilation_mode ~expressions
       else "HCSEMA0055: " ^ message)
     result
 
-let build_fragment ~default_fragment ~offset_fragment ~table ~expressions
-    ~matches_source ~source_expression ~make_root =
+let build_fragment ~metadata_fragment ~default_fragment ~offset_fragment ~table
+    ~expressions ~matches_source ~source_expression ~make_root =
   let ( let* ) = Result.bind in
   let module Tree = Sema.Top_level_expression_tree in
   let module Binding = Sema.Top_level_outer_expression_binding in
@@ -1348,10 +1363,11 @@ let build_fragment ~default_fragment ~offset_fragment ~table ~expressions
     |> Sema.Top_level_expression_binding.module_expressions
   in
   let state =
-    initial_state ?default_fragment ?offset_fragment ~next_occurrence:0
-      ~next_query:0 ~next_root:0 ~next_call:0 ~next_expression_statement:0
-      ~next_output:0 ~next_condition:0 ~next_selector:0 ~next_case:0
-      ~next_local_declaration:0 ~next_return:0 ~module_expressions ~item_index:0
+    initial_state ?default_fragment ?offset_fragment ?metadata_fragment
+      ~next_occurrence:0 ~next_query:0 ~next_root:0 ~next_call:0
+      ~next_expression_statement:0 ~next_output:0 ~next_condition:0
+      ~next_selector:0 ~next_case:0 ~next_local_declaration:0 ~next_return:0
+      ~module_expressions ~item_index:0
       (Binding.statement_occurrences source)
       (Binding.statement_queries source)
   in
@@ -1379,8 +1395,8 @@ let build_fragment ~default_fragment ~offset_fragment ~table ~expressions
     Tree.create ~table ~source:expressions [ statement ] |> convert
 
 let build_initializer_fragment ~table ~expressions fragment =
-  build_fragment ~default_fragment:None ~offset_fragment:None ~table
-    ~expressions
+  build_fragment ~metadata_fragment:None ~default_fragment:None
+    ~offset_fragment:None ~table ~expressions
     ~matches_source:(fun source ->
       Option.fold ~none:false ~some:(( == ) fragment)
         (Sema.Top_level_expression_binding.statement_fragment source))
@@ -1391,8 +1407,8 @@ let build_initializer_fragment ~table ~expressions fragment =
       (Sema.Top_level_expression_tree.make_fragment_root ~index:0 ~fragment)
 
 let build_default_fragment ~table ~expressions fragment =
-  build_fragment ~default_fragment:(Some fragment) ~offset_fragment:None ~table
-    ~expressions
+  build_fragment ~metadata_fragment:None ~default_fragment:(Some fragment)
+    ~offset_fragment:None ~table ~expressions
     ~matches_source:(fun source ->
       Option.fold ~none:false ~some:(( == ) fragment)
         (Sema.Top_level_expression_binding.statement_default source))
@@ -1401,8 +1417,8 @@ let build_default_fragment ~table ~expressions fragment =
       (Sema.Top_level_expression_tree.make_default_root ~index:0 ~fragment)
 
 let build_static_fragment ~table ~expressions fragment =
-  build_fragment ~default_fragment:None ~offset_fragment:None ~table
-    ~expressions
+  build_fragment ~metadata_fragment:None ~default_fragment:None
+    ~offset_fragment:None ~table ~expressions
     ~matches_source:(fun source ->
       Option.fold ~none:false ~some:(( == ) fragment)
         (Sema.Top_level_expression_binding.statement_static source))
@@ -1411,8 +1427,8 @@ let build_static_fragment ~table ~expressions fragment =
       (Sema.Top_level_expression_tree.make_static_root ~index:0 ~fragment)
 
 let build_dimension_fragment ~table ~expressions fragment =
-  build_fragment ~default_fragment:None ~offset_fragment:None ~table
-    ~expressions
+  build_fragment ~metadata_fragment:None ~default_fragment:None
+    ~offset_fragment:None ~table ~expressions
     ~matches_source:(fun source ->
       Option.fold ~none:false ~some:(( == ) fragment)
         (Sema.Top_level_expression_binding.statement_dimension source))
@@ -1421,8 +1437,8 @@ let build_dimension_fragment ~table ~expressions fragment =
       (Sema.Top_level_expression_tree.make_dimension_root ~index:0 ~fragment)
 
 let build_switch_case_fragment ~table ~expressions fragment =
-  build_fragment ~default_fragment:None ~offset_fragment:None ~table
-    ~expressions
+  build_fragment ~metadata_fragment:None ~default_fragment:None
+    ~offset_fragment:None ~table ~expressions
     ~matches_source:(fun source ->
       Option.fold ~none:false ~some:(( == ) fragment)
         (Sema.Top_level_expression_binding.statement_switch_case source))
@@ -1431,8 +1447,8 @@ let build_switch_case_fragment ~table ~expressions fragment =
       (Sema.Top_level_expression_tree.make_switch_case_root ~index:0 ~fragment)
 
 let build_internal_binding_fragment ~table ~expressions fragment =
-  build_fragment ~default_fragment:None ~offset_fragment:None ~table
-    ~expressions
+  build_fragment ~metadata_fragment:None ~default_fragment:None
+    ~offset_fragment:None ~table ~expressions
     ~matches_source:(fun source ->
       Option.fold ~none:false ~some:(( == ) fragment)
         (Sema.Top_level_expression_binding.statement_internal_binding source))
@@ -1442,11 +1458,22 @@ let build_internal_binding_fragment ~table ~expressions fragment =
          ~fragment)
 
 let build_offset_fragment ~table ~expressions fragment =
-  build_fragment ~default_fragment:None ~offset_fragment:(Some fragment) ~table
-    ~expressions
+  build_fragment ~metadata_fragment:None ~default_fragment:None
+    ~offset_fragment:(Some fragment) ~table ~expressions
     ~matches_source:(fun source ->
       Option.fold ~none:false ~some:(( == ) fragment)
         (Sema.Top_level_expression_binding.statement_offset source))
     ~source_expression:(Sema.Offset_fragment.expression fragment)
     ~make_root:
       (Sema.Top_level_expression_tree.make_offset_root ~index:0 ~fragment)
+
+let build_member_metadata_fragment ~table ~expressions fragment =
+  build_fragment ~metadata_fragment:(Some fragment) ~default_fragment:None
+    ~offset_fragment:None ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_member_metadata source))
+    ~source_expression:(Sema.Member_metadata_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_member_metadata_root ~index:0
+         ~fragment)

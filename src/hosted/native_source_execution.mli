@@ -9,6 +9,7 @@ type fragment_kind =
   | Dimension
   | Switch_case
   | Offset
+  | Metadata
   | Command
   | Aot_module
 

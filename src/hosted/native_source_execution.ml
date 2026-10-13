@@ -15,6 +15,7 @@ type fragment_kind =
   | Dimension
   | Switch_case
   | Offset
+  | Metadata
   | Command
   | Aot_module
 
@@ -1037,6 +1038,77 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       "native offset produced no captured scalar expression";
                   ]
         in
+        let native_member_metadata request =
+          let module Request = Task.Native_member_metadata in
+          let* layout, arena =
+            context
+              (Request.program request
+             |> Ir.Member_metadata_fragment_program.destination
+             |> Ir.Member_metadata_fragment_destination.globals)
+          in
+          let metadata_span =
+            Request.program request
+            |> Ir.Member_metadata_fragment_program.destination
+            |> Ir.Member_metadata_fragment_destination.span
+          in
+          let allowance = Request.initializer_remaining request in
+          if allowance <= 0 then
+            Error
+              [
+                diagnostic ~span:metadata_span "HCIRVM0007"
+                  "the task member metadata preparation step limit was \
+                   exhausted";
+              ]
+          else
+            let* image =
+              remaining (fun ~max_ir_instructions ~max_code_bytes ->
+                  Image.compile_task_member_metadata ?status_abi
+                    ~max_stack_bytes ~max_blocks ~max_ir_instructions
+                    ~max_code_bytes ~layout request)
+            in
+            let before = (Native.budget_progress budget).executed_steps in
+            let outcome =
+              with_initializer_execution ~span:metadata_span
+                ~remaining:(fun () -> Request.initializer_remaining request)
+                image
+                (fun () ->
+                  execute ~arena ~max_activation_steps:allowance Metadata image)
+            in
+            let steps =
+              (Native.budget_progress budget).executed_steps - before
+            in
+            let* () =
+              (if steps = 0 && Result.is_error outcome then Ok ()
+               else Request.record_steps request steps)
+              |> Result.map_error (fun message ->
+                  [
+                    Driver.Integer_source.message_diagnostic ~span:metadata_span
+                      message;
+                  ])
+            in
+            let* completed, captured = outcome in
+            match
+              ( captured,
+                completed.final_value,
+                completed.captured_callback,
+                completed.captured_data )
+            with
+            | true, Some _, None, None ->
+                Native.finish_task_member_metadata ?scope:(current_scope ())
+                  arena image
+                |> Result.map_error (fun message ->
+                    [
+                      Driver.Integer_source.message_diagnostic
+                        ~span:metadata_span message;
+                    ])
+            | _ ->
+                Error
+                  [
+                    diagnostic ~span:metadata_span "HCIRVM0026"
+                      "native member metadata produced no captured scalar \
+                       expression";
+                  ]
+        in
         let native_static_allocation request =
           let* _, arena =
             context (Task.Native_static_allocation.context request)
@@ -1092,7 +1164,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   Source.run ~native_dispatch ~native_static_allocation
                     ~native_static_initializer ~native_static_copy
                     ~native_default ~native_dimension ~native_switch_case
-                    ~native_offset ~native_internal_binding ~max_dimension_work
+                    ~native_offset ~native_member_metadata
+                    ~native_internal_binding ~max_dimension_work
                     ~max_switch_work ~max_initializer_steps ~max_global_bytes
                     ~max_literal_bytes ~max_frame_bytes ~max_call_depth
                     ~max_output_bytes ~max_output_work session ~config ~source
@@ -1137,7 +1210,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       ~native_dispatch ~native_static_allocation
                       ~native_static_initializer ~native_static_copy
                       ~native_default ~native_dimension ~native_switch_case
-                      ~native_offset ~native_internal_binding task_session
+                      ~native_offset ~native_member_metadata
+                      ~native_internal_binding task_session
                     |> Result.map_error (fun message ->
                         [ diagnostic ~span "HCIRVM0001" message ])
                   in

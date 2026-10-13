@@ -476,6 +476,14 @@ val check_suspended_completion :
 val offset_context : task_view -> Sema.Offset_fragment.t -> (t, string) result
 val is_offset_fragment : t -> bool
 
+val member_metadata_context :
+  task_view -> Sema.Member_metadata_fragment.t -> (t, string) result
+
+val is_member_metadata_fragment : t -> bool
+
+val check_member_metadata_source :
+  task_catalog -> Frontend.Parser.aggregate_phase -> (unit, string) result
+
 val check_offset_source :
   task_catalog -> Frontend.Parser.aggregate_phase -> (unit, string) result
 

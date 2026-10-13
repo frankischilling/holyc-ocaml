@@ -230,6 +230,16 @@ val compile_task_offset :
   Driver.Integer_task.Native_offset.request ->
   (t, error list) result
 
+val compile_task_member_metadata :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_member_metadata.request ->
+  (t, error list) result
+
 val compile_task_command :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
@@ -350,11 +360,13 @@ type scalar_program =
   | Dimension of Ir.Dimension_fragment_program.t
   | Switch_case of Ir.Switch_case_fragment_program.t
   | Offset of Ir.Offset_fragment_program.t
+  | Member_metadata of Ir.Member_metadata_fragment_program.t
 
 val scalar_program : t -> scalar_program option
 val dimension : t -> Ir.Dimension_fragment_program.t option
 val switch_case : t -> Ir.Switch_case_fragment_program.t option
 val offset : t -> Ir.Offset_fragment_program.t option
+val member_metadata : t -> Ir.Member_metadata_fragment_program.t option
 val generation : t -> Ir.Integer_interpreter.native_generation option
 val source_callback : t -> Driver.Integer_task.native_source_callback option
 
