@@ -2389,3 +2389,27 @@ fault order. The [ordinary-source example](../examples/source-aggregate-initiali
 adds exact and one-below execution and initializer limits. This uses pinned
 source and hosted execution without a new TempleOS runtime capture. AOT's
 detached task and isolated preparation retain their existing boundaries.
+
+## Isolated initializer layout snapshots
+
+Complete `PrsGlblVarLst` at `Compiler/PrsStmt.HC:209-463` publishes the selected
+allocation before calling `PrsGlblInit`. Complete `PrsVarInit`, `PrsVarInit2`,
+`PrsGlblInit` and `PrsStaticInit` at `Compiler/PrsVar.HC:1-246` traverse the
+reached classes and retain the scalar branch before evaluating each expression.
+The class's reached nominal size determines that copy; later member traversal
+does not replace the earlier branch. Complete `PrsVarLst` at lines 408-742
+allocates and initializes statics during function parsing. `PrsVarInit` retains
+AOT's nonconstant load-time assignment branch, while `PrsStaticInit` wraps its
+generated initialization in `IET_MAIN` code.
+
+The isolated source ledger retains pure global and static cursor metadata from
+the original parser events. Its completed consumers match the exact source
+leaves, class selection, dimensions and storage extent. Static joins also check
+the original function and local. That metadata grants no execution or successful
+copy receipt. Shared IR/native cases and the
+[retained-layout example](../examples/retained-aot-initializer-layouts.hc)
+check completion, replacement, zero-byte members, arrays, statics and quota
+edges. Source-seal, parser-replay and foreign-frame tests check rejection.
+Closed offset preparation is included in native AOT's initializer work meter.
+These checks add no TempleOS runtime or emitted-byte capture. Native effectful
+AOT static initialization and wider initializer value families remain open.

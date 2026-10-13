@@ -573,9 +573,8 @@ let create ~shape source =
   in
   Ok { source; entries; layout_declaration = None; layout_shape = shape }
 
-let create_static_retained ~allocation ~shape ~cursor ~delimiters source reached
+let create_static_receipt ~allocation ~shape ~cursor ~delimiters source reached
     =
-  let allocation = Sema.Compiler_record.static_allocation_receipt allocation in
   let leaves = Source.leaves source in
   if List.length leaves <> List.length reached then
     invalid "static completion omitted or added original source leaves"
@@ -669,6 +668,213 @@ type live = {
   preparation : prepared_leaf option;
   phased : bool;
 }
+
+type static_snapshot = {
+  static_allocation : Sema.Compiler_record.automatic_aggregate_allocation;
+  static_table : Sema.Symbol_table.t;
+  static_parent : Sema.Symbol_table.scope;
+  static_shape : Shape.t;
+  mutable static_cursor : stream;
+  mutable static_delimiters : Frontend.Parser.initializer_delimiter list;
+  mutable static_last_delimiter :
+    Frontend.Parser.completed_static_initializer_delimiter option;
+  mutable static_preparing :
+    (Frontend.Parser.static_leaf_preparation * stream_preparation) option;
+  mutable static_reached :
+    (Frontend.Parser.static_initializer_preparation
+    * int
+    * int
+    * operation
+    * Sema.Initializer_type.scalar option)
+    list;
+  mutable static_completed : Frontend.Ast.local_declarator option;
+}
+
+let create_static_retained ~allocation ~shape ~cursor ~delimiters source reached
+    =
+  create_static_receipt
+    ~allocation:(Sema.Compiler_record.static_allocation_receipt allocation)
+    ~shape ~cursor ~delimiters source reached
+
+let begin_static_snapshot ~table ~parent ~allocation ~dimensions =
+  let receipt = Sema.Compiler_record.automatic_aggregate_source allocation in
+  if
+    (not (Frontend.Parser.function_local_allocation_is_current receipt))
+    || receipt.allocation_storage <> Frontend.Ast.Static_local
+    || not
+         (Sema.Compiler_record.automatic_aggregate_owns allocation ~table
+            ~parent)
+  then invalid "static metadata requires its original allocation callback"
+  else
+    let* shape =
+      Shape.create_initializer_aggregate ~allocation ~dimensions ()
+      |> Result.map_error (fun _ ->
+          "HCRUN0006: static metadata has no supported original shape")
+    in
+    Ok
+      {
+        static_allocation = allocation;
+        static_table = table;
+        static_parent = parent;
+        static_shape = shape;
+        static_cursor = begin_stream shape;
+        static_delimiters = [];
+        static_last_delimiter = None;
+        static_preparing = None;
+        static_reached = [];
+        static_completed = None;
+      }
+
+let static_snapshot_receipt value =
+  Sema.Compiler_record.automatic_aggregate_source value.static_allocation
+
+let observe_static_snapshot_delimiter value receipt =
+  let prior =
+    List.nth_opt value.static_reached 0 |> Option.map (fun (r, _, _, _, _) -> r)
+  in
+  if
+    Option.is_some value.static_completed
+    || Option.is_some value.static_preparing
+    || (not (Frontend.Parser.static_initializer_delimiter_is_current receipt))
+    || receipt.Frontend.Parser.static_delimiter_start.static_start_allocation
+       != static_snapshot_receipt value
+    || (not
+          (Option.equal ( == ) value.static_last_delimiter
+             receipt.static_delimiter_predecessor))
+    || (not
+          (Option.equal ( == ) prior receipt.static_delimiter_leaf_predecessor))
+    || receipt.static_delimiter_index
+       <> Option.fold ~none:0
+            ~some:(fun r -> r.Frontend.Parser.static_delimiter_index + 1)
+            value.static_last_delimiter
+  then invalid "static metadata delimiter is foreign, repeated or out of order"
+  else
+    let* cursor =
+      observe_stream_delimiter value.static_cursor
+        receipt.static_delimiter_value
+    in
+    value.static_cursor <- cursor;
+    value.static_last_delimiter <- Some receipt;
+    value.static_delimiters <-
+      receipt.static_delimiter_value :: value.static_delimiters;
+    Ok ()
+
+let prepare_static_snapshot_expression value receipt =
+  if
+    Option.is_some value.static_completed
+    || Option.is_some value.static_preparing
+    || (not (Frontend.Parser.static_leaf_preparation_is_current receipt))
+    || receipt.Frontend.Parser.static_expression_start.static_start_allocation
+       != static_snapshot_receipt value
+    || not
+         (Option.equal ( == ) value.static_last_delimiter
+            receipt.static_expression_delimiter_predecessor)
+  then invalid "static metadata expression is foreign, repeated or out of order"
+  else
+    let* selected =
+      prepare_stream_expression value.static_cursor
+        ~first:receipt.static_expression_first ~delimiters:[]
+    in
+    value.static_preparing <- Some (receipt, selected);
+    Ok ()
+
+let prepare_static_snapshot_leaf value receipt =
+  let previous =
+    List.nth_opt value.static_reached 0 |> Option.map (fun (r, _, _, _, _) -> r)
+  in
+  if
+    Option.is_some value.static_completed
+    || (not (Frontend.Parser.static_initializer_is_current receipt))
+    || receipt.Frontend.Parser.static_allocation
+       != static_snapshot_receipt value
+    || receipt.static_leaf_index <> List.length value.static_reached
+    || not (Option.equal ( == ) previous receipt.static_leaf_predecessor)
+  then invalid "static metadata leaf is foreign, repeated or out of order"
+  else
+    match value.static_preparing with
+    | Some (original, selected)
+      when original == receipt.static_expression_preparation ->
+        let* _ =
+          prepare_stream_leaf selected ~value:receipt.static_leaf_value
+        in
+        let* () =
+          if stream_preparation_requires_settlement selected then
+            settle_stream_preparation selected
+          else Ok ()
+        in
+        let* cursor, (cell, byte, operation, scalar) =
+          stream_preparation_result selected
+        in
+        value.static_cursor <- cursor;
+        value.static_reached <-
+          (receipt, cell, byte, operation, scalar) :: value.static_reached;
+        value.static_preparing <- None;
+        Ok ()
+    | _ ->
+        invalid "static metadata leaf lacks its original expression preparation"
+
+let complete_static_snapshot value receipt =
+  let previous =
+    List.nth_opt value.static_reached 0 |> Option.map (fun (r, _, _, _, _) -> r)
+  in
+  if
+    Option.is_some value.static_completed
+    || Option.is_some value.static_preparing
+    || (not (Frontend.Parser.static_initializer_completion_is_current receipt))
+    || receipt.Frontend.Parser.static_completed_start.static_start_allocation
+       != static_snapshot_receipt value
+    || not (Option.equal ( == ) previous receipt.static_preparation)
+  then invalid "static metadata completion is foreign, repeated or out of order"
+  else (
+    value.static_completed <- Some receipt.static_declarator;
+    Ok ())
+
+let static_snapshot_matches value ~frame ~location =
+  let module Frame = Sema.Function_frame_layout in
+  match
+    ( Sema.Symbol_table.parent (Frame.function_scope frame),
+      value.static_completed )
+  with
+  | Some parent, Some local
+    when parent == value.static_parent
+         && Frame.location_kind location = Frame.Static_local
+         && Option.fold ~none:false ~some:(( == ) location)
+              (Frame.find_location frame (Frame.location_symbol location))
+         && local.Frontend.Ast.local_name
+            == Sema.Compiler_record.automatic_aggregate_local_name
+                 value.static_allocation ->
+      Result.is_ok
+        (Sema.Compiler_record.validate_automatic_aggregate
+           ~table:value.static_table ~parent
+           ~function_symbol:(Frame.function_symbol frame)
+           ~local_symbol:(Frame.location_symbol location)
+           ~local_name:local.local_name
+           ~checked_type:(Frame.location_checked_type location)
+           value.static_allocation)
+  | _ -> false
+
+let static_snapshot_layout value ~frame ~location ~shape ~source =
+  if
+    (not (static_snapshot_matches value ~frame ~location))
+    || Shape.byte_size shape <> Shape.byte_size value.static_shape
+    || Shape.dimensions shape <> Shape.dimensions value.static_shape
+    || not
+         (Option.fold ~none:false
+            ~some:(fun local ->
+              Option.fold ~none:false
+                ~some:(fun initial ->
+                  initial.Frontend.Ast.local_initializer_value
+                  == Source.source_ast source)
+                local.Frontend.Ast.local_initializer)
+            value.static_completed)
+  then invalid "static metadata layout has another frame, source or extent"
+  else
+    create_static_receipt
+      ~allocation:(static_snapshot_receipt value)
+      ~shape ~cursor:value.static_cursor
+      ~delimiters:(List.rev value.static_delimiters)
+      source
+      (List.rev value.static_reached)
 
 let begin_live declaration =
   let shape =

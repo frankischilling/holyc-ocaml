@@ -386,6 +386,13 @@ val select_automatic_aggregate :
     completion. The receipt does not grant storage or executable authority. *)
 
 val automatic_aggregate_record : automatic_aggregate_allocation -> t
+
+val automatic_aggregate_owns :
+  automatic_aggregate_allocation ->
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  bool
+
 val automatic_aggregate_size : automatic_aggregate_allocation -> int64
 val automatic_aggregate_type : automatic_aggregate_allocation -> Type.t
 

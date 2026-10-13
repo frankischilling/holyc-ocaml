@@ -291,6 +291,7 @@ val same_storage : storage_slot -> storage_slot -> bool
 
 val with_statics :
   ?source_allocations:Integer_static_allocation.t list ->
+  ?initializer_snapshots:Integer_initializer_layout.static_snapshot list ->
   span:Common.Span.t ->
   frames:Sema.Function_frame_layout.t ->
   functions:Sema.Function_call_expression_result.t ->
@@ -386,6 +387,8 @@ val create_with_layout :
   ?members:Sema.Aggregate_member_index.t ->
   layout:Sema.Global_array_layout.t ->
   ?initializers:Sema.Function_call_expression_result.top_level_t ->
+  ?initializer_layouts:
+    (Sema.Compiler_record.declared_global * Integer_initializer_layout.t) list ->
   span:Common.Span.t ->
   Sema.Global_record_classification.t ->
   (t, Common.Diagnostic.t list) result

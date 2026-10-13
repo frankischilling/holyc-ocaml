@@ -245,8 +245,30 @@ same globals and storage. IR and native source tasks check the result and exact
 execution and initializer limits. Reached output survives malformed later
 input; an initializer fault stops before that later input is parsed.
 
-Isolated AOT preparation of incomplete selections and other
-runtime class changes remain unfinished. Floating,
+Isolated source preparation retains global initializer layouts at the original
+parser callbacks. The completed consumer receives each leaf's selected scalar
+type, width and byte cursor rather than rebuilding them from a later completed
+member index. AOT globals can therefore initialize zero-byte forward members
+inside nonempty roots. A class completed before the initializer supplies its
+reached direct members; completion or replacement afterward cannot change an
+earlier leaf.
+
+Static class and union initializers retain separate layout snapshots from their
+original allocation, delimiters and expression boundaries. Completed frames
+must match the original function, local, nominal type, dimensions and source
+leaves. Those snapshots contain no computed values or successful execution
+receipts. Ordinary JIT static initializers activate the source task during the
+function's parsing; isolated consumers use the retained cursor when preparing
+their values. The
+[retained-layout example](../examples/retained-aot-initializer-layouts.hc)
+checks globals and statics before later completion and same-name replacement.
+It prints `A` and returns 42 in both modes and targets, and its static mutation
+survives the second call.
+
+Native AOT preparation counts closed class-offset expressions alongside other
+initializer work. Its reported allowance succeeds exactly; one less fails.
+Native effectful AOT static leaves retain their separate execution boundary.
+Other runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under

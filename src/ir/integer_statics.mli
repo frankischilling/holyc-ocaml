@@ -1,6 +1,7 @@
 type slot
 
 val create :
+  initializer_snapshots:Integer_initializer_layout.static_snapshot list ->
   allocations:Integer_static_allocation.t list ->
   span:Common.Span.t ->
   mode:Sema.Function_resolution.compilation_mode ->

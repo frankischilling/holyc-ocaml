@@ -92,7 +92,8 @@ let with_source_allocation ~allocation ~source slot =
 
 let ( let* ) = Result.bind
 
-let create ~allocations ~span ~mode ~start ~frames ~functions ~records =
+let create ~initializer_snapshots ~allocations ~span ~mode ~start ~frames
+    ~functions ~records =
   let invalid ?(code = "HCIRL0004") ?(at = span) message =
     Error
       [
@@ -105,6 +106,32 @@ let create ~allocations ~span ~mode ~start ~frames ~functions ~records =
     || mode <> Typed.compilation_mode functions
   then invalid "static storage has inconsistent compilation modes"
   else
+    let* () =
+      let rec check seen = function
+        | [] -> Ok ()
+        | snapshot :: rest ->
+            let receipt =
+              Integer_initializer_layout.static_snapshot_receipt snapshot
+            in
+            if
+              List.memq receipt seen
+              || not
+                   (List.exists
+                      (fun frame ->
+                        List.exists
+                          (fun location ->
+                            Integer_initializer_layout.static_snapshot_matches
+                              snapshot ~frame ~location)
+                          (Frame.function_locations frame))
+                      (Frame.functions frames))
+            then
+              invalid
+                "static initializer snapshot is duplicate or has no original \
+                 frame"
+            else check (receipt :: seen) rest
+      in
+      check [] initializer_snapshots
+    in
     let rec collect index reversed = function
       | [] -> Ok (List.rev reversed)
       | fn :: rest ->
@@ -314,15 +341,28 @@ let create ~allocations ~span ~mode ~start ~frames ~functions ~records =
                                 let create =
                                   match
                                     List.find_opt
-                                      (fun allocation ->
-                                        Integer_static_allocation.symbol
-                                          allocation
-                                        == symbol)
-                                      allocations
+                                      (fun snapshot ->
+                                        Integer_initializer_layout
+                                        .static_snapshot_matches snapshot ~frame
+                                          ~location)
+                                      initializer_snapshots
                                   with
-                                  | None -> Arrays.create
-                                  | Some allocation ->
-                                      Arrays.create_retained_static ~allocation
+                                  | Some snapshot ->
+                                      Arrays.create_static_snapshot ~snapshot
+                                        ~frame ~location
+                                  | None -> (
+                                      match
+                                        List.find_opt
+                                          (fun allocation ->
+                                            Integer_static_allocation.symbol
+                                              allocation
+                                            == symbol)
+                                          allocations
+                                      with
+                                      | None -> Arrays.create
+                                      | Some allocation ->
+                                          Arrays.create_retained_static
+                                            ~allocation)
                                 in
                                 create ~shape ~source ~roots:owned
                                   ~source_leaf:(fun root ->

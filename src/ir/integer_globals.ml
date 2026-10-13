@@ -682,8 +682,8 @@ let find_static globals symbol =
     (fun slot -> Integer_statics.symbol slot == symbol)
     globals.statics_
 
-let with_statics ?(source_allocations = []) ~span ~frames ~functions ~records
-    globals =
+let with_statics ?(source_allocations = []) ?(initializer_snapshots = []) ~span
+    ~frames ~functions ~records globals =
   let ( let* ) = Result.bind in
   let mode =
     match globals.mode with
@@ -691,7 +691,8 @@ let with_statics ?(source_allocations = []) ~span ~frames ~functions ~records
     | Resolution.Aot -> Sema.Function_resolution.Aot
   in
   let* statics_ =
-    Integer_statics.create ~allocations:source_allocations ~span ~mode
+    Integer_statics.create ~initializer_snapshots
+      ~allocations:source_allocations ~span ~mode
       ~start:globals.global_cell_count_ ~frames ~functions ~records
   in
   if
@@ -779,7 +780,7 @@ let find_allocated_storage globals symbol =
     (allocated_storage_slots globals)
 
 let create_impl ?task_view ?headers ?members ?layout ?initializers
-    ~span:unit_span records =
+    ?(initializer_layouts = []) ~span:unit_span records =
   let ( let* ) = Result.bind in
   let invalid message =
     Error
@@ -815,6 +816,59 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
         | Some _ ->
             invalid "global initializer roots have foreign declaration owners")
       (Ok Symbols.empty) roots
+  in
+  let* () =
+    let rec check seen = function
+      | [] -> Ok ()
+      | (declaration, source_layout) :: rest -> (
+          let symbol =
+            Sema.Compiler_record.declared_global_symbol declaration
+          in
+          if
+            List.memq symbol seen
+            || Option.is_none
+                 (Sema.Compiler_record.declared_global_completion declaration)
+            || not (Symbols.mem (Symbol.id symbol) roots)
+          then invalid "initializer layout is duplicate, incomplete or unowned"
+          else
+            match
+              List.find_opt
+                (fun record ->
+                  record |> Records.classified_record_source
+                  |> Resolution.global_record_symbol
+                  |> fun original -> original == symbol)
+                (Records.records records)
+            with
+            | None ->
+                invalid
+                  "initializer layout belongs to another global declaration"
+            | Some record ->
+                let* () =
+                  Sema.Compiler_record.validate_declared_global_type declaration
+                    (record |> Records.classified_record_source
+                   |> Resolution.global_record_global)
+                  |> Result.map_error (fun message ->
+                      [
+                        Common.Diagnostic.make ~code:"HCIRL0004"
+                          ~severity:Common.Diagnostic.Error ~message
+                          ~primary:unit_span ();
+                      ])
+                in
+                let shape = Shape.create_declared_global declaration in
+                if
+                  not
+                    (Result.fold
+                       ~error:(fun _ -> false)
+                       ~ok:
+                         (Integer_initializer_layout.belongs_to_declared_shape
+                            source_layout declaration)
+                       shape)
+                then
+                  invalid
+                    "initializer layout changed its original declared shape"
+                else check (symbol :: seen) rest)
+    in
+    check [] initializer_layouts
   in
   let rec collect index byte_size symbols reversed roots = function
     | [] ->
@@ -889,6 +943,12 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
             |> Result.get_ok
           else type_
         in
+        let original_initializer =
+          List.find_opt
+            (fun (declaration, _) ->
+              Sema.Compiler_record.declared_global_symbol declaration == symbol)
+            initializer_layouts
+        in
         if symbol != Global.global_symbol global || Option.is_none span then
           fail "HCIRL0004"
             "global storage has inconsistent symbol or source evidence"
@@ -951,10 +1011,22 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
           in
           let* shape =
             match
-              match members with
-              | Some members when Option.is_none callback ->
-                  Shape.create_global ?headers ~members ~global ~dimensions ()
-              | _ -> Shape.create ~type_:shape_type ~dimensions
+              match original_initializer with
+              | Some (declaration, _)
+                when Type.equal
+                       (Sema.Compiler_record.declared_global_type declaration
+                       |> Sema.Type_reference.resolved_type)
+                       declared_type
+                     && Sema.Compiler_record.declared_global_dimensions
+                          declaration
+                        = dimensions -> Shape.create_declared_global declaration
+              | Some _ -> Error Shape.Unsupported_type
+              | None -> (
+                  match members with
+                  | Some members when Option.is_none callback ->
+                      Shape.create_global ?headers ~members ~global ~dimensions
+                        ()
+                  | _ -> Shape.create ~type_:shape_type ~dimensions)
             with
             | Ok shape -> Ok shape
             | Error Shape.Overflow ->
@@ -1001,21 +1073,24 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
                           "array initializer has no original source manifest"
                     | Some source ->
                         let retained_layout =
-                          Option.bind task_view (fun view ->
-                              List.find_map
-                                (fun (_, reference, storage) ->
-                                  match storage with
-                                  | Declared prior
-                                    when Retained_global.symbol reference
-                                         == symbol
-                                         && prior.initializer_status = Complete
-                                    ->
-                                      Option.map
-                                        (fun layout ->
-                                          (prior.declaration, layout))
-                                        prior.completed_layout
-                                  | _ -> None)
-                                view.entries)
+                          match original_initializer with
+                          | Some _ as original -> original
+                          | None ->
+                              Option.bind task_view (fun view ->
+                                  List.find_map
+                                    (fun (_, reference, storage) ->
+                                      match storage with
+                                      | Declared prior
+                                        when Retained_global.symbol reference
+                                             == symbol
+                                             && prior.initializer_status
+                                                = Complete ->
+                                          Option.map
+                                            (fun layout ->
+                                              (prior.declaration, layout))
+                                            prior.completed_layout
+                                      | _ -> None)
+                                    view.entries)
                         in
                         let create =
                           match retained_layout with
@@ -1140,9 +1215,10 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
 let create ?headers ?members ?initializers ~span records =
   create_impl ?headers ?members ?initializers ~span records
 
-let create_with_layout ?task_view ?headers ?members ~layout ?initializers ~span
-    records =
-  create_impl ?task_view ~layout ?headers ?members ?initializers ~span records
+let create_with_layout ?task_view ?headers ?members ~layout ?initializers
+    ?initializer_layouts ~span records =
+  create_impl ?task_view ~layout ?headers ?members ?initializers
+    ?initializer_layouts ~span records
 
 let create_task_catalog ~table =
   {

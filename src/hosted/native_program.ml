@@ -843,7 +843,7 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                 in
                 let before = Task_declarations.offset_work ledger in
                 let observed =
-                  Task_declarations.observe
+                  Task_declarations.observe ~isolated_initializers:true
                     ~metadata_work_limit:
                       (Native_default_preparation.remaining_work preparation)
                     ledger event
@@ -853,7 +853,8 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                   | Frontend.Parser.Aggregate_advanced
                       {
                         phase_step =
-                          Frontend.Parser.Aggregate_member_metadata_reached _;
+                          ( Frontend.Parser.Aggregate_member_metadata_reached _
+                          | Frontend.Parser.Aggregate_offset_reached _ );
                         phase_location;
                         _;
                       } ->

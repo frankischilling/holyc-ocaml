@@ -653,6 +653,27 @@ val initializer_for :
   Frontend.Ast.global_initializer ->
   (Sema.Initializer_source.t, Common.Diagnostic.t list) result
 
+val source_static_initializer_snapshots :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Ir.Integer_initializer_layout.static_snapshot list,
+    Common.Diagnostic.t list )
+  result
+(** Original isolated static cursor metadata for this exact source seal. No
+    computed values, runtime admission or successful copy evidence is retained.
+*)
+
+val source_initializer_layouts :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( (Sema.Compiler_record.declared_global * Ir.Integer_initializer_layout.t) list,
+    Common.Diagnostic.t list )
+  result
+(** Original global initializer layouts, joined only to their exact declared
+    roots, leaves and storage extents. These supply metadata, not execution. *)
+
 val source_initializer_for :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -849,6 +870,7 @@ val observe_command :
 val observe :
   ?offset_runtime:Ir.Integer_interpreter.task_state ->
   ?metadata_work_limit:int ->
+  ?isolated_initializers:bool ->
   t ->
   Frontend.Parser.declaration_event ->
   (unit, Common.Diagnostic.t list) result

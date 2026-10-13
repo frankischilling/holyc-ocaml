@@ -118,6 +118,8 @@ type storage_boundary = {
   mutable storage_declaration : Sema.Compiler_record.declared_global option;
   storage_aggregate : Sema.Compiler_record.global_aggregate_allocation option;
   mutable storage_completion : Parser.declaration_event option;
+  mutable isolated_initializer : Ir.Integer_initializer_layout.live option;
+  mutable isolated_initializer_layout : Ir.Integer_initializer_layout.t option;
 }
 
 type reference_stage =
@@ -231,6 +233,11 @@ type command = {
   offsets : Sema.Compiler_record.aggregate_offset list;
   member_metadata : Sema.Compiler_record.member_metadata list;
   initializers : (Ast.global_initializer * Sema.Initializer_source.t) Names.t;
+  isolated_initializer_layouts :
+    (Sema.Compiler_record.declared_global * Ir.Integer_initializer_layout.t)
+    list;
+  isolated_static_snapshots :
+    Ir.Integer_initializer_layout.static_snapshot list;
   source_order : Sema.Task_command_order.command option;
 }
 
@@ -283,6 +290,8 @@ type pending_switch_case = {
 }
 
 type t = {
+  mutable isolated_static_snapshots :
+    Ir.Integer_initializer_layout.static_snapshot list;
   mutable callback_states : callback_state list;
   mutable source_callback_attempts :
     (Parser.completed_callback_default
@@ -476,6 +485,7 @@ let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
                   static_completions = [];
                   static_allocations_rev = [];
                   storage_boundaries = Names.create 16;
+                  isolated_static_snapshots = [];
                   last_storage_global = None;
                   session;
                   table;
@@ -2772,7 +2782,74 @@ let aggregate_callback_type ledger source =
       (return_type, pointer))
     (declared_callback_for ledger span (Some source))
 
-let observe ?offset_runtime ?metadata_work_limit ledger event =
+let checked_initializer_layout span = function
+  | Ok value -> value
+  | Error message ->
+      let prefix = "HCRUN0006: " in
+      let message =
+        if String.starts_with ~prefix message then
+          String.sub message (String.length prefix)
+            (String.length message - String.length prefix)
+        else message
+      in
+      fail ~code:"HCRUN0006" span message
+
+let begin_isolated_initializer ledger (start : Parser.global_initializer_start)
+    =
+  let publication = start.initializer_owner in
+  let span = start.initializer_equals.span in
+  let boundary = Names.find ledger.storage_boundaries publication.global_name in
+  match boundary.storage_aggregate with
+  | None -> ()
+  | Some _ ->
+      if Option.is_some boundary.isolated_initializer then
+        fail span "isolated initializer metadata was already started";
+      let assigned = find ledger publication.global_name in
+      let declaration =
+        match boundary.storage_declaration with
+        | Some declaration -> declaration
+        | None ->
+            let declaration =
+              Sema.Compiler_record.declare_global
+                ?aggregate_allocation:boundary.storage_aggregate
+                ~selected_aggregate:(selected_aggregate_for ledger)
+                ~dimensions:
+                  (selected_dimensions ledger publication.global_dimensions)
+                ~table:ledger.table ~namespace:ledger.namespace
+                ~predecessor:boundary.storage_predecessor
+                ~previous_global:boundary.storage_previous_global
+                assigned.publication
+              |> checked span
+            in
+            boundary.storage_declaration <- Some declaration;
+            declaration
+      in
+      boundary.isolated_initializer <-
+        Some
+          (Ir.Integer_initializer_layout.begin_live declaration
+          |> checked_initializer_layout span)
+
+let observe_isolated_initializer ledger publication span update =
+  let boundary =
+    Names.find ledger.storage_boundaries publication.Parser.global_name
+  in
+  Option.iter
+    (fun live ->
+      boundary.isolated_initializer <-
+        Some (update live |> checked_initializer_layout span))
+    boundary.isolated_initializer
+
+let observe_isolated_static ledger allocation span update =
+  Option.iter
+    (fun snapshot -> update snapshot |> checked_initializer_layout span)
+    (List.find_opt
+       (fun snapshot ->
+         Ir.Integer_initializer_layout.static_snapshot_receipt snapshot
+         == allocation)
+       ledger.isolated_static_snapshots)
+
+let observe ?offset_runtime ?metadata_work_limit
+    ?(isolated_initializers = false) ledger event =
   protect (fun () ->
       match event with
       | Parser.Callback_position_written receipt ->
@@ -3190,7 +3267,9 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
                 Sema.Initializer_source.begin_parser start
                 |> checked start.initializer_equals.span
               in
-              state.initializing <- Some pending
+              state.initializing <- Some pending;
+              if isolated_initializers then
+                begin_isolated_initializer ledger start
           | _ ->
               fail start.initializer_equals.span
                 "initializer start is foreign, repeated or out of order")
@@ -3208,7 +3287,11 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
             when original == publication ->
               Sema.Initializer_source.observe_parser_preparation pending
                 preparation
-              |> checked start.initializer_equals.span
+              |> checked start.initializer_equals.span;
+              observe_isolated_initializer ledger publication
+                start.initializer_equals.span (fun live ->
+                  Ir.Integer_initializer_layout.prepare_live_expression live
+                    preparation)
           | _ ->
               fail start.initializer_equals.span
                 "initializer preparation has no active original initializer")
@@ -3225,7 +3308,11 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
               }
             when original == publication ->
               Sema.Initializer_source.observe_parser_delimiter pending delimiter
-              |> checked start.initializer_equals.span
+              |> checked start.initializer_equals.span;
+              observe_isolated_initializer ledger publication
+                start.initializer_equals.span (fun live ->
+                  Ir.Integer_initializer_layout.observe_live_delimiter live
+                    delimiter)
           | _ ->
               fail start.initializer_equals.span
                 "initializer delimiter has no active original initializer")
@@ -3241,9 +3328,21 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
                 initializing = Some pending;
               }
             when original == publication ->
-              ignore
-                (Sema.Initializer_source.observe_parser_leaf pending leaf
-                |> checked start.initializer_equals.span)
+              let source_leaf =
+                Sema.Initializer_source.observe_parser_leaf pending leaf
+                |> checked start.initializer_equals.span
+              in
+              observe_isolated_initializer ledger publication
+                start.initializer_equals.span (fun live ->
+                  let ( let* ) = Result.bind in
+                  let* live, entry =
+                    Ir.Integer_initializer_layout.prepare_live live source_leaf
+                  in
+                  if Ir.Integer_initializer_layout.requires_settlement entry
+                  then
+                    Ir.Integer_initializer_layout.settle_live_entry live entry
+                    |> Result.map fst
+                  else Ok live)
           | _ ->
               fail start.initializer_equals.span
                 "initializer leaf has no active original initializer")
@@ -3289,6 +3388,8 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
               storage_declaration = None;
               storage_aggregate;
               storage_completion = None;
+              isolated_initializer = None;
+              isolated_initializer_layout = None;
             };
           ledger.last_storage_global <-
             Some
@@ -3466,7 +3567,31 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
                 (fun allocation ->
                   state.automatic_aggregate_allocations <-
                     allocation :: state.automatic_aggregate_allocations)
-                automatic_aggregate
+                automatic_aggregate;
+              if
+                isolated_initializers
+                && receipt.allocation_storage = Ast.Static_local
+                && Option.is_some receipt.allocation_initializer_equals
+              then
+                Option.iter
+                  (fun allocation ->
+                    let snapshot =
+                      Ir.Integer_initializer_layout.begin_static_snapshot
+                        ~table:ledger.table
+                        ~parent:(Collection.namespace_scope ledger.namespace)
+                        ~allocation
+                        ~dimensions:
+                          (match receipt.allocation_local.local_source with
+                          | Parser.Local_variable source ->
+                              selected_dimensions ledger
+                                source.local_array_dimensions
+                              |> List.map Sema.Compiler_record.dimension_count
+                          | _ -> [])
+                      |> checked_initializer_layout span
+                    in
+                    ledger.isolated_static_snapshots <-
+                      snapshot :: ledger.isolated_static_snapshots)
+                  automatic_aggregate
           | _ -> fail span "local allocation belongs to another declaration")
       | Parser.Static_initializer_delimiter_completed receipt ->
           let publication =
@@ -3505,7 +3630,12 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
           (match (find ledger publication.function_name).source with
           | Function state when state.publication == publication -> ()
           | _ -> fail span "static delimiter belongs to another declaration");
-          ledger.static_delimiters <- receipt :: ledger.static_delimiters
+          ledger.static_delimiters <- receipt :: ledger.static_delimiters;
+          observe_isolated_static ledger
+            receipt.static_delimiter_start.static_start_allocation span
+            (fun snapshot ->
+              Ir.Integer_initializer_layout.observe_static_snapshot_delimiter
+                snapshot receipt)
       | Parser.Static_initializer_expression_preparing receipt ->
           let publication =
             receipt.static_expression_start.static_start_allocation
@@ -3534,7 +3664,12 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
               fail span
                 "static expression preparation belongs to another declaration");
           ledger.static_expression_preparations <-
-            receipt :: ledger.static_expression_preparations
+            receipt :: ledger.static_expression_preparations;
+          observe_isolated_static ledger
+            receipt.static_expression_start.static_start_allocation span
+            (fun snapshot ->
+              Ir.Integer_initializer_layout.prepare_static_snapshot_expression
+                snapshot receipt)
       | Parser.Static_initializer_preparing receipt ->
           let publication = receipt.static_allocation.allocation_function in
           let span = publication.function_name.location.span in
@@ -3569,7 +3704,11 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
           (match (find ledger publication.function_name).source with
           | Function state when state.publication == publication -> ()
           | _ -> fail span "static preparation belongs to another declaration");
-          ledger.static_preparations <- receipt :: ledger.static_preparations
+          ledger.static_preparations <- receipt :: ledger.static_preparations;
+          observe_isolated_static ledger receipt.static_allocation span
+            (fun snapshot ->
+              Ir.Integer_initializer_layout.prepare_static_snapshot_leaf
+                snapshot receipt)
       | Parser.Static_initializer_completed receipt ->
           let publication =
             receipt.static_completed_start.static_start_allocation
@@ -3577,6 +3716,11 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
           in
           let span = publication.function_name.location.span in
           validate_command ledger publication.function_header;
+          observe_isolated_static ledger
+            receipt.static_completed_start.static_start_allocation span
+            (fun snapshot ->
+              Ir.Integer_initializer_layout.complete_static_snapshot snapshot
+                receipt);
           let observed_last =
             match List.nth_opt ledger.static_preparations 0 with
             | Some preparation
@@ -3700,6 +3844,16 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
                   |> checked completed.location.span)
                 boundary.storage_declaration;
               boundary.storage_completion <- Some event;
+              Option.iter
+                (fun live ->
+                  let source =
+                    snd (Names.find ledger.initializers completed.name)
+                  in
+                  boundary.isolated_initializer_layout <-
+                    Some
+                      (Ir.Integer_initializer_layout.complete_live live source
+                      |> checked_initializer_layout completed.location.span))
+                boundary.isolated_initializer;
               state.completed <- Some completed
           | _ ->
               fail publication.global_name.location.span
@@ -3897,8 +4051,12 @@ let observe ?offset_runtime ?metadata_work_limit ledger event =
               fail publication.function_name.location.span
                 "function body completion is foreign, repeated or out of order"))
 
-let observe ?offset_runtime ?metadata_work_limit ledger event =
-  let observed = observe ?offset_runtime ?metadata_work_limit ledger event in
+let observe ?offset_runtime ?metadata_work_limit ?isolated_initializers ledger
+    event =
+  let observed =
+    observe ?offset_runtime ?metadata_work_limit ?isolated_initializers ledger
+      event
+  in
   let observed =
     Result.bind observed (fun () ->
         match ledger.authority with
@@ -4932,6 +5090,37 @@ let seal ledger (ast : Ast.module_) =
                         (Dimensions.find_opt ledger.checked_dimensions dimension);
                       checked)
                     dimensions (Dimensions.create 16);
+                isolated_initializer_layouts =
+                  List.filter_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Global state ->
+                          let boundary =
+                            Names.find ledger.storage_boundaries
+                              state.publication.global_name
+                          in
+                          Option.bind boundary.isolated_initializer_layout
+                            (fun layout ->
+                              Option.map
+                                (fun declaration -> (declaration, layout))
+                                boundary.storage_declaration)
+                      | _ -> None)
+                    !claimed;
+                isolated_static_snapshots =
+                  List.filter
+                    (fun snapshot ->
+                      let receipt =
+                        Ir.Integer_initializer_layout.static_snapshot_receipt
+                          snapshot
+                      in
+                      List.exists
+                        (fun assigned ->
+                          match assigned.source with
+                          | Function state ->
+                              state.publication == receipt.allocation_function
+                          | _ -> false)
+                        !claimed)
+                    ledger.isolated_static_snapshots;
                 switches =
                   List.filter
                     (fun prepared ->
@@ -7071,6 +7260,19 @@ let initializer_for ~table ~ast (command : command) name initial =
 
 let source_initializer_for ~table ~ast (Source_command command) name initial =
   initializer_for ~table ~ast command name initial
+
+let source_initializer_layouts ~table ~ast (Source_command command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "initializer layouts belong to another source seal";
+      command.isolated_initializer_layouts)
+
+let source_static_initializer_snapshots ~table ~ast (Source_command command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "static initializer snapshots belong to another source seal";
+      command.isolated_static_snapshots)
 
 let command_order ~runtime ~table ~ast (command : command) =
   protect (fun () ->

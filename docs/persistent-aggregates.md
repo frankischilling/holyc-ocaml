@@ -35,8 +35,17 @@ reached expression executes once during parsing, including a zero-byte forward
 member inside a nonempty allocation. That member copies no bytes; the following
 direct member keeps the same initializer cursor. The
 [ordinary-source example](../examples/source-aggregate-initializers.hc) checks
-this timing without a `#exe` block. Isolated AOT preparation of incomplete
-selections remains open.
+this timing without a `#exe` block and now runs in both source modes. AOT's
+scheduled leaves retain their load-time behavior.
+
+Isolated global and static initializers keep their original layout metadata
+through later class completion or replacement. Completed consumers join those
+snapshots to the exact source leaves and declared storage, preserving zero-byte
+copies and the original byte cursor. The
+[retained-layout example](../examples/retained-aot-initializer-layouts.hc) checks
+both kinds of storage and a static mutation across calls. Layout snapshots grant
+no computed-value or execution authority. Native effectful AOT static
+initialization remains open.
 
 The source shape distinguishes class elements from physical byte cells. Two
 three-byte class elements have an object count of two, six byte cells and a

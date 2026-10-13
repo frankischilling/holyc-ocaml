@@ -224,6 +224,81 @@ let ordering () =
   reject "AST-only leaf has no delimiter authority"
     (Layout.prepare_live initial reconstructed)
 
+let isolated_snapshots () =
+  let text =
+    "extern class Item;class Box{Item item;U8 tail;$$=8;};Box \
+     global={7,42};I64 F(){static Box object={7,42};return object.tail;}class \
+     Item{U16 value;};"
+  in
+  let session, source, ledger = Test_source_promotion.inputs text in
+  let delimiters = ref [] and leaves = ref [] and completions = ref [] in
+  let declaration event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Static_initializer_delimiter_completed receipt ->
+            delimiters := receipt :: !delimiters
+        | Parser.Static_initializer_preparing receipt ->
+            leaves := receipt :: !leaves
+        | Parser.Static_initializer_completed receipt ->
+            completions := receipt :: !completions
+        | _ -> ())
+      (D.observe ~isolated_initializers:true ledger event)
+  in
+  let parsed =
+    Test_source_promotion.parse ~mode:Preprocessor.Aot ~declaration session
+      source ledger
+  in
+  let ast = Test_parser.expect_ast parsed in
+  let command = D.seal_source ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let layouts = D.source_initializer_layouts ~table ~ast command |> expect in
+  let snapshots =
+    D.source_static_initializer_snapshots ~table ~ast command |> expect
+  in
+  Alcotest.(check int) "one original global cursor" 1 (List.length layouts);
+  Alcotest.(check int) "one original static cursor" 1 (List.length snapshots);
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  let foreign_table = Session.semantic_symbols (Session.create ()) in
+  reject "global layouts reject another table"
+    (D.source_initializer_layouts ~table:foreign_table ~ast command);
+  reject "static snapshots reject another table"
+    (D.source_static_initializer_snapshots ~table:foreign_table ~ast command);
+  let cloned_ast = Obj.obj (Obj.dup (Obj.repr ast)) in
+  reject "global layouts reject a copied source seal"
+    (D.source_initializer_layouts ~table ~ast:cloned_ast command);
+  reject "static snapshots reject a copied source seal"
+    (D.source_static_initializer_snapshots ~table ~ast:cloned_ast command);
+  let snapshot = List.hd snapshots in
+  List.iter
+    (fun receipt ->
+      reject "completed static cursor cannot replay a delimiter"
+        (Layout.observe_static_snapshot_delimiter snapshot receipt);
+      reject "copied delimiter cannot reopen a static cursor"
+        (Layout.observe_static_snapshot_delimiter snapshot
+           (Obj.obj (Obj.dup (Obj.repr receipt)))))
+    !delimiters;
+  List.iter
+    (fun receipt ->
+      reject "completed static cursor cannot replay a leaf"
+        (Layout.prepare_static_snapshot_leaf snapshot receipt))
+    !leaves;
+  List.iter
+    (fun receipt ->
+      reject "static cursor completion is once-only"
+        (Layout.complete_static_snapshot snapshot receipt))
+    !completions;
+  let foreign = Test_integer_globals.compile ~mode:Preprocessor.Aot text in
+  let globals = integer_program_globals foreign in
+  let slot = Ir_integer_globals.statics globals |> List.hd in
+  let frame = Ir_integer_globals.static_frame slot
+  and location = Ir_integer_globals.static_location slot in
+  Alcotest.(check bool)
+    "same-spelling foreign static has no snapshot" false
+    (Layout.static_snapshot_matches snapshot ~frame ~location)
+
 let tests =
   [
     Alcotest.test_case "scalar and fixed row traversal" `Quick scalars;
@@ -238,4 +313,6 @@ let tests =
       delimiter_timing;
     Alcotest.test_case "completion requires trailing delimiters" `Quick
       missing_trailing_delimiter;
+    Alcotest.test_case "isolated source cursors and foreign static frames"
+      `Quick isolated_snapshots;
   ]

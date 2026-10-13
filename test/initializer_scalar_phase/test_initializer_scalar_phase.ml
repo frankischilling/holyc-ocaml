@@ -164,9 +164,20 @@ let reached_width_and_replacement () =
       match receipt.aggregate_publication.aggregate_name.spelling with
       | "Box" ->
           let node = first_member ~resolve state in
-          reject "ordinary traversal still requires completion" (Init.view node);
+          let selected =
+            match Init.view node |> checked with
+            | Init.Scalar scalar -> scalar
+            | Init.Aggregate _ ->
+                Alcotest.fail "original forward selects a scalar leaf"
+          in
+          Alcotest.(check int)
+            "original forward traversal copies zero bytes" 0
+            (Init.scalar_byte_size selected);
           let first = Init.begin_scalar_evaluation node |> checked in
           let second = Init.begin_scalar_evaluation node |> checked in
+          Alcotest.(check bool)
+            "traversal and evaluation retain the same selected class" true
+            (Init.scalar_equal selected (Init.scalar_evaluation_before first));
           Alcotest.(check int)
             "cached forward width before evaluation" 0
             (Init.scalar_byte_size (Init.scalar_evaluation_before first));

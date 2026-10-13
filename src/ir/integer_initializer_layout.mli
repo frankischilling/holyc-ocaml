@@ -4,6 +4,54 @@ type t
 type live
 type stream
 type stream_preparation
+type static_snapshot
+
+val begin_static_snapshot :
+  table:Sema.Symbol_table.t ->
+  parent:Sema.Symbol_table.scope ->
+  allocation:Sema.Compiler_record.automatic_aggregate_allocation ->
+  dimensions:int64 list ->
+  (static_snapshot, string) result
+
+val static_snapshot_receipt :
+  static_snapshot -> Frontend.Parser.function_local_allocation
+
+val observe_static_snapshot_delimiter :
+  static_snapshot ->
+  Frontend.Parser.completed_static_initializer_delimiter ->
+  (unit, string) result
+
+val prepare_static_snapshot_expression :
+  static_snapshot ->
+  Frontend.Parser.static_leaf_preparation ->
+  (unit, string) result
+
+val prepare_static_snapshot_leaf :
+  static_snapshot ->
+  Frontend.Parser.static_initializer_preparation ->
+  (unit, string) result
+
+val complete_static_snapshot :
+  static_snapshot ->
+  Frontend.Parser.completed_static_initializer ->
+  (unit, string) result
+
+val static_snapshot_matches :
+  static_snapshot ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  location:Sema.Function_frame_layout.location ->
+  bool
+
+val static_snapshot_layout :
+  static_snapshot ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  location:Sema.Function_frame_layout.location ->
+  shape:Integer_storage_shape.t ->
+  source:Sema.Initializer_source.t ->
+  (t, string) result
+(** Original static layout metadata only, without evaluated values or successful
+    execution receipts. The completed consumer must retain its original frame,
+    local, source leaves, shape and delimiter sequence. *)
 
 val begin_stream : Integer_storage_shape.t -> stream
 

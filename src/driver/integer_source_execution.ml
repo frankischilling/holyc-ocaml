@@ -368,7 +368,9 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                            as phase) ) ->
                         let* task = ensure_task phase.phase_location.span in
                         Task.observe_source_offset task ledger event
-                    | _ -> Task_declarations.observe ledger event
+                    | _ ->
+                        Task_declarations.observe
+                          ~isolated_initializers:(not is_jit) ledger event
                   in
                   match (is_jit, !task, event) with
                   | true, None, Parser.Global_initializer_started start
@@ -405,8 +407,13 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                          && Option.is_some receipt.allocation_initializer_equals
                          &&
                          match receipt.allocation_local.local_source with
-                         | Parser.Local_variable source ->
+                         | Parser.Local_variable source -> (
                              Option.is_some source.local_function_pointer
+                             || source.local_pointer_layers = []
+                                &&
+                                match source.local_type_specifier with
+                                | Frontend.Ast.Named_type_specifier _ -> true
+                                | _ -> false)
                          | _ -> false ->
                       ensure_task
                         receipt.allocation_function.function_name.location.span

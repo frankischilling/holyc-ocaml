@@ -17,6 +17,16 @@ val create_retained_static :
   source_leaf:('root -> Sema.Initializer_source.leaf option) ->
   ('root t, string) result
 
+val create_static_snapshot :
+  snapshot:Integer_initializer_layout.static_snapshot ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  location:Sema.Function_frame_layout.location ->
+  shape:Integer_storage_shape.t ->
+  source:Sema.Initializer_source.t ->
+  roots:'root list ->
+  source_leaf:('root -> Sema.Initializer_source.leaf option) ->
+  ('root t, string) result
+
 val create_retained :
   declaration:Sema.Compiler_record.declared_global ->
   layout:Integer_initializer_layout.t ->

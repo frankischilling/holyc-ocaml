@@ -2382,6 +2382,16 @@ runs through IR and native source tasks with exact and one-below execution and
 initializer limits. Existing AOT cases retain their separate source table and
 preparation path.
 
-Isolated AOT incomplete-class preparation, other leaf
+Isolated initializer cases cover original forward selections, completion before
+and after initialization, same-name replacement, direct and inherited member
+cursors, fixed member arrays, root arrays and static mutation across calls.
+Shared IR/native tests run the supported families in both modes. The public CLI
+checks both ordinary-source and retained-layout examples with exact and
+one-below limits. The native AOT work check includes closed class-offset
+preparation. Source-seal tests reject another table and copied ASTs; static
+snapshot tests reject replayed delimiters, leaves, completion and foreign frames.
+Metadata snapshots never replace successful copy or value execution evidence.
+
+Native effectful AOT static initialization, other leaf
 families and full aggregate parity remain open.
 No TempleOS runtime or emitted-byte capture is included.

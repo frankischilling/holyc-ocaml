@@ -30,20 +30,22 @@ let has_unprepared initializers =
 let ( let* ) = Result.bind
 let invalid detail = Error ("HCIRL0004: array initializer " ^ detail)
 
-let create_impl ~static_allocation ~retained_layout ~shape ~source ~roots
-    ~source_leaf =
+let create_impl ~source_layout ~static_allocation ~retained_layout ~shape
+    ~source ~roots ~source_leaf =
   let* layout =
-    match retained_layout with
-    | None -> (
+    match (source_layout, retained_layout) with
+    | Some layout, None when Layout.source layout == source -> Ok layout
+    | Some _, _ -> invalid "source layout has another original initializer"
+    | None, None -> (
         match static_allocation with
         | None -> Layout.create ~shape source
         | Some allocation ->
             Integer_static_allocation.retained_layout allocation ~shape source)
-    | Some (declaration, layout)
+    | None, Some (declaration, layout)
       when Layout.source layout == source
            && Layout.belongs_to_declared_shape layout declaration shape ->
         Ok layout
-    | Some _ ->
+    | None, Some _ ->
         invalid "retained layout has another declaration, source or extent"
   in
   let rec join reversed roots destinations =
@@ -63,17 +65,25 @@ let create_impl ~static_allocation ~retained_layout ~shape ~source ~roots
   Ok { entries; scalar = Integer_storage_shape.scalar shape; steps = 0 }
 
 let create ~shape ~source ~roots ~source_leaf =
-  create_impl ~static_allocation:None ~retained_layout:None ~shape ~source
-    ~roots ~source_leaf
+  create_impl ~source_layout:None ~static_allocation:None ~retained_layout:None
+    ~shape ~source ~roots ~source_leaf
+
+let create_static_snapshot ~snapshot ~frame ~location ~shape ~source ~roots
+    ~source_leaf =
+  let* source_layout =
+    Layout.static_snapshot_layout snapshot ~frame ~location ~shape ~source
+  in
+  create_impl ~source_layout:(Some source_layout) ~static_allocation:None
+    ~retained_layout:None ~shape ~source ~roots ~source_leaf
 
 let create_retained ~declaration ~layout ~shape ~source ~roots ~source_leaf =
-  create_impl ~static_allocation:None
+  create_impl ~source_layout:None ~static_allocation:None
     ~retained_layout:(Some (declaration, layout))
     ~shape ~source ~roots ~source_leaf
 
 let create_retained_static ~allocation ~shape ~source ~roots ~source_leaf =
-  create_impl ~static_allocation:(Some allocation) ~retained_layout:None ~shape
-    ~source ~roots ~source_leaf
+  create_impl ~source_layout:None ~static_allocation:(Some allocation)
+    ~retained_layout:None ~shape ~source ~roots ~source_leaf
 
 let storage_payload entry payload =
   match (payload, Layout.scalar entry.destination) with

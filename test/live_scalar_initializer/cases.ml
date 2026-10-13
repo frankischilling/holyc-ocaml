@@ -35,7 +35,7 @@ StreamPrint("%%d;",Check());
 }|}
     raw
 
-let jit_values =
+let ordinary_source_values =
   [
     ( "ordinary source activates before a zero-byte member initializer",
       {|extern class Item;class Box{Item item;U8 tail;$$=8;};Box object={7,42};I64 F(){return object.tail;}F();|},
@@ -61,6 +61,10 @@ let jit_values =
     ( "ordinary source aggregate arrays retain each initializer effect",
       {|I64 calls=0;extern class Item;class Box{Item item;U8 tail[2];$$=8;};I64 Next(I64 n){calls++;if(n==40)Print("A");return n;}Box objects[2]={{Next(40),{40,2}},{Next(2),{1,1}}};I64 F(){if(calls!=2)return -1;return objects[0].tail[0]+objects[0].tail[1];}F();|},
       "A" );
+  ]
+
+let jit_values =
+  [
     ("callee completes the cached scalar class", current_leaf, "A");
     ("callee completion includes child runtime metadata", nested_metadata, "A");
     ( "lookahead completes the cached scalar class",
@@ -251,8 +255,26 @@ let backed_values =
   ]
 
 let both_values =
-  backed_values
+  ordinary_source_values @ backed_values
   @ [
+      ( "global initialization retains the forward through same-name replacement",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};class Item{U16 value;};class Item{U8 replacement;};I64 F(){return object.tail;}F();|},
+        "A" );
+      ( "global initialization sees completion before its original start",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};class Item{U16 value;};I64 Next(){Print("A");return 7;}Box object={{Next()},42};I64 F(){U8 *p=(&object)(U8*);return p[2];}F();|},
+        "A" );
+      ( "static initialization keeps the earlier scalar branch after completion",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={7,42};return object.tail;}class Item{U16 value;};#exe{Print("A");}F();|},
+        "A" );
+      ( "static initialization survives same-name class replacement",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={7,42};return object.tail;}class Item{U16 value;};class Item{U8 replacement;};#exe{Print("A");}F();|},
+        "A" );
+      ( "static initialization remains once-only across later calls",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={7,40};return ++object.tail;}class Item{U16 value;};#exe{Print("A");}I64 Check(){F();F();return F()-1;}Check();|},
+        "A" );
+      ( "static member arrays retain their original zero-byte cursor",
+        {|extern class Item;class Box{Item items[2];U8 tail;$$=8;};I64 F(){static Box object={{7,9},42};return object.tail;}class Item{U16 value;};#exe{Print("A");}F();|},
+        "A" );
       ( "uncompleted scalar consumes zero bytes before the next leaf",
         {|#exe {extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Side(){Print("A");return 7;}Box object={Side(),42};StreamPrint("%d;",object.tail);}|},
         "A" );

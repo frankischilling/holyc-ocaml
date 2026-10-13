@@ -211,8 +211,17 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               ast
           in
           let typed = Integer_source.top_level prepared in
+          let* initializer_layouts =
+            match source_command with
+            | None -> Ok []
+            | Some command ->
+                Task_declarations.source_initializer_layouts
+                  ~table:(Session.semantic_symbols session)
+                  ~ast command
+          in
           let* globals_ =
             Ir.Integer_globals.create_with_layout ?task_view
+              ~initializer_layouts
               ~members:(Integer_source.aggregate_members prepared)
               ~headers:(Integer_source.aggregate_headers prepared)
               ~layout:(Integer_source.global_layouts prepared)
@@ -305,8 +314,17 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     ]))
               task_view
           in
+          let* initializer_snapshots =
+            match source_command with
+            | None -> Ok []
+            | Some command ->
+                Task_declarations.source_static_initializer_snapshots
+                  ~table:(Session.semantic_symbols session)
+                  ~ast command
+          in
           let* globals_ =
             Ir.Integer_globals.with_statics ~span:ast.span
+              ~initializer_snapshots
               ?source_allocations:
                 (Option.map Ir.Integer_globals.private_static_allocations
                    task_view)

@@ -238,15 +238,6 @@ let of_record ?resolve ~type_ original =
                           (node seen
                              (Type_reference.resolved_type backing)
                              saved)
-                    | Some None
-                      when (not
-                              (Record.aggregate_initializer_is_complete record))
-                           && not
-                                (Record.aggregate_initializer_is_definition
-                                   record) ->
-                        invalid
-                          "requires a completed selected class; live forward \
-                           completion is not yet supported"
                     | Some None -> (
                         if not (Record.aggregate_initializer_has_members record)
                         then invalid "has no original direct member list"

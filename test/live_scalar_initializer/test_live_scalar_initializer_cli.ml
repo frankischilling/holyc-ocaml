@@ -49,7 +49,7 @@ let invoke compiler example target mode options status =
         "JSON scalar copy diagnostics escaped to stderr";
       Yojson.Safe.from_string output)
 
-let success expected report =
+let success ?(output_hex = "41") expected report =
   require
     (member "outcome" report = `String "success")
     (Yojson.Safe.to_string report);
@@ -57,7 +57,7 @@ let success expected report =
     (report |> member "final_value" |> member "value" = `String expected)
     "original scalar cursor and saved table result";
   require
-    (member "output_hex" report = `String "41")
+    (member "output_hex" report = `String output_hex)
     "callee output occurred exactly once";
   require
     (member "diagnostics" report = `List [])
@@ -124,28 +124,31 @@ let () =
     examples;
   List.iter
     (fun target ->
-      let source_example =
-        Filename.concat (Filename.dirname example)
-          "source-aggregate-initializers.hc"
-      in
-      let run options status =
-        invoke compiler source_example target "jit" options status
-      in
-      let baseline = run [] 0 in
-      success "42" baseline;
-      let work = member "compiled_initializer_steps" baseline |> to_int
-      and steps = member "executed_steps" baseline |> to_int in
-      success "42"
-        (run
-           [
-             Printf.sprintf "--initializer-step-limit=%d" work;
-             Printf.sprintf "--step-limit=%d" steps;
-           ]
-           0);
-      failure "HCIRVM0007"
-        (run [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ] 1);
-      failure "HCIRVM0007"
-        (run [ Printf.sprintf "--step-limit=%d" (steps - 1) ] 1))
+      List.iter
+        (fun mode ->
+          let source_example =
+            Filename.concat (Filename.dirname example)
+              "source-aggregate-initializers.hc"
+          in
+          let run options status =
+            invoke compiler source_example target mode options status
+          in
+          let baseline = run [] 0 in
+          success "42" baseline;
+          let work = member "compiled_initializer_steps" baseline |> to_int
+          and steps = member "executed_steps" baseline |> to_int in
+          success "42"
+            (run
+               [
+                 Printf.sprintf "--initializer-step-limit=%d" work;
+                 Printf.sprintf "--step-limit=%d" steps;
+               ]
+               0);
+          failure "HCIRVM0007"
+            (run [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ] 1);
+          failure "HCIRVM0007"
+            (run [ Printf.sprintf "--step-limit=%d" (steps - 1) ] 1))
+        [ "jit"; "aot" ])
     targets;
   let probe = Filename.temp_file "holyc static grammar " ".hc" in
   Fun.protect
@@ -171,6 +174,14 @@ let () =
           List.iter
             (fun mode ->
               List.iter
+                (fun (_, source, output) ->
+                  write source;
+                  success
+                    ~output_hex:(if output = "A" then "41" else "")
+                    "42"
+                    (invoke compiler probe target mode [] 0))
+                Cases.ordinary_source_values;
+              List.iter
                 (fun (_, source, _) ->
                   write source;
                   success "42" (invoke compiler probe target mode [] 0))
@@ -192,13 +203,29 @@ let () =
                   failure "HCIRVM0007"
                     (invoke compiler forward_example target mode
                        [ Printf.sprintf "--step-limit=%d" (steps - 1) ]
-                       1))
+                       1);
+                  if filename = "retained-aot-initializer-layouts.hc" then (
+                    let work =
+                      member "compiled_initializer_steps" baseline |> to_int
+                    in
+                    success "42"
+                      (invoke compiler forward_example target mode
+                         [ Printf.sprintf "--initializer-step-limit=%d" work ]
+                         0);
+                    failure "HCIRVM0007"
+                      (invoke compiler forward_example target mode
+                         [
+                           Printf.sprintf "--initializer-step-limit=%d"
+                             (work - 1);
+                         ]
+                         1)))
                 [
                   "backed-forward-initializers.hc";
                   "class-body-initializers.hc";
                   "class-body-member-reads.hc";
                   "class-body-top-level-members.hc";
                   "class-body-callback-fields.hc";
+                  "retained-aot-initializer-layouts.hc";
                 ])
             [ "jit"; "aot" ];
           write Cases.static_before_nested_brace;

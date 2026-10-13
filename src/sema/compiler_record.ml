@@ -181,6 +181,11 @@ let automatic_aggregate_source allocation = allocation.automatic_source
 let automatic_aggregate_local_name allocation = allocation.automatic_name
 let automatic_aggregate_record allocation = allocation.automatic_record
 
+let automatic_aggregate_owns allocation ~table ~parent =
+  allocation.automatic_table == table
+  && Declaration_collection.namespace_scope allocation.automatic_namespace
+     == parent
+
 let static_initializer_aggregate_matches ~table ~namespace ~publication ~source
     allocation =
   allocation.automatic_table == table
