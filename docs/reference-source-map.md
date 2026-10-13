@@ -2411,5 +2411,17 @@ copy receipt. Shared IR/native cases and the
 check completion, replacement, zero-byte members, arrays, statics and quota
 edges. Source-seal, parser-replay and foreign-frame tests check rejection.
 Closed offset preparation is included in native AOT's initializer work meter.
-These checks add no TempleOS runtime or emitted-byte capture. Native effectful
-AOT static initialization and wider initializer value families remain open.
+These checks add no TempleOS runtime or emitted-byte capture.
+
+The nonconstant AOT branch in complete `PrsVarInit` zeroes the selected
+destination and emits its load-time assignment. Complete `PrsStaticInit` wraps
+that work in `IET_MAIN`. Native scalar static-load receipts retain the original
+leaf, allocation and selected cursor without a computed value. Completed source
+typing checks original references, and the compiled bundle checks the exact
+scheduled root, frame and region. Native entry static addresses require an
+instruction in a sealed load region of the same declaring frame. Closed leaves
+retain prepared image bytes. The
+[static-load example](../examples/native-aot-static-initializers.hc) and shared
+IR/native cases check load order, zero-byte leaves, earlier statics, original
+function selection, repeated mutations and retained fault output. Nonconstant
+AOT statics with globals-on-data-heap and wider initializer families remain open.

@@ -212,6 +212,24 @@ val prepare_native_static :
 
 val native_static_evidence : t -> native_static_preparation list
 
+val prepare_native_static_load :
+  source:Sema.Static_initializer_fragment.load ->
+  scalar:Sema.Initializer_type.scalar option ->
+  cell_offset:int ->
+  byte_offset:int ->
+  operation:Ir.Integer_initializer_layout.operation ->
+  (native_static_preparation, Common.Diagnostic.t list) result
+(** Retain a current AOT leaf and selected cursor for a checked static load-time
+    region. No prepared payload or successful execution is claimed. *)
+
+val native_static_is_load : native_static_preparation -> bool
+
+val native_static_load_roots :
+  t ->
+  (Ir.Integer_globals.static_slot
+  * Sema.Function_call_expression_result.initializer_result)
+  list
+
 val native_static_receipt :
   native_static_preparation -> Frontend.Parser.static_initializer_preparation
 

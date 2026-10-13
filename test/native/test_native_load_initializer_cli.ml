@@ -180,6 +180,63 @@ let () =
     [ "0"; "17"; "0xffffffffffffffff" ]
 
 let () =
+  let static_example =
+    Filename.concat (Filename.dirname example)
+      "native-aot-static-initializers.hc"
+  in
+  let ir = invoke ~target:"ir" static_example in
+  let native = invoke static_example in
+  success ir;
+  success native;
+  List.iter
+    (fun field ->
+      require
+        (member field ir = member field native)
+        ("original static load IR/native agreement: " ^ field))
+    [ "final_value"; "executed_steps"; "output_hex" ];
+  let steps = member "executed_steps" native |> to_int in
+  List.iter
+    (fun target ->
+      let baseline = if target = "ir" then ir else native in
+      let work = member "compiled_initializer_steps" baseline |> to_int in
+      for _ = 1 to 3 do
+        success
+          (invoke ~target
+             ~options:
+               [
+                 "--step-limit=" ^ string_of_int steps;
+                 "--initializer-step-limit=" ^ string_of_int work;
+               ]
+             static_example)
+      done;
+      error
+        (invoke ~target ~status:1
+           ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+           static_example)
+        "HCIRVM0007" "41";
+      error
+        (invoke ~target ~status:1
+           ~options:[ "--initializer-step-limit=" ^ string_of_int (work - 1) ]
+           static_example)
+        "HCIRVM0007" "")
+    [ "ir"; "host-jit" ];
+  List.iter
+    (fun source ->
+      with_file ".hc" source (fun path ->
+          let native = invoke ~status:1 path
+          and ir = invoke ~target:"ir" ~status:1 path in
+          error native "HCIRVM0009" "41";
+          error ir "HCIRVM0009" "41";
+          require
+            (member "executed_steps" native = member "executed_steps" ir)
+            "original static load fault work"))
+    [
+      "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"A\");return 0;}I64 \
+       F(){static I64 n=1/Side();return n;}42;";
+      "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"A\");return 0;}I64 \
+       Later(){return 0;}class Box{U8 a;U8 b;};I64 F(){static Box \
+       n={Side(),1/Later()};return n.a;}42;";
+    ];
   List.iter
     (fun source ->
       with_file ".hc" source (fun path ->

@@ -36,6 +36,13 @@ val complete_static_snapshot :
   Frontend.Parser.completed_static_initializer ->
   (unit, string) result
 
+val static_snapshot_leaf_destination :
+  static_snapshot ->
+  Frontend.Parser.static_initializer_preparation ->
+  (int * int * operation * Sema.Initializer_type.scalar option, string) result
+(** Read the exact reached destination during its original leaf callback. This
+    metadata read grants no value, successful copy or execution authority. *)
+
 val static_snapshot_matches :
   static_snapshot ->
   frame:Sema.Function_frame_layout.function_layout ->

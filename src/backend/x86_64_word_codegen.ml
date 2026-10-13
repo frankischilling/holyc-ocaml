@@ -8465,7 +8465,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                            <> description.opcode
                         || (not (Type.equal expected_type target_type))
                         || not
-                             (Global_storage.owns_address ~source_globals slot
+                             (Global_storage.owns_address ~source_globals
+                                ~instruction:description.instruction_id slot
                                 runtime_owner)
                       then
                         malformed description

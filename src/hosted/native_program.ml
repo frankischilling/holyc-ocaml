@@ -672,14 +672,6 @@ let ast_errors (ast : Ast.module_) =
   done;
   Option.to_list !first_error
 
-let program_storage_errors compiled span =
-  let errors = ref [] in
-  let add message = errors := source_error span message :: !errors in
-  let initialization = Integer_unit.initialization compiled in
-  if Ir.Global_initialization.static_regions initialization <> [] then
-    add "native programs require an entry with no runtime initialization";
-  List.rev !errors
-
 let entry_contains_opcode entry opcode =
   Ir.X87_stack.graph entry |> Ir.Block_graph.blocks
   |> List.exists (fun block ->
@@ -957,91 +949,77 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
               { parsed with diagnostics = [] }
           with
           | Error errors -> Error (parsed.diagnostics @ errors)
-          | Ok checked -> (
+          | Ok checked ->
               let diagnostics = parsed.diagnostics @ checked.diagnostics in
-              match program_storage_errors checked.value span with
-              | _ :: _ as errors -> Error (diagnostics @ errors)
-              | [] ->
-                  (match Integer_unit.functions checked.value with
-                    | []
-                      when Ir.Integer_globals.byte_size
-                             (Integer_unit.globals checked.value)
-                           = 0
-                           && (not
-                                 (entry_contains_opcode
-                                    (Integer_unit.entry checked.value)
-                                    Ir.Opcode.Ic_str_const))
-                           && not
-                                (entry_contains_opcode
-                                   (Integer_unit.entry checked.value)
-                                   Ir.Opcode.Ic_call_start) ->
-                        Image.compile ?status_abi ~max_stack_bytes ~max_blocks
-                          ~max_ir_instructions ~max_code_bytes
-                          (Integer_unit.entry checked.value)
-                    | functions ->
-                        let* parameter_defaults =
-                          Native_parameter_defaults.create
-                            ~globals:(Integer_unit.globals checked.value)
-                            ~runtime_calls:
-                              (Integer_unit.runtime_calls checked.value)
-                            ~initialization:
-                              (Integer_unit.initialization checked.value)
-                            ~entry:(Integer_unit.entry checked.value)
-                            ~functions ~prepared:prepared_defaults
-                            ~prepared_callbacks
-                            ~completions:
-                              (Native_default_preparation.completions
-                                 preparation)
-                          |> Result.map_error (fun message ->
-                              [
-                                Backend.X86_64_program.
-                                  {
-                                    code = "HCBACK0002";
-                                    message;
-                                    span = Some span;
-                                  };
-                              ])
-                        in
-                        let* global_initializers =
-                          Native_global_initializers.create ~span
-                            ~static_completions:
-                              (Native_default_preparation.static_completions
-                                 preparation)
-                            ~completions:
-                              (Native_default_preparation
-                               .initializer_completions preparation)
-                            ~preparation:
-                              (Integer_unit.initializer_preparation
-                                 checked.value)
-                            ~runtime_calls:
-                              (Integer_unit.runtime_calls checked.value)
-                            ~initialization:
-                              (Integer_unit.initialization checked.value)
-                            ~entry:(Integer_unit.entry checked.value)
-                            ~functions
-                          |> Result.map_error (fun message ->
-                              [
-                                Backend.X86_64_program.
-                                  {
-                                    code = "HCBACK0003";
-                                    message;
-                                    span = Some span;
-                                  };
-                              ])
-                        in
-                        Image.compile_callable ~parameter_defaults
-                          ~global_initializers ?status_abi ~max_stack_bytes
-                          ~max_blocks ~max_ir_instructions ~max_code_bytes
-                          ~max_global_bytes ~max_literal_bytes
-                          ~runtime_calls:
-                            (Integer_unit.runtime_calls checked.value)
-                          ~initialization:
-                            (Integer_unit.initialization checked.value)
-                          ~entry:(Integer_unit.entry checked.value)
-                          ~functions ())
-                  |> Result.map (fun image -> { value = image; diagnostics })
-                  |> Result.map_error (fun errors ->
-                      diagnostics @ image_errors ~fallback:span errors))))
+              (match Integer_unit.functions checked.value with
+                | []
+                  when Ir.Integer_globals.byte_size
+                         (Integer_unit.globals checked.value)
+                       = 0
+                       && (not
+                             (entry_contains_opcode
+                                (Integer_unit.entry checked.value)
+                                Ir.Opcode.Ic_str_const))
+                       && not
+                            (entry_contains_opcode
+                               (Integer_unit.entry checked.value)
+                               Ir.Opcode.Ic_call_start) ->
+                    Image.compile ?status_abi ~max_stack_bytes ~max_blocks
+                      ~max_ir_instructions ~max_code_bytes
+                      (Integer_unit.entry checked.value)
+                | functions ->
+                    let* parameter_defaults =
+                      Native_parameter_defaults.create
+                        ~globals:(Integer_unit.globals checked.value)
+                        ~runtime_calls:
+                          (Integer_unit.runtime_calls checked.value)
+                        ~initialization:
+                          (Integer_unit.initialization checked.value)
+                        ~entry:(Integer_unit.entry checked.value)
+                        ~functions ~prepared:prepared_defaults
+                        ~prepared_callbacks
+                        ~completions:
+                          (Native_default_preparation.completions preparation)
+                      |> Result.map_error (fun message ->
+                          [
+                            Backend.X86_64_program.
+                              { code = "HCBACK0002"; message; span = Some span };
+                          ])
+                    in
+                    let* global_initializers =
+                      Native_global_initializers.create ~span
+                        ~static_completions:
+                          (Native_default_preparation.static_completions
+                             preparation)
+                        ~completions:
+                          (Native_default_preparation.initializer_completions
+                             preparation)
+                        ~preparation:
+                          (Integer_unit.initializer_preparation checked.value)
+                        ~runtime_calls:
+                          (Integer_unit.runtime_calls checked.value)
+                        ~initialization:
+                          (Integer_unit.initialization checked.value)
+                        ~entry:(Integer_unit.entry checked.value)
+                        ~functions
+                      |> Result.map_error (fun message ->
+                          [
+                            Backend.X86_64_program.
+                              { code = "HCBACK0003"; message; span = Some span };
+                          ])
+                    in
+                    Image.compile_callable ~parameter_defaults
+                      ~global_initializers ?status_abi ~max_stack_bytes
+                      ~max_blocks ~max_ir_instructions ~max_code_bytes
+                      ~max_global_bytes ~max_literal_bytes
+                      ~runtime_calls:(Integer_unit.runtime_calls checked.value)
+                      ~initialization:
+                        (Integer_unit.initialization checked.value)
+                      ~entry:(Integer_unit.entry checked.value)
+                      ~functions ())
+              |> Result.map (fun image -> { value = image; diagnostics })
+              |> Result.map_error (fun errors ->
+                  diagnostics @ image_errors ~fallback:span errors)))
 
 let compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     ?max_initializer_steps ?max_switch_work ?max_dimension_work

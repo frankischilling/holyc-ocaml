@@ -307,6 +307,7 @@ val source_slot : slot -> Ir.Integer_globals.storage_slot
 
 val owns_address :
   ?source_globals:Ir.Integer_globals.t ->
+  ?instruction:Ir.Instruction_sequence.Instruction_id.t ->
   slot ->
   Ir.Runtime_call_context.owner ->
   bool

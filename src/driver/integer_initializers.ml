@@ -69,9 +69,13 @@ type native_preparation = {
   native_steps : int;
 }
 
+type native_static_source =
+  | Static_closed of Sema.Static_initializer_fragment.t
+  | Static_load of Sema.Static_initializer_fragment.load
+
 type native_static_preparation = {
-  static_fragment : Sema.Static_initializer_fragment.t;
-  static_payload : Arrays.payload;
+  static_source : native_static_source;
+  static_payload : Arrays.payload option;
   static_destination : native_destination;
   static_steps : int;
 }
@@ -1309,7 +1313,41 @@ let prepare_native ~scalar:destination_scalar ~authority ~typed ~cell_offset
 let native_static_evidence value = value.static_evidence_
 
 let native_static_receipt value =
-  Sema.Static_initializer_fragment.receipt value.static_fragment
+  match value.static_source with
+  | Static_closed fragment -> Sema.Static_initializer_fragment.receipt fragment
+  | Static_load source -> Sema.Static_initializer_fragment.load_receipt source
+
+let native_static_is_load value =
+  match value.static_source with
+  | Static_load _ -> true
+  | Static_closed _ -> false
+
+let prepare_native_static_load ~source ~scalar ~cell_offset ~byte_offset
+    ~operation =
+  let module Fragment = Sema.Static_initializer_fragment in
+  let receipt = Fragment.load_receipt source in
+  if
+    Frontend.Parser.static_initializer_is_current receipt
+    && operation = Layout.Scalar_store
+    && cell_offset >= 0 && byte_offset >= 0
+  then
+    Ok
+      {
+        static_source = Static_load source;
+        static_payload = None;
+        static_destination = { cell_offset; byte_offset; operation; scalar };
+        static_steps = 0;
+      }
+  else
+    Error
+      [
+        Common.Diagnostic.make ~code:"HCRUN0006"
+          ~severity:Common.Diagnostic.Error
+          ~message:
+            "native static load requires its current original scalar leaf"
+          ~primary:
+            (Frontend.Parser.static_initializer_leaf_location receipt).span ();
+      ]
 
 let prepare_native_static ~scalar:destination_scalar ~fragment ~typed
     ~cell_offset ~byte_offset ~operation ~on_progress ~max_steps =
@@ -1395,8 +1433,8 @@ let prepare_native_static ~scalar:destination_scalar ~fragment ~typed
       [] ) ->
       Ok
         {
-          static_fragment = fragment;
-          static_payload = Arrays.Word static_bits;
+          static_source = Static_closed fragment;
+          static_payload = Some (Arrays.Word static_bits);
           static_destination = destination;
           static_steps;
         }
@@ -1404,8 +1442,8 @@ let prepare_native_static ~scalar:destination_scalar ~fragment ~typed
     when original == fragment && source_root == root && saved = destination ->
       Ok
         {
-          static_fragment = fragment;
-          static_payload = Arrays.Bytes bytes;
+          static_source = Static_closed fragment;
+          static_payload = Some (Arrays.Bytes bytes);
           static_destination = destination;
           static_steps;
         }
@@ -1437,8 +1475,18 @@ let native_static_values ~span globals evidence =
     | [], [] ->
         Ok (List.rev roots, List.rev scalar_values, List.rev array_values)
     | (slot, root) :: rest, proof :: tail -> (
-        let fragment = proof.static_fragment in
-        let receipt = Fragment.receipt fragment in
+        let receipt = native_static_receipt proof in
+        let publication, type_, expression =
+          match proof.static_source with
+          | Static_closed fragment ->
+              ( Fragment.publication fragment,
+                Fragment.type_ fragment,
+                Fragment.expression fragment )
+          | Static_load source ->
+              ( Fragment.load_publication source,
+                Fragment.load_type source,
+                Fragment.load_expression source )
+        in
         let source = Typed.initializer_source root in
         let leaf = Sema.Function_call_resolution.initializer_leaf source in
         let storage = Globals.static_storage slot in
@@ -1458,17 +1506,13 @@ let native_static_values ~span globals evidence =
                 completed))
           || Globals.static_frame slot
              |> Sema.Function_frame_layout.function_symbol
-             != Sema.Declaration_collection.publication_symbol
-                  (Fragment.publication fragment)
-          || (not
-                (Sema.Type.equal
-                   (Globals.storage_type storage)
-                   (Fragment.type_ fragment)))
+             != Sema.Declaration_collection.publication_symbol publication
+          || (not (Sema.Type.equal (Globals.storage_type storage) type_))
           || not
                (Option.fold ~none:false
                   ~some:(fun leaf ->
                     Sema.Initializer_source.leaf_expression_ast leaf
-                    == Fragment.expression fragment
+                    == expression
                     && Sema.Initializer_source.leaf_path leaf
                        = receipt.static_leaf_path)
                   leaf)
@@ -1476,6 +1520,27 @@ let native_static_values ~span globals evidence =
           invalid
             "native static evidence is incomplete, foreign, substituted or out \
              of order"
+        else if native_static_is_load proof then
+          let destination_matches =
+            match Globals.static_array_initializers slot with
+            | Some arrays ->
+                Option.fold ~none:false
+                  ~some:(fun entry ->
+                    same_destination proof.static_destination
+                      (Arrays.destination entry))
+                  (Arrays.find arrays root)
+            | None ->
+                proof.static_destination.cell_offset = 0
+                && proof.static_destination.byte_offset = 0
+          in
+          if
+            Globals.compilation_mode globals = Sema.Global_resolution.Aot
+            && proof.static_payload = None
+            && proof.static_steps = 0
+            && proof.static_destination.operation = Layout.Scalar_store
+            && destination_matches
+          then collect roots scalar_values array_values rest tail
+          else invalid "native static load has another phase or destination"
         else
           match Globals.static_array_initializers slot with
           | Some arrays -> (
@@ -1484,7 +1549,7 @@ let native_static_values ~span globals evidence =
                 when same_destination proof.static_destination
                        (Arrays.destination entry) ->
                   collect (root :: roots) scalar_values
-                    ((root, proof.static_payload, proof.static_steps)
+                    ((root, Option.get proof.static_payload, proof.static_steps)
                     :: array_values)
                     rest tail
               | None | Some _ ->
@@ -1495,7 +1560,7 @@ let native_static_values ~span globals evidence =
               match
                 (proof.static_payload, proof.static_destination.operation)
               with
-              | Arrays.Word bits, Layout.Scalar_store
+              | Some (Arrays.Word bits), Layout.Scalar_store
                 when proof.static_destination.cell_offset = 0
                      && proof.static_destination.byte_offset = 0 ->
                   collect (root :: roots)
@@ -1713,6 +1778,32 @@ let native_load_roots prepared =
       then Some root
       else None)
     prepared.items_
+
+let native_static_load_roots prepared =
+  List.filter_map
+    (fun item ->
+      let slot, root = item.root_ in
+      let leaf =
+        Typed.initializer_source root
+        |> Sema.Function_call_resolution.initializer_leaf
+      in
+      if
+        item.classification_ = Scheduled
+        && List.exists
+             (fun proof ->
+               native_static_is_load proof
+               && Option.fold ~none:false
+                    ~some:(fun leaf ->
+                      Sema.Initializer_source.leaf_expression_ast leaf
+                      == Sema.Static_initializer_fragment.load_expression
+                           (match proof.static_source with
+                           | Static_load source -> source
+                           | Static_closed _ -> assert false))
+                    leaf)
+             prepared.static_evidence_
+      then Some (slot, root)
+      else None)
+    prepared.static_items_
 
 let prepare ?native_preparations ?native_static_preparations ?function_calls
     ?callback_calls ?top_callback_calls ?allow_zero_budget

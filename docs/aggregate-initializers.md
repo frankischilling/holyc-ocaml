@@ -267,7 +267,22 @@ survives the second call.
 
 Native AOT preparation counts closed class-offset expressions alongside other
 initializer work. Its reported allowance succeeds exactly; one less fails.
-Native effectful AOT static leaves retain their separate execution boundary.
+Native AOT static scalar leaves with original value or function references now
+retain a separate load-source receipt. Completed typing checks those references;
+the native bundle joins each scheduled leaf to its exact static frame, cursor
+and load-time region. Closed leaves still supply prepared bytes. Native
+preparation uses the cursor selected before expression parsing, including
+completion during lookahead; a later direct member list cannot restart that
+scalar branch. The image starts
+pending storage at zero, executes load assignments in declaration order before
+entry statements, and preserves static mutations across calls. Entry access to
+static addresses requires an instruction inside a sealed load region of the
+same declaring frame. The
+[static-load example](../examples/native-aot-static-initializers.hc) prints `A`
+once and returns 42 after later class and function replacement.
+One-star static callback storage also retains its originally selected function
+address through replacement.
+Nonconstant AOT statics with globals-on-data-heap remain unsupported.
 Other runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution

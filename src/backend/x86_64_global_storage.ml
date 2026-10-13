@@ -15,6 +15,8 @@ type slot = {
   source_slot : Globals.storage_slot;
   owner : Ir.Function_body.t option;
   static_source : Ir.Integer_static_allocation.t option;
+  static_load_entry :
+    (Driver.Native_global_initializers.t * Globals.static_slot) option;
   symbol : Symbol.t;
   type_ : Sema.Type.t;
   callback : Sema.Function_type_resolution.function_pointer option;
@@ -200,9 +202,9 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
     else if Globals.has_initializers globals && Option.is_none initializers then
       unsupported "native globals do not admit declaration initializers"
     else if
-      Initialization.static_regions initialization <> []
-      || Initialization.regions initialization <> []
-         && Option.is_none initializers
+      (Initialization.static_regions initialization <> []
+      || Initialization.regions initialization <> [])
+      && Option.is_none initializers
       || (Initialization.publications initialization <> []
          || Option.is_some (Initialization.publication_evidence initialization)
          )
@@ -379,7 +381,12 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         | None -> Ok []
         | Some arrays ->
             collect (Arrays.entries arrays)
-              (Globals.static_root_materialized slot) (fun _ -> false))
+              (Globals.static_root_materialized slot) (fun root ->
+                Option.fold ~none:false
+                  ~some:(fun proof ->
+                    Driver.Native_global_initializers.is_static_load_root proof
+                      slot root)
+                  initializers))
     | _ -> invalid ?span "native storage has an invalid initializer owner"
   in
   let rec collect ordinal cell_index byte_offset array_flag_cursor owner_cursor
@@ -585,6 +592,11 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                   Driver.Native_global_initializers.is_load_slot
                     (Option.get initializers) slot)
                 global
+              || Option.fold ~none:false
+                   ~some:(fun slot ->
+                     Driver.Native_global_initializers.is_static_load_slot
+                       (Option.get initializers) slot)
+                   static
             then (
               write_word image ~offset:byte_offset ~width 0L;
               Ok true)
@@ -689,6 +701,9 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
             source_slot;
             owner;
             static_source = None;
+            static_load_entry =
+              Option.bind initializers (fun proof ->
+                  Option.map (fun slot -> (proof, slot)) static);
             symbol;
             type_;
             callback;
@@ -976,6 +991,7 @@ let append_task_globals layout ~globals =
                   source_slot = storage;
                   owner = None;
                   static_source = None;
+                  static_load_entry = None;
                   symbol;
                   type_;
                   callback;
@@ -1208,6 +1224,7 @@ let reserve_static layout request =
             source_slot = Globals.declared_static_storage allocation;
             owner = None;
             static_source = Some allocation;
+            static_load_entry = None;
             symbol;
             type_ = Ir.Integer_static_allocation.type_ allocation;
             callback;
@@ -2034,38 +2051,51 @@ let data_offset slot = slot.data_offset
 let flag_offset slot = slot.flag_offset
 let initially_initialized slot = slot.initially_initialized
 
-let owns_address ?source_globals slot runtime_owner =
-  match (slot.owner, slot.static_source, runtime_owner) with
-  | _, Some allocation, Ir.Runtime_call_context.Entry ->
-      Option.fold ~none:false
-        ~some:(fun globals ->
+let owns_address ?source_globals ?instruction slot runtime_owner =
+  match
+    (slot.static_load_entry, source_globals, instruction, runtime_owner)
+  with
+  | ( Some (proof, source),
+      Some globals,
+      Some instruction,
+      Ir.Runtime_call_context.Entry ) ->
+      Driver.Native_global_initializers.owns_static_load_address proof ~globals
+        ~slot:source ~instruction
+  | _ -> (
+      match (slot.owner, slot.static_source, runtime_owner) with
+      | _, Some allocation, Ir.Runtime_call_context.Entry ->
           Option.fold ~none:false
-            ~some:(fun fragment ->
-              let original = Ir.Integer_static_allocation.source allocation in
-              let receipt =
-                Sema.Compiler_record.static_allocation_receipt original
-              in
-              let destination =
-                (Sema.Static_initializer_fragment.receipt fragment)
-                  .static_allocation
-              in
-              destination.allocation_function == receipt.allocation_function
-              && (destination == receipt
-                 || List.exists
-                      (fun (_, selection) ->
-                        match Sema.Reference_selection.kind selection with
-                        | Sema.Reference_selection.Static_local reference ->
-                            Sema.Static_reference.allocation reference
-                            == original
-                        | _ -> false)
-                      (Sema.Static_initializer_fragment.references fragment)))
-            (Globals.static_fragment globals))
-        source_globals
-  | None, Some _, _ -> false
-  | None, None, _ -> true
-  | Some expected, _, Ir.Runtime_call_context.Function actual ->
-      expected == actual
-  | Some _, _, _ -> false
+            ~some:(fun globals ->
+              Option.fold ~none:false
+                ~some:(fun fragment ->
+                  let original =
+                    Ir.Integer_static_allocation.source allocation
+                  in
+                  let receipt =
+                    Sema.Compiler_record.static_allocation_receipt original
+                  in
+                  let destination =
+                    (Sema.Static_initializer_fragment.receipt fragment)
+                      .static_allocation
+                  in
+                  destination.allocation_function == receipt.allocation_function
+                  && (destination == receipt
+                     || List.exists
+                          (fun (_, selection) ->
+                            match Sema.Reference_selection.kind selection with
+                            | Sema.Reference_selection.Static_local reference ->
+                                Sema.Static_reference.allocation reference
+                                == original
+                            | _ -> false)
+                          (Sema.Static_initializer_fragment.references fragment)
+                     ))
+                (Globals.static_fragment globals))
+            source_globals
+      | None, Some _, _ -> false
+      | None, None, _ -> true
+      | Some expected, _, Ir.Runtime_call_context.Function actual ->
+          expected == actual
+      | Some _, _, _ -> false)
 
 let section_symbols layout =
   Symbol_map.bindings layout.slots

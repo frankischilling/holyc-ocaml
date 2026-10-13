@@ -254,8 +254,38 @@ let backed_values =
       "A" );
   ]
 
+let static_load_values =
+  [
+    ( "static callback load retains the original function address",
+      {|I64 Add(I64 n){Print("A");return n+1;}I64 F(){static I64 (*P)(I64 n)=&Add;return P(41);}I64 Add(I64 n){return n+2;}F();|},
+      "A" );
+    ( "static load keeps its scalar branch through expression lookahead",
+      {|I64 Next(I64 n){Print("A");return n;}extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={Next(
+#exe { StreamExePrint("class Item{U16 value;};"); }
+7),42};U8 *p=(&object)(U8*);return p[2];}F();|},
+      "A" );
+    ( "static load evaluates a zero-byte leaf before later completion",
+      {|I64 calls=0;I64 Next(){Print("A");return ++calls;}extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={Next(),42};return object.tail;}class Item{U16 value;};I64 Check(){if(calls!=1)return -1;F();return F();}Check();|},
+      "A" );
+    ( "static scalar load runs once before calls to its owner",
+      {|I64 calls=0;I64 Next(){Print("A");return ++calls;}I64 F(){static I64 n=Next();return ++n;}I64 Check(){if(calls!=1)return -1;F();return F()+39;}Check();|},
+      "A" );
+    ( "static member array load retains ordered leaf effects",
+      {|I64 calls=0;I64 Next(I64 n){calls++;if(n==40)Print("A");return n;}class Box{U8 tail[2];};I64 F(){static Box object={{Next(40),Next(2)}};return object.tail[0]+object.tail[1];}I64 Check(){if(calls!=2)return -1;return F();}Check();|},
+      "A" );
+    ( "static load can read an earlier static in its original frame",
+      {|I64 Next(){Print("A");return 40;}I64 F(){static U8 base=Next();static U8 tail=base+2;return tail;}F();|},
+      "A" );
+    ( "global and static loads preserve source order",
+      {|I64 calls=0;I64 Next(I64 n){calls++;if(n==40)Print("A");return n;}I64 before=Next(40);class Box{U8 tail;};I64 F(){static Box object={Next(2)};return before+object.tail;}I64 Check(){if(calls!=2)return -1;return F();}Check();|},
+      "A" );
+    ( "static load retains a function selected before replacement",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 head;U8 tail;};I64 F(){static Box object={Next(),2};return object.head+object.tail;}I64 Next(){return 99;}F();|},
+      "A" );
+  ]
+
 let both_values =
-  ordinary_source_values @ backed_values
+  ordinary_source_values @ backed_values @ static_load_values
   @ [
       ( "global initialization retains the forward through same-name replacement",
         {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};class Item{U16 value;};class Item{U8 replacement;};I64 F(){return object.tail;}F();|},

@@ -44,8 +44,13 @@ snapshots to the exact source leaves and declared storage, preserving zero-byte
 copies and the original byte cursor. The
 [retained-layout example](../examples/retained-aot-initializer-layouts.hc) checks
 both kinds of storage and a static mutation across calls. Layout snapshots grant
-no computed-value or execution authority. Native effectful AOT static
-initialization remains open.
+no computed-value or execution authority. Native AOT scalar static leaves can
+execute at load time through their original scheduled regions. Each load receipt
+joins the exact source leaf, selected destination and declaring frame. Closed
+leaves retain their prepared image bytes. The
+[static-load example](../examples/native-aot-static-initializers.hc) checks load
+order, forward members, original function selection and persistent mutation.
+Nonconstant AOT statics with globals-on-data-heap remain open.
 
 The source shape distinguishes class elements from physical byte cells. Two
 three-byte class elements have an object count of two, six byte cells and a

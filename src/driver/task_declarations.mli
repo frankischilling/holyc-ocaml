@@ -1065,6 +1065,29 @@ val native_static_initializer_fragment :
   Frontend.Parser.static_initializer_preparation ->
   (Sema.Static_initializer_fragment.t, Common.Diagnostic.t list) result
 
+val native_load_static_initializer_source :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.static_initializer_preparation ->
+  (Sema.Static_initializer_fragment.load, Common.Diagnostic.t list) result
+(** Retain a current original AOT static leaf for completed source typing and
+    its checked load-time region. Attempts are consumed once in the original
+    ledger and invocation; this supplies no prepared value or execution proof.
+*)
+
+val native_static_initializer_destination :
+  t ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( (int
+    * int
+    * Ir.Integer_initializer_layout.operation
+    * Sema.Initializer_type.scalar option)
+    option,
+    Common.Diagnostic.t list )
+  result
+(** Read retained aggregate cursor metadata during its original attempted leaf.
+    This does not execute a value or authorize a copy. *)
+
 val task_static_fragment :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

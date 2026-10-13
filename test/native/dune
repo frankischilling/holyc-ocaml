@@ -919,7 +919,9 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/native-aot-callback-initializers.hc)
+ (deps
+  ../../examples/native-aot-callback-initializers.hc
+  ../../examples/native-aot-static-initializers.hc)
  (action
   (run
    %{exe:test_native_load_initializer_cli.exe}

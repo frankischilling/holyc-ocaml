@@ -62,7 +62,18 @@ let query_for value expression =
   | Some q -> Ok q
   | None -> Error "static initializer lacks its original query"
 
-let create_selected ?aggregate ?activation ?callback
+type load = Load of t
+
+let load_receipt (Load value) = receipt value
+let load_publication (Load value) = publication value
+let load_type (Load value) = type_ value
+let load_aggregate (Load value) = aggregate value
+let load_callback_source (Load value) = callback_source value
+let load_dimensions (Load value) = dimensions value
+let load_expression (Load value) = expression value
+let load_owns_table (Load value) = owns_table value
+
+let create_impl ~load ?aggregate ?activation ?callback
     ?(selected_aggregate : Function_type_resolution.selected_aggregate_resolver =
       fun _ -> None) ~references ~table ~namespace ~publication
     ~(receipt : Frontend.Parser.static_initializer_preparation) ~dimensions
@@ -247,9 +258,21 @@ let create_selected ?aggregate ?activation ?callback
             "HCRUN0006: static initializer requires every original identifier \
              selection"
     in
-    validate
-      (Initializer_source.expression_identifier_nodes expression)
-      references
+    if load then
+      if
+        Parser.static_initializer_is_current receipt
+        && Parser.context_mode
+             allocation.allocation_function.function_header.declaration_command
+               .command_context
+           = Frontend.Preprocessor.Aot
+        && Initializer_source.expression_identifier_nodes expression <> []
+        && references = [] && Option.is_none activation
+      then Ok ()
+      else Error "HCRUN0006: static load source requires its original AOT leaf"
+    else
+      validate
+        (Initializer_source.expression_identifier_nodes expression)
+        references
   in
   let* () = Query_selection.validate_manifest ~table ~expression queries in
   Ok
@@ -268,6 +291,19 @@ let create_selected ?aggregate ?activation ?callback
       queries_ = queries;
       references_ = references;
     }
+
+let create_selected ?aggregate ?activation ?callback ?selected_aggregate
+    ~references ~table ~namespace ~publication ~receipt ~dimensions ~environment
+    ~queries () =
+  create_impl ~load:false ?aggregate ?activation ?callback ?selected_aggregate
+    ~references ~table ~namespace ~publication ~receipt ~dimensions ~environment
+    ~queries ()
+
+let create_load ?aggregate ?callback ?selected_aggregate ~table ~namespace
+    ~publication ~receipt ~dimensions ~environment ~queries () =
+  create_impl ~load:true ?aggregate ?callback ?selected_aggregate ~references:[]
+    ~table ~namespace ~publication ~receipt ~dimensions ~environment ~queries ()
+  |> Result.map (fun value -> Load value)
 
 let create ?aggregate ?activation ?callback ?selected_aggregate ~table
     ~namespace ~publication ~receipt ~dimensions ~environment ~queries () =

@@ -5363,7 +5363,11 @@ let declare_static_symbol ledger ~runtime receipt =
 
 let declare_native_static_symbol = declare_static_symbol
 
-let native_static_initializer_fragment ledger ~runtime
+type native_static_source =
+  | Closed_static of Sema.Static_initializer_fragment.t
+  | Load_static of Sema.Static_initializer_fragment.load
+
+let native_static_initializer_source ~load ledger ~runtime
     (receipt : Parser.static_initializer_preparation) =
   protect (fun () ->
       let publication = receipt.Parser.static_allocation.allocation_function in
@@ -5439,7 +5443,20 @@ let native_static_initializer_fragment ledger ~runtime
               |> List.map Sema.Compiler_record.dimension_count
           | _ -> []
         in
-        Sema.Static_initializer_fragment.create ?callback
+        let create ?callback ?aggregate ~selected_aggregate ~table ~namespace
+            ~publication ~receipt ~dimensions ~environment ~queries () =
+          if load then
+            Sema.Static_initializer_fragment.create_load ?callback ?aggregate
+              ~selected_aggregate ~table ~namespace ~publication ~receipt
+              ~dimensions ~environment ~queries ()
+            |> Result.map (fun source -> Load_static source)
+          else
+            Sema.Static_initializer_fragment.create ?callback ?aggregate
+              ~selected_aggregate ~table ~namespace ~publication ~receipt
+              ~dimensions ~environment ~queries ()
+            |> Result.map (fun source -> Closed_static source)
+        in
+        create ?callback
           ?aggregate:
             (match assigned.source with
             | Function state ->
@@ -5465,6 +5482,36 @@ let native_static_initializer_fragment ledger ~runtime
       ledger.native_static_attempts <- receipt :: ledger.native_static_attempts;
       ledger.source_defaults_runtime <- Some runtime;
       fragment)
+
+let native_static_initializer_fragment ledger ~runtime receipt =
+  native_static_initializer_source ~load:false ledger ~runtime receipt
+  |> Result.map (function
+    | Closed_static source -> source
+    | Load_static _ -> assert false)
+
+let native_load_static_initializer_source ledger ~runtime receipt =
+  native_static_initializer_source ~load:true ledger ~runtime receipt
+  |> Result.map (function
+    | Load_static source -> source
+    | Closed_static _ -> assert false)
+
+let native_static_initializer_destination ledger receipt =
+  protect (fun () ->
+      let span = (Parser.static_initializer_leaf_location receipt).span in
+      if
+        (not (Parser.static_initializer_is_current receipt))
+        || not (List.exists (( == ) receipt) ledger.native_static_attempts)
+      then fail span "native static cursor requires its original attempted leaf";
+      Option.map
+        (fun snapshot ->
+          Ir.Integer_initializer_layout.static_snapshot_leaf_destination
+            snapshot receipt
+          |> checked_initializer_layout span)
+        (List.find_opt
+           (fun snapshot ->
+             Ir.Integer_initializer_layout.static_snapshot_receipt snapshot
+             == receipt.Parser.static_allocation)
+           ledger.isolated_static_snapshots))
 
 let initializer_declaration ledger (start : Parser.global_initializer_start) =
   protect (fun () ->

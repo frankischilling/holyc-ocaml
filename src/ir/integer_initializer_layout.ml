@@ -829,6 +829,18 @@ let complete_static_snapshot value receipt =
     value.static_completed <- Some receipt.static_declarator;
     Ok ())
 
+let static_snapshot_leaf_destination value receipt =
+  if
+    (not (Frontend.Parser.static_initializer_is_current receipt))
+    || receipt.Frontend.Parser.static_allocation
+       != static_snapshot_receipt value
+  then invalid "static cursor read requires its original current leaf"
+  else
+    match value.static_reached with
+    | (original, cell, byte, operation, scalar) :: _ when original == receipt ->
+        Ok (cell, byte, operation, scalar)
+    | _ -> invalid "static cursor read has no original reached leaf"
+
 let static_snapshot_matches value ~frame ~location =
   let module Frame = Sema.Function_frame_layout in
   match

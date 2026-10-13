@@ -165,25 +165,21 @@ let prepare_global_destination value declaration receipt =
   value.initializer_stream <- Some (receipt.leaf_initializer, stream);
   Ok destination
 
-let prepare_static_destination value fragment receipt =
+let prepare_static_shape value ~type_ ~callback ~aggregate ~dimensions receipt =
   let* type_ =
-    match Sema.Static_initializer_fragment.callback_source fragment with
-    | None -> Ok (Sema.Static_initializer_fragment.type_ fragment)
+    match callback with
+    | None -> Ok type_
     | Some _ ->
         Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
           ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
   in
   let* shape =
-    match Sema.Static_initializer_fragment.aggregate fragment with
+    match aggregate with
     | Some allocation ->
-        Shape.create_initializer_aggregate ~allocation
-          ~dimensions:(Sema.Static_initializer_fragment.dimensions fragment)
-          ()
+        Shape.create_initializer_aggregate ~allocation ~dimensions ()
         |> Result.map_error (fun _ ->
             "HCRUN0006: static class initializer has no original geometry")
-    | None ->
-        storage_shape ~type_
-          ~dimensions:(Sema.Static_initializer_fragment.dimensions fragment)
+    | None -> storage_shape ~type_ ~dimensions
   in
   let* stream =
     match
@@ -210,6 +206,14 @@ let prepare_static_destination value fragment receipt =
   in
   value.static_stream <- Some (receipt.static_initializer, stream);
   Ok destination
+
+let prepare_static_destination value fragment receipt =
+  let module Fragment = Sema.Static_initializer_fragment in
+  prepare_static_shape value ~type_:(Fragment.type_ fragment)
+    ~callback:(Fragment.callback_source fragment)
+    ~aggregate:(Fragment.aggregate fragment)
+    ~dimensions:(Fragment.dimensions fragment)
+    receipt
 
 let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
     ~pointer_layers ~function_pointer ~register_qualifiers ~default
@@ -455,35 +459,80 @@ let prepare_static value ~session ~ledger receipt =
             mode")
     else Ok ()
   in
-  let* fragment =
-    Task_declarations.native_static_initializer_fragment ledger
-      ~runtime:value.state receipt
+  let has_references =
+    match receipt.static_leaf_value with
+    | Ast.Scalar_initializer expression ->
+        Sema.Initializer_source.expression_identifier_nodes expression <> []
+    | _ -> false
   in
-  value.ledger <- Some ledger;
-  let* cell_offset, byte_offset, operation, scalar =
-    prepare_static_destination value fragment receipt |> diagnose
-  in
-  let create_context =
-    match value.compilation_mode with
-    | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
-    | Frontend.Preprocessor.Aot ->
-        Initializer_fragment_typing.create_aot_context
-  in
-  let* context =
-    create_context ~table:value.table
-      ~parent:(Task_declarations.initializer_scope ledger)
-    |> diagnose
-  in
-  let* typed =
-    Initializer_fragment_typing.prepare_static context fragment |> diagnose
-  in
-  let before = work value in
-  let* static_preparation =
-    Integer_initializers.prepare_native_static ~scalar ~fragment ~typed
-      ~cell_offset ~byte_offset ~operation
-      ~on_progress:(fun steps ->
-        VM.record_task_preparation value.state ~before ~steps)
-      ~max_steps:(VM.task_initializer_limit value.state - before)
-  in
-  value.statics_rev <- { static_preparation } :: value.statics_rev;
-  Ok ()
+  if value.compilation_mode = Frontend.Preprocessor.Aot && has_references then (
+    let* source =
+      Task_declarations.native_load_static_initializer_source ledger
+        ~runtime:value.state receipt
+    in
+    value.ledger <- Some ledger;
+    let module Fragment = Sema.Static_initializer_fragment in
+    let* retained =
+      Task_declarations.native_static_initializer_destination ledger receipt
+    in
+    let* cell_offset, byte_offset, operation, scalar =
+      match retained with
+      | Some destination -> Ok destination
+      | None when Option.is_some (Fragment.load_aggregate source) ->
+          diagnose
+            (Error
+               "HCRUN0006: static load lacks its original reached aggregate \
+                cursor")
+      | None ->
+          prepare_static_shape value
+            ~type_:(Fragment.load_type source)
+            ~callback:(Fragment.load_callback_source source)
+            ~aggregate:(Fragment.load_aggregate source)
+            ~dimensions:(Fragment.load_dimensions source)
+            receipt
+          |> diagnose
+    in
+    let* static_preparation =
+      Integer_initializers.prepare_native_static_load ~source ~scalar
+        ~cell_offset ~byte_offset ~operation
+    in
+    value.statics_rev <- { static_preparation } :: value.statics_rev;
+    Ok ())
+  else
+    let* fragment =
+      Task_declarations.native_static_initializer_fragment ledger
+        ~runtime:value.state receipt
+    in
+    value.ledger <- Some ledger;
+    let* retained =
+      Task_declarations.native_static_initializer_destination ledger receipt
+    in
+    let* cell_offset, byte_offset, operation, scalar =
+      match retained with
+      | Some destination -> Ok destination
+      | None -> prepare_static_destination value fragment receipt |> diagnose
+    in
+    let create_context =
+      match value.compilation_mode with
+      | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
+      | Frontend.Preprocessor.Aot ->
+          Initializer_fragment_typing.create_aot_context
+    in
+    let* context =
+      create_context ~table:value.table
+        ~parent:(Task_declarations.initializer_scope ledger)
+      |> diagnose
+    in
+    let* typed =
+      Initializer_fragment_typing.prepare_static context fragment |> diagnose
+    in
+    let before = work value in
+    let* static_preparation =
+      Integer_initializers.prepare_native_static ~scalar ~fragment ~typed
+        ~cell_offset ~byte_offset ~operation
+        ~on_progress:(fun steps ->
+          VM.record_task_preparation value.state ~before ~steps)
+        ~max_steps:(VM.task_initializer_limit value.state - before)
+    in
+    value.statics_rev <- { static_preparation } :: value.statics_rev;
+    Ok ()

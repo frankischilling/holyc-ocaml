@@ -283,7 +283,9 @@ let isolated_snapshots () =
   List.iter
     (fun receipt ->
       reject "completed static cursor cannot replay a leaf"
-        (Layout.prepare_static_snapshot_leaf snapshot receipt))
+        (Layout.prepare_static_snapshot_leaf snapshot receipt);
+      reject "expired static cursor cannot supply a destination"
+        (Layout.static_snapshot_leaf_destination snapshot receipt))
     !leaves;
   List.iter
     (fun receipt ->

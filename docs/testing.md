@@ -2392,6 +2392,19 @@ preparation. Source-seal tests reject another table and copied ASTs; static
 snapshot tests reject replayed delimiters, leaves, completion and foreign frames.
 Metadata snapshots never replace successful copy or value execution evidence.
 
-Native effectful AOT static initialization, other leaf
-families and full aggregate parity remain open.
+Native AOT static-load cases check once-only effects before owner calls, zero-byte
+forward leaves, fixed member arrays, earlier statics in the same frame, global
+and static load order, original function selection and repeated mutations.
+Expression lookahead can complete the selected class without restarting its
+scalar branch; expired cursor reads reject. A one-star static callback keeps its
+original function address through replacement.
+The maintained static-load example runs through public IR and native CLI with
+exact and one-below execution and preparation limits. Runtime faults retain
+earlier output and matching work. Authority tests reject missing, duplicate,
+reordered, copied and foreign proofs, missing completions and foreign bundles.
+Static addresses reject another declaring frame and instructions outside the
+sealed load regions. Both native ABI encodings remain required.
+
+Nonconstant AOT statics with globals-on-data-heap, other leaf families and full
+aggregate parity remain open.
 No TempleOS runtime or emitted-byte capture is included.

@@ -945,6 +945,10 @@ layout snapshots preserve the original forward selection and cursor through
 later completion or replacement. A completed static frame must match the
 original local, nominal type, dimensions and leaves. Snapshots supply metadata
 without computed values or execution receipts. Closed AOT class-offset work is
-included in the reported initializer allowance. Native effectful AOT static
-initialization, empty root allocations and other initializer value families
-remain open under #686 and #690.
+included in the reported initializer allowance. Native AOT scalar static leaves
+with value or function references retain their original load-source receipt and
+execute through checked load-time regions. Static address access in entry is
+limited to those regions and their declaring frame. Closed leaves retain their
+prepared bytes; repeated calls retain mutations. Nonconstant AOT statics with
+globals-on-data-heap, empty roots and other initializer value families remain
+open under #686 and #690.

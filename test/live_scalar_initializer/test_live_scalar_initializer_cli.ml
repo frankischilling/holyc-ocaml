@@ -180,7 +180,7 @@ let () =
                     ~output_hex:(if output = "A" then "41" else "")
                     "42"
                     (invoke compiler probe target mode [] 0))
-                Cases.ordinary_source_values;
+                (Cases.ordinary_source_values @ Cases.static_load_values);
               List.iter
                 (fun (_, source, _) ->
                   write source;
