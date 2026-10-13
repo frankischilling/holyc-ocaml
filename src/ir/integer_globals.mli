@@ -251,7 +251,10 @@ val join_static_allocations :
 val declared_record : declared_slot -> Sema.Compiler_record.declared_global
 val declared_initializer_failed : declared_slot -> bool
 val begin_declared_initializer : declared_slot -> (unit, string) result
-val complete_declared_initializer : declared_slot -> (unit, string) result
+
+val complete_declared_initializer :
+  ?layout:Integer_initializer_layout.t -> declared_slot -> (unit, string) result
+
 val fail_declared_initializer : declared_slot -> unit
 
 val record_declared_initializer :
@@ -377,6 +380,7 @@ val create :
     contains immutable metadata, not mutable execution storage. *)
 
 val create_with_layout :
+  ?task_view:task_view ->
   ?headers:Sema.Aggregate_header_resolution.t ->
   ?members:Sema.Aggregate_member_index.t ->
   layout:Sema.Global_array_layout.t ->

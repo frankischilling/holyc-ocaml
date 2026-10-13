@@ -621,7 +621,45 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       ~max_blocks ~max_ir_instructions ~max_code_bytes ~layout
                       request)
               in
-              execute ~arena Initializer image |> Result.map ignore);
+              let before = (Native.budget_progress budget).executed_steps in
+              let* _completed, _ = execute ~arena Initializer image in
+              let reached =
+                (Native.budget_progress budget).executed_steps - before
+              in
+              if
+                not
+                  (Ir.Initializer_fragment_program.is_scalar_evaluation
+                     (Dispatch.initializer_program request))
+              then Ok ()
+              else
+                let diagnose result =
+                  Result.map_error
+                    (fun message ->
+                      let span =
+                        Dispatch.initializer_program request
+                        |> Ir.Initializer_fragment_program.destination
+                        |> Ir.Initializer_fragment_destination.span
+                      in
+                      [ Driver.Integer_source.message_diagnostic ~span message ])
+                    result
+                in
+                let* capture =
+                  Native.finish_task_initializer ?scope:(current_scope ()) arena
+                    image
+                  |> diagnose
+                in
+                let* token =
+                  Dispatch.prepare_initializer_copy request capture
+                    ~work:reached
+                  |> diagnose
+                in
+                let* receipt =
+                  Native.copy_task_initializer ?scope:(current_scope ()) arena
+                    request token
+                  |> diagnose
+                in
+                Dispatch.finish_initializer_copy request token receipt
+                |> diagnose);
           execute_command =
             (fun request ->
               let* layout, arena =

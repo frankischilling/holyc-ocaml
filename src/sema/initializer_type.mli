@@ -34,6 +34,7 @@ val scalar_byte_size : scalar -> int
 val scalar_equal : scalar -> scalar -> bool
 val begin_scalar_evaluation : t -> (scalar_evaluation, string) result
 val scalar_evaluation_before : scalar_evaluation -> scalar
+val scalar_evaluation_may_change : scalar_evaluation -> bool
 
 val finish_scalar_evaluation : scalar_evaluation -> (scalar, string) result
 (** Retain the scalar class selected before expression evaluation. Backing is

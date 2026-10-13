@@ -30,8 +30,17 @@ let has_unprepared initializers =
 let ( let* ) = Result.bind
 let invalid detail = Error ("HCIRL0004: array initializer " ^ detail)
 
-let create ~shape ~source ~roots ~source_leaf =
-  let* layout = Layout.create ~shape source in
+let create_impl ~retained_layout ~shape ~source ~roots ~source_leaf =
+  let* layout =
+    match retained_layout with
+    | None -> Layout.create ~shape source
+    | Some (declaration, layout)
+      when Layout.source layout == source
+           && Layout.belongs_to_declared_shape layout declaration shape ->
+        Ok layout
+    | Some _ ->
+        invalid "retained layout has another declaration, source or extent"
+  in
   let rec join reversed roots destinations =
     match (roots, destinations) with
     | [], [] -> Ok (List.rev reversed)
@@ -47,6 +56,14 @@ let create ~shape ~source ~roots ~source_leaf =
   in
   let* entries = join [] roots (Layout.entries layout) in
   Ok { entries; scalar = Integer_storage_shape.scalar shape; steps = 0 }
+
+let create ~shape ~source ~roots ~source_leaf =
+  create_impl ~retained_layout:None ~shape ~source ~roots ~source_leaf
+
+let create_retained ~declaration ~layout ~shape ~source ~roots ~source_leaf =
+  create_impl
+    ~retained_layout:(Some (declaration, layout))
+    ~shape ~source ~roots ~source_leaf
 
 let storage_payload entry payload =
   match (payload, Layout.scalar entry.destination) with

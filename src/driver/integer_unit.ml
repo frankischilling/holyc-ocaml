@@ -212,7 +212,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           in
           let typed = Integer_source.top_level prepared in
           let* globals_ =
-            Ir.Integer_globals.create_with_layout
+            Ir.Integer_globals.create_with_layout ?task_view
               ~members:(Integer_source.aggregate_members prepared)
               ~headers:(Integer_source.aggregate_headers prepared)
               ~layout:(Integer_source.global_layouts prepared)

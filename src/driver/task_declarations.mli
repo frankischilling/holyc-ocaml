@@ -266,6 +266,12 @@ val observe_initializer_delimiter :
   Frontend.Parser.completed_initializer_delimiter ->
   (unit, Common.Diagnostic.t list) result
 
+val observe_initializer_preparation :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.initializer_leaf_preparation ->
+  (unit, Common.Diagnostic.t list) result
+
 val begin_initializer_attempt :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

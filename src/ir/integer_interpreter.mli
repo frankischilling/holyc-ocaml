@@ -425,6 +425,12 @@ val observe_task_initializer_delimiter :
   Frontend.Parser.completed_initializer_delimiter ->
   (unit, string) result
 
+val observe_task_initializer_preparation :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.initializer_leaf_preparation ->
+  (unit, string) result
+
 val begin_task_initializer_leaf :
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
@@ -446,6 +452,47 @@ val claim_native_task_initializer :
   initializer_attempt ->
   Initializer_fragment_program.execution ->
   Initializer_fragment_program.t ->
+  (unit, string) result
+
+type native_initializer_copy
+
+val prepare_native_initializer_copy :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  Initializer_fragment_program.t Native_scalar_capture.t ->
+  work:int ->
+  (native_initializer_copy, string) result
+
+val check_native_initializer_copy :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  native_initializer_copy ->
+  (unit, string) result
+
+val native_initializer_copy_layout :
+  native_initializer_copy -> Integer_initializer_layout.entry
+
+val native_initializer_copy_bytes : native_initializer_copy -> string
+
+val claim_native_initializer_copy :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  native_initializer_copy ->
+  (unit, string) result
+
+val finish_native_initializer_copy :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  native_initializer_copy ->
+  native_initializer_copy Native_initializer_copy_receipt.t ->
   (unit, string) result
 
 val complete_native_task_initializer :

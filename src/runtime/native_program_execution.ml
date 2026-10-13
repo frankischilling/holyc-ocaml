@@ -116,6 +116,14 @@ external copy_task_static_bytes :
   Ir.Native_source_suspension.t option ->
   int = "holyc_native_task_static_copy"
 
+external copy_task_initializer_bytes :
+  task_arena_handle ->
+  int * int * int * string ->
+  Ir.Native_source_suspension.t option ->
+  Ir.Integer_interpreter.native_initializer_copy ->
+  Ir.Integer_interpreter.native_initializer_copy
+  Ir.Native_initializer_copy_receipt.t = "holyc_native_task_initializer_copy"
+
 external read_task_default_string :
   task_arena_handle ->
   int * int * int * int ->
@@ -188,6 +196,8 @@ type scalar_capture =
   | Offset_capture of Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t
   | Metadata_capture of
       Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t
+  | Initializer_capture of
+      Ir.Initializer_fragment_program.t Ir.Native_scalar_capture.t * Domain.id
 
 type task_arena = {
   layout_ : Task_storage.task_layout;
@@ -597,6 +607,18 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                 scalar_capture :=
                                   Option.map
                                     (fun value -> Metadata_capture value)
+                                    capture;
+                                report
+                            | Some (Image.Initializer program) ->
+                                let report, capture =
+                                  execute_retained_budget_scalar_program
+                                    (Option.get retained) task limits consumed
+                                    (Option.get entered, program)
+                                in
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value ->
+                                      Initializer_capture (value, Domain.self ()))
                                     capture;
                                 report)
                         | None, Some _ ->
@@ -1082,6 +1104,29 @@ let finish_task_member_metadata ?scope arena image =
           Error
             "native scalar capture has another original image, kind or arena")
 
+let finish_task_initializer ?scope arena image =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let reached = Atomic.get arena.scalar_capture_ in
+      match
+        (Image.task_snapshot image, Image.scalar_initializer image, reached)
+      with
+      | ( Some snapshot,
+          Some _,
+          Some (entered, Initializer_capture (captured, domain)) )
+        when (not (Atomic.get arena.arena_revoked_))
+             && domain = Domain.self ()
+             && entered == image
+             && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
+          Ok captured
+      | _ ->
+          Error
+            "native initializer scalar capture has another image, kind or arena")
+
 let finish_task_data_default ?scope ?max_copy_bytes arena image captured
     ~max_copy_steps =
   let failure message = (Error message, 0) in
@@ -1253,6 +1298,27 @@ let allocate_task_static ?scope ?max_global_bytes arena request =
               Atomic.set arena.admitted_bytes_ observed;
               Ok ())
           with Failure message | Invalid_argument message -> Error message)
+
+let copy_task_initializer ?scope arena request token =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let* plan =
+        Task_storage.prepare_initializer_copy arena.layout_ request token
+          ~admitted_arena_bytes:(Atomic.get arena.admitted_bytes_)
+      in
+      let* () =
+        Task_storage.check_initializer_copy plan ~layout:arena.layout_ ~request
+          ~token
+      in
+      let payload = Task_storage.initializer_copy_payload plan in
+      let* () =
+        Driver.Integer_task.Native_dispatch.claim_initializer_copy request token
+      in
+      try Ok (copy_task_initializer_bytes arena.handle_ payload scope token)
+      with Failure message | Invalid_argument message -> Error message)
 
 let copy_task_static ?scope arena request =
   let module Request = Driver.Integer_task.Native_static_copy in

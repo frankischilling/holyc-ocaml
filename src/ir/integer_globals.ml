@@ -17,6 +17,7 @@ type declared_slot = {
   declared_shape : Shape.t;
   mutable initialized_leaves : Sema.Initializer_source.leaf list;
   mutable initializer_status : initializer_status;
+  mutable completed_layout : Integer_initializer_layout.t option;
 }
 
 type slot = {
@@ -474,10 +475,19 @@ let begin_declared_initializer slot =
     slot.initializer_status <- Active;
     Ok ())
 
-let complete_declared_initializer slot =
+let complete_declared_initializer ?layout slot =
   if slot.initializer_status <> Active then
     Error "declared initializer has no active completion"
+  else if
+    Option.fold ~none:false
+      ~some:(fun layout ->
+        not
+          (Integer_initializer_layout.belongs_to_declared_shape layout
+             slot.declaration slot.declared_shape))
+      layout
+  then Error "declared initializer completion has another original layout"
   else (
+    slot.completed_layout <- layout;
     slot.initializer_status <- Complete;
     Ok ())
 
@@ -767,8 +777,8 @@ let find_allocated_storage globals symbol =
     (fun slot -> storage_symbol slot == symbol)
     (allocated_storage_slots globals)
 
-let create_impl ?headers ?members ?layout ?initializers ~span:unit_span records
-    =
+let create_impl ?task_view ?headers ?members ?layout ?initializers
+    ~span:unit_span records =
   let ( let* ) = Result.bind in
   let invalid message =
     Error
@@ -989,7 +999,30 @@ let create_impl ?headers ?members ?layout ?initializers ~span:unit_span records
                         fail "HCIRL0004"
                           "array initializer has no original source manifest"
                     | Some source ->
-                        Arrays.create ~shape ~source ~roots:owned_roots
+                        let retained_layout =
+                          Option.bind task_view (fun view ->
+                              List.find_map
+                                (fun (_, reference, storage) ->
+                                  match storage with
+                                  | Declared prior
+                                    when Retained_global.symbol reference
+                                         == symbol
+                                         && prior.initializer_status = Complete
+                                    ->
+                                      Option.map
+                                        (fun layout ->
+                                          (prior.declaration, layout))
+                                        prior.completed_layout
+                                  | _ -> None)
+                                view.entries)
+                        in
+                        let create =
+                          match retained_layout with
+                          | None -> Arrays.create
+                          | Some (declaration, layout) ->
+                              Arrays.create_retained ~declaration ~layout
+                        in
+                        create ~shape ~source ~roots:owned_roots
                           ~source_leaf:(fun root ->
                             root |> Typed.top_level_root_source
                             |> Sema.Top_level_expression_tree
@@ -1106,8 +1139,9 @@ let create_impl ?headers ?members ?layout ?initializers ~span:unit_span records
 let create ?headers ?members ?initializers ~span records =
   create_impl ?headers ?members ?initializers ~span records
 
-let create_with_layout ?headers ?members ~layout ?initializers ~span records =
-  create_impl ~layout ?headers ?members ?initializers ~span records
+let create_with_layout ?task_view ?headers ?members ~layout ?initializers ~span
+    records =
+  create_impl ?task_view ~layout ?headers ?members ?initializers ~span records
 
 let create_task_catalog ~table =
   {
@@ -1779,6 +1813,7 @@ let prepare_declared catalog declaration =
         declared_shape;
         initialized_leaves = [];
         initializer_status = Unstarted;
+        completed_layout = None;
       }
     in
     let bytes = Shape.byte_size declared_shape in

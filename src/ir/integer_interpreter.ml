@@ -439,9 +439,24 @@ and initializer_attempt = {
   attempt_receipt : Frontend.Parser.completed_initializer_leaf;
   attempt_destination : Integer_initializer_layout.entry;
   attempt_next : Integer_initializer_layout.live;
+  mutable attempt_settled :
+    (Integer_initializer_layout.live * Integer_initializer_layout.entry) option;
+  mutable attempt_copy : native_initializer_copy option;
   attempt_preparation_before : int;
   mutable attempt_native_preparation : int option;
   mutable attempt_state : initializer_attempt_state;
+}
+
+and native_initializer_copy = {
+  copy_task_catalog : Integer_globals.task_catalog;
+  copy_attempt : initializer_attempt;
+  copy_execution : Initializer_fragment_program.execution;
+  copy_program : Initializer_fragment_program.t;
+  copy_layout : Integer_initializer_layout.entry;
+  copy_bytes : string;
+  copy_domain : Domain.id;
+  mutable copy_started : bool;
+  mutable copy_complete : bool;
 }
 
 type default_attempt = {
@@ -5241,6 +5256,29 @@ let initializer_is_idle state =
   | None -> true
   | Some attempt -> attempt.attempt_state = Successful_initializer
 
+let observe_task_initializer_preparation task ~namespace receipt =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let* state =
+    find_task_initializer task receipt.Frontend.Parser.preparation_initializer
+  in
+  if
+    (not (initializer_is_idle state))
+    || not
+         (Frontend.Parser.initializer_leaf_preparation_is_current receipt
+         || Sema.Source_activation.initializer_preparation
+              task.source_activation receipt)
+  then
+    Error
+      "initializer expression preparation is delayed or precedes its prior leaf"
+  else
+    let* next =
+      Integer_initializer_layout.prepare_live_expression
+        state.initializer_cursor receipt
+    in
+    state.initializer_cursor <- next;
+    Ok ()
+
 let observe_task_initializer_delimiter task ~namespace receipt =
   let ( let* ) = Result.bind in
   let* () = require_initializer_namespace task namespace in
@@ -5296,6 +5334,8 @@ let begin_task_initializer_leaf task ~namespace leaf =
             attempt_leaf = leaf;
             attempt_receipt = receipt;
             attempt_next;
+            attempt_settled = None;
+            attempt_copy = None;
             attempt_destination;
             attempt_preparation_before = task.resources.initializer_steps;
             attempt_native_preparation = None;
@@ -5378,8 +5418,114 @@ let claim_native_task_initializer task attempt execution program =
         (X87.graph (Initializer_fragment_program.entry program)))
     (check_native_task_initializer task attempt execution program)
 
+let check_native_initializer_copy task attempt execution program copy =
+  if
+    copy.copy_domain <> Domain.self ()
+    || copy.copy_complete
+    || copy.copy_task_catalog != task.catalog
+    || copy.copy_attempt != attempt
+    || copy.copy_execution != execution
+    || copy.copy_program != program
+    || (not
+          (Option.fold ~none:false ~some:(( == ) copy)
+             copy.copy_attempt.attempt_copy))
+    || not
+         (native_initializer_matches task copy.copy_attempt copy.copy_execution
+            copy.copy_program Executing_initializer)
+  then
+    Error "native initializer copy has another task, phase or original program"
+  else Ok ()
+
+let prepare_native_initializer_copy task attempt execution program capture ~work
+    =
+  let ( let* ) = Result.bind in
+  if
+    Option.is_some attempt.attempt_copy
+    || (not (Initializer_fragment_program.is_scalar_evaluation program))
+    || not
+         (native_initializer_matches task attempt execution program
+            Executing_initializer)
+  then Error "native initializer scalar result has another original attempt"
+  else
+    let* bits =
+      Native_scalar_capture.consume
+        ?scope:
+          (match task.resources.native_source_scopes with
+          | [] -> None
+          | scope :: _ -> Some scope)
+        capture ~program ~work
+    in
+    let* next, layout =
+      Integer_initializer_layout.settle_live_entry attempt.attempt_next
+        attempt.attempt_destination
+    in
+    let* bytes =
+      Integer_initializer_layout.word_bytes
+        (Option.get (Integer_initializer_layout.scalar layout))
+        bits
+    in
+    if String.length bytes > task_initializer_remaining task then
+      Error
+        "HCIRVM0007: native deferred initializer copy work limit was exhausted"
+    else (
+      task.resources.initializer_steps <-
+        task.resources.initializer_steps + String.length bytes;
+      attempt.attempt_settled <- Some (next, layout);
+      let copy =
+        {
+          copy_task_catalog = task.catalog;
+          copy_attempt = attempt;
+          copy_execution = execution;
+          copy_program = program;
+          copy_layout = layout;
+          copy_bytes = bytes;
+          copy_domain = Domain.self ();
+          copy_started = false;
+          copy_complete = false;
+        }
+      in
+      attempt.attempt_copy <- Some copy;
+      Ok copy)
+
+let native_initializer_copy_layout copy = copy.copy_layout
+
+let native_initializer_copy_bytes copy =
+  Bytes.to_string (Bytes.of_string copy.copy_bytes)
+
+let claim_native_initializer_copy task attempt execution program copy =
+  let ( let* ) = Result.bind in
+  let* () = check_native_initializer_copy task attempt execution program copy in
+  if copy.copy_started then Error "native initializer copy was already entered"
+  else (
+    copy.copy_started <- true;
+    Ok ())
+
+let finish_native_initializer_copy task attempt execution program copy receipt =
+  let ( let* ) = Result.bind in
+  let* () = check_native_initializer_copy task attempt execution program copy in
+  let* () =
+    if copy.copy_started then Ok ()
+    else Error "native initializer copy has no original entry"
+  in
+  let* () =
+    Native_initializer_copy_receipt.consume receipt ~copy
+      ~bytes:(String.length copy.copy_bytes)
+  in
+  copy.copy_complete <- true;
+  Ok ()
+
 let complete_native_task_initializer task attempt execution program =
   if
+    Integer_initializer_layout.requires_settlement attempt.attempt_destination
+    && not
+         (Option.fold ~none:false
+            ~some:(fun copy -> copy.copy_complete)
+            attempt.attempt_copy)
+  then
+    Error
+      "HCRUN0006: native scalar initializer requires its original completed \
+       copy"
+  else if
     not
       (native_initializer_matches task attempt execution program
          Executing_initializer)
@@ -5391,14 +5537,19 @@ let complete_native_task_initializer task attempt execution program =
     let state = attempt.attempt_initializer in
     match
       Integer_globals.record_declared_initializer state.initializer_slot
-        attempt.attempt_destination
+        (match attempt.attempt_settled with
+        | Some (_, layout) -> layout
+        | None -> attempt.attempt_destination)
     with
     | Error message ->
         attempt.attempt_state <- Failed_initializer;
         Integer_globals.fail_declared_initializer state.initializer_slot;
         Error message
     | Ok () ->
-        state.initializer_cursor <- attempt.attempt_next;
+        state.initializer_cursor <-
+          (match attempt.attempt_settled with
+          | Some (next, _) -> next
+          | None -> attempt.attempt_next);
         attempt.attempt_state <- Successful_initializer;
         Ok ()
 
@@ -5434,11 +5585,12 @@ let complete_task_initializer task ~namespace start source =
   if not (initializer_is_idle state) then
     Error "initializer completion has an unfinished leaf"
   else
-    let* _ =
+    let* layout =
       Integer_initializer_layout.complete_live state.initializer_cursor source
     in
     let* () =
-      Integer_globals.complete_declared_initializer state.initializer_slot
+      Integer_globals.complete_declared_initializer ~layout
+        state.initializer_slot
     in
     state.initializer_complete <- true;
     Ok ()
@@ -14145,6 +14297,89 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
     else Ok ()
   in
   attempt.attempt_state <- Executing_initializer;
+  let selected_layout () =
+    match attempt.attempt_settled with
+    | Some (_, layout) -> layout
+    | None -> attempt.attempt_destination
+  in
+  let copy_error message =
+    let prefix = "HCRUN0006: " in
+    let message =
+      if String.starts_with ~prefix message then
+        String.sub message (String.length prefix)
+          (String.length message - String.length prefix)
+      else message
+    in
+    [
+      make_error ~stage:Execution ~span ~executed_steps:task.resources.steps
+        "HCRUN0006" message;
+    ]
+  in
+  let publish payload =
+    let deferred =
+      Integer_initializer_layout.requires_settlement attempt.attempt_destination
+    in
+    let* () =
+      if not deferred then Ok ()
+      else
+        Integer_initializer_layout.settle_live_entry attempt.attempt_next
+          attempt.attempt_destination
+        |> Result.map (fun settled -> attempt.attempt_settled <- Some settled)
+        |> Result.map_error copy_error
+    in
+    let layout = selected_layout () in
+    let* payload =
+      match (payload, Integer_initializer_layout.scalar layout) with
+      | Integer_array_initializers.Word bits, Some scalar ->
+          Integer_initializer_layout.word_bytes scalar bits
+          |> Result.map (fun bytes -> Integer_array_initializers.Bytes bytes)
+          |> Result.map_error copy_error
+      | _ -> Ok payload
+    in
+    let* () =
+      if not deferred then Ok ()
+      else
+        let bytes =
+          match payload with
+          | Integer_array_initializers.Bytes bytes -> String.length bytes
+          | Word _ -> 8
+        in
+        if bytes > task_initializer_remaining task then
+          invalid "HCIRVM0007"
+            "the deferred initializer copy work limit was exhausted"
+        else (
+          task.resources.initializer_steps <-
+            task.resources.initializer_steps + bytes;
+          Ok ())
+    in
+    let* storage =
+      match
+        List.find_map
+          (fun (owner, storage) ->
+            match
+              Integer_globals.find_allocated_storage owner
+                (Integer_globals.storage_symbol slot)
+            with
+            | Some expected when Integer_globals.same_storage expected slot ->
+                Some storage
+            | _ -> None)
+          task.arenas
+      with
+      | Some storage when storage.live -> Ok storage
+      | _ ->
+          invalid "HCIRVM0026"
+            "initializer destination has no live retained storage"
+    in
+    publish_array_payload ~slot
+      ~cell_offset:(Integer_initializer_layout.cell_offset layout) payload
+      (fun cell word ->
+        invalidate_pointer_cells storage
+          (Int64.of_int (8 * cell))
+          (Int64.of_int (8 * cell));
+        Hashtbl.remove storage.partial_words cell;
+        storage.cells.(cell) <- Some (Runtime_word word));
+    Ok ()
+  in
   let outcome =
     let* () =
       validate_dimension_dependencies (Some task)
@@ -14156,53 +14391,14 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
           ])
     in
     match Program.execution_code execution with
-    | Program.Prepared payload ->
-        let* storage =
-          match
-            List.find_map
-              (fun (owner, storage) ->
-                match
-                  Integer_globals.find_allocated_storage owner
-                    (Integer_globals.storage_symbol slot)
-                with
-                | Some expected when Integer_globals.same_storage expected slot
-                  -> Some storage
-                | _ -> None)
-              task.arenas
-          with
-          | Some storage when storage.live -> Ok storage
-          | _ ->
-              invalid "HCIRVM0026"
-                "initializer destination has no live retained storage"
-        in
-        let* payload =
-          match
-            ( payload,
-              Integer_initializer_layout.scalar attempt.attempt_destination )
-          with
-          | Integer_array_initializers.Word bits, Some scalar ->
-              Integer_initializer_layout.word_bytes scalar bits
-              |> Result.map (fun bytes ->
-                  Integer_array_initializers.Bytes bytes)
-              |> Result.map_error (fun message ->
-                  [
-                    make_error ~stage:Preflight ~span ~executed_steps:0
-                      "HCIRVM0026" message;
-                  ])
-          | _ -> Ok payload
-        in
-        publish_array_payload ~slot
-          ~cell_offset:
-            (Integer_initializer_layout.cell_offset attempt.attempt_destination)
-          payload (fun cell word ->
-            storage.cells.(cell) <- Some (Runtime_word word));
-        Ok ()
+    | Program.Prepared payload -> publish payload
     | Program.Scheduled program ->
         if task.resources.steps >= task.resources.max_steps then
           invalid "HCIRVM0007"
             "the task cumulative execution step limit was exhausted"
         else
           execute_program_with_output ~task ~initializer_mode:true
+            ~capture_fragment_value:(Program.is_scalar_evaluation program)
             ~use_active_stream ?compiler_options ?stream_exe_print
             ~runtime_calls:(Program.runtime_calls program)
             ~output:task.resources.output
@@ -14217,7 +14413,17 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
             ~max_call_depth:
               (task.resources.max_call_depth - task.resources.nested_call_depth)
             ~functions:[] (Program.entry program)
-          |> Result.map ignore
+          |> fun outcome ->
+          Result.bind outcome (fun result ->
+              if not (Program.is_scalar_evaluation program) then Ok ()
+              else
+                match result.final_value_ with
+                | Some word ->
+                    publish (Integer_array_initializers.Word word.bits)
+                | None ->
+                    invalid "HCIRVM0026"
+                      "scalar initializer evaluation did not capture its \
+                       original word")
   in
   match outcome with
   | Error errors ->
@@ -14226,13 +14432,16 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
   | Ok () -> (
       match
         Integer_globals.record_declared_initializer state.initializer_slot
-          attempt.attempt_destination
+          (selected_layout ())
       with
       | Error message ->
           ignore (fail_task_initializer_attempt task attempt);
           invalid "HCIRVM0026" message
       | Ok () ->
-          state.initializer_cursor <- attempt.attempt_next;
+          state.initializer_cursor <-
+            (match attempt.attempt_settled with
+            | Some (next, _) -> next
+            | None -> attempt.attempt_next);
           attempt.attempt_state <- Successful_initializer;
           Ok ())
 

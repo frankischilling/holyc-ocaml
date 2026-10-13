@@ -361,12 +361,14 @@ type scalar_program =
   | Switch_case of Ir.Switch_case_fragment_program.t
   | Offset of Ir.Offset_fragment_program.t
   | Member_metadata of Ir.Member_metadata_fragment_program.t
+  | Initializer of Ir.Initializer_fragment_program.t
 
 val scalar_program : t -> scalar_program option
 val dimension : t -> Ir.Dimension_fragment_program.t option
 val switch_case : t -> Ir.Switch_case_fragment_program.t option
 val offset : t -> Ir.Offset_fragment_program.t option
 val member_metadata : t -> Ir.Member_metadata_fragment_program.t option
+val scalar_initializer : t -> Ir.Initializer_fragment_program.t option
 val generation : t -> Ir.Integer_interpreter.native_generation option
 val source_callback : t -> Driver.Integer_task.native_source_callback option
 

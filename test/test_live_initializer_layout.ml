@@ -8,8 +8,9 @@ module Source = Semantic_initializer_source
 let checked = Test_declaration_collection.checked
 let expect = Test_integer_program.checked
 
-let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false)
-    ?(on_leaf = fun _ _ _ -> Ok ()) text =
+let parse ?(phased = false) ?execute_stream
+    ?(skip_layout_delimiter = fun _ -> false) ?(on_leaf = fun _ _ _ -> Ok ())
+    text =
   let session, source, ledger = Test_source_promotion.inputs text in
   let task = ref None and layout = ref None and entries = ref [] in
   let fragments = ref [] in
@@ -36,6 +37,10 @@ let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false)
             (if skip_layout_delimiter receipt then Ok (Option.get !layout)
              else Layout.observe_live_delimiter (Option.get !layout) receipt)
             |> diagnose receipt.delimiter_initializer.initializer_equals.span
+            |> Result.map (fun state -> layout := Some state)
+        | Parser.Global_initializer_leaf_preparing receipt when phased ->
+            Layout.prepare_live_expression (Option.get !layout) receipt
+            |> diagnose receipt.preparation_first.span
             |> Result.map (fun state -> layout := Some state)
         | Parser.Global_initializer_leaf_completed receipt ->
             let typed =
@@ -97,8 +102,8 @@ let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false)
   in
   (parsed, List.rev !entries, List.rev !fragments)
 
-let expect_layout text offsets copies =
-  let parsed, entries, _ = parse text in
+let expect_layout ?(phased = false) text offsets copies =
+  let parsed, entries, _ = parse ~phased text in
   ignore (Test_parser.expect_ast parsed);
   Alcotest.(check (list int))
     "original leaf destinations" offsets
@@ -111,6 +116,14 @@ let expect_layout text offsets copies =
          | Layout.Scalar_store -> None
          | Layout.Copy_bytes bytes -> Some bytes)
        entries)
+
+let phased_cursors () =
+  expect_layout ~phased:true {|I64 A[2][2]={{1,2},{3,4}};|} [ 0; 1; 2; 3 ]
+    [ None; None; None; None ];
+  expect_layout ~phased:true {|U8 A[2][3]={"AB","CD"};|} [ 0; 3 ]
+    [ Some "AB\000"; Some "CD\000" ];
+  expect_layout ~phased:true {|class Box{U8 tag;U16 value;};Box object={7,42};|}
+    [ 0; 1 ] [ None; None ]
 
 let scalars () =
   expect_layout {|I64 N=42;|} [ 0 ] [ None ];
@@ -214,6 +227,9 @@ let ordering () =
 let tests =
   [
     Alcotest.test_case "scalar and fixed row traversal" `Quick scalars;
+    Alcotest.test_case
+      "prepared branches retain scalar, string and member cursors" `Quick
+      phased_cursors;
     Alcotest.test_case "original copied-row decisions" `Quick copies;
     Alcotest.test_case "early delimiter and source-bound failure" `Quick
       early_failure;

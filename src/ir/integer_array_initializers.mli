@@ -9,6 +9,15 @@ val create :
   source_leaf:('root -> Sema.Initializer_source.leaf option) ->
   ('root t, string) result
 
+val create_retained :
+  declaration:Sema.Compiler_record.declared_global ->
+  layout:Integer_initializer_layout.t ->
+  shape:Integer_storage_shape.t ->
+  source:Sema.Initializer_source.t ->
+  roots:'root list ->
+  source_leaf:('root -> Sema.Initializer_source.leaf option) ->
+  ('root t, string) result
+
 val entries : 'root t -> 'root entry list
 val root : 'root entry -> 'root
 val destination : 'root entry -> Integer_initializer_layout.entry

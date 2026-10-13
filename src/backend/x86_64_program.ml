@@ -84,6 +84,7 @@ type scalar_program =
   | Switch_case of Ir.Switch_case_fragment_program.t
   | Offset of Ir.Offset_fragment_program.t
   | Member_metadata of Ir.Member_metadata_fragment_program.t
+  | Initializer of Ir.Initializer_fragment_program.t
 
 type t = {
   image : Codegen.program_image;
@@ -99,6 +100,7 @@ type t = {
   switch_case_ : Ir.Switch_case_fragment_program.t option;
   offset_ : Ir.Offset_fragment_program.t option;
   member_metadata_ : Ir.Member_metadata_fragment_program.t option;
+  scalar_initializer_ : Ir.Initializer_fragment_program.t option;
   internal_binding_ : Ir.Internal_binding_fragment_program.t option;
 }
 
@@ -109,21 +111,25 @@ let dimension value = value.dimension_
 let switch_case value = value.switch_case_
 let offset value = value.offset_
 let member_metadata value = value.member_metadata_
+let scalar_initializer value = value.scalar_initializer_
 
 let scalar_program value =
-  match
-    ( value.internal_binding_,
-      value.dimension_,
-      value.switch_case_,
-      value.offset_,
-      value.member_metadata_ )
-  with
-  | Some program, None, None, None, None -> Some (Internal_binding program)
-  | None, Some program, None, None, None -> Some (Dimension program)
-  | None, None, Some program, None, None -> Some (Switch_case program)
-  | None, None, None, Some program, None -> Some (Offset program)
-  | None, None, None, None, Some program -> Some (Member_metadata program)
-  | _ -> None
+  match value.scalar_initializer_ with
+  | Some program -> Some (Initializer program)
+  | None -> (
+      match
+        ( value.internal_binding_,
+          value.dimension_,
+          value.switch_case_,
+          value.offset_,
+          value.member_metadata_ )
+      with
+      | Some program, None, None, None, None -> Some (Internal_binding program)
+      | None, Some program, None, None, None -> Some (Dimension program)
+      | None, None, Some program, None, None -> Some (Switch_case program)
+      | None, None, None, Some program, None -> Some (Offset program)
+      | None, None, None, None, Some program -> Some (Member_metadata program)
+      | _ -> None)
 
 let data_default value = value.data_default_
 let data_default_has_misc_data value = value.data_default_misc_
@@ -165,6 +171,7 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         switch_case_ = None;
         offset_ = None;
         member_metadata_ = None;
+        scalar_initializer_ = None;
         internal_binding_ = None;
       })
 
@@ -192,6 +199,7 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         switch_case_ = None;
         offset_ = None;
         member_metadata_ = None;
+        scalar_initializer_ = None;
         internal_binding_ = None;
       })
 
@@ -211,9 +219,9 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ?data_default ?dimension ?switch_case ?offset
-    ?member_metadata ?internal_binding ~max_ir_instructions ~max_code_bytes
-    ~layout ~check ~claim ~generation ~source_callback ~runtime_calls
-    ~retained_function_source ~retained_slot_binding
+    ?member_metadata ?scalar_initializer ?internal_binding ~max_ir_instructions
+    ~max_code_bytes ~layout ~check ~claim ~generation ~source_callback
+    ~runtime_calls ~retained_function_source ~retained_slot_binding
     ~retained_slot_address_binding ~retained_slot_address_refresh
     ~retained_parameter_default ~retained_callback_default ~initialization
     ~entry ~functions () =
@@ -266,6 +274,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         switch_case_ = switch_case;
         offset_ = offset;
         member_metadata_ = member_metadata;
+        scalar_initializer_ = scalar_initializer;
         internal_binding_ = internal_binding;
         data_default_misc_ =
           Option.is_some data_default
@@ -283,6 +292,8 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
   let module Fragment = Ir.Initializer_fragment_program in
   let program = Task_dispatch.initializer_program request in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ?scalar_initializer:
+      (if Fragment.is_scalar_evaluation program then Some program else None)
     ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Task_dispatch.check_initializer_request request)
     ~claim:(fun () -> Task_dispatch.claim_initializer_request request)

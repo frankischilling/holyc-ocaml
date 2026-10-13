@@ -2294,5 +2294,24 @@ This evidence covers completed selected classes and supported integer leaves.
 Forward-selection fixtures complete original members before traversal, preserve
 fixed array counts and reject same-name retargeting. Shared cases cover all nine
 integer widths and static objects; JIT cases complete a member during initializer
-lookahead. Changes during a leaf, other leaf families and full aggregate parity remain
-open. No TempleOS runtime or emitted-byte capture is included.
+lookahead.
+
+`test/live_scalar_initializer/` checks actual IR and native source-task copies
+after callee completion and expression lookahead. Fixtures retain same-name
+class identities, full words after late U16/F64 backing, zero-byte leaves and
+fixed array counts while later elements select their reached member grammar.
+The saved-table example returns 42 in JIT and 7 in AOT with `A` preserved in both.
+Root overflow, copies wider than the register word, evaluation faults and
+exact/one-below execution and copy-work limits preserve earlier output.
+Nested class completion also executes live member metadata and shares its work
+with the suspended initializer and final copy.
+Native authority checks reject foreign images, program/work substitution,
+another domain or arena, replay, expired requests and missing copy completion.
+Copy receipts survive collection and use the existing deferred cleanup path.
+The native source progress records zero interpreted instructions.
+The maintained live scalar example also runs through public JSON CLI reports in
+both outer modes, with exact and one-below execution and preparation limits.
+
+Static and isolated incomplete-class preparation, earlier grammar selection
+snapshots, other leaf families and full aggregate parity remain open.
+No TempleOS runtime or emitted-byte capture is included.

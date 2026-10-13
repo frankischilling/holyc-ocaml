@@ -10,19 +10,50 @@ type entry = {
   operation : operation;
   scalar_ : Sema.Initializer_type.scalar option;
   declared_owner_ : Sema.Compiler_record.declared_global option;
+  evaluation_ : Sema.Initializer_type.scalar_evaluation option;
+  settled_ : bool;
 }
 
-type t = { source : Source.t; entries : entry list }
+type t = {
+  source : Source.t;
+  entries : entry list;
+  layout_declaration : Sema.Compiler_record.declared_global option;
+  layout_shape : Shape.t;
+}
+
 type 'leaf token = Open | Close | Comma | Expression of 'leaf
 
 let source layout = layout.source
 let entries layout = layout.entries
+
+let belongs_to_declared_shape layout declaration shape =
+  Option.fold ~none:false ~some:(( == ) declaration) layout.layout_declaration
+  && Shape.byte_size layout.layout_shape = Shape.byte_size shape
+  && Shape.element_size layout.layout_shape = Shape.element_size shape
+  && Shape.scalar layout.layout_shape = Shape.scalar shape
+  && Shape.dimensions layout.layout_shape = Shape.dimensions shape
+  &&
+  match Sema.Compiler_record.declared_global_aggregate declaration with
+  | Some allocation ->
+      let matches shape =
+        Shape.matches shape
+          ~symbol:(Sema.Compiler_record.declared_global_symbol declaration)
+          ~type_:(Sema.Compiler_record.global_aggregate_type allocation)
+          ~dimensions:
+            (Sema.Compiler_record.declared_global_dimensions declaration)
+      in
+      matches layout.layout_shape && matches shape
+  | None -> not (Shape.is_aggregate shape)
+
 let leaf entry = entry.leaf
 let cell_offset entry = entry.cell_offset
 let byte_offset entry = entry.byte_offset
 let operation entry = entry.operation
 let scalar entry = entry.scalar_
 let declared_owner entry = entry.declared_owner_
+
+let requires_settlement entry =
+  Option.is_some entry.evaluation_ && not entry.settled_
 
 let normalized_word scalar bits =
   if Sema.Initializer_type.scalar_byte_size scalar = 0 then Ok bits
@@ -145,9 +176,17 @@ let advance_tokens ~shape ~final ~expression_of_leaf ~make_entry progress input
         | Initializer_type.Aggregate members ->
             run (Aggregate_start members :: rest) offset reversed input)
     | Consume (type_, count :: tail) :: rest, _ -> (
-        let* value = Initializer_type.view type_ in
+        let* value =
+          match input with
+          | Expression leaf :: _ -> (
+              match expression_of_leaf leaf with
+              | Frontend.Ast.String_literal _ ->
+                  Initializer_type.view type_ |> Result.map Option.some
+              | _ -> Ok None)
+          | _ -> Ok None
+        in
         match (value, input) with
-        | Initializer_type.Scalar scalar, Expression leaf :: input
+        | Some (Initializer_type.Scalar scalar), Expression leaf :: input
           when Initializer_type.scalar_byte_size scalar = 1
                && (let type_ = Initializer_type.scalar_type scalar in
                    Sema.Type.pointer_depth type_ = 0
@@ -260,6 +299,8 @@ let advance ~shape ~final work input =
         operation;
         scalar_;
         declared_owner_ = None;
+        evaluation_ = None;
+        settled_ = true;
       })
     work input
 
@@ -303,7 +344,17 @@ let create ~shape source =
   let* _, entries =
     advance ~shape ~final:true (initial_progress shape) (tokens source)
   in
-  Ok { source; entries }
+  Ok { source; entries; layout_declaration = None; layout_shape = shape }
+
+type prepared_kind =
+  | Prepared_scalar of Initializer_type.scalar_evaluation
+  | Prepared_string of int
+
+type prepared_leaf = {
+  receipt : Frontend.Parser.initializer_leaf_preparation;
+  kind : prepared_kind;
+  rest : continuation list;
+}
 
 type live = {
   declaration : Sema.Compiler_record.declared_global;
@@ -312,6 +363,8 @@ type live = {
   entries_rev : entry list;
   last_delimiter : Frontend.Parser.completed_initializer_delimiter option;
   delimiters_rev : Frontend.Parser.initializer_delimiter list;
+  preparation : prepared_leaf option;
+  phased : bool;
 }
 
 let begin_live declaration =
@@ -342,6 +395,8 @@ let begin_live declaration =
           entries_rev = [];
           last_delimiter = None;
           delimiters_rev = [];
+          preparation = None;
+          phased = false;
         }
 
 let same_optional_identity left right =
@@ -355,6 +410,165 @@ let previous_leaf live =
   | [] -> None
   | previous :: _ -> Source.leaf_parser_receipt previous.leaf
 
+let prepare_live_expression live
+    (receipt : Frontend.Parser.initializer_leaf_preparation) =
+  let expected_index = List.length live.entries_rev in
+  if
+    Option.is_some live.preparation
+    || (match live.entries_rev with
+      | previous :: _ -> requires_settlement previous
+      | [] -> false)
+    || receipt.preparation_initializer.initializer_owner
+       != Sema.Compiler_record.declared_global_source live.declaration
+    || receipt.preparation_index <> expected_index
+    || (not
+          (same_optional_identity (previous_leaf live)
+             receipt.preparation_predecessor))
+    || (not
+          (same_optional_identity live.last_delimiter
+             receipt.preparation_delimiter_predecessor))
+    || List.length live.delimiters_rev
+       <> List.length receipt.preparation_delimiters
+    || not
+         (List.for_all2 ( == )
+            (List.rev live.delimiters_rev)
+            receipt.preparation_delimiters)
+  then invalid "expression preparation is foreign, repeated or out of order"
+  else
+    let rec select = function
+      | Consume (type_, []) :: rest ->
+          let* phase = Initializer_type.begin_scalar_evaluation type_ in
+          Ok (Prepared_scalar phase, rest)
+      | Consume (type_, count :: tail) :: rest -> (
+          if count <= 0L || count > Int64.of_int Int.max_int then
+            invalid "has an invalid fixed array count"
+          else
+            let byte_string =
+              if receipt.preparation_first.kind <> Frontend.Token_kind.String
+              then None
+              else
+                match Initializer_type.begin_scalar_evaluation type_ with
+                | Ok phase ->
+                    let scalar =
+                      Initializer_type.scalar_evaluation_before phase
+                    in
+                    let type_ = Initializer_type.scalar_type scalar in
+                    if
+                      Initializer_type.scalar_byte_size scalar = 1
+                      && Sema.Type.pointer_depth type_ = 0
+                      &&
+                      match Sema.Type.base type_ with
+                      | Sema.Type.Primitive
+                          (_, (Sema.Primitive_type.I8 | U8 | Bool)) -> true
+                      | _ -> false
+                    then Some (Prepared_string (Int64.to_int count), rest)
+                    else None
+                | Error _ -> None
+            in
+            match byte_string with
+            | Some result -> Ok result
+            | None ->
+                select (Array_next (Int64.to_int count, type_, tail, 0) :: rest)
+          )
+      | Array_start (count, type_, tail) :: rest ->
+          select (Array_next (count, type_, tail, 0) :: rest)
+      | Array_next (count, _, _, index) :: rest when count = index ->
+          select (Optional_close :: rest)
+      | Array_next (count, type_, tail, index) :: rest ->
+          select
+            (Consume (type_, tail)
+            :: Optional_comma (count > 1)
+            :: Array_next (count, type_, tail, index + 1)
+            :: rest)
+      | Aggregate_next (member :: members) :: rest ->
+          select
+            (Consume
+               ( Initializer_type.element_type member,
+                 Initializer_type.element_dimensions member )
+            :: Optional_comma true :: Aggregate_next members :: rest)
+      | Optional_comma _ :: rest | Optional_close :: rest -> select rest
+      | Scalar_value _ :: _ ->
+          invalid "scalar preparation lost its original selected type"
+      | _ ->
+          invalid
+            "requires its original scalar branch before expression parsing"
+    in
+    let* kind, rest = select live.work.pending in
+    Ok { live with preparation = Some { receipt; kind; rest }; phased = true }
+
+let prepared_entry live preparation leaf =
+  let* operation, scalar_, bytes, evaluation_ =
+    match preparation.kind with
+    | Prepared_scalar phase ->
+        let scalar = Initializer_type.scalar_evaluation_before phase in
+        Ok
+          ( Scalar_store,
+            (if Shape.is_aggregate live.shape then Some scalar else None),
+            Initializer_type.scalar_byte_size scalar,
+            if Initializer_type.scalar_evaluation_may_change phase then
+              Some phase
+            else None )
+    | Prepared_string count -> (
+        match Source.leaf_expression_ast leaf with
+        | Frontend.Ast.String_literal
+            { literal_value = Frontend.Ast.Bytes_value bytes; _ }
+          when count <= String.length bytes + 1 ->
+            let copied =
+              if count <= String.length bytes then String.sub bytes 0 count
+              else bytes ^ "\000"
+            in
+            Ok (Copy_bytes copied, None, count, None)
+        | _ -> invalid "prepared string copy lost its source-owned bytes")
+  in
+  let offset = live.work.next_byte in
+  if
+    offset < 0
+    || offset > Shape.byte_size live.shape
+    || bytes < 0
+    || bytes > Shape.byte_size live.shape - offset
+  then invalid "prepared scalar destination exceeds its declared object"
+  else
+    let entry =
+      {
+        leaf;
+        cell_offset =
+          offset / Integer_scalar_storage.byte_size (Shape.scalar live.shape);
+        byte_offset = offset;
+        operation;
+        scalar_;
+        declared_owner_ = Some live.declaration;
+        evaluation_;
+        settled_ = Option.is_none evaluation_;
+      }
+    in
+    Ok ({ pending = preparation.rest; next_byte = offset + bytes }, entry)
+
+let settle_live_entry live entry =
+  match (live.entries_rev, entry.evaluation_) with
+  | original :: rest, Some phase when original == entry && not entry.settled_ ->
+      let* scalar = Initializer_type.finish_scalar_evaluation phase in
+      let bytes = Initializer_type.scalar_byte_size scalar in
+      if
+        entry.byte_offset < 0
+        || entry.byte_offset > Shape.byte_size live.shape
+        || bytes < 0
+        || bytes > Shape.byte_size live.shape - entry.byte_offset
+      then
+        invalid
+          "reached scalar destination exceeds its original declared object"
+      else
+        let settled = { entry with scalar_ = Some scalar; settled_ = true } in
+        Ok
+          ( {
+              live with
+              entries_rev = settled :: rest;
+              work = { live.work with next_byte = entry.byte_offset + bytes };
+            },
+            settled )
+  | _ ->
+      invalid
+        "scalar settlement is foreign, repeated or has no original evaluation"
+
 let observe_live_delimiter live
     (receipt : Frontend.Parser.completed_initializer_delimiter) =
   let expected_index =
@@ -363,8 +577,12 @@ let observe_live_delimiter live
       live.last_delimiter
   in
   if
-    receipt.delimiter_initializer.initializer_owner
-    != Sema.Compiler_record.declared_global_source live.declaration
+    Option.is_some live.preparation
+    || (match live.entries_rev with
+      | previous :: _ -> requires_settlement previous
+      | [] -> false)
+    || receipt.delimiter_initializer.initializer_owner
+       != Sema.Compiler_record.declared_global_source live.declaration
     || receipt.delimiter_index <> expected_index
     || (not
           (same_optional_identity live.last_delimiter
@@ -422,7 +640,17 @@ let prepare_live live leaf =
       then invalid "live leaf is foreign, repeated or out of order"
       else
         let* work, entries =
-          advance ~shape:live.shape ~final:false live.work [ Expression leaf ]
+          match live.preparation with
+          | None ->
+              advance ~shape:live.shape ~final:false live.work
+                [ Expression leaf ]
+          | Some preparation
+            when preparation.receipt == receipt.leaf_preparation ->
+              let* work, entry = prepared_entry live preparation leaf in
+              Ok (work, [ entry ])
+          | Some _ ->
+              invalid
+                "completed leaf replaced its original expression preparation"
         in
         match entries with
         | [ entry ] when entry.leaf == leaf ->
@@ -435,6 +663,7 @@ let prepare_live live leaf =
                   work;
                   entries_rev = entry :: live.entries_rev;
                   delimiters_rev = [];
+                  preparation = None;
                 },
                 entry )
         | _ -> invalid "live layout did not consume its exact source leaf")
@@ -448,8 +677,28 @@ let complete_live live source =
     else invalid "completion omitted original trailing delimiter observations"
   in
   let* _, _ = advance ~shape:live.shape ~final:true live.work [] in
-  let* layout = create ~shape:live.shape source in
   let expected = List.rev live.entries_rev in
+  let* layout =
+    if live.phased then
+      if
+        Option.is_some live.preparation
+        || List.exists requires_settlement expected
+        || List.length expected <> List.length (Source.leaves source)
+        || not
+             (List.for_all2
+                (fun entry leaf -> entry.leaf == leaf)
+                expected (Source.leaves source))
+      then invalid "completion has unsettled or substituted original leaves"
+      else
+        Ok
+          {
+            source;
+            entries = expected;
+            layout_declaration = Some live.declaration;
+            layout_shape = live.shape;
+          }
+    else create ~shape:live.shape source
+  in
   if
     List.length expected <> List.length layout.entries
     || not
@@ -463,4 +712,4 @@ let complete_live live source =
                    right.scalar_)
             expected layout.entries)
   then invalid "completion differs from its original live destinations"
-  else Ok layout
+  else Ok { layout with layout_declaration = Some live.declaration }

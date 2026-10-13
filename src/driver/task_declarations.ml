@@ -6545,6 +6545,14 @@ let observe_initializer_delimiter ledger ~runtime receipt =
         receipt
       |> checked span)
 
+let observe_initializer_preparation ledger ~runtime receipt =
+  protect (fun () ->
+      let span = receipt.Parser.preparation_first.span in
+      require_initializer_runtime ledger runtime span;
+      VM.observe_task_initializer_preparation runtime
+        ~namespace:ledger.namespace receipt
+      |> checked span)
+
 let begin_initializer_attempt ledger ~runtime receipt =
   let ( let* ) = Result.bind in
   let* leaf = initializer_leaf_for ledger receipt in

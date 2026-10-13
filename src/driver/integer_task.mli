@@ -42,6 +42,36 @@ module Native_dispatch : sig
   val initializer_program :
     initializer_request -> Ir.Initializer_fragment_program.t
 
+  val prepare_initializer_copy :
+    initializer_request ->
+    Ir.Initializer_fragment_program.t Ir.Native_scalar_capture.t ->
+    work:int ->
+    (Ir.Integer_interpreter.native_initializer_copy, string) result
+
+  val check_initializer_copy :
+    initializer_request ->
+    Ir.Integer_interpreter.native_initializer_copy ->
+    (unit, string) result
+
+  val initializer_copy_layout :
+    Ir.Integer_interpreter.native_initializer_copy ->
+    Ir.Integer_initializer_layout.entry
+
+  val initializer_copy_bytes :
+    Ir.Integer_interpreter.native_initializer_copy -> string
+
+  val claim_initializer_copy :
+    initializer_request ->
+    Ir.Integer_interpreter.native_initializer_copy ->
+    (unit, string) result
+
+  val finish_initializer_copy :
+    initializer_request ->
+    Ir.Integer_interpreter.native_initializer_copy ->
+    Ir.Integer_interpreter.native_initializer_copy
+    Ir.Native_initializer_copy_receipt.t ->
+    (unit, string) result
+
   val command_program : command_request -> Integer_unit.compiled
   val check_initializer_request : initializer_request -> (unit, string) result
   val claim_initializer_request : initializer_request -> (unit, string) result

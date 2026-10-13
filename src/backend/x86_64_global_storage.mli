@@ -5,6 +5,23 @@ type task_layout
 type task_snapshot
 type static_reservation
 type static_copy
+type initializer_copy
+
+val prepare_initializer_copy :
+  task_layout ->
+  Driver.Integer_task.Native_dispatch.initializer_request ->
+  Ir.Integer_interpreter.native_initializer_copy ->
+  admitted_arena_bytes:int ->
+  (initializer_copy, string) result
+
+val check_initializer_copy :
+  initializer_copy ->
+  layout:task_layout ->
+  request:Driver.Integer_task.Native_dispatch.initializer_request ->
+  token:Ir.Integer_interpreter.native_initializer_copy ->
+  (unit, string) result
+
+val initializer_copy_payload : initializer_copy -> int * int * int * string
 
 val prepare_static_copy :
   task_layout ->

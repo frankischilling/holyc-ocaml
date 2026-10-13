@@ -264,6 +264,12 @@ val observe_task_initializer_delimiter :
   Frontend.Parser.completed_initializer_delimiter ->
   (unit, string) result
 
+val observe_task_initializer_preparation :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.initializer_leaf_preparation ->
+  (unit, string) result
+
 val begin_task_initializer_leaf :
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->

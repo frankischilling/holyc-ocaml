@@ -3473,6 +3473,105 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor, val
   CAMLreturn(Val_unit);
 }
 
+struct initializer_copy_receipt {
+  struct native_deferred_cleanup cleanup;
+  value token;
+  value arena;
+  intnat count;
+  _Atomic int consumed;
+};
+
+static void initializer_copy_dispose(struct native_deferred_cleanup *cleanup)
+{
+  struct initializer_copy_receipt *copy = (struct initializer_copy_receipt *)cleanup;
+  caml_remove_generational_global_root(&copy->token);
+  caml_remove_generational_global_root(&copy->arena);
+  free(copy);
+}
+
+static void initializer_copy_finalize(value receipt)
+{
+  struct initializer_copy_receipt *copy = *(struct initializer_copy_receipt **)Data_custom_val(receipt);
+  if (copy == NULL) return;
+  *(struct initializer_copy_receipt **)Data_custom_val(receipt) = NULL;
+  native_defer_cleanup(&copy->cleanup, initializer_copy_dispose);
+}
+
+static struct custom_operations initializer_copy_operations = {
+  "holyc.native.initializer-copy", initializer_copy_finalize,
+  custom_compare_default, custom_hash_default, custom_serialize_default,
+  custom_deserialize_default, custom_compare_ext_default, custom_fixed_length_default
+};
+
+CAMLprim value holyc_native_task_initializer_copy(value handle, value descriptor,
+                                                  value scope_option, value token)
+{
+  CAMLparam4(handle, descriptor, scope_option, token);
+  CAMLlocal2(receipt, copied);
+  native_collect_deferred();
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native initializer copy requires Windows or Linux x86-64");
+#else
+  if (!Is_block(descriptor) || Tag_val(descriptor) != 0 || Wosize_val(descriptor) != 4
+      || !Is_long(Field(descriptor, 0)) || !Is_long(Field(descriptor, 1))
+      || !Is_long(Field(descriptor, 2))
+      || !Is_block(Field(descriptor, 3)) || Tag_val(Field(descriptor, 3)) != String_tag)
+    caml_invalid_argument("native initializer copy descriptor is malformed");
+  if (caml_string_length(Field(descriptor, 3)) == 0) {
+    struct native_task_arena *arena = native_task_arena_get(handle);
+    if (!Is_long(Field(descriptor, 0)) || Long_val(Field(descriptor, 0)) < 0
+        || (size_t)Long_val(Field(descriptor, 0)) != arena->used
+        || arena->closing || arena->mapping == NULL)
+      caml_invalid_argument("empty initializer copy has another original arena");
+    int borrowed_arena = native_source_borrows_arena(scope_option, handle);
+    int expected = 0;
+    if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
+      caml_invalid_argument("native task arena is already active");
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
+    copied = Val_long(0);
+  } else {
+    copied = holyc_native_task_static_copy(handle, descriptor, scope_option);
+  }
+  receipt = caml_alloc_custom(&initializer_copy_operations,
+      sizeof(struct initializer_copy_receipt *), sizeof(struct initializer_copy_receipt), 1024 * 1024);
+  *(struct initializer_copy_receipt **)Data_custom_val(receipt) = NULL;
+  struct initializer_copy_receipt *copy = calloc(1, sizeof(*copy));
+  if (copy == NULL) caml_raise_out_of_memory();
+  copy->token = token;
+  copy->arena = handle;
+  caml_register_generational_global_root(&copy->token);
+  caml_register_generational_global_root(&copy->arena);
+  copy->count = Long_val(copied);
+  atomic_init(&copy->consumed, 0);
+  *(struct initializer_copy_receipt **)Data_custom_val(receipt) = copy;
+  CAMLreturn(receipt);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_consume_initializer_copy(value receipt, value expected)
+{
+  CAMLparam2(receipt, expected);
+  native_collect_deferred();
+  if (!Is_block(receipt) || Tag_val(receipt) != Custom_tag
+      || Custom_ops_val(receipt) != &initializer_copy_operations)
+    caml_invalid_argument("foreign native initializer copy receipt");
+  struct initializer_copy_receipt *copy = *(struct initializer_copy_receipt **)Data_custom_val(receipt);
+  if (copy == NULL || atomic_load(&copy->consumed) || !Is_block(expected) || Tag_val(expected) != 0
+      || Wosize_val(expected) != 2 || !Is_long(Field(expected, 1))
+      || copy->token != Field(expected, 0) || copy->count != Long_val(Field(expected, 1)))
+    caml_invalid_argument("native initializer copy is expired, repeated or substituted");
+#if HOLYC_NATIVE_PLATFORM != 0
+  struct native_task_arena *arena = native_task_arena_get(copy->arena);
+  if (arena->closing || arena->mapping == NULL)
+    caml_invalid_argument("native initializer copy arena has been released");
+#endif
+  int unused = 0;
+  if (!atomic_compare_exchange_strong(&copy->consumed, &unused, 1))
+    caml_invalid_argument("native initializer copy has already been consumed");
+  CAMLreturn(Val_true);
+}
+
 CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor, value scope_option)
 {
   CAMLparam3(retained, descriptor, scope_option);

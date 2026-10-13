@@ -114,6 +114,17 @@ type static_copy = {
   copy_bytes : string;
 }
 
+type initializer_copy = {
+  initializer_copy_layout : task_layout;
+  initializer_copy_state : task_layout_state;
+  initializer_copy_request :
+    Driver.Integer_task.Native_dispatch.initializer_request;
+  initializer_copy_token : Ir.Integer_interpreter.native_initializer_copy;
+  initializer_copy_data : int;
+  initializer_copy_flag : int;
+  initializer_copy_bytes : string;
+}
+
 let hard_max_global_bytes = 16 * 1024 * 1024
 let hard_max_arena_bytes = 32 * 1024 * 1024
 let hard_max_task_layout_work = 1_000_000
@@ -1312,6 +1323,68 @@ let static_copy_payload copy =
     copy.copy_data,
     copy.copy_flag,
     Bytes.to_string (Bytes.of_string copy.copy_bytes) )
+
+let prepare_initializer_copy layout request token ~admitted_arena_bytes =
+  let ( let* ) = Result.bind in
+  let module Request = Driver.Integer_task.Native_dispatch in
+  let module Destination = Ir.Initializer_fragment_destination in
+  let* () = Request.check_initializer_copy request token in
+  let destination =
+    Request.initializer_program request
+    |> Ir.Initializer_fragment_program.destination
+  in
+  let state = Atomic.get layout.task_state in
+  let storage = Destination.storage destination in
+  let symbol = Globals.storage_symbol storage in
+  let* slot =
+    match Symbol_map.find_opt (Symbol.id symbol) state.task_symbols with
+    | Some slot
+      when slot.symbol == symbol
+           && Globals.same_storage slot.source_slot storage -> Ok slot
+    | _ -> Error "native initializer copy replaced its original declared object"
+  in
+  let selected = Request.initializer_copy_layout token in
+  let bytes = Request.initializer_copy_bytes token in
+  let byte = Ir.Integer_initializer_layout.byte_offset selected in
+  let cell = Ir.Integer_initializer_layout.cell_offset selected in
+  let count = String.length bytes in
+  if
+    state.task_arena_bytes <> admitted_arena_bytes
+    || (not
+          (Option.fold ~none:false
+             ~some:(fun owner ->
+               Globals.same_task_storage owner (Destination.globals destination))
+             state.task_owner))
+    || Scalar.byte_size slot.scalar <> 1
+    || byte <> cell || byte < 0 || byte > slot.extent_bytes
+    || count > slot.extent_bytes - byte
+  then Error "native initializer copy leaves its original admitted byte extent"
+  else
+    Ok
+      {
+        initializer_copy_layout = layout;
+        initializer_copy_state = state;
+        initializer_copy_request = request;
+        initializer_copy_token = token;
+        initializer_copy_data = slot.data_offset + byte;
+        initializer_copy_flag = slot.flag_offset + 7 - cell;
+        initializer_copy_bytes = bytes;
+      }
+
+let check_initializer_copy copy ~layout ~request ~token =
+  if
+    copy.initializer_copy_layout != layout
+    || copy.initializer_copy_request != request
+    || copy.initializer_copy_token != token
+    || Atomic.get layout.task_state != copy.initializer_copy_state
+  then Error "native initializer copy has another original plan or arena"
+  else Driver.Integer_task.Native_dispatch.check_initializer_copy request token
+
+let initializer_copy_payload copy =
+  ( copy.initializer_copy_state.task_arena_bytes,
+    copy.initializer_copy_data,
+    copy.initializer_copy_flag,
+    Bytes.to_string (Bytes.of_string copy.initializer_copy_bytes) )
 
 let append_task_literals snapshot ~sources ~work =
   let ( let* ) = Result.bind in

@@ -33,6 +33,17 @@ val prepare_stream :
 
 val begin_live : Sema.Compiler_record.declared_global -> (live, string) result
 
+val prepare_live_expression :
+  live -> Frontend.Parser.initializer_leaf_preparation -> (live, string) result
+
+val requires_settlement : entry -> bool
+
+val settle_live_entry : live -> entry -> (live * entry, string) result
+(** Freeze the original scalar branch before expression parsing, then settle its
+    reached width after evaluation. Settlement preserves the original root
+    extent and source leaf. These metadata transitions grant no execution or
+    successful-store authority. *)
+
 val observe_live_delimiter :
   live ->
   Frontend.Parser.completed_initializer_delimiter ->
@@ -56,6 +67,10 @@ val create :
 
 val source : t -> Sema.Initializer_source.t
 val entries : t -> entry list
+
+val belongs_to_declared_shape :
+  t -> Sema.Compiler_record.declared_global -> Integer_storage_shape.t -> bool
+
 val leaf : entry -> Sema.Initializer_source.leaf
 val cell_offset : entry -> int
 val byte_offset : entry -> int

@@ -294,6 +294,43 @@ module Native_dispatch = struct
   let initializer_entered request =
     Atomic.get request.initializer_state = Entered
 
+  let prepare_initializer_copy request capture ~work =
+    if
+      (not (owns_domain request.initializer_domain))
+      || not (initializer_entered request)
+    then Error "native initializer copy requires its entered original request"
+    else
+      VM.prepare_native_initializer_copy request.initializer_task
+        request.initializer_attempt request.initializer_execution
+        request.initializer_program_ capture ~work
+
+  let check_initializer_copy request copy =
+    if
+      (not (owns_domain request.initializer_domain))
+      || not (initializer_entered request)
+    then Error "native initializer copy belongs to another request or domain"
+    else
+      VM.check_native_initializer_copy request.initializer_task
+        request.initializer_attempt request.initializer_execution
+        request.initializer_program_ copy
+
+  let initializer_copy_layout copy = VM.native_initializer_copy_layout copy
+  let initializer_copy_bytes copy = VM.native_initializer_copy_bytes copy
+
+  let claim_initializer_copy request copy =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_copy request copy in
+    VM.claim_native_initializer_copy request.initializer_task
+      request.initializer_attempt request.initializer_execution
+      request.initializer_program_ copy
+
+  let finish_initializer_copy request copy receipt =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_copy request copy in
+    VM.finish_native_initializer_copy request.initializer_task
+      request.initializer_attempt request.initializer_execution
+      request.initializer_program_ copy receipt
+
   let command_entered request = Atomic.get request.command_state = Entered
 
   let initializer_source_callback request =
@@ -2560,6 +2597,9 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
           ~runtime:task.state start
     | Frontend.Parser.Global_initializer_delimiter_completed receipt ->
         Task_declarations.observe_initializer_delimiter task.declarations
+          ~runtime:task.state receipt
+    | Frontend.Parser.Global_initializer_leaf_preparing receipt ->
+        Task_declarations.observe_initializer_preparation task.declarations
           ~runtime:task.state receipt
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
         execute_initializer_leaf ~use_active_stream ?stream_exe_print task

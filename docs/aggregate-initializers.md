@@ -87,18 +87,39 @@ expression parsing. It retains the reached first token, syntax path and both
 predecessor chains. The completed leaf keeps that same receipt. Callback
 authority expires before expression completion, including after failed parsing.
 
-Scalar metadata can also retain the class selected before evaluation and settle
-its reached nominal width afterward. Backing is followed at the initial
-selection. Completion of a cached forward class can change its copy width;
-later same-name classes cannot replace it. The cached class also keeps its
-original raw representation when new backing is declared. Integer results remain
-complete register words, including late integer and floating backing.
-Settlement rejects foreign records, another domain and repeated consumption.
-These metadata reads grant no execution or storage authority. Runtime stores
-still need to consume the phases before current-leaf completion can execute.
+Global scalar leaves in source tasks retain the class selected before expression
+parsing and read its reached nominal width after evaluation. Backing is followed
+at the initial selection. Completion inside a callee or during expression
+lookahead can change the copy width. Newly added direct members do not restart
+that scalar branch. The next leaf traverses its own reached selection, including
+later elements of the same fixed array.
 
-Incomplete selections and changes during an executing leaf remain unfinished.
-Floating,
+The copy uses the returned register word and advances the byte cursor by the
+reached width. A still-incomplete zero-byte class evaluates its expression and
+leaves the cursor in place. Same-name replacement cannot retarget the cached
+class. New integer or floating backing also leaves its cached raw representation
+intact: an eight-byte class still copies all eight bytes of an integer result.
+The original allocation remains the bound for every write.
+
+The [live scalar example](../examples/live-scalar-initializers.hc) prints `A`
+and returns 42 in outer JIT mode, or 7 in outer AOT mode, through IR and native
+source tasks. In JIT, `StreamExePrint` completes the cached task class, so the
+first leaf copies two bytes and the second leaf writes byte two. The `tail`
+member still accesses its declared offset zero and reads 42. In AOT,
+`StreamExePrint` uses the saved compiler's separate table. The cached task class
+remains zero bytes, so the second leaf writes 7 at byte zero.
+
+IR writes invalidate overlapping pointer and callback ownership. Native leaves
+use an actual scalar capture, an original checked destination plan and a private
+receipt from the native byte copy. A copy enters once; completion consumes its
+receipt once. Foreign programs, work counts, arenas, domains, expired requests
+and replay reject. The retained completed layout preserves these source choices
+when the global declaration is published. Expression work and actual copy bytes
+share the initializer allowance. Earlier output survives a reached width, root
+bound or quota failure.
+
+Static and isolated preparation of incomplete selections, earlier grammar
+selection snapshots and other runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under

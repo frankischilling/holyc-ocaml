@@ -7,7 +7,11 @@ layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and retu
 [Aggregate initializers](aggregate-initializers.md) cover completed selected class
 records, integer leaves, nested fixed arrays and byte strings. Original forward
 members can complete before traversal, including through JIT lookahead. Changes
-during a leaf and the remaining aggregate execution families stay open.
+inside a source-task global scalar leaf also retain the cached class and copy
+its reached width after evaluation. Expression lookahead, callee completion,
+zero-byte leaves and late backing preserve the original byte cursor and root.
+Static and isolated incomplete-class preparation, earlier grammar selection
+snapshots and the remaining aggregate execution families stay open.
 
 [Class pointer views](class-pointer-views.md) retain owned bytes through casts
 between supported integer and class pointers. IR and native paths preserve

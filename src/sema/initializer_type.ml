@@ -10,6 +10,7 @@ type scalar = {
 
 type scalar_evaluation = {
   before : scalar;
+  dynamic : bool;
   settle : unit -> (scalar, string) result;
   domain : Domain.id;
   mutable finished : bool;
@@ -39,8 +40,8 @@ let view type_ = type_.read ()
 let ( let* ) = Result.bind
 let invalid message = Error ("HCRUN0006: initializer type " ^ message)
 
-let evaluation before settle =
-  { before; settle; domain = Domain.self (); finished = false }
+let evaluation ?(dynamic = false) before settle =
+  { before; dynamic; settle; domain = Domain.self (); finished = false }
 
 let fixed_node read =
   {
@@ -55,6 +56,7 @@ let fixed_node read =
 
 let begin_scalar_evaluation type_ = type_.capture_scalar ()
 let scalar_evaluation_before phase = phase.before
+let scalar_evaluation_may_change phase = phase.dynamic
 
 let finish_scalar_evaluation phase =
   if phase.domain <> Domain.self () || phase.finished then
@@ -166,7 +168,13 @@ let of_record ?resolve ~type_ original =
                         | Aggregate _ -> assert false
                         | Scalar before ->
                             Ok
-                              (evaluation before (fun () ->
+                              (evaluation
+                                 ~dynamic:
+                                   (not
+                                      (Record.aggregate_initializer_is_complete
+                                         record))
+                                 before
+                                 (fun () ->
                                    let* current =
                                      selected_record type_ (Some record)
                                    in
