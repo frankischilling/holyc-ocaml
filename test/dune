@@ -5426,7 +5426,8 @@
  (libraries unix yojson automatic_aggregate_fixture)
  (deps
   ../examples/automatic-aggregate-byte-views.hc
-  ../examples/empty-automatic-aggregates.hc)
+  ../examples/empty-automatic-aggregates.hc
+  ../examples/original-automatic-layouts.hc)
  (action
   (run
    %{test}

@@ -242,7 +242,8 @@
  (alias native-tests)
  (deps
   ../../examples/automatic-aggregate-byte-views.hc
-  ../../examples/empty-automatic-aggregates.hc)
+  ../../examples/empty-automatic-aggregates.hc
+  ../../examples/original-automatic-layouts.hc)
  (action
   (run
    %{exe:../test_automatic_aggregates_cli.exe}

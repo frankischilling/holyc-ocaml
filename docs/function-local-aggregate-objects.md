@@ -38,6 +38,22 @@ supply its layout. A completion reached after allocation cannot enlarge the
 earlier object. Member access and pointer arithmetic use their own original
 source positions; they do not borrow the final state of the function body.
 
+Original allocation receipts also admit forward and partial classes. A forward
+object keeps zero bytes after completion; a partial object keeps the bytes
+reached when its declaration allocated it. Later genuine allocations observe
+their own reached size. Frame construction checks the original function, local
+occurrence, type and namespace before using that saved extent. A completed
+layout from another source phase cannot replace it.
+
+Inherited member observations follow the selected canonical base chain at the
+member name. Completing a forward base can add reached fields without changing
+the child's previously allocated extent or member offsets. A new same-name base
+has a different identity and cannot retarget that chain. Every access still
+checks the original object bounds. The
+[original-layout example](../examples/original-automatic-layouts.hc) checks zero
+forward frames, later allocations, overlapping inherited fields, arrays and
+pointer calls, returning 42 with output A in both modes and targets.
+
 In outer AOT input, a `#exe` declaration belongs to the separate JIT task
 namespace. It cannot complete or replace the selected outer class. Tests retain
 that distinction while checking lookahead completion in a shared JIT namespace.

@@ -81,8 +81,14 @@ bytes. The [empty automatic example](../examples/empty-automatic-aggregates.hc)
 checks shared addresses, arrays, unions and pointer calls and returns 42 with
 output A in both modes and executors.
 
-Forward-only class records still require retained original allocation layouts;
-later completion cannot supply them. General aggregate copies,
+Forward and partial classes use their original checked allocation receipts.
+Their saved extent is independent of a later completed layout. Inherited member
+observations retain the canonical base records reached at the member name;
+completion can add fields but cannot enlarge the object. Same-name replacement
+cannot substitute a new base. Metadata without the original allocation receipt
+still grants no storage. See
+[original allocation layouts](function-local-aggregate-objects.md).
+General aggregate copies,
 callback fields, pointer returns and compiler
 position queries for aggregate-valued frames remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).

@@ -971,7 +971,13 @@ frame bytes, original checked locations, array dimensions and activation owners.
 Shared source displacements compare equal without transferring byte access from
 an adjacent root. Calls preserve the caller's empty extent; expired frames reject.
 Native private owner metadata remains subject to its physical stack limit.
-Forward-only automatic allocation layouts remain unfinished. See
+Forward and partial automatic classes now use their original allocation receipts,
+including zero extents. Inherited member snapshots retain canonical bases reached
+at the original member name. Completion can expose an overlapping field while
+the allocated child size stays fixed; replacement cannot change its base identity.
+Static initializer fragments retain those original base identities as metadata.
+Copied observations and foreign namespaces cannot authorize a member or frame.
+Automatic initialization expressions for zero-byte objects remain unfinished. See
 [automatic aggregate byte views](automatic-aggregate-byte-views.md).
 
 Source resolution uses original per-declaration compiler options. JIT data-heap

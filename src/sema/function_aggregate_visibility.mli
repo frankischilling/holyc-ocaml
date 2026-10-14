@@ -75,3 +75,12 @@ val partial_aggregate :
   Compiler_record.t option
 (** Original reached metadata at the exact member-name observation. Other
     expression forms retain their original identifier observation. *)
+
+val completed_aggregate :
+  function_ ->
+  source:Frontend.Ast.expression ->
+  symbol:Symbol.t ->
+  Compiler_record.t option
+(** Completed member metadata retained by the exact original member-name
+    observation, independently of a completed aggregate layout index. This
+    grants no storage or execution authority. *)

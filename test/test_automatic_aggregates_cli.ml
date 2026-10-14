@@ -119,6 +119,12 @@ let () =
             (Cases.values @ Cases.view_matrix);
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "A" (invoke target mode (read Sys.argv.(3)));
+          value 42L "A"
+            (invoke target mode
+               (read
+                  (Filename.concat
+                     (Filename.dirname Sys.argv.(3))
+                     "original-automatic-layouts.hc")));
           value 42L ""
             (invoke ~options:[ "--frame-byte-limit=1" ] target mode
                Cases.empty_quota_source);
@@ -157,7 +163,14 @@ let () =
           List.iter
             (fun (_, source) -> error "" (invoke ~status:1 target mode source))
             Cases.unsupported)
-        (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
+        (if native then [ "ir"; "host-jit" ] else [ "ir" ]);
+      List.iter
+        (fun target ->
+          List.iter
+            (fun (_, source, word, output) ->
+              value word output (invoke target mode source))
+            Cases.source_values)
+        (if native then [ "ir"; "host-jit-task" ] else [ "ir" ]))
     [ "jit"; "aot" ];
   if native then value 42L "" (invoke "host-jit-task" "jit" Cases.quota_source);
   Printf.printf "Automatic aggregate CLI checks passed (%d reports).\n" !reports

@@ -245,19 +245,22 @@ differences and scale overflow. Metadata tests retain partial/forward/self
 bases and once-only declaration effects. Native tasks retain their original
 completed layout and command evidence. See [inherited aggregates](inherited-aggregates.md).
 
-Automatic aggregate storage has 23 IR and 23 native test groups. Shared source
+Automatic aggregate storage has 41 IR and 41 native test groups. Shared source
 fixtures cover packed and unaligned windows, named and anonymous unions,
 nested layouts, backing types, padding, source-selected identities, aliases,
 primitive parameters and all nine integer view spellings. Fault controls retain
 reached output while rejecting unknown bytes and accesses beyond the original
 object. Fresh activations have independent initialization state. Foreign frames
-fail before execution; incomplete or inherited layouts, persistent objects,
-aggregate pointer arrays, copies and numeric ownership remain rejected.
+fail before execution. Missing original allocation evidence, aggregate pointer
+arrays, copies and numeric ownership remain rejected.
 Runtime frame and instruction quotas have exact and one-below checks. Native
 image checks cover both ABIs, stack and encoded-byte quotas, and fresh host
-execution. CLI controls run 96 reports for IR and 193 with native execution.
-The fixture uses byte offsets derived from the source layout; it does not test
-direct member projection or add a TempleOS runtime oracle. See
+execution. CLI controls run 293 combined reports, including original forward
+extents, inherited field overlap, static reuse, canonical base replacement and
+partial-body lookahead through native source tasks. Four allocation-authority
+groups check original observation timing, copied occurrences and foreign tables
+and namespaces. These checks use pinned source expectations and hosted execution
+without a new TempleOS runtime capture. See
 [automatic aggregate byte views](automatic-aggregate-byte-views.md).
 
 The empty automatic aggregate example prints A and returns 42 in both modes and
@@ -267,6 +270,13 @@ recursion and replacement. A one-byte frame allowance admits several empty roots
 because private ownership metadata does not increase source frame bytes. Native
 image checks compile both ABIs and verify exact/one-below physical stack and image
 limits for empty frames as well as nonempty storage.
+
+The original automatic layout example returns 42 with output A in both modes and
+targets. It independently checks a zero allocation before forward completion, a
+later two-byte allocation and a two-byte inherited array element. Completed base
+fields overlap earlier child fields without resizing that element. Copied or
+foreign observations cannot retrieve the original completed member records or
+metadata base identities; earlier observations cannot borrow later completion.
 
 Identifier operand cases check the original invalid-lval producer before the
 reference callback or another lexer read. Sixteen source fixtures cover

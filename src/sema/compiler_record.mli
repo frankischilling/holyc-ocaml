@@ -583,6 +583,14 @@ val aggregate_value_header_source :
 (** Read the exact completed definition and canonical class identity from this
     namespace's immutable metadata. This grants no member layout or storage. *)
 
+val aggregate_value_header_base :
+  table:Symbol_table.t ->
+  scope:Symbol_table.scope ->
+  aggregate_value_header ->
+  (Frontend.Ast.aggregate_definition * Symbol.t) option
+(** Original selected base identity, including forward bases, from this exact
+    retained completed definition. This metadata grants no object layout. *)
+
 type aggregate_import
 
 val retain_aggregate_import :

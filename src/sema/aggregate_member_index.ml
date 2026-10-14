@@ -574,9 +574,18 @@ let lookup_partial result ~visibility ~source ~aggregate ~name =
   then
     Error (invalid_input "partial member lookup has another function namespace")
   else
-    lookup_partial_record result ~aggregate ~name
-      (Function_aggregate_visibility.partial_aggregate visibility ~source
-         ~symbol:aggregate)
+    let record =
+      match
+        Function_aggregate_visibility.partial_aggregate visibility ~source
+          ~symbol:aggregate
+      with
+      | Some _ as record -> record
+      | None when Option.is_none (find_aggregate result aggregate) ->
+          Function_aggregate_visibility.completed_aggregate visibility ~source
+            ~symbol:aggregate
+      | None -> None
+    in
+    lookup_partial_record result ~aggregate ~name record
 
 let lookup_reference result ~(identifier : Frontend.Ast.identifier) ~visibility
     ~aggregate ~name =

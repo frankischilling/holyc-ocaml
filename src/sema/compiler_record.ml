@@ -1125,14 +1125,54 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
   else
     let rec completed symbols partial captured = function
       | [] ->
+          let reached records =
+            if not (Parser.selected_member_reference reference) then records
+            else
+              let available = captured @ partial in
+              let rec retain visited record =
+                let identity =
+                  Option.bind record.aggregate_owner (fun (_, publication, _) ->
+                      Declaration_collection.publication_aggregate_identity
+                        publication)
+                in
+                match identity with
+                | None -> record
+                | Some symbol when List.memq symbol visited -> record
+                | Some symbol ->
+                    let base =
+                      Option.map
+                        (fun original ->
+                          let current =
+                            Option.bind original.aggregate_owner
+                              (fun (_, publication, _) ->
+                                Option.bind
+                                  (Declaration_collection
+                                   .publication_aggregate_identity publication)
+                                  (fun identity ->
+                                    List.find_map
+                                      (fun (selected, record) ->
+                                        if selected == identity then Some record
+                                        else None)
+                                      available))
+                            |> Option.value ~default:original
+                          in
+                          retain (symbol :: visited) current)
+                        record.aggregate_base_snapshot
+                    in
+                    { record with aggregate_base_snapshot = base }
+              in
+              List.map
+                (fun (symbol, record) -> (symbol, retain [] record))
+                records
+          in
           Ok
             {
               reference_table = table;
               reference_namespace = namespace;
               reference_source = reference;
               reference_completed_symbols = symbols;
-              reference_completed_records = captured;
-              reference_partial_records = partial;
+              reference_completed_records = reached captured;
+              reference_partial_records = reached partial;
             }
       | (record : t) :: rest -> (
           match record.aggregate_owner with
@@ -2229,6 +2269,19 @@ let aggregate_value_header_source ~table ~scope metadata =
     | _ -> None
 
 let retain_aggregate_import = retain_aggregate_value_header
+
+let aggregate_value_header_base ~table ~scope metadata =
+  match aggregate_value_header_source ~table ~scope metadata with
+  | None -> None
+  | Some (definition, _) ->
+      Option.bind metadata.metadata_record.aggregate_base_snapshot (fun base ->
+          if base.table != table then None
+          else
+            Option.bind base.aggregate_owner (fun (_, publication, _) ->
+                Option.map
+                  (fun symbol -> (definition, symbol))
+                  (Declaration_collection.publication_aggregate_identity
+                     publication)))
 
 let aggregate_import_source ~table ~scope metadata =
   match aggregate_value_header_source ~table ~scope metadata with

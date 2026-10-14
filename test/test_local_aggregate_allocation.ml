@@ -430,6 +430,140 @@ let source_allocation_and_reference_timing mode () =
       ignore (Parser.function_body_compiler_options header body |> checked))
     bodies
 
+let completed_base_observation_authority () =
+  List.iter
+    (fun mode ->
+      let session = Session.create () in
+      let table = Session.semantic_symbols session in
+      let source =
+        Session.add_source session ~path:"base-member-observation.hc"
+          ~contents:
+            "extern class Base;class Child:Base{U8 tail;};I64 Before(){Child \
+             early;return early.tail;}class Base{U8 head;};I64 After(){Child \
+             late;return late.head;}"
+      in
+      let ledger = D.create_source session ~source |> checked in
+      let allocations = ref [] and members = ref [] in
+      let declaration event =
+        D.observe ledger event |> observed;
+        (match event with
+        | Parser.Function_local_allocated receipt ->
+            allocations := receipt :: !allocations
+        | _ -> ());
+        Ok ()
+      in
+      let commands =
+        {
+          (sink declaration) with
+          checkpoint = Some (D.observe_command ledger);
+          reference =
+            Some
+              (fun reference ->
+                D.observe_reference ledger reference |> observed;
+                if Parser.selected_member_reference reference then
+                  members := reference :: !members;
+                Ok ());
+          query = Some (D.observe_query ledger);
+          dimension_count = Some (D.grammar_dimension_count ledger);
+        }
+      in
+      let ast = parse session mode source commands in
+      let command = D.seal ledger ast |> observed in
+      let namespace, _ =
+        D.selected_type_resolver ~table ~ast command |> observed
+      in
+      let parent = C.namespace_scope namespace in
+      let resolve =
+        D.automatic_aggregate_resolver ~table ~ast command |> observed
+      in
+      let local_name receipt =
+        match receipt.Parser.allocation_local.local_source with
+        | Parser.Local_variable local -> local.local_name
+        | _ -> Alcotest.fail "expected original object allocation"
+      in
+      let allocation =
+        resolve (local_name (List.hd !allocations)) |> Option.get
+      in
+      let child =
+        match Type.base (Record.automatic_aggregate_type allocation) with
+        | Type.Aggregate symbol -> symbol
+        | _ -> Alcotest.fail "expected Child"
+      in
+      let visible =
+        D.aggregate_reference_resolver ~table ~ast command |> observed
+      in
+      let read reference =
+        let identifier = Parser.selected_identifier reference in
+        let proof = visible identifier |> Option.get in
+        let record =
+          Record.aggregate_reference_completed_record ~table ~parent ~identifier
+            ~symbol:child proof
+          |> Option.get
+        in
+        (identifier, proof, record)
+      in
+      let before, after =
+        match List.rev !members with
+        | [ before; after ] -> (before, after)
+        | _ -> Alcotest.fail "expected two original member observations"
+      in
+      let _, _, earlier = read before in
+      let identifier, proof, later = read after in
+      Alcotest.(check bool)
+        "future completion cannot change the earlier observation" true
+        (Option.is_none (Record.aggregate_reached_field earlier "head"));
+      let _, depth, field =
+        Record.aggregate_reached_field later "head" |> Option.get
+      in
+      Alcotest.(check int) "original completed base is reached" 1 depth;
+      Alcotest.(check int64)
+        "base member retains zero offset" 0L
+        (Record.aggregate_field_offset field);
+      let copied =
+        Ast.make_identifier ~spelling:identifier.spelling
+          ~location:identifier.location
+      in
+      let unavailable table parent identifier =
+        Option.is_none
+          (Record.aggregate_reference_completed_record ~table ~parent
+             ~identifier ~symbol:child proof)
+      in
+      Alcotest.(check bool)
+        "copied member cannot retrieve completed metadata" true
+        (unavailable table parent copied);
+      let foreign_table = Session.semantic_symbols (Session.create ()) in
+      Alcotest.(check bool)
+        "foreign table cannot retrieve completed metadata" true
+        (unavailable foreign_table parent identifier);
+      let foreign_namespace = C.create_namespace ~table () |> checked in
+      Alcotest.(check bool)
+        "foreign namespace cannot retrieve completed metadata" true
+        (unavailable table (C.namespace_scope foreign_namespace) identifier);
+      let definition =
+        Ast.declaration_items ast
+        |> List.find_map (function
+          | _, Ast.Aggregate_definition definition
+            when definition.name.spelling = "Child" -> Some definition
+          | _ -> None)
+        |> Option.get
+      in
+      let header =
+        Record.retain_aggregate_value_header ~table ~namespace definition
+          (Record.automatic_aggregate_record allocation)
+        |> checked
+      in
+      Alcotest.(check bool)
+        "original header retains its forward base" true
+        (Option.is_some
+           (Record.aggregate_value_header_base ~table ~scope:parent header));
+      Alcotest.(check bool)
+        "foreign scope cannot retrieve original base" true
+        (Option.is_none
+           (Record.aggregate_value_header_base ~table
+              ~scope:(C.namespace_scope foreign_namespace)
+              header)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Original local aggregate allocation"
     [
@@ -437,6 +571,10 @@ let () =
         [
           Alcotest.test_case "live allocation, wrong owners and replay" `Quick
             original_allocation_authority;
+          Alcotest.test_case
+            "completed inherited member observations and original base \
+             authority"
+            `Quick completed_base_observation_authority;
           Alcotest.test_case
             "saved allocation and reference timing in JIT source" `Quick
             (source_allocation_and_reference_timing Preprocessor.Jit);

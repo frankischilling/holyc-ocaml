@@ -843,13 +843,13 @@ let local_location table aggregate_layouts ~parent ~function_symbol
                    receipt
                 |> Result.map_error (invalid_input ~origin))
                 (fun () ->
-                  match Aggregate_layout.find aggregate_layouts aggregate with
-                  | Some layout
-                    when layout.symbol == aggregate
-                         && layout.size
-                            = Compiler_record.automatic_aggregate_size receipt
-                         && layout.size >= 0L -> Ok layout.size
-                  | _ -> Error (incomplete_aggregate aggregate origin)))
+                  let size = Compiler_record.automatic_aggregate_size receipt in
+                  if size >= 0L then Ok size
+                  else
+                    Error
+                      (invalid_input ~origin
+                         "the original automatic allocation has a negative \
+                          class size")))
       | _ ->
           element_size table aggregate_layouts ~before_item:function_item origin
             declarator_shape checked_type

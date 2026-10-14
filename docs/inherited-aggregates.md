@@ -89,10 +89,14 @@ frame, instruction, stack and image allowances cover both modes and native
 ABIs, including fresh image executions. The CLI also checks the installed
 compiler and maintained example. These checks have no TempleOS runtime capture.
 
-Partial, self-referential and forward-only bases retain their separate
-[captured size metadata](source-inherited-layouts.md); they do not supply
-owned members. A declaration-time call can move a base outside the current
-object compilation, so its captured size still does not authorize storage.
+Partial and forward-only bases retain their separate
+[captured size metadata](source-inherited-layouts.md). Source frames can use an
+original allocation receipt to retain the extent reached at allocation. Member
+observations supply the direct and inherited fields reached through the original
+canonical base chain. Completing a forward base adds observable members without
+moving the child's earlier fields or resizing its storage; replacement-only
+members remain absent. A field wider than that original extent fails before
+touching bytes. The raw size metadata alone still cannot authorize storage.
 [Retained nested class members](retained-class-context.md) preserve their
 original selected layouts. [Function-local objects](function-local-aggregate-objects.md)
 can use completed local base classes while retaining their own allocation timing.

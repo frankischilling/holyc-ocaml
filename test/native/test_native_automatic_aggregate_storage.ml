@@ -222,6 +222,25 @@ let empty_proofs () =
         invalid)
     modes
 
+let source_case contents expected output () =
+  List.iter
+    (fun mode ->
+      let session, config, source = inputs mode contents in
+      let report =
+        Native_source_execution.evaluate ~max_code_bytes:524288 session ~config
+          ~source ~max_steps:100_000
+      in
+      let result = Native_source_execution.outcome report |> checked in
+      Alcotest.(check (option int64))
+        "original source frame word" (Some expected)
+        (Option.map
+           (fun word -> word.Native_source_execution.bits)
+           result.value.final_value);
+      Alcotest.(check string)
+        "source frame output" output
+        (Native_source_execution.output_bytes report))
+    modes
+
 let () =
   Alcotest.run "native automatic aggregate storage"
     [
@@ -230,6 +249,12 @@ let () =
           (fun (name, contents, expected, output) ->
             Alcotest.test_case name `Quick (case contents expected output))
           (Cases.values @ Cases.view_matrix) );
+      ( "source values",
+        List.map
+          (fun (name, contents, expected, output) ->
+            Alcotest.test_case name `Quick
+              (source_case contents expected output))
+          Cases.source_values );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, bounds and independent activations"

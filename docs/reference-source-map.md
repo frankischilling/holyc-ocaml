@@ -220,6 +220,17 @@ addresses, fixed-array zero strides, original dimensions, calls, recursion and
 replacement. These are pinned source expectations and hosted execution checks;
 no new TempleOS runtime or emitted-byte capture is included.
 
+Original automatic extents use `PrsVarLst` at `PrsVar.HC:530-531,590-606`:
+allocation reads the selected class's reached size, including forward or partial
+sizes, and records that extent in the local. `PrsClass` at `PrsStmt.HC:1-60`
+reuses a forward class record at completion and copies the reached base size into
+the child when its base is attached. `MemberFind` at `LexLib.HC:67-86` searches
+current direct fields and then the attached canonical base chain. The checked
+frame therefore retains original allocation geometry separately from the base
+member records observed later. Metadata fragment headers retain their original
+base identity even when no completed layout index exists. Current, copied and
+foreign observations remain distinct. These are source-derived hosted checks.
+
 Owned expression cleanup follows `Compiler/PrsExp.HC:264-303`: push two
 terminators, catch Compiler, then issue another `LexExcept` if the owned stack
 is still nonempty. The missing-operand producer is at line 957. An identifier

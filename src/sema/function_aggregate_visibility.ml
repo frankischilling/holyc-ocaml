@@ -147,6 +147,16 @@ let partial_aggregate (value : function_) ~source ~symbol =
                 (Compiler_record.aggregate_reference_partial ~table:value.table
                    ~parent:value.parent ~identifier ~symbol))))
 
+let completed_aggregate (value : function_) ~source ~symbol =
+  Option.bind
+    (Option.join (Expressions.find_opt value.occurrences source))
+    (fun occurrence ->
+      Option.bind occurrence.first_identifier (fun identifier ->
+          Option.bind value.aggregate_references (fun resolve ->
+              Option.bind (resolve identifier)
+                (Compiler_record.aggregate_reference_completed_record
+                   ~table:value.table ~parent:value.parent ~identifier ~symbol))))
+
 let create ~table ~declarations ~bodies ?aggregate_references module_ =
   let parent = Declaration_collection.scope declarations in
   let items = Ast.declaration_items module_ in

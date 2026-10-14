@@ -74,7 +74,10 @@ val layout :
 (** Join the completed binding and type evidence and lay out every function in
     source order. Parameters occupy positive eight-byte slots. The
     automatic-local cursor starts at zero and moves toward negative
-    displacements; static locals remain locations without frame slots. *)
+    displacements; static locals remain locations without frame slots. Original
+    aggregate allocation receipts supply their reached extents independently of
+    later completed layouts, after exact function, local, type and namespace
+    checks. Metadata without such receipts retains the completed-layout gate. *)
 
 val functions : t -> function_layout list
 val find_function : t -> Symbol.t -> function_layout option

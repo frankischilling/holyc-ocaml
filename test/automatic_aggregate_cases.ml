@@ -12,8 +12,52 @@ p[8]=42;return p[8];}F();|}
 let empty_quota_source =
   {|class Empty{};I64 F(){Empty first,second,objects[2][3];return sizeof(first)+sizeof(second)+sizeof(objects)+42;}F();|}
 
+let source_values =
+  [
+    ( "partial class bodies retain the allocation reached in nested input",
+      {|#exe{class Item{U8 first;#exe{I64 F(){Item object;object.first=42;return object.first;}}U8 later;};Print("A");StreamPrint("%d;",F());}|},
+      42L,
+      "A" );
+    ( "member lookahead observes base completion without resizing the frame",
+      {|#exe{extern class Base;class Child:Base{U8 tail;};I64 F(){Child object;object.tail=40;object.#exe{class Base{U8 head;};}head+=2;return object.tail;}Print("A");StreamPrint("%d;",F());}|},
+      42L,
+      "A" );
+  ]
+
 let values =
   [
+    ( "forward automatic allocation keeps its original zero extent",
+      {|extern class Box;I64 F(){Box object;return sizeof(object)+42;}class Box{U8 bytes[8];};F();|},
+      42L,
+      "" );
+    ( "forward arrays retain their original zero strides after completion",
+      {|extern class Box;I64 F(){Box objects[2][3];U8 *p=(&objects[1][2])(U8*);if(p!=p)return -1;return sizeof(objects)+42;}class Box{U16 value;};F();|},
+      42L,
+      "" );
+    ( "later allocations observe completion without growing earlier frames",
+      {|extern class Box;I64 Before(){Box object;return sizeof(object);}class Box{U8 value;};I64 After(){Box object;object.value=41;return object.value;}Before()+After()+1;|},
+      42L,
+      "" );
+    ( "forward base storage uses the original child extent",
+      {|extern class Base;class Child:Base{U8 tail;};I64 F(){Child object;object.tail=42;return object.tail;}class Base{U64 later;};F();|},
+      42L,
+      "" );
+    ( "reached base completion supplies overlapping inherited members",
+      {|extern class Base;class Child:Base{U8 tail;};class Base{U8 head;};I64 F(){Child object;object.tail=40;object.head+=2;return object.tail;}F();|},
+      42L,
+      "" );
+    ( "multilevel inherited lookup retains completed canonical bases",
+      {|extern class Base;class Middle:Base{U8 tag;};class Leaf:Middle{U8 tail;};class Base{U8 head;};I64 Read(Leaf *p){return p->head+p->tag+p->tail-40;}I64 F(){Leaf objects[2];objects[1].tag=40;objects[1].tail=2;return Read(&objects[1]);}F();|},
+      42L,
+      "" );
+    ( "base replacement cannot retarget the original inherited chain",
+      {|extern class Base;class Child:Base{U8 tail;};class Base{U8 head;};class Base{U64 other;};I64 F(){Child object;object.tail=40;object.head+=2;return object.tail;}F();|},
+      42L,
+      "" );
+    ( "original inherited statics retain their allocation and reached fields",
+      {|extern class Base;class Child:Base{U8 tail;};class Base{U8 head;};I64 F(){static Child object={40};object.head++;return object.tail;}F();F();|},
+      42L,
+      "" );
     ( "empty automatic roots retain zero frame bytes",
       {|class Empty{};I64 F(){Empty first,second;return sizeof(first)+sizeof(second)+42;}F();|},
       42L,
@@ -127,6 +171,14 @@ let view_matrix =
 
 let faults =
   [
+    ( "completion cannot add bytes to an earlier forward frame",
+      {|extern U0 Print(U8 *fmt,...);extern class Box;I64 F(){Box object;Print("kept");return *(&object)(U8*);}class Box{U8 value;};F();|},
+      "HCIRVM0019",
+      "kept" );
+    ( "completed base member cannot exceed the original child allocation",
+      {|extern U0 Print(U8 *fmt,...);extern class Base;class Child:Base{U8 tail;};class Base{U16 wide;};I64 F(){Child object;object.tail=42;Print("kept");return object.wide;}F();|},
+      "HCIRVM0019",
+      "kept" );
     ( "empty array dimensions still check each index",
       {|extern U0 Print(U8 *fmt,...);class Empty{};I64 F(){Empty objects[2][3];Print("kept");U8 *p=(&objects[2][0])(U8*);return 42;}F();|},
       "HCIRVM0019",
@@ -174,12 +226,11 @@ if(n)*p=42;return *p;}F(1);F(0);|},
 
 let unsupported =
   [
-    ( "forward-only layouts do not grant automatic storage",
-      {|extern class Box;I64 F(){Box object;return 42;}class Box{U8 bytes[8];};F();|}
+    ( "unreached inherited fields cannot borrow later completion",
+      {|extern class Base;class Child:Base{U8 tail;};I64 F(){Child object;return object.head;}class Base{U8 head;};F();|}
     );
-    ( "forward base metadata is not runtime layout authority",
-      {|extern class Base;class Child:Base{U8 tail;};
-I64 F(){Child object;return 42;}F();|}
+    ( "replacement-only base members are absent from the original chain",
+      {|extern class Base;class Child:Base{U8 tail;};class Base{U8 head;};class Base{U8 replacement;};I64 F(){Child object;return object.replacement;}F();|}
     );
     ( "aggregate pointer array",
       {|class Box{U8 byte;};I64 F(){Box *objects[2];return 42;}F();|} );

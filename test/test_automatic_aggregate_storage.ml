@@ -184,7 +184,7 @@ let () =
                 List.iter
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
-          (Cases.values @ Cases.view_matrix) );
+          (Cases.values @ Cases.source_values @ Cases.view_matrix) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, extents and fresh activations"
