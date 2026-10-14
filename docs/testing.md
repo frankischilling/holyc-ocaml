@@ -2430,4 +2430,13 @@ example checks exact and one-below execution and preparation limits.
 Native storage and output bridges also execute metadata-only arenas directly;
 malformed code and inconsistent arena counts retain their rejection checks.
 
+Storage-option cases check JIT data-heap scalar updates, arrays, aggregate byte
+views and per-declarator changes. Both modes check constant statics, original
+allocation options, expression lookahead and per-leaf changes in member and root
+arrays. AOT failures retain `A` and stop before later `B` directives. Source
+metadata tests retain separate global, static allocation and expression masks;
+copied names, rebuilt modules, foreign tables, copied current allocations and
+expired expression observations reject. The maintained storage-option example
+checks both modes/targets and exact and one-below execution/preparation limits.
+
 No TempleOS runtime or emitted-byte capture is included.

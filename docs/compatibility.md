@@ -967,3 +967,11 @@ element's effect and zero stride. Native arenas can consist only of private owne
 metadata. Source-task checks cover both modes, later class replacement, unused
 functions, repeated calls, original bounds and exact resource limits. Automatic
 zero-byte frame storage and inferred dimensions remain open.
+
+Source resolution uses original per-declaration compiler options. JIT data-heap
+globals retain scalar, array and aggregate storage under the existing ownership
+and bounds checks. Static allocation and expression options remain separate;
+expression lookahead selects AOT deferral. Constant statics support the data-heap
+option in both source modes and targets. AOT data-heap globals reject initializers
+before their effects. The separate compile-time phase for reference-bearing AOT
+statics and the AOT `IC_HEAP_GLBL`/loader path remain open.

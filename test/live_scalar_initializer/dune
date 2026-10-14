@@ -23,6 +23,7 @@
   ../../examples/retained-aot-initializer-layouts.hc
   ../../examples/native-aot-static-initializers.hc
   ../../examples/empty-aggregate-initializers.hc
+  ../../examples/compiler-storage-options.hc
   ../../examples/live-static-scalar-initializers.hc
   ../../examples/backed-forward-initializers.hc
   ../../examples/class-body-initializers.hc
@@ -43,6 +44,7 @@
   ../../examples/retained-aot-initializer-layouts.hc
   ../../examples/native-aot-static-initializers.hc
   ../../examples/empty-aggregate-initializers.hc
+  ../../examples/compiler-storage-options.hc
   ../../examples/live-static-scalar-initializers.hc
   ../../examples/backed-forward-initializers.hc
   ../../examples/class-body-initializers.hc

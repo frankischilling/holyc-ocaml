@@ -308,6 +308,12 @@ val static_initializer :
   static_slot -> Sema.Function_call_expression_result.initializer_result option
 
 val static_compiler_options : static_slot -> int64
+val static_owner_compiler_options : static_slot -> int64
+
+val static_initializer_compiler_options :
+  static_slot ->
+  Sema.Function_call_expression_result.initializer_result ->
+  int64
 
 val static_initializers :
   static_slot -> Sema.Function_call_expression_result.initializer_result list

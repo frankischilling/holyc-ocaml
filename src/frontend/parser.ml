@@ -1037,11 +1037,14 @@ type function_local_allocation = {
   allocation_activity : function_position_activity;
 }
 
+let current_local_allocations = Domain.DLS.new_key (fun () -> ref [])
+
 let function_local_allocation_is_current receipt =
   !(receipt.allocation_activity)
   && receipt.allocation_function.function_header.declaration_command
        .command_context
        .context_active
+  && List.exists (( == ) receipt) !(Domain.DLS.get current_local_allocations)
 
 type static_initializer_start = {
   static_start_allocation : function_local_allocation;
@@ -9386,8 +9389,15 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                       allocation_activity = ref true;
                     }
                   in
+                  let active_allocations =
+                    Domain.DLS.get current_local_allocations
+                  in
+                  let previous_allocations = !active_allocations in
+                  active_allocations := receipt :: previous_allocations;
                   Fun.protect
-                    ~finally:(fun () -> receipt.allocation_activity := false)
+                    ~finally:(fun () ->
+                      active_allocations := previous_allocations;
+                      receipt.allocation_activity := false)
                     (fun () ->
                       publish_declaration cursor equals_item
                         (Function_local_allocated receipt));

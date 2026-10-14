@@ -16,6 +16,8 @@ type slot = {
   location : Frame.location;
   shape : Shape.t;
   compiler_options : int64;
+  owner_compiler_options : int64;
+  option_source : Sema.Static_local_source.t option;
   opcode : Opcode.t;
   initial : Typed.initializer_result option;
   array_initializers : Typed.initializer_result Arrays.t option;
@@ -32,6 +34,7 @@ let symbol slot = Frame.location_symbol slot.location
 let type_ slot = Frame.location_storage_type slot.location |> Result.get_ok
 let callback_pointer slot = Frame.location_callback_pointer slot.location
 let compiler_options slot = slot.compiler_options
+let owner_compiler_options slot = slot.owner_compiler_options
 let opcode slot = slot.opcode
 let initial slot = slot.initial
 let array_initializers slot = slot.array_initializers
@@ -40,6 +43,16 @@ let initializers slot =
   match slot.array_initializers with
   | None -> Option.to_list slot.initial
   | Some arrays -> List.map Arrays.root (Arrays.entries arrays)
+
+let initializer_compiler_options slot root =
+  Option.value ~default:slot.compiler_options
+    (Option.bind slot.option_source (fun source ->
+         Option.bind
+           (Typed.initializer_source root |> Source.initializer_leaf)
+           (fun leaf ->
+             Sema.Compiler_record.static_initializer_compiler_options
+               (Sema.Static_local_source.allocation source)
+               (Sema.Initializer_source.leaf_expression_ast leaf))))
 
 let initial_bits slot = slot.initial_bits
 
@@ -59,6 +72,21 @@ let materialized slot =
   && not
        (Option.fold ~none:false ~some:Arrays.has_unprepared
           slot.array_initializers)
+
+let with_source_options ~source slot =
+  if
+    Sema.Static_local_source.frame source != slot.frame
+    || Sema.Static_local_source.location source != slot.location
+  then Error "static options require their exact original frame and location"
+  else
+    Ok
+      {
+        slot with
+        option_source = Some source;
+        compiler_options =
+          Sema.Static_local_source.allocation source
+          |> Sema.Compiler_record.static_allocation_compiler_options;
+      }
 
 let with_source_allocation ~allocation ~source slot =
   let ( let* ) = Result.bind in
@@ -88,7 +116,8 @@ let with_source_allocation ~allocation ~source slot =
                   Integer_initializer_layout.cell_offset destination,
                   Integer_initializer_layout.byte_offset destination )))
     in
-    Ok { slot with source_allocation = Some allocation }
+    with_source_options ~source
+      { slot with source_allocation = Some allocation }
 
 let ( let* ) = Result.bind
 
@@ -418,6 +447,8 @@ let create ~initializer_snapshots ~allocations ~span ~mode ~start ~frames
                          location;
                          shape;
                          compiler_options;
+                         owner_compiler_options = compiler_options;
+                         option_source = None;
                          opcode;
                          initial;
                          array_initializers;

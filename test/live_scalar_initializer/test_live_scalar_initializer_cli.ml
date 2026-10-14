@@ -178,7 +178,7 @@ let () =
                 ~output_hex:(if output = "A" then "41" else "")
                 "42"
                 (invoke compiler probe target "jit" [] 0))
-            Cases.fragment_member_jit_values;
+            (Cases.fragment_member_jit_values @ Cases.option_jit_values);
           List.iter
             (fun mode ->
               List.iter
@@ -189,7 +189,8 @@ let () =
                     "42"
                     (invoke compiler probe target mode [] 0))
                 (Cases.ordinary_source_values @ Cases.static_load_values
-               @ Cases.fragment_member_values @ Cases.empty_root_values);
+               @ Cases.fragment_member_values @ Cases.empty_root_values
+               @ Cases.option_both_values);
               List.iter
                 (fun (_, source, _) ->
                   write source;
@@ -240,8 +241,18 @@ let () =
                   "retained-aot-initializer-layouts.hc";
                   "native-aot-static-initializers.hc";
                   "empty-aggregate-initializers.hc";
+                  "compiler-storage-options.hc";
                 ])
             [ "jit"; "aot" ];
+          List.iter
+            (fun (_, source, code) ->
+              write source;
+              let report = invoke compiler probe target "aot" [] 1 in
+              failure code report;
+              require
+                (member "output_hex" report = `String "41")
+                "AOT option failure precedes later source effects")
+            Cases.option_aot_faults;
           write Cases.static_before_nested_brace;
           success "42" (invoke compiler probe target "jit" [] 0);
           List.iter

@@ -2457,3 +2457,23 @@ recurse through every fixed array element. Complete `PrsGlblInit` and
 persistent storage. Hosted tests check these effects, original dimensions,
 replacement, zero extents and native metadata-only images. They add no TempleOS
 runtime or emitted-byte capture.
+
+Compiler storage options come from native `CCmpCtrl.opts`, read and changed by
+complete `Option`/`GetOption` at `Compiler/CMisc.HC:1-10`. Complete `PrsStreamBlk`
+at `Compiler/PrsStmt.HC:805-840` switches flags and hash context without restoring
+options; complete `ExePutS` at `Compiler/CMain.HC:571-603` copies options for an
+ordinary child compiler. Complete `PrsGlblVarLst` at
+`Compiler/PrsStmt.HC:209-463` selects each reached global's heap and rejects an
+AOT data-heap initializer before advancing past `=`. Complete `PrsVarInit` at
+`Compiler/PrsVar.HC:1-112` checks the data-heap bit after expression compilation
+when selecting AOT deferral. Complete `PrsVarLst` at
+`Compiler/PrsVar.HC:408-742` keeps statics on the code heap.
+
+Original declaration and static allocation/expression snapshots carry these
+options into semantic records and hosted persistent storage. AOT metadata
+capture does not fabricate a live function record, runtime allocation or copy.
+Source tests distinguish allocation, expression and final-body masks and retain
+the original failure boundary before later effects. JIT data-heap storage and
+constant statics execute through IR and native source tasks; the nonconstant AOT
+compile-time phase and `IC_HEAP_GLBL` loader path remain open. These checks include
+no TempleOS runtime or emitted-byte capture.

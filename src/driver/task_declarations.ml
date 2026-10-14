@@ -79,6 +79,7 @@ type source =
     }
   | Global of {
       publication : Parser.global_publication;
+      allocation_compiler_options : int64;
       mutable completed : Ast.global_declarator option;
       mutable initializing : Sema.Initializer_source.pending option;
     }
@@ -192,6 +193,7 @@ type reading_query = {
 
 type command = {
   calls : Sema.Function_call_phase.t list;
+  declaration_compiler_options : int64 Names.t;
   function_compiler_options : (Sema.Symbol.t * int64) list;
   function_body_sources :
     (Parser.completed_function_header * Ast.function_definition) list;
@@ -3263,6 +3265,17 @@ let observe ?offset_runtime ?metadata_work_limit
             when state.publication == publication
                  && Option.is_none state.completed
                  && Option.is_none state.initializing ->
+              if
+                Parser.context_mode
+                  publication.global_header.declaration_command.command_context
+                = Frontend.Preprocessor.Aot
+                && Option.is_none publication.global_header.binding
+                && Sema.Compiler_option.is_enabled
+                     ~mask:state.allocation_compiler_options
+                     Sema.Compiler_option.Globals_on_data_heap
+              then
+                fail ~code:"HCEVAL0003" start.initializer_equals.span
+                  "AOT data-heap globals cannot have declaration initializers";
               let pending =
                 Sema.Initializer_source.begin_parser start
                 |> checked start.initializer_equals.span
@@ -3283,6 +3296,7 @@ let observe ?offset_runtime ?metadata_work_limit
                 publication = original;
                 completed = None;
                 initializing = Some pending;
+                _;
               }
             when original == publication ->
               Sema.Initializer_source.observe_parser_preparation pending
@@ -3305,6 +3319,7 @@ let observe ?offset_runtime ?metadata_work_limit
                 publication = original;
                 completed = None;
                 initializing = Some pending;
+                _;
               }
             when original == publication ->
               Sema.Initializer_source.observe_parser_delimiter pending delimiter
@@ -3326,6 +3341,7 @@ let observe ?offset_runtime ?metadata_work_limit
                 publication = original;
                 completed = None;
                 initializing = Some pending;
+                _;
               }
             when original == publication ->
               let source_leaf =
@@ -3360,7 +3376,17 @@ let observe ?offset_runtime ?metadata_work_limit
           retain_selected_aggregate ledger
             publication.global_header.type_specifier selected;
           assign ledger publication.global_name Sema.Symbol.Global_variable
-            (Global { publication; completed = None; initializing = None })
+            (Global
+               {
+                 publication;
+                 allocation_compiler_options =
+                   Parser.context_compiler_options
+                     publication.global_header.declaration_command
+                       .command_context
+                   |> checked publication.global_name.location.span;
+                 completed = None;
+                 initializing = None;
+               })
             publication.global_entry;
           let storage_aggregate =
             global_aggregate_allocation ledger
@@ -3563,6 +3589,25 @@ let observe ?offset_runtime ?metadata_work_limit
                     (Sema.Compiler_record.static_allocation
                        ledger.compiler_positions receipt))
                 state.native_record;
+              (if
+                 Option.is_none state.native_record
+                 && receipt.allocation_storage = Ast.Static_local
+               then
+                 let dimensions =
+                   match receipt.allocation_local.local_source with
+                   | Parser.Local_variable source ->
+                       selected_dimensions ledger source.local_array_dimensions
+                   | _ -> []
+                 in
+                 let allocation =
+                   Sema.Compiler_record.capture_static_allocation
+                     ?automatic_aggregate ~table:ledger.table
+                     ~namespace:ledger.namespace
+                     ~publication:assigned.publication ~dimensions receipt
+                   |> checked span
+                 in
+                 ledger.static_allocations_rev <-
+                   allocation :: ledger.static_allocations_rev);
               Option.iter
                 (fun allocation ->
                   state.automatic_aggregate_allocations <-
@@ -3705,6 +3750,42 @@ let observe ?offset_runtime ?metadata_work_limit
           | Function state when state.publication == publication -> ()
           | _ -> fail span "static preparation belongs to another declaration");
           ledger.static_preparations <- receipt :: ledger.static_preparations;
+          let allocation =
+            List.find_opt
+              (fun allocation ->
+                Sema.Compiler_record.static_allocation_receipt allocation
+                == receipt.static_allocation)
+              ledger.static_allocations_rev
+          in
+          (match allocation with
+          | None -> fail span "static options lack their original allocation"
+          | Some allocation ->
+              Sema.Compiler_record.observe_static_initializer_options
+                ~table:ledger.table allocation receipt
+              |> checked span);
+          if
+            isolated_initializers
+            && Parser.context_mode
+                 publication.function_header.declaration_command.command_context
+               = Frontend.Preprocessor.Aot
+            && Sema.Compiler_option.is_enabled
+                 ~mask:
+                   (Parser.context_compiler_options
+                      publication.function_header.declaration_command
+                        .command_context
+                   |> checked span)
+                 Sema.Compiler_option.Globals_on_data_heap
+            &&
+            match receipt.static_leaf_value with
+            | Ast.Scalar_initializer expression ->
+                Sema.Initializer_source.expression_identifier_nodes expression
+                <> []
+            | _ -> false
+          then
+            fail ~code:"HCRUN0006"
+              (Parser.static_initializer_leaf_location receipt).span
+              "AOT static initializer references with globals-on-data-heap \
+               require their separate compile-time phase";
           observe_isolated_static ledger receipt.static_allocation span
             (fun snapshot ->
               Ir.Integer_initializer_layout.prepare_static_snapshot_leaf
@@ -4886,6 +4967,21 @@ let seal ledger (ast : Ast.module_) =
                     );
                 imported_dimensions;
                 imported_offsets;
+                declaration_compiler_options =
+                  (let options = Names.create 32 in
+                   List.iter
+                     (fun assigned ->
+                       match assigned.source with
+                       | Global state ->
+                           Names.add options state.publication.global_name
+                             state.allocation_compiler_options
+                       | Function state ->
+                           Names.add options state.publication.function_name
+                             state.publication.function_header
+                               .declaration_compiler_options
+                       | Aggregate _ -> ())
+                     !claimed;
+                   options);
                 function_compiler_options =
                   List.filter_map
                     (fun assigned ->
@@ -5379,6 +5475,19 @@ let native_static_initializer_source ~load ledger ~runtime
           fail span
             "native static initializer requires its original source callback");
       validate_command ledger publication.function_header;
+      if
+        load
+        && Sema.Compiler_option.is_enabled
+             ~mask:
+               (Parser.context_compiler_options
+                  publication.function_header.declaration_command
+                    .command_context
+               |> checked span)
+             Sema.Compiler_option.Globals_on_data_heap
+      then
+        fail ~code:"HCRUN0006" span
+          "nonconstant AOT static initialization with globals-on-data-heap \
+           requires a separate compile-time phase";
       if not (VM.task_owns_table runtime ledger.table) then
         fail span "native static initializer has another semantic table";
       (match ledger.source_defaults_runtime with
@@ -5524,7 +5633,7 @@ let initializer_declaration ledger (start : Parser.global_initializer_start) =
         fail span "initializer layout is outside its original start callback";
       if not deferred then validate_command ledger publication.global_header;
       (match (find ledger publication.global_name).source with
-      | Global { publication = original; completed; initializing = Some _ }
+      | Global { publication = original; completed; initializing = Some _; _ }
         when original == publication && (Option.is_none completed || deferred)
         -> ()
       | _ -> fail span "initializer layout has no observed original start");
@@ -6198,6 +6307,21 @@ let retained_function_headers ~table ~ast (command : command) =
       if command.table != table || command.ast != ast then
         fail ast.Ast.span "retained headers belong to another source command";
       (command.namespace, command.function_headers))
+
+let declaration_compiler_options ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "declaration options belong to another source command";
+      fun identifier ->
+        match
+          Names.find_opt command.declaration_compiler_options identifier
+        with
+        | Some mask -> Ok mask
+        | None ->
+            Error "declaration options require the original name occurrence")
+
+let source_declaration_compiler_options ~table ~ast (Source_command command) =
+  declaration_compiler_options ~table ~ast command
 
 let function_compiler_options ~table ~ast (command : command) =
   protect (fun () ->

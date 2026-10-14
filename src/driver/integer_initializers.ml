@@ -752,10 +752,10 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                       ( Globals.storage_type (Destination.storage destination),
                         0L )
                 | Global (slot, _) -> Ok (Globals.slot_type slot, 0L)
-                | Static (slot, _) ->
+                | Static (slot, root) ->
                     Ok
                       ( Globals.static_storage slot |> Globals.storage_type,
-                        Globals.static_compiler_options slot )
+                        Globals.static_initializer_compiler_options slot root )
               in
               let destination_type =
                 let destination =
@@ -1017,11 +1017,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 (not constant)
                 &&
                 match root_ with
-                | Static (slot, _) ->
+                | Static (slot, root) ->
                     Globals.storage_opcode (Globals.static_storage slot)
                     = Ir.Opcode.Ic_abs_addr
                     && Sema.Compiler_option.is_enabled
-                         ~mask:(Globals.static_compiler_options slot)
+                         ~mask:
+                           (Globals.static_initializer_compiler_options slot
+                              root)
                          Sema.Compiler_option.Globals_on_data_heap
                 | Native_static _
                 | Native_global _

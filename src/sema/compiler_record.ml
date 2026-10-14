@@ -302,6 +302,9 @@ type static_allocation = {
   static_namespace : Declaration_collection.namespace;
   static_publication : Declaration_collection.publication;
   static_receipt : Parser.function_local_allocation;
+  static_compiler_options : int64;
+  mutable static_initializer_options :
+    (Parser.static_initializer_preparation * int64) list;
   static_dimensions : declared_dimension list;
   static_aggregate : automatic_aggregate_allocation option;
 }
@@ -338,6 +341,37 @@ let static_allocation_table value = value.static_table
 let static_allocation_namespace value = value.static_namespace
 let static_allocation_publication value = value.static_publication
 let static_allocation_receipt value = value.static_receipt
+let static_allocation_compiler_options value = value.static_compiler_options
+
+let observe_static_initializer_options ~table allocation receipt =
+  if
+    allocation.static_table != table
+    || allocation.static_receipt != receipt.Parser.static_allocation
+    || (not (Parser.static_initializer_is_current receipt))
+    || List.exists
+         (fun (original, _) -> original == receipt)
+         allocation.static_initializer_options
+  then
+    Error
+      "static initializer options require their original unconsumed callback"
+  else
+    Result.map
+      (fun mask ->
+        allocation.static_initializer_options <-
+          (receipt, mask) :: allocation.static_initializer_options)
+      (Parser.context_compiler_options
+         receipt.static_allocation.allocation_function.function_header
+           .declaration_command
+           .command_context)
+
+let static_initializer_compiler_options allocation expression =
+  List.find_map
+    (fun (receipt, mask) ->
+      match receipt.Parser.static_leaf_value with
+      | Ast.Scalar_initializer original when original == expression -> Some mask
+      | _ -> None)
+    allocation.static_initializer_options
+
 let static_allocation_dimensions value = value.static_dimensions
 let static_allocation_aggregate value = value.static_aggregate
 let compiler_position_value position = position.position_value
@@ -577,6 +611,57 @@ let scalar_size type_ =
         Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
     | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
 
+let capture_static_allocation ?automatic_aggregate ~table ~namespace
+    ~publication ~dimensions receipt =
+  if
+    (not (Parser.function_local_allocation_is_current receipt))
+    || receipt.Parser.allocation_storage <> Ast.Static_local
+    || (not (Declaration_collection.namespace_owns_table namespace table))
+    || (not
+          (Declaration_collection.namespace_owns_publication namespace
+             publication))
+    || not
+         (Option.fold ~none:false
+            ~some:(( == ) receipt.allocation_function)
+            (Declaration_collection.publication_source_function publication))
+  then Error "static metadata requires its original allocation and namespace"
+  else
+    let* () =
+      match automatic_aggregate with
+      | Some allocation
+        when allocation.automatic_table != table
+             || allocation.automatic_namespace != namespace
+             || allocation.automatic_source != receipt ->
+          Error "static metadata has another original aggregate allocation"
+      | _ -> Ok ()
+    in
+    let* _ =
+      match receipt.allocation_local.local_source with
+      | Parser.Local_variable source ->
+          declared_array_size ~table ~namespace
+            ~command:
+              receipt.allocation_function.function_header.declaration_command
+            ~name:source.local_name ~dimensions:source.local_array_dimensions
+            ~checked:dimensions 1L
+      | _ -> Error "static metadata requires its original local variable"
+    in
+    let* static_compiler_options =
+      Parser.context_compiler_options
+        receipt.allocation_function.function_header.declaration_command
+          .command_context
+    in
+    Ok
+      {
+        static_table = table;
+        static_namespace = namespace;
+        static_publication = publication;
+        static_receipt = receipt;
+        static_compiler_options;
+        static_initializer_options = [];
+        static_dimensions = dimensions;
+        static_aggregate = automatic_aggregate;
+      }
+
 let record_local_allocation ?automatic_aggregate ~table ~namespace ~dimensions
     positions record receipt =
   let local = receipt.Parser.allocation_local in
@@ -666,6 +751,11 @@ let record_local_allocation ?automatic_aggregate ~table ~namespace ~dimensions
                      extent))
       | _ -> Error "frame allocation requires its original local variable"
     in
+    let* static_compiler_options =
+      Parser.context_compiler_options
+        receipt.allocation_function.function_header.declaration_command
+          .command_context
+    in
     let* () = Function_record_phase.observe_local_allocation record receipt in
     Local_allocations.add positions.allocations receipt allocation;
     if receipt.allocation_storage = Ast.Static_local then
@@ -675,6 +765,8 @@ let record_local_allocation ?automatic_aggregate ~table ~namespace ~dimensions
           static_namespace = namespace;
           static_publication = Function_record_phase.publication snapshot;
           static_receipt = receipt;
+          static_compiler_options;
+          static_initializer_options = [];
           static_dimensions = dimensions;
           static_aggregate = automatic_aggregate;
         };

@@ -396,7 +396,9 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
               if
                 Integer_globals.storage_opcode storage = Opcode.Ic_abs_addr
                 && Sema.Compiler_option.is_enabled
-                     ~mask:(Integer_globals.static_compiler_options slot)
+                     ~mask:
+                       (Integer_globals.static_initializer_compiler_options slot
+                          root)
                      Sema.Compiler_option.Globals_on_data_heap
               then
                 invalid

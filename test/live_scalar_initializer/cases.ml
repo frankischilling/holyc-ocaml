@@ -378,9 +378,57 @@ let empty_root_values =
       "" );
   ]
 
+let option_both_values =
+  [
+    ( "data-heap option does not move constant statics off the code heap",
+      {|#exe{Option(35,1);}I64 F(){static I64 n=40;static U8 tail=2;return n+tail;}F();|},
+      "" );
+    ( "static allocation options survive later body changes",
+      {|I64 Seed(){Print("A");return 42;}I64 F(){static I64 n=Seed();#exe{Option(35,1);}return n;}F();|},
+      "A" );
+    ( "static expression lookahead selects its own deferral options",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 42;}I64 F(){static I64 n=Seed()#exe{Option(35,0);};return n;}F();|},
+      "A" );
+    ( "static member leaves retain separate expression option snapshots",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}class Box{U8 first;U8 tail;};I64 F(){static Box object={Seed()#exe{Option(35,0);},2#exe{Option(35,1);}};return object.first+object.tail;}F();|},
+      "A" );
+    ( "fixed static arrays retain per-leaf option changes",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}I64 F(){static U8 values[2]={Seed()#exe{Option(35,0);},2#exe{Option(35,1);}};return values[0]+values[1];}F();|},
+      "A" );
+  ]
+
+let option_jit_values =
+  [
+    ( "JIT data-heap globals preserve scalar updates",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}U8 value=Seed();I64 F(){value+=2;return value;}F();|},
+      "A" );
+    ( "JIT data-heap arrays preserve each initializer effect",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}U8 values[2]={Seed(),2};I64 F(){return values[0]+values[1];}F();|},
+      "A" );
+    ( "JIT data-heap aggregates retain their owned byte views",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}class Box{U8 first;U8 tail;};Box object={Seed(),2};I64 F(){U8 *p=(&object)(U8*);return p[0]+p[1];}F();|},
+      "A" );
+    ( "global declarators retain separate allocation options",
+      {|I64 Seed(){Print("A");return 40;}U8 first=Seed()#exe{Option(35,1);},tail=2#exe{Option(35,0);};I64 F(){return first+tail;}F();|},
+      "A" );
+  ]
+
+let option_aot_faults =
+  [
+    ( "AOT data-heap globals reject before initializer directives",
+      {|#exe{Print("A");Option(35,1);}I64 value=#exe{Print("B");}42;value;|},
+      "HCEVAL0003" );
+    ( "AOT comma declarator observes its reached data-heap option",
+      {|I64 first=40#exe{Print("A");Option(35,1);},tail=#exe{Print("B");}2;first+tail;|},
+      "HCEVAL0003" );
+    ( "AOT static compile phase stops before later body effects",
+      {|#exe{Print("A");}I64 Seed(){return 42;}I64 F(){static I64 value=Seed()#exe{Option(35,1);};#exe{Print("B");}return value;}F();|},
+      "HCRUN0006" );
+  ]
+
 let both_values =
   ordinary_source_values @ backed_values @ static_load_values
-  @ fragment_member_values @ empty_root_values
+  @ fragment_member_values @ empty_root_values @ option_both_values
   @ [
       ( "global initialization retains the forward through same-name replacement",
         {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};class Item{U16 value;};class Item{U8 replacement;};I64 F(){return object.tail;}F();|},

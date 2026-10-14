@@ -424,8 +424,22 @@ let prepare_unit ?environment:task_environment ?declaration_command
         )
     | Some _ -> Ok ([], [])
   in
+  let* declaration_options =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.declaration_compiler_options ~table ~ast:source_ast
+          command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_declaration_compiler_options ~table
+          ~ast:source_ast command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
   let* functions =
     Function_resolution.resolve ?namespace:function_namespace
+      ?compiler_options:declaration_options
       ~record_heads:
         (List.map
            Sema.Function_record_classification.classified_declaration_source
@@ -438,8 +452,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* globals =
-    Global_resolution.resolve ~table ~declarations ~globals:global_types
-      ~compilation_mode:mode ast
+    Global_resolution.resolve ?compiler_options:declaration_options ~table
+      ~declarations ~globals:global_types ~compilation_mode:mode ast
     |> checked
   in
   let* module_expressions =

@@ -54,6 +54,14 @@ let saved_tables () =
 let faults () =
   List.iter
     (fun (_, source, code) ->
+      let report = run Preprocessor.Aot source in
+      failure code report;
+      Alcotest.(check string)
+        "original AOT option failure precedes later output" "A"
+        (integer_program_report_output_bytes report))
+    Cases.option_aot_faults;
+  List.iter
+    (fun (_, source, code) ->
       let report = run Preprocessor.Jit source in
       failure code report;
       Alcotest.(check string)
@@ -126,7 +134,7 @@ let () =
             Alcotest.test_case name `Quick (fun () ->
                 value output (run Preprocessor.Jit source)))
           (Cases.jit_values @ Cases.static_jit_values
-         @ Cases.fragment_member_jit_values)
+         @ Cases.fragment_member_jit_values @ Cases.option_jit_values)
         @ List.concat_map
             (fun mode ->
               List.map

@@ -478,13 +478,6 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                 unsupported ?span
                   "native statics do not admit declaration initializers"
               else if
-                Sema.Compiler_option.is_enabled
-                  ~mask:(Globals.static_compiler_options slot)
-                  Sema.Compiler_option.Globals_on_data_heap
-              then
-                unsupported ?span
-                  "native statics do not admit data-heap options"
-              else if
                 let frame_dimensions =
                   Frame.location_dimensions location
                   |> List.map Frame.dimension_value
@@ -1062,10 +1055,7 @@ let create_task_snapshot ?(functions = []) layout ~initialization ~entry =
     else if
       List.exists
         (fun slot ->
-          Sema.Compiler_option.is_enabled
-            ~mask:(Globals.static_compiler_options slot)
-            Sema.Compiler_option.Globals_on_data_heap
-          || Option.is_none (Globals.static_source_allocation slot)
+          Option.is_none (Globals.static_source_allocation slot)
           || not
                (List.for_all
                   (Globals.static_root_executed slot)

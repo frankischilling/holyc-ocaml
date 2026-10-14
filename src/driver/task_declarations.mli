@@ -378,6 +378,17 @@ val retained_function_headers :
     Common.Diagnostic.t list )
   result
 
+val declaration_compiler_options :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.identifier -> (int64, string) result,
+    Common.Diagnostic.t list )
+  result
+(** Frozen original global allocation and function declaration option masks.
+    Copied name occurrences and foreign commands reject. This is metadata only.
+*)
+
 val function_compiler_options :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -452,6 +463,14 @@ val source_aggregate_field_resolver :
   ast:Frontend.Ast.module_ ->
   source_command ->
   ( Frontend.Ast.identifier -> Sema.Compiler_record.aggregate_field option,
+    Common.Diagnostic.t list )
+  result
+
+val source_declaration_compiler_options :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Frontend.Ast.identifier -> (int64, string) result,
     Common.Diagnostic.t list )
   result
 

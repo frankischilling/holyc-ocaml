@@ -189,6 +189,18 @@ val compiler_position_dependencies : compiler_position -> aggregate_offset list
 val compiler_position_runtime_dependencies :
   compiler_position -> runtime_dimension_proposal list
 
+val capture_static_allocation :
+  ?automatic_aggregate:automatic_aggregate_allocation ->
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  publication:Declaration_collection.publication ->
+  dimensions:declared_dimension list ->
+  Frontend.Parser.function_local_allocation ->
+  (static_allocation, string) result
+(** Retain original static metadata during its live callback, including AOT
+    source bodies without a task function record. This supplies no runtime
+    allocation, executable value or copy authority. *)
+
 val record_local_allocation :
   ?automatic_aggregate:automatic_aggregate_allocation ->
   table:Symbol_table.t ->
@@ -225,6 +237,21 @@ val static_allocation_publication :
 
 val static_allocation_receipt :
   static_allocation -> Frontend.Parser.function_local_allocation
+
+val static_allocation_compiler_options : static_allocation -> int64
+(** Original option mask reached at this local allocation callback. *)
+
+val observe_static_initializer_options :
+  table:Symbol_table.t ->
+  static_allocation ->
+  Frontend.Parser.static_initializer_preparation ->
+  (unit, string) result
+(** Capture the live option mask after an original scalar expression is parsed.
+    Foreign allocations, expired callbacks and repeated observations reject. *)
+
+val static_initializer_compiler_options :
+  static_allocation -> Frontend.Ast.expression -> int64 option
+(** Read metadata for the exact original expression occurrence. *)
 
 val static_allocation_dimensions : static_allocation -> declared_dimension list
 

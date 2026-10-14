@@ -461,6 +461,11 @@ let static_root_materialized slot root =
         (static_initializer slot)
 
 let static_compiler_options = Integer_statics.compiler_options
+let static_owner_compiler_options = Integer_statics.owner_compiler_options
+
+let static_initializer_compiler_options =
+  Integer_statics.initializer_compiler_options
+
 let static_storage slot = Static slot
 let static_source_allocation = Integer_statics.source_allocation
 let global_storage slot = Global slot
@@ -958,12 +963,16 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
           Resolution.global_record_kind source <> Resolution.Definition
           || Resolution.global_record_state source <> Resolution.Defined
           || Resolution.global_record_storage source <> Resolution.Code_heap
+             && not
+                  (Records.compilation_mode records = Resolution.Jit
+                  && Resolution.global_record_storage source
+                     = Resolution.Data_heap)
           || Option.is_some (Resolution.global_record_alias_target source)
           || Records.cleanup record <> Records.Free_data_address
         then
           fail "HCRUN0001"
-            "global execution requires ordinary non-aliased code-heap \
-             definitions"
+            "global execution requires ordinary non-aliased code-heap or JIT \
+             data-heap definitions"
         else if
           Option.is_some (Global.global_initializer global)
           && Option.is_none initializers
@@ -1691,6 +1700,28 @@ let private_static_bindings globals =
 
 let join_static_allocations ~sources globals =
   let ( let* ) = Result.bind in
+  let* statics_ =
+    List.fold_left
+      (fun checked slot ->
+        let* slots = checked in
+        let source =
+          List.find_opt
+            (fun source ->
+              Sema.Static_local_source.frame source
+              == Integer_statics.frame slot
+              && Sema.Static_local_source.location source
+                 == Integer_statics.location slot)
+            sources
+        in
+        let* slot =
+          match source with
+          | None -> Ok slot
+          | Some source -> Integer_statics.with_source_options ~source slot
+        in
+        Ok (slot :: slots))
+      (Ok []) globals.statics_
+  in
+  let globals = { globals with statics_ = List.rev statics_ } in
   match globals.task_view with
   | None -> Ok globals
   | Some view ->

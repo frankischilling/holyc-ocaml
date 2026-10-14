@@ -315,6 +315,17 @@ an empty object fail at its original zero extent, and completion during a leaf
 cannot enlarge its root allocation. Element-count overflow remains checked even
 when multiplication by the class width yields zero bytes.
 
+Original declaration masks reach global and function record resolution. JIT
+data-heap aggregate globals use the existing owned storage and initializer path.
+Static allocations stay on the code heap. Each static leaf retains its reached
+expression options separately from allocation and final function options, so
+lookahead and later body changes cannot retarget its AOT deferral. The
+[storage-option example](../examples/compiler-storage-options.hc) checks original
+global storage, member-array leaf changes, constant statics and repeated calls in
+both modes and targets. AOT data-heap global initializers reject before later
+initializer effects. Reference-bearing AOT statics with the data-heap option
+retain their explicit compile-time phase boundary before later body effects.
+
 Nonconstant AOT statics with globals-on-data-heap remain unsupported.
 Other runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, automatic zero-byte storage, inferred
