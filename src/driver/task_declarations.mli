@@ -197,6 +197,14 @@ val default_fragment_authority :
 
 val initializer_scope : t -> Sema.Symbol_table.scope
 
+val aggregate_fragment_visibility :
+  span:Common.Span.t ->
+  t ->
+  (Sema.Function_aggregate_visibility.t, Common.Diagnostic.t list) result
+(** Freeze original member-name observations in this source namespace for a
+    fragment's metadata lookup. This grants no storage or execution authority.
+*)
+
 val aggregate_value_headers :
   span:Common.Span.t ->
   t ->

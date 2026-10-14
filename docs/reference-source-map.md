@@ -2425,3 +2425,23 @@ retain prepared image bytes. The
 IR/native cases check load order, zero-byte leaves, earlier statics, original
 function selection, repeated mutations and retained fault output. Nonconstant
 AOT statics with globals-on-data-heap and wider initializer families remain open.
+
+Static member references retain the class and dimensions allocated by complete
+`PrsVarLst` at `Compiler/PrsVar.HC:408-742`. Complete `PrsUnaryTerm` and
+`PrsUnaryModifier`, followed by `LexExpression2Bin`, at
+`Compiler/PrsExp.HC:593-1133` use the selected local's class,
+static address and dimensions, then select the member before skipping its name.
+Complete `MemberFind` at `Compiler/LexLib.HC:67-85` searches direct members before
+following the base class. Complete `PrsArrayDims` at `Compiler/PrsVar.HC:247-283`
+evaluates each reached dimension; defaults and member metadata use expression
+evaluation in complete `PrsVarLst`.
+
+Fragment views retain completed and partial records at those original member-name
+observations. They do not rebuild an AST or grant storage access. Static references
+use their original allocation type. Source-task global and static initializers,
+defaults, dimensions, offsets, switches and metadata share the checked context.
+Narrow-read analysis follows checked projections from known memory and original
+class-array strides. Shared cases check reads, writes, inheritance, nested arrays,
+replacement and once-only effects. Foreign-view and occurrence tests check
+rejection; unknown bytes, bounds and runtime ownership retain their existing
+checks. This adds no TempleOS runtime or emitted-byte capture.

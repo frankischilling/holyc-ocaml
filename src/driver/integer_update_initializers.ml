@@ -343,7 +343,10 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               | O.Ic_rbp, [], None when T.pointer_depth type_ > 0 -> Base type_
               | Ic_imm_i64, [], Some (Seq.Integer bits)
                 when T.pointer_depth type_ > 0 -> Offset (type_, bits)
-              | Ic_mul, [ stride; _ ], None when pointer type_ -> (
+              | Ic_mul, [ stride; _ ], None
+                when pointer type_
+                     || Ir.Automatic_aggregate_storage.aggregate_pointer type_
+                -> (
                   match address stride with
                   | Offset (expected, stride)
                     when T.equal expected type_ && stride > 0L ->
@@ -354,18 +357,19 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                   Some
                     (Seq.Member_projection proof | Seq.Backing_projection proof)
                 ) -> (
-                  match (frame, address base, address offset) with
-                  | ( Some frame,
-                      Reference (expected, [], Memory),
-                      Offset (offset_type, delta) )
+                  match (address base, address offset) with
+                  | Reference (expected, [], Memory), Offset (offset_type, delta)
                     when T.equal offset_type type_
                          && Ir.Aggregate_member_projection.matches
-                              ~function_identity:
-                                ( Frame.function_symbol frame,
-                                  Sema.Symbol_table.scope_id
-                                    (Frame.function_scope frame) )
-                              ~before_item_index:
-                                (Frame.function_item_index frame)
+                              ?function_identity:
+                                (Option.map
+                                   (fun frame ->
+                                     ( Frame.function_symbol frame,
+                                       Sema.Symbol_table.scope_id
+                                         (Frame.function_scope frame) ))
+                                   frame)
+                              ?before_item_index:
+                                (Option.map Frame.function_item_index frame)
                               proof ~base_pointer:expected ~pointer_type:type_
                               ~offset:delta ->
                       Reference

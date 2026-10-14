@@ -170,7 +170,15 @@ let () =
               require
                 (member "output_hex" report = `String "41")
                 "source initializer output survives later failure")
-            Cases.source_activation_faults;
+            (Cases.source_activation_faults @ Cases.fragment_member_faults);
+          List.iter
+            (fun (_, source, output) ->
+              write source;
+              success
+                ~output_hex:(if output = "A" then "41" else "")
+                "42"
+                (invoke compiler probe target "jit" [] 0))
+            Cases.fragment_member_jit_values;
           List.iter
             (fun mode ->
               List.iter
@@ -180,7 +188,8 @@ let () =
                     ~output_hex:(if output = "A" then "41" else "")
                     "42"
                     (invoke compiler probe target mode [] 0))
-                (Cases.ordinary_source_values @ Cases.static_load_values);
+                (Cases.ordinary_source_values @ Cases.static_load_values
+               @ Cases.fragment_member_values);
               List.iter
                 (fun (_, source, _) ->
                   write source;
@@ -204,7 +213,10 @@ let () =
                     (invoke compiler forward_example target mode
                        [ Printf.sprintf "--step-limit=%d" (steps - 1) ]
                        1);
-                  if filename = "retained-aot-initializer-layouts.hc" then (
+                  if
+                    filename = "retained-aot-initializer-layouts.hc"
+                    || filename = "native-aot-static-initializers.hc"
+                  then (
                     let work =
                       member "compiled_initializer_steps" baseline |> to_int
                     in
@@ -226,6 +238,7 @@ let () =
                   "class-body-top-level-members.hc";
                   "class-body-callback-fields.hc";
                   "retained-aot-initializer-layouts.hc";
+                  "native-aot-static-initializers.hc";
                 ])
             [ "jit"; "aot" ];
           write Cases.static_before_nested_brace;

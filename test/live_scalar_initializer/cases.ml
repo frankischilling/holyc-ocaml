@@ -254,6 +254,57 @@ let backed_values =
       "A" );
   ]
 
+let fragment_member_faults =
+  [
+    ( "earlier aggregate static still checks initialized bytes",
+      {|I64 Side(){Print("A");return 40;}class Box{U8 value;};I64 F(){static I64 marker=Side();static Box object;static U8 n=object.value;return marker+n;}F();|},
+      "HCIRVM0012" );
+    ( "earlier static aggregate array retains original bounds",
+      {|I64 Side(){Print("A");return 40;}class Box{U8 value;};I64 F(){static Box objects[2]={{Side()},{2}};static U8 n=objects[2].value;return n;}F();|},
+      "HCIRVM0019" );
+    ( "missing static member cannot gain later layout metadata",
+      {|I64 Side(){Print("A");return 40;}class Box{U8 value;};I64 F(){static Box object={Side()};static U8 n=object.missing;return n;}F();|},
+      "HCSEMA0046" );
+  ]
+
+let fragment_member_values =
+  [
+    ( "nested static member arrays retain original projections",
+      {|I64 Next(){Print("A");return 40;}class Leaf{U8 values[2];};class Box{Leaf nested;};I64 F(){static Box object={{{Next(),2}}};static U8 n=object.nested.values[0]+object.nested.values[1];return n;}F();|},
+      "A" );
+    ( "fragment member reads retain the class before replacement",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 value;};Box object={Next()};class Box{U16 value;};I64 n=object.value+2;n;|},
+      "A" );
+    ( "later static initializer reads an earlier aggregate member",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 value;};I64 F(){static Box object={Next()};static U8 n=object.value+2;return n;}F();|},
+      "A" );
+    ( "later static initializer updates an earlier aggregate once",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 value;};I64 F(){static Box object={Next()};static U8 n=++object.value;return object.value+n-40;}I64 Check(){F();return F();}Check();|},
+      "A" );
+    ( "static aggregate arrays preserve original element strides",
+      {|I64 Next(I64 n){if(n==40)Print("A");return n;}class Box{U8 value;};I64 F(){static Box objects[2]={{Next(40)},{2}};static U8 n=objects[0].value+objects[1].value;return n;}F();|},
+      "A" );
+    ( "static inherited fields retain their original offsets",
+      {|I64 Next(){Print("A");return 0;}class Base{U8 pad;};class Box:Base{U8 head;U8 tail;$$=8;};I64 F(){static Box object={Next(),0};static I64 seed=(object.head=40)+(object.tail=2);static U8 n=object.head+object.tail;return n+seed-42;}F();|},
+      "A" );
+    ( "global initializer reads an original aggregate member",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 value;};Box object={Next()};I64 n=object.value+2;n;|},
+      "A" );
+  ]
+
+let fragment_member_jit_values =
+  [
+    ( "parameter default reads an original aggregate member",
+      {|I64 Next(){Print("A");return 41;}class Box{U8 value;};Box object={Next()};I64 F(I64 n=object.value){return n+1;}F();|},
+      "A" );
+    ( "runtime dimension reads an original aggregate member",
+      {|I64 Next(){Print("A");return 2;}class Box{U8 value;};Box object={Next()};I64 a[object.value];I64 F(){return sizeof(a)+26;}F();|},
+      "A" );
+    ( "member metadata updates an original aggregate once",
+      {|I64 Next(){Print("A");return 41;}class Box{U8 value;};Box object={Next()};class Tagged{U8 field tag ++object.value;};I64 F(){return object.value;}F();|},
+      "A" );
+  ]
+
 let static_load_values =
   [
     ( "static callback load retains the original function address",
@@ -286,6 +337,7 @@ let static_load_values =
 
 let both_values =
   ordinary_source_values @ backed_values @ static_load_values
+  @ fragment_member_values
   @ [
       ( "global initialization retains the forward through same-name replacement",
         {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};class Item{U16 value;};class Item{U8 replacement;};I64 F(){return object.tail;}F();|},

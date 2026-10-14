@@ -7263,6 +7263,23 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
 
 let initializer_scope ledger = Collection.namespace_scope ledger.namespace
 
+let aggregate_fragment_visibility ~span ledger =
+  protect (fun () ->
+      let references =
+        Names.fold
+          (fun identifier reference saved ->
+            Option.fold ~none:saved
+              ~some:(fun proof ->
+                if Sema.Compiler_record.aggregate_reference_is_member proof then
+                  (identifier, proof) :: saved
+                else saved)
+              reference.aggregate_visibility)
+          ledger.references []
+      in
+      Sema.Function_aggregate_visibility.create_references ~table:ledger.table
+        ~parent:(initializer_scope ledger) references
+      |> checked span)
+
 let aggregate_value_headers ~span ledger =
   protect (fun () ->
       let originals =

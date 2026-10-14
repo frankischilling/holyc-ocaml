@@ -273,9 +273,13 @@ let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
   let* aggregate_headers =
     Task_declarations.aggregate_value_headers ~span ledger
   in
+  let* aggregate_visibility =
+    Task_declarations.aggregate_fragment_visibility ~span ledger
+  in
   let* context =
     Initializer_fragment_typing.create_context_selected ~aggregate_headers
-      ~compilation_mode:value.compilation_mode ~table:value.table
+      ~aggregate_visibility ~compilation_mode:value.compilation_mode
+      ~table:value.table
       ~parent:(Task_declarations.initializer_scope ledger)
       ()
     |> diagnose

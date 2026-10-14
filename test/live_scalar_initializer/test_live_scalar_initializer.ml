@@ -59,7 +59,7 @@ let faults () =
       Alcotest.(check string)
         "output precedes reached failure" "A"
         (integer_program_report_output_bytes report))
-    (Cases.faults @ Cases.static_faults)
+    (Cases.faults @ Cases.static_faults @ Cases.fragment_member_faults)
 
 let quotas () =
   List.iter
@@ -125,7 +125,8 @@ let () =
           (fun (name, source, output) ->
             Alcotest.test_case name `Quick (fun () ->
                 value output (run Preprocessor.Jit source)))
-          (Cases.jit_values @ Cases.static_jit_values)
+          (Cases.jit_values @ Cases.static_jit_values
+         @ Cases.fragment_member_jit_values)
         @ List.concat_map
             (fun mode ->
               List.map

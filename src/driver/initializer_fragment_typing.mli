@@ -2,6 +2,7 @@ type context
 
 val create_context_selected :
   ?aggregate_headers:Sema.Aggregate_header_resolution.t ->
+  ?aggregate_visibility:Sema.Function_aggregate_visibility.t ->
   compilation_mode:Frontend.Preprocessor.compilation_mode ->
   table:Sema.Symbol_table.t ->
   parent:Sema.Symbol_table.scope ->

@@ -2407,4 +2407,16 @@ sealed load regions. Both native ABI encodings remain required.
 
 Nonconstant AOT statics with globals-on-data-heap, other leaf families and full
 aggregate parity remain open.
+
+Fragment member cases check reads and once-only updates of earlier aggregate
+statics, nested and root arrays, inherited offsets, global initializer reads and
+same-name replacement in both source modes. JIT cases also cover parameter
+defaults, runtime dimensions and member metadata effects. The maintained
+static-load example now runs in both modes through IR and native source tasks,
+with exact and one-below execution and preparation limits. Metadata tests retain
+the original U8 field after replacement by a U16 class and reject duplicated
+observations, copied names and foreign tables or namespaces. Fragment contexts
+reject foreign views before typing. Narrow-read and runtime ownership suites
+remain required.
+
 No TempleOS runtime or emitted-byte capture is included.

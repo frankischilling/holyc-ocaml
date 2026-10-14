@@ -208,6 +208,7 @@ type aggregate_reference_visibility = {
   reference_namespace : Declaration_collection.namespace;
   reference_source : Parser.reference_selection;
   reference_completed_symbols : Symbol.t list;
+  reference_completed_records : (Symbol.t * t) list;
   reference_partial_records : (Symbol.t * t) list;
 }
 
@@ -1030,7 +1031,7 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
     || not (Declaration_collection.namespace_owns_table namespace table)
   then Error "aggregate visibility requires its original live reference"
   else
-    let rec completed symbols partial = function
+    let rec completed symbols partial captured = function
       | [] ->
           Ok
             {
@@ -1038,6 +1039,7 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
               reference_namespace = namespace;
               reference_source = reference;
               reference_completed_symbols = symbols;
+              reference_completed_records = captured;
               reference_partial_records = partial;
             }
       | (record : t) :: rest -> (
@@ -1069,7 +1071,10 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
                 Declaration_collection.publication_aggregate_identity
                   publication
               with
-              | Some symbol -> completed (symbol :: symbols) partial rest
+              | Some symbol ->
+                  completed (symbol :: symbols) partial
+                    ((symbol, record) :: captured)
+                    rest
               | None ->
                   Error "completed reference class lacks its canonical identity"
               )
@@ -1095,7 +1100,7 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
                      && source.aggregate_environment
                         == Parser.selected_environment reference
                      && source.aggregate_entry == record.entry ->
-                  completed symbols ((symbol, record) :: partial) rest
+                  completed symbols ((symbol, record) :: partial) captured rest
               | _ ->
                   Error "partial member visibility has another original class")
           | _ ->
@@ -1103,7 +1108,7 @@ let capture_aggregate_reference_visibility ~table ~namespace reference records =
                 "aggregate reference visibility requires current completed \
                  original class records")
     in
-    completed [] [] records
+    completed [] [] [] records
 
 let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
   visibility.reference_table == table
@@ -1117,6 +1122,27 @@ let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
 
 let aggregate_reference_is_member visibility =
   Parser.selected_member_reference visibility.reference_source
+
+let aggregate_reference_owns ~table ~parent ~identifier visibility =
+  visibility.reference_table == table
+  && Declaration_collection.namespace_scope visibility.reference_namespace
+     == parent
+  && Declaration_collection.namespace_owns_table visibility.reference_namespace
+       table
+  && Parser.selected_identifier visibility.reference_source == identifier
+
+let aggregate_reference_completed_record ~table ~parent ~identifier ~symbol
+    visibility =
+  if
+    (not (aggregate_reference_owns ~table ~parent ~identifier visibility))
+    || (not (aggregate_reference_is_member visibility))
+    || not (Symbol_table.owns_symbol table symbol)
+  then None
+  else
+    List.find_map
+      (fun (original, record) ->
+        if original == symbol then Some record else None)
+      visibility.reference_completed_records
 
 let aggregate_reference_partial ~table ~parent ~identifier ~symbol visibility =
   if

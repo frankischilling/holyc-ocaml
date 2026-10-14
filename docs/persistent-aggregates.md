@@ -52,6 +52,13 @@ leaves retain their prepared image bytes. The
 order, forward members, original function selection and persistent mutation.
 Nonconstant AOT statics with globals-on-data-heap remain open.
 
+Source-task static references retain the original aggregate type and dimensions.
+A later initializer can read or update that object's direct, inherited and
+nested fields, including fixed member and root arrays. Original member-name
+observations retain the reached field layout across replacement. Fragment views
+do not allocate storage or grant execution permission; runtime access still joins
+the exact private allocation. The static-load example runs in both source modes.
+
 The source shape distinguishes class elements from physical byte cells. Two
 three-byte class elements have an object count of two, six byte cells and a
 three-byte stride. Size queries and indexing use source geometry; allocation and

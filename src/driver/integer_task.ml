@@ -1660,6 +1660,22 @@ let admit_global task publication =
   Task_declarations.admit_global task.declarations ~runtime:task.state
     publication
 
+let source_fragment_context ~span ~compilation_mode ~session ~ledger =
+  let ( let* ) = Result.bind in
+  let* aggregate_visibility =
+    Task_declarations.aggregate_fragment_visibility ~span ledger
+  in
+  let* aggregate_headers =
+    Task_declarations.aggregate_value_headers ~span ledger
+  in
+  Initializer_fragment_typing.create_context_selected ~aggregate_visibility
+    ~aggregate_headers ~compilation_mode
+    ~table:(Session.semantic_symbols session)
+    ~parent:(Task_declarations.initializer_scope ledger)
+    ()
+  |> Result.map_error (fun message ->
+      [ Integer_source.message_diagnostic ~span message ])
+
 let prepare_initializer_context task receipt =
   let ( let* ) = Result.bind in
   let span =
@@ -1679,10 +1695,8 @@ let prepare_initializer_context task receipt =
   in
   let fragment = Sema.Initializer_fragment.authorized_fragment authority in
   let* context =
-    Initializer_fragment_typing.create_context
-      ~table:(Session.semantic_symbols task.session)
-      ~parent:(Task_declarations.initializer_scope task.declarations)
-    |> diagnose
+    source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+      ~ledger:task.declarations
   in
   let* typed =
     Initializer_fragment_typing.prepare context fragment |> diagnose
@@ -1707,16 +1721,9 @@ let prepare_default_context task receipt =
       ~runtime:task.state ~task_view receipt
   in
   let fragment = Sema.Default_fragment.authorized_fragment authority in
-  let* aggregate_headers =
-    Task_declarations.aggregate_value_headers ~span task.declarations
-  in
   let* context =
-    Initializer_fragment_typing.create_context_selected ~aggregate_headers
-      ~compilation_mode:Jit
-      ~table:(Session.semantic_symbols task.session)
-      ~parent:(Task_declarations.initializer_scope task.declarations)
-      ()
-    |> diagnose
+    source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+      ~ledger:task.declarations
   in
   let* typed =
     Initializer_fragment_typing.prepare_default context fragment |> diagnose
@@ -1738,10 +1745,8 @@ let prepare_callback_default_context task receipt =
   in
   let fragment = Sema.Default_fragment.authorized_fragment authority in
   let* context =
-    Initializer_fragment_typing.create_context
-      ~table:(Session.semantic_symbols task.session)
-      ~parent:(Task_declarations.initializer_scope task.declarations)
-    |> diagnose
+    source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+      ~ledger:task.declarations
   in
   let* typed =
     Initializer_fragment_typing.prepare_default context fragment |> diagnose
@@ -1775,15 +1780,7 @@ let prepare_source_default task ~session ~ledger receipt =
     else Ok ()
   in
   let* context =
-    let* aggregate_headers =
-      Task_declarations.aggregate_value_headers ~span ledger
-    in
-    Initializer_fragment_typing.create_context_selected ~aggregate_headers
-      ~compilation_mode:Aot
-      ~table:(Session.semantic_symbols session)
-      ~parent:(Task_declarations.initializer_scope ledger)
-      ()
-    |> diagnose
+    source_fragment_context ~span ~compilation_mode:Aot ~session ~ledger
   in
   let* typed =
     Initializer_fragment_typing.prepare_default context fragment |> diagnose
@@ -2099,10 +2096,8 @@ let execute_runtime_dimension ?(use_active_stream = true) ?stream_exe_print task
   let outcome =
     let fragment = Sema.Dimension_fragment.authorized_fragment authority in
     let* context =
-      Initializer_fragment_typing.create_context
-        ~table:(Session.semantic_symbols task.session)
-        ~parent:(Task_declarations.initializer_scope task.declarations)
-      |> diagnose
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
     in
     let* typed =
       Initializer_fragment_typing.prepare_dimension context fragment |> diagnose
@@ -2183,10 +2178,8 @@ let execute_runtime_switch_case ?(use_active_stream = true) ?stream_exe_print
   let outcome =
     let fragment = Sema.Switch_case_fragment.authorized_fragment authority in
     let* context =
-      Initializer_fragment_typing.create_context
-        ~table:(Session.semantic_symbols task.session)
-        ~parent:(Task_declarations.initializer_scope task.declarations)
-      |> diagnose
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
     in
     let* typed =
       Initializer_fragment_typing.prepare_switch_case context fragment
@@ -2266,10 +2259,8 @@ let execute_runtime_internal_binding ?(use_active_stream = true)
       Sema.Internal_binding_fragment.authorized_fragment authority
     in
     let* context =
-      Initializer_fragment_typing.create_context
-        ~table:(Session.semantic_symbols task.session)
-        ~parent:(Task_declarations.initializer_scope task.declarations)
-      |> diagnose
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
     in
     let* typed =
       Initializer_fragment_typing.prepare_internal_binding context fragment
@@ -2349,10 +2340,8 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
   let outcome =
     let fragment = Sema.Offset_fragment.authorized_fragment authority in
     let* context =
-      Initializer_fragment_typing.create_context
-        ~table:(Session.semantic_symbols task.session)
-        ~parent:(Task_declarations.initializer_scope task.declarations)
-      |> diagnose
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
     in
     let* typed =
       Initializer_fragment_typing.prepare_offset context fragment |> diagnose
@@ -2430,10 +2419,8 @@ let execute_runtime_member_metadata ?(use_active_stream = true)
       Sema.Member_metadata_fragment.authorized_fragment authority
     in
     let* context =
-      Initializer_fragment_typing.create_context
-        ~table:(Session.semantic_symbols task.session)
-        ~parent:(Task_declarations.initializer_scope task.declarations)
-      |> diagnose
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
     in
     let* typed =
       Initializer_fragment_typing.prepare_member_metadata context fragment
@@ -2522,10 +2509,8 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
             ~runtime:task.state ~task_view receipt
         in
         let* context =
-          Initializer_fragment_typing.create_context
-            ~table:(Session.semantic_symbols task.session)
-            ~parent:(Task_declarations.initializer_scope task.declarations)
-          |> diagnose
+          source_fragment_context ~span ~compilation_mode:Jit
+            ~session:task.session ~ledger:task.declarations
         in
         let* typed =
           Initializer_fragment_typing.prepare_static context fragment

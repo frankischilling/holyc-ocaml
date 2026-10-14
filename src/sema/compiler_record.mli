@@ -448,6 +448,23 @@ val aggregate_reference_allows :
 
 val aggregate_reference_is_member : aggregate_reference_visibility -> bool
 
+val aggregate_reference_owns :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  identifier:Frontend.Ast.identifier ->
+  aggregate_reference_visibility ->
+  bool
+
+val aggregate_reference_completed_record :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  identifier:Frontend.Ast.identifier ->
+  symbol:Symbol.t ->
+  aggregate_reference_visibility ->
+  t option
+(** Read completed member metadata captured by this exact original member-name
+    observation. It grants neither storage nor execution authority. *)
+
 val aggregate_reference_partial :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->

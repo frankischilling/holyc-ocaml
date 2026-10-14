@@ -587,6 +587,16 @@ let lookup_reference result ~(identifier : Frontend.Ast.identifier) ~visibility
     Error
       (invalid_input "partial member lookup replaced its original selected name")
   else
-    lookup_partial_record result ~aggregate ~name
-      (Compiler_record.aggregate_reference_partial ~table:result.table
-         ~parent:result.parent ~identifier ~symbol:aggregate visibility)
+    let record =
+      match
+        Compiler_record.aggregate_reference_partial ~table:result.table
+          ~parent:result.parent ~identifier ~symbol:aggregate visibility
+      with
+      | Some _ as record -> record
+      | None when Option.is_none (find_aggregate result aggregate) ->
+          Compiler_record.aggregate_reference_completed_record
+            ~table:result.table ~parent:result.parent ~identifier
+            ~symbol:aggregate visibility
+      | None -> None
+    in
+    lookup_partial_record result ~aggregate ~name record

@@ -952,3 +952,11 @@ limited to those regions and their declaring frame. Closed leaves retain their
 prepared bytes; repeated calls retain mutations. Nonconstant AOT statics with
 globals-on-data-heap, empty roots and other initializer value families remain
 open under #686 and #690.
+
+JIT source-task initializers can read and update earlier aggregate statics through
+their original allocation type and member observations. Nested arrays, inherited
+offsets and same-name replacement retain those selections. Global initializer
+member reads and JIT defaults, dimensions and metadata effects share the fragment
+context. The static-load example now runs through IR and native source tasks in
+both modes. Frozen views reject foreign tables, namespaces, copied names and
+duplicate observations, and supply no storage or execution authority.

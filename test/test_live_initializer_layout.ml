@@ -301,6 +301,97 @@ let isolated_snapshots () =
     "same-spelling foreign static has no snapshot" false
     (Layout.static_snapshot_matches snapshot ~frame ~location)
 
+let fragment_member_visibility () =
+  let module Type = Holyc_lib__Sema.Type in
+  let module Symbol_table = Semantic_symbol_table in
+  let module Visibility = Holyc_lib__Sema.Function_aggregate_visibility in
+  let module Headers = Holyc_lib__Sema.Aggregate_header_resolution in
+  let module Members = Holyc_lib__Sema.Aggregate_member_index in
+  let module Record = Holyc_lib__Sema.Compiler_record in
+  let session, source, ledger =
+    Test_source_promotion.inputs
+      "class Box{U8 value;};Box object;object.value;class Box{U16 value;};"
+  in
+  let parsed =
+    Test_source_promotion.parse ~mode:Preprocessor.Aot session source ledger
+  in
+  let ast = Test_parser.expect_ast parsed in
+  let command = D.seal_source ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let parent = D.initializer_scope ledger in
+  let member =
+    Ast.declaration_items ast
+    |> List.find_map (function
+      | _, Ast.Top_level_statement (Ast.Expression_statement statement) -> (
+          match statement.expression_statement_expression with
+          | Ast.Member_expression member -> Some member
+          | _ -> None)
+      | _ -> None)
+    |> Option.get
+  in
+  let expression = Ast.Member_expression member in
+  let resolve =
+    D.source_aggregate_reference_resolver ~table ~ast command |> expect
+  in
+  let proof = resolve member.member_name |> Option.get in
+  let visibility =
+    D.aggregate_fragment_visibility ~span:ast.span ledger |> expect
+  in
+  Alcotest.(check bool)
+    "original member occurrence is retained" true
+    (Option.is_some (Visibility.member_reference visibility ~source:expression));
+  let headers =
+    D.aggregate_value_headers ~span:ast.span ledger |> expect |> Headers.headers
+  in
+  let original = Headers.header_symbol (List.hd headers)
+  and replacement = Headers.header_symbol (List.hd (List.rev headers)) in
+  let members = Members.build ~table ~parent [] |> Result.get_ok in
+  let lookup =
+    Members.lookup_reference members ~identifier:member.member_name
+      ~visibility:proof ~aggregate:original ~name:"value"
+    |> Result.get_ok |> Option.get
+  in
+  Alcotest.(check bool)
+    "original completed field keeps its U8 type" true
+    (Type.equal
+       (Members.member_type (Members.lookup_member lookup))
+       (Type.make_primitive ~form:Type.Public_spelling
+          ~primitive:Primitive_type.U8 ~pointer_depth:0
+       |> Result.get_ok));
+  Alcotest.(check bool)
+    "later replacement has no earlier member record" true
+    (Option.is_none
+       (Record.aggregate_reference_completed_record ~table ~parent
+          ~identifier:member.member_name ~symbol:replacement proof));
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  reject "duplicate original observations reject"
+    (Visibility.create_references ~table ~parent
+       [ (member.member_name, proof); (member.member_name, proof) ]);
+  let clone = Obj.obj (Obj.dup (Obj.repr member.member_name)) in
+  reject "copied name cannot borrow an original observation"
+    (Visibility.create_references ~table ~parent [ (clone, proof) ]);
+  let other = Session.semantic_symbols (Session.create ()) in
+  reject "foreign table cannot borrow member observations"
+    (Visibility.create_references ~table:other ~parent
+       [ (member.member_name, proof) ]);
+  let foreign_parent =
+    Symbol_table.create_scope table ~parent ~kind:Symbol_table.Block ()
+    |> checked
+  in
+  reject "another namespace cannot borrow member observations"
+    (Visibility.create_references ~table ~parent:foreign_parent
+       [ (member.member_name, proof) ]);
+  reject "fragment context rejects a foreign metadata namespace"
+    (Holyc_lib__Driver.Initializer_fragment_typing.create_context_selected
+       ~aggregate_visibility:visibility ~compilation_mode:Preprocessor.Jit
+       ~table ~parent:foreign_parent ());
+  reject "fragment context rejects another metadata table"
+    (Holyc_lib__Driver.Initializer_fragment_typing.create_context_selected
+       ~aggregate_visibility:visibility ~compilation_mode:Preprocessor.Jit
+       ~table:other ~parent:(Symbol_table.root other) ())
+
 let tests =
   [
     Alcotest.test_case "scalar and fixed row traversal" `Quick scalars;
@@ -317,4 +408,6 @@ let tests =
       missing_trailing_delimiter;
     Alcotest.test_case "isolated source cursors and foreign static frames"
       `Quick isolated_snapshots;
+    Alcotest.test_case "original completed member metadata in fragments" `Quick
+      fragment_member_visibility;
   ]

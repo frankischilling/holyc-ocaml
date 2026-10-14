@@ -10,6 +10,16 @@ module Expressions = Hashtbl.Make (struct
     Hashtbl.hash (Common.Source_id.to_int span.source, span.start, span.stop)
 end)
 
+module Identifiers = Hashtbl.Make (struct
+  type t = Ast.identifier
+
+  let equal = ( == )
+
+  let hash (identifier : Ast.identifier) =
+    let span = identifier.Ast.location.span in
+    Hashtbl.hash (Common.Source_id.to_int span.source, span.start, span.stop)
+end)
+
 type occurrence = {
   before_item_index : int;
   first_identifier : Ast.identifier option;
@@ -61,6 +71,34 @@ let member_reference (value : t) ~source =
                 Some (member.member_name, proof)
               else None))
   | _ -> None
+
+let create_references ~table ~parent references =
+  if not (Symbol_table.owns_scope table parent) then
+    Error "fragment aggregate visibility belongs to another table"
+  else
+    let captured = Identifiers.create (List.length references) in
+    let rec check = function
+      | [] -> Ok ()
+      | (identifier, proof) :: rest ->
+          if
+            Identifiers.mem captured identifier
+            || not
+                 (Compiler_record.aggregate_reference_owns ~table ~parent
+                    ~identifier proof)
+          then Error "fragment aggregate visibility is foreign or duplicated"
+          else (
+            Identifiers.add captured identifier proof;
+            check rest)
+    in
+    Result.map
+      (fun () ->
+        {
+          table;
+          parent;
+          functions = [];
+          aggregate_references = Some (Identifiers.find_opt captured);
+        })
+      (check references)
 
 let find_function value ~symbol ~item_index =
   List.find_opt

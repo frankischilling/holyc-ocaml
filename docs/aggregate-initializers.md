@@ -282,6 +282,22 @@ same declaring frame. The
 once and returns 42 after later class and function replacement.
 One-star static callback storage also retains its originally selected function
 address through replacement.
+
+Later source-task static initializers can read and update earlier class or union
+objects. Static references retain the nominal type and dimensions from their
+original allocation. Fragment typing freezes the original member-name
+observations, including completed member records, and uses their selected fields
+when no completed member index is present. Later class replacement cannot change
+those selections. These views supply metadata; the original allocation and
+runtime still authorize storage access.
+
+The same fragment context supports global initializer member reads and JIT
+defaults, dimensions and metadata effects. Narrow-read checking follows checked
+member projections from known memory and retains the original strides of fixed
+class arrays. Unknown addresses and escaping register objects keep their existing
+rejections. The static-load example now also prints `A` and returns 42 through
+IR and native source tasks in JIT mode, with exact and one-below limits.
+
 Nonconstant AOT statics with globals-on-data-heap remain unsupported.
 Other runtime class changes remain unfinished. Floating,
 data pointer and owned callback leaves, empty root allocations, inferred

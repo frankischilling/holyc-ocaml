@@ -16,6 +16,16 @@ val create :
 (** Immutable lexical layout positions for the exact declaration tree. This is
     semantic evidence, not permission to execute a reconstructed source tree. *)
 
+val create_references :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  (Frontend.Ast.identifier * Compiler_record.aggregate_reference_visibility)
+  list ->
+  (t, string) result
+(** Immutable metadata view of original observations in one namespace, without
+    reconstructing an AST or granting function, storage or execution authority.
+    Foreign occurrences and duplicate observations reject. *)
+
 val owns : t -> table:Symbol_table.t -> parent:Symbol_table.scope -> bool
 
 val member_reference :
