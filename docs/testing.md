@@ -260,6 +260,14 @@ The fixture uses byte offsets derived from the source layout; it does not test
 direct member projection or add a TempleOS runtime oracle. See
 [automatic aggregate byte views](automatic-aggregate-byte-views.md).
 
+The empty automatic aggregate example prints A and returns 42 in both modes and
+targets. Shared fixtures check zero frame bytes, coincident original addresses,
+multidimensional zero strides, index bounds, neighboring bytes, pointer calls,
+recursion and replacement. A one-byte frame allowance admits several empty roots
+because private ownership metadata does not increase source frame bytes. Native
+image checks compile both ABIs and verify exact/one-below physical stack and image
+limits for empty frames as well as nonempty storage.
+
 Identifier operand cases check the original invalid-lval producer before the
 reference callback or another lexer read. Sixteen source fixtures cover
 grouping, unary and binary operands, macros, saved function bodies, ordinary

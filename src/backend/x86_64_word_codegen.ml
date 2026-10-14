@@ -366,7 +366,8 @@ type operation =
   | Apply_word_view of value * value
   | Frame_tick
   | Scale_index of word_type * int64 * value * value
-  | Apply_index_offset of Encoder.binary * index_add_base * value * value
+  | Apply_index_offset of
+      Encoder.binary * index_add_base * value * value * (value * int64) option
   | Materialize_reference of
       reference_origin * reference_table * value option * value
   | Materialize_existing_reference of reference_access * value
@@ -2479,6 +2480,13 @@ let allocate_body ?callable_frame ?(shared_values = [])
           (* Separate address sites can own separate descriptor snapshots. The
              original data/flags/offset/extent identify the same live object
              independently of which table produced its descriptor. *)
+          let empty = fresh_label supply in
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 24));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal empty;
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rcx, 24));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal empty;
           List.iter
             (fun offset ->
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
@@ -2488,6 +2496,17 @@ let allocate_body ?callable_frame ?(shared_values = [])
             [ 0; 8; 16; 24; 32 ];
           let same = if condition = Encoder.E then 1L else 0L in
           emit (Encoder.Mov_imm64 (Encoder.Rax, same));
+          emit_branch Unconditional complete;
+          mark empty;
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 16));
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.R8));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, 0));
+          emit (Encoder.Load_indirect (Encoder.Rdx, Encoder.Rcx, 16));
+          emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rdx));
+          emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
+          emit (Encoder.Setcc (condition, Encoder.Rax));
+          emit (Encoder.Movzx8 (Encoder.Rax, Encoder.Rax));
           emit_branch Unconditional complete;
           mark different;
           emit (Encoder.Mov_imm64 (Encoder.Rax, Int64.sub 1L same));
@@ -2620,8 +2639,19 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit_branch Overflow overflow;
           note_peak ~temporaries:[ rax; rcx ] ();
           assign position rax result
-      | Apply_index_offset (operation, base, delta, result) ->
+      | Apply_index_offset (operation, base, delta, result, bound) ->
           spill_all_registers instruction.span;
+          Option.iter
+            (fun (index, count) ->
+              let invalid = fault_label 10 (Option.get instruction.site) in
+              copy_value_to instruction.span index rcx;
+              emit (Encoder.Test Encoder.Rcx);
+              emit_branch Less invalid;
+              emit (Encoder.Mov_imm64 (Encoder.Rdx, count));
+              emit (Encoder.Cmp (Encoder.Rdx, Encoder.Rcx));
+              emit_branch Below invalid;
+              emit_branch Equal invalid)
+            bound;
           let overflow = fault_label 9 (Option.get instruction.site) in
           (match base with
           | Index_zero -> emit (Encoder.Mov_imm64 (Encoder.Rax, 0L))
@@ -5263,6 +5293,7 @@ type callable_function_info = {
   rbp_bytes : int;
   activation_bytes : int;
   frame_slots : callable_slot Int_map.t;
+  empty_frame_roots : (Frame.location * callable_slot) list;
   init_flag_offsets : int list;
 }
 
@@ -5282,6 +5313,7 @@ type index_offset_term = {
   index_pointer_type : Type.t;
   index_stride : int64;
   index_offset : value;
+  index_value : value;
 }
 
 type indexed_address_term = {
@@ -5289,6 +5321,7 @@ type indexed_address_term = {
   indexed_offset : value;
   indexed_pointer_type : Type.t;
   indexed_remaining_strides : int64 list;
+  indexed_remaining_dimensions : int64 list option;
 }
 
 type frame_term =
@@ -5649,28 +5682,38 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           max_stack_bytes (%d)"
          local_frame_bytes max_stack_bytes);
   let slots = ref Int_map.empty in
+  let empty_frame_roots = ref [] in
   let slot_ranges = ref Int_map.empty in
-  let add_slot offset bytes slot =
-    let limit = offset + bytes in
-    let before, exact, after = Int_map.split offset !slot_ranges in
-    let overlaps_before =
-      match Int_map.max_binding_opt before with
-      | Some (other_offset, other_bytes) -> other_offset + other_bytes > offset
-      | None -> false
-    in
-    let overlaps_after =
-      match Int_map.min_binding_opt after with
-      | Some (other_offset, _) -> other_offset < limit
-      | None -> false
-    in
-    if
-      Option.is_some exact || Int_map.mem offset !slots || overlaps_before
-      || overlaps_after
-    then
-      reject ?span "HCBACK0003"
-        "native source function has overlapping checked frame slots";
-    slots := Int_map.add offset slot !slots;
-    slot_ranges := Int_map.add offset bytes !slot_ranges
+  let add_slot ?location offset bytes slot =
+    if bytes = 0 then
+      match location with
+      | Some location ->
+          empty_frame_roots := (location, slot) :: !empty_frame_roots
+      | None ->
+          reject ?span "HCBACK0003"
+            "empty frame root lacks its original location"
+    else
+      let limit = offset + bytes in
+      let before, exact, after = Int_map.split offset !slot_ranges in
+      let overlaps_before =
+        match Int_map.max_binding_opt before with
+        | Some (other_offset, other_bytes) ->
+            other_offset + other_bytes > offset
+        | None -> false
+      in
+      let overlaps_after =
+        match Int_map.min_binding_opt after with
+        | Some (other_offset, _) -> other_offset < limit
+        | None -> false
+      in
+      if
+        Option.is_some exact || Int_map.mem offset !slots || overlaps_before
+        || overlaps_after
+      then
+        reject ?span "HCBACK0003"
+          "native source function has overlapping checked frame slots";
+      slots := Int_map.add offset slot !slots;
+      slot_ranges := Int_map.add offset bytes !slot_ranges
   in
   let metadata_count = ref 0 in
   let init_flag_offsets_rev = ref [] in
@@ -6042,7 +6085,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
             offset)
           callback
       in
-      add_slot actual object_bytes
+      add_slot ~location actual object_bytes
         {
           slot_type = type_;
           slot_word = scalar.word_type;
@@ -6107,6 +6150,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
       + (8 * List.length parameters)
       + if Option.is_some variadic then 8 else 0);
     frame_slots = !slots;
+    empty_frame_roots = !empty_frame_roots;
     init_flag_offsets = List.rev !init_flag_offsets_rev;
   }
 
@@ -6252,8 +6296,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     ~slot_bindings ~task_snapshot ~parameter_defaults ~functions
     ~provider_entries ~code_edges ~indirect_code_edges ~arena_code_cells
     ~global_storage ~literal_storage ~runtime_owner ~owner
-    ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
-    ~source_item_index ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~(frame_slots : callable_slot Int_map.t) ~empty_frame_roots ~variadic
+    ~expected_return ~source_item_index ~is_entry ~rbp_bytes ~max_stack_bytes
+    ~next_site graph =
   let lock_validation = Lock_validation.of_graph graph in
   let function_addresses =
     match
@@ -8535,8 +8580,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         malformed description
                           "index scale requires its checked constant stride"
                   in
-                  if stride <= 0 || not (Type.equal stride_type target_type)
-                  then
+                  if stride < 0 || not (Type.equal stride_type target_type) then
                     malformed description
                       "index scale stride or pointer type is inconsistent";
                   let index = operand values description position index_id in
@@ -8553,6 +8597,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             index_pointer_type = target_type;
                             index_stride = Int64.of_int stride;
                             index_offset = offset;
+                            index_value = index;
                           })
                   in
                   ( Scale_index (index_word, Int64.of_int stride, index, scaled),
@@ -8704,7 +8749,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 description.flags <> 0L
                 ||
                 match description.payload with
-                | None | Some (Sequence.Pointee_stride _) -> false
+                | None
+                | Some (Sequence.Pointee_stride _)
+                | Some (Sequence.Empty_frame_root _) -> false
                 | _ -> true
               then malformed description "invalid frame address addition";
               match
@@ -8716,14 +8763,31 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   match Value_map.find_opt offset_id !frame_values with
                   | Some (Frame_offset (offset_type, offset))
                     when description.opcode = Opcode.Ic_add -> (
-                      if Option.is_some description.payload then
+                      if
+                        Option.fold ~none:false
+                          ~some:(function
+                            | Sequence.Empty_frame_root _ -> false
+                            | _ -> true)
+                          description.payload
+                      then
                         malformed description
                           "frame displacement cannot borrow a pointee layout";
                       match Value_map.find_opt base_id !frame_values with
                       | Some (Frame_base base_type)
                         when Type.equal base_type target_type
                              && Type.equal offset_type target_type -> (
-                          match Int_map.find_opt offset frame_slots with
+                          match
+                            match description.payload with
+                            | Some (Sequence.Empty_frame_root location) ->
+                                List.find_opt
+                                  (fun (original, slot) ->
+                                    original == location
+                                    && slot.access.frame_offset = offset)
+                                  empty_frame_roots
+                                |> Option.map snd
+                            | None -> Int_map.find_opt offset frame_slots
+                            | Some _ -> None
+                          with
                           | Some slot -> (
                               match Type.pointer_to slot.slot_type with
                               | Ok expected when Type.equal expected target_type
@@ -8792,6 +8856,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         malformed description
                           "indexed address changes its checked pointer type";
                       touch position scaled.index_offset;
+                      if scaled.index_stride = 0L then
+                        touch position scaled.index_value;
                       let root, base, strides =
                         match Value_map.find_opt base_id !frame_values with
                         | Some (Variadic_address (origin, type_)) ->
@@ -8950,6 +9016,15 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                               "index stride disagrees with the original object \
                                dimensions"
                       in
+                      let dimensions =
+                        match Value_map.find_opt base_id !frame_values with
+                        | Some (Frame_address slot) -> Some slot.slot_dimensions
+                        | Some (Global_address slot) ->
+                            Some (Global_storage.dimensions slot)
+                        | Some (Indexed_address indexed) ->
+                            indexed.indexed_remaining_dimensions
+                        | _ -> None
+                      in
                       let indexed_offset =
                         internal_frame_value frame_values values void_values
                           description position result target_type (fun offset ->
@@ -8959,6 +9034,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                 indexed_offset = offset;
                                 indexed_pointer_type = target_type;
                                 indexed_remaining_strides = remaining;
+                                indexed_remaining_dimensions =
+                                  Option.bind dimensions (function
+                                    | _ :: tail -> Some tail
+                                    | [] -> None);
                               })
                       in
                       ( Apply_index_offset
@@ -8967,7 +9046,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                              else Encoder.Add),
                             base,
                             scaled.index_offset,
-                            indexed_offset ),
+                            indexed_offset,
+                            if scaled.index_stride = 0L then
+                              Option.bind dimensions (function
+                                | count :: _ -> Some (scaled.index_value, count)
+                                | [] -> None)
+                            else None ),
                         None )
                   | _ ->
                       malformed description
@@ -9532,6 +9616,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             ({ object_code = Some (_, home, _); _ } as object_);
                         indexed_offset;
                         indexed_remaining_strides = [];
+                        indexed_remaining_dimensions = None;
                         _;
                       } ->
                       update_callback description position result target_type
@@ -10541,6 +10626,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                  push_stage
               ||
               match operation with
+              | Apply_index_offset (_, _, _, _, Some _) -> true
               | Store_reference_frame _ | Discard_reference _ -> true
               | Return_reference _ -> true
               | Update_callback_value (Callback_indexed _, _, _, _, _, _)
@@ -12135,9 +12221,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
           ~functions:function_infos ~provider_entries ~global_storage
           ~literal_storage ~runtime_owner:Runtime.Entry ~owner:Entry_owner
-          ~frame_slots:Int_map.empty ~variadic:None ~expected_return:None
-          ~source_item_index:None ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes
-          ~next_site entry_graph
+          ~frame_slots:Int_map.empty ~empty_frame_roots:[] ~variadic:None
+          ~expected_return:None ~source_item_index:None ~is_entry:true
+          ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
       in
       let function_prepared =
         Array.map
@@ -12153,7 +12239,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ~indirect_code_edges ~arena_code_cells ~functions:function_infos
               ~provider_entries ~global_storage ~literal_storage
               ~runtime_owner:(Runtime.Function body) ~owner:info.owner
-              ~frame_slots:info.frame_slots ~variadic:info.variadic
+              ~frame_slots:info.frame_slots
+              ~empty_frame_roots:info.empty_frame_roots ~variadic:info.variadic
               ~expected_return:(Some (Function.return_value_type body))
               ~source_item_index:
                 (Some (Frame.function_item_index info.definition.frame))

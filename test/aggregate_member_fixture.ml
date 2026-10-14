@@ -263,3 +263,39 @@ let controls ?(contents = contents) mode =
           rebuild definition wrong_stride );
       ]
     else [] )
+
+let empty_frame_controls mode =
+  let contents =
+    {|class Empty{};I64 F(){Empty object;U8 *p=(&object)(U8*);if(p!=p)return -1;return 42;}F();|}
+  in
+  let original = compile ~contents mode and foreign = compile ~contents mode in
+  let definition = first_definition original in
+  let root definition =
+    Body.body definition.VM.body
+    |> Graph.blocks
+    |> List.concat_map (fun block ->
+        Graph.instructions block |> Seq.instructions)
+    |> List.find_map (fun instruction ->
+        match (Seq.description instruction).payload with
+        | Some (Seq.Empty_frame_root location) -> Some location
+        | _ -> None)
+    |> Option.get
+  in
+  let substitute payload (description : Seq.description) =
+    match description.payload with
+    | Some (Seq.Empty_frame_root _) -> { description with payload }
+    | _ -> description
+  in
+  let copied = Obj.obj (Obj.dup (Obj.repr (root definition))) in
+  ( original,
+    [
+      ( "foreign equal-looking empty frame root",
+        rebuild definition
+          (substitute
+             (Some (Seq.Empty_frame_root (root (first_definition foreign))))) );
+      ( "copied original empty frame root",
+        rebuild definition (substitute (Some (Seq.Empty_frame_root copied))) );
+      ("missing empty frame root", rebuild definition (substitute None));
+      ( "numeric payload cannot select empty frame storage",
+        rebuild definition (substitute (Some (Seq.Integer 0L))) );
+    ] )

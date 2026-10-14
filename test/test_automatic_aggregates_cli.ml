@@ -22,11 +22,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3 || Array.length Sys.argv = 4)
-    "expected compiler and example, optionally --native"
+    (Array.length Sys.argv = 4 || Array.length Sys.argv = 5)
+    "expected compiler and two examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 4 && Sys.argv.(3) = "--native"
+let native = Array.length Sys.argv = 5 && Sys.argv.(4) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -95,7 +95,11 @@ let error ?code output report =
     "expected rejected aggregate report";
   Option.iter
     (fun code ->
-      let first = report |> member "diagnostics" |> to_list |> List.hd in
+      let first =
+        report |> member "diagnostics" |> to_list
+        |> List.find (fun diagnostic ->
+            member "severity" diagnostic = `String "error")
+      in
       require
         (member "code" first = `String code)
         (Yojson.Safe.to_string report))
@@ -114,6 +118,10 @@ let () =
               value word output (invoke target mode source))
             (Cases.values @ Cases.view_matrix);
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
+          value 42L "A" (invoke target mode (read Sys.argv.(3)));
+          value 42L ""
+            (invoke ~options:[ "--frame-byte-limit=1" ] target mode
+               Cases.empty_quota_source);
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))

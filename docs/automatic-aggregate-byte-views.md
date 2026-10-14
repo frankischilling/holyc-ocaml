@@ -1,6 +1,6 @@
 # Automatic aggregate byte views
 
-The interpreter and native executor allocate nonempty automatic class and union
+The interpreter and native executor allocate automatic class and union
 objects from the exact layouts admitted at their original allocations. An
 explicit primitive pointer cast exposes an object's bytes:
 
@@ -70,7 +70,19 @@ retain separate ownership shadows; overlapping scalar stores invalidate those
 shadows. Native data pointer fields also retain ownership and activation identities.
 
 Local and member size queries use their own original metadata. Zero-sized
-automatic objects, general aggregate copies,
+automatic objects retain their original frame location without consuming source
+frame bytes. Multiple empty roots can share that displacement, including an
+adjacent nonempty local. Their checked addresses compare equal when those source
+positions match, while each empty root keeps its own zero-byte extent and
+activation lifetime. Fixed arrays retain positive checked dimensions and zero
+strides. Index bounds still apply; casts and calls cannot expose neighboring
+bytes. Native images reserve private owner metadata separately from source frame
+bytes. The [empty automatic example](../examples/empty-automatic-aggregates.hc)
+checks shared addresses, arrays, unions and pointer calls and returns 42 with
+output A in both modes and executors.
+
+Forward-only class records still require retained original allocation layouts;
+later completion cannot supply them. General aggregate copies,
 callback fields, pointer returns and compiler
 position queries for aggregate-valued frames remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).

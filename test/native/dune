@@ -176,6 +176,7 @@
   holyc_lib
   native_scalar_support
   automatic_aggregate_fixture
+  aggregate_member_support
   alcotest))
 
 (executable
@@ -239,12 +240,15 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/automatic-aggregate-byte-views.hc)
+ (deps
+  ../../examples/automatic-aggregate-byte-views.hc
+  ../../examples/empty-automatic-aggregates.hc)
  (action
   (run
    %{exe:../test_automatic_aggregates_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/automatic-aggregate-byte-views.hc}
+   %{dep:../../examples/empty-automatic-aggregates.hc}
    --native)))
 
 (rule

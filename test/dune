@@ -5414,18 +5414,25 @@
 (test
  (name test_automatic_aggregate_storage)
  (modules test_automatic_aggregate_storage)
- (libraries holyc_lib automatic_aggregate_fixture alcotest))
+ (libraries
+  holyc_lib
+  automatic_aggregate_fixture
+  aggregate_member_support
+  alcotest))
 
 (test
  (name test_automatic_aggregates_cli)
  (modules test_automatic_aggregates_cli)
  (libraries unix yojson automatic_aggregate_fixture)
- (deps ../examples/automatic-aggregate-byte-views.hc)
+ (deps
+  ../examples/automatic-aggregate-byte-views.hc
+  ../examples/empty-automatic-aggregates.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
-   %{dep:../examples/automatic-aggregate-byte-views.hc})))
+   %{dep:../examples/automatic-aggregate-byte-views.hc}
+   %{dep:../examples/empty-automatic-aggregates.hc})))
 
 (test
  (name test_source_inherited_layouts)

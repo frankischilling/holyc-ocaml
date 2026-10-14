@@ -2044,7 +2044,8 @@ let rec prepare_index_address ?frame ?globals result =
                                   let count = F.dimension_value dimension in
                                   if
                                     count <= 0L
-                                    || count > Int64.div Int64.max_int bytes
+                                    || bytes <> 0L
+                                       && count > Int64.div Int64.max_int bytes
                                   then
                                     invalid
                                       "array dimensions require positive \

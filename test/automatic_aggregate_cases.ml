@@ -9,8 +9,39 @@ let quota_source =
   {|class Box{U8 bytes[9];};I64 F(){Box object;U8 *p=(&object)(U8*);
 p[8]=42;return p[8];}F();|}
 
+let empty_quota_source =
+  {|class Empty{};I64 F(){Empty first,second,objects[2][3];return sizeof(first)+sizeof(second)+sizeof(objects)+42;}F();|}
+
 let values =
   [
+    ( "empty automatic roots retain zero frame bytes",
+      {|class Empty{};I64 F(){Empty first,second;return sizeof(first)+sizeof(second)+42;}F();|},
+      42L,
+      "" );
+    ( "empty roots keep original addresses beside scalar storage",
+      {|class Empty{};I64 F(){U8 before=40;Empty first,second;U8 after=2;U8 *p=(&first)(U8*),*q=(&second)(U8*);if(p!=q||p!=(&before)(U8*))return -1;return before+after+sizeof(first);}F();|},
+      42L,
+      "" );
+    ( "fixed empty aggregate arrays keep zero strides",
+      {|class Empty{};I64 F(){Empty objects[2][3];U8 *p=(&objects[1][2])(U8*);if(p!=p)return -1;return sizeof(objects)+42;}F();|},
+      42L,
+      "" );
+    ( "empty unions and inherited roots remain addressable",
+      {|union Base{U0 value;};class Empty:Base{};I64 F(){Base a;Empty b;U8 *p=(&a)(U8*),*q=(&b)(U8*);if(p!=p||q!=q)return -1;return sizeof(a)+sizeof(b)+42;}F();|},
+      42L,
+      "" );
+    ( "original empty frame survives later class replacement",
+      {|class Empty{};I64 F(){Empty object;return sizeof(object)+42;}class Empty{U8 bytes[8];};F();|},
+      42L,
+      "" );
+    ( "empty pointers retain caller storage across calls",
+      {|class Empty{};Empty *Keep(Empty *p){return p;}I64 Read(Empty *p){if(p!=p)return -1;return 42;}I64 F(){Empty object;return Read(Keep(&object));}F();|},
+      42L,
+      "" );
+    ( "recursive empty roots keep activation owners",
+      {|class Empty{};I64 F(I64 n){Empty object;Empty *p=&object;if(p!=p)return -1;if(n)return F(n-1);return sizeof(object)+42;}F(3);|},
+      42L,
+      "" );
     ("packed unaligned window", example, 42L, "AB");
     ( "named union overlap",
       {|union Word{U64 value;U8 bytes[8];};I64 F(){Word object;
@@ -96,6 +127,26 @@ let view_matrix =
 
 let faults =
   [
+    ( "empty array dimensions still check each index",
+      {|extern U0 Print(U8 *fmt,...);class Empty{};I64 F(){Empty objects[2][3];Print("kept");U8 *p=(&objects[2][0])(U8*);return 42;}F();|},
+      "HCIRVM0019",
+      "kept" );
+    ( "empty array address cannot expose the adjacent local",
+      {|extern U0 Print(U8 *fmt,...);class Empty{};I64 F(){U8 neighbor=42;Empty objects[2][3];Print("kept");return *(&objects[1][2])(U8*);}F();|},
+      "HCIRVM0019",
+      "kept" );
+    ( "empty root cannot read an adjacent initialized local",
+      {|extern U0 Print(U8 *fmt,...);class Empty{};I64 F(){U8 neighbor=42;Empty object;Print("kept");return *(&object)(U8*);}F();|},
+      "HCIRVM0019",
+      "kept" );
+    ( "empty root cannot write an adjacent local",
+      {|extern U0 Print(U8 *fmt,...);class Empty{};I64 F(){U8 neighbor=42;Empty object;Print("kept");*(&object)(U8*)=7;return neighbor;}F();|},
+      "HCIRVM0019",
+      "kept" );
+    ( "expired empty roots cannot supply a byte",
+      {|extern U0 Print(U8 *fmt,...);class Empty{};U8 *Get(){Empty object;Print("kept");return (&object)(U8*);}I64 F(){U8 *p=Get();return *p;}F();|},
+      "HCIRVM0018",
+      "kept" );
     ( "unwritten adjacent byte",
       {|extern U0 Print(U8 *fmt,...);class Box{U8 bytes[2];};
 I64 F(){Box object;U8 *p=(&object)(U8*);p[0]=42;Print("kept");
@@ -123,11 +174,13 @@ if(n)*p=42;return *p;}F(1);F(0);|},
 
 let unsupported =
   [
+    ( "forward-only layouts do not grant automatic storage",
+      {|extern class Box;I64 F(){Box object;return 42;}class Box{U8 bytes[8];};F();|}
+    );
     ( "forward base metadata is not runtime layout authority",
       {|extern class Base;class Child:Base{U8 tail;};
 I64 F(){Child object;return 42;}F();|}
     );
-    ("zero-sized object", {|class Box{};I64 F(){Box object;return 42;}F();|});
     ( "aggregate pointer array",
       {|class Box{U8 byte;};I64 F(){Box *objects[2];return 42;}F();|} );
     ( "aggregate pointer return",
@@ -137,9 +190,6 @@ I64 F(){Child object;return 42;}F();|}
       {|class Box{U8 byte;};I64 F(){Box a,b=a;return 42;}F();|} );
     ( "numeric bits do not grant aggregate ownership",
       {|class Box{U8 byte;};I64 F(){U8 *p=42(Box*)(U8*);return *p;}F();|} );
-    ( "later forward completion cannot resize an earlier frame",
-      {|extern class Box;I64 F(){Box object;return 42;}class Box{U8 bytes[8];};F();|}
-    );
   ]
 
 let extents =

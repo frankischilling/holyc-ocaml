@@ -210,6 +210,16 @@ original class identity. Byte initialization, ownership and extent guards are
 hosted policy. See [automatic aggregate byte views](automatic-aggregate-byte-views.md)
 for the exact execution subset, source-derived tests and remaining consumers.
 
+Empty automatic roots use the same complete `PrsVarLst` producer. At
+`PrsVar.HC:590-606`, zero size leaves the current displacement unchanged and
+records zero member bytes. `PrsUnaryTerm` emits that local's original RBP offset;
+explicit pointer casts preserve it. The hosted address fragment also retains the
+exact original frame location so coincident empty roots keep separate bounds and
+lifetimes. Owner metadata occupies no source frame bytes. Tests cover shared
+addresses, fixed-array zero strides, original dimensions, calls, recursion and
+replacement. These are pinned source expectations and hosted execution checks;
+no new TempleOS runtime or emitted-byte capture is included.
+
 Owned expression cleanup follows `Compiler/PrsExp.HC:264-303`: push two
 terminators, catch Compiler, then issue another `LexExcept` if the owned stack
 is still nonempty. The missing-operand producer is at line 957. An identifier

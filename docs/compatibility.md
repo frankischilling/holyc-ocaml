@@ -965,8 +965,14 @@ Empty class and union globals and statics retain zero-byte geometry while their
 initializer expressions execute once in source order. Fixed arrays retain each
 element's effect and zero stride. Native arenas can consist only of private owner
 metadata. Source-task checks cover both modes, later class replacement, unused
-functions, repeated calls, original bounds and exact resource limits. Automatic
-zero-byte frame storage and inferred dimensions remain open.
+functions, repeated calls, original bounds and exact resource limits. Inferred
+dimensions remain open. Automatic empty class and union roots retain zero source
+frame bytes, original checked locations, array dimensions and activation owners.
+Shared source displacements compare equal without transferring byte access from
+an adjacent root. Calls preserve the caller's empty extent; expired frames reject.
+Native private owner metadata remains subject to its physical stack limit.
+Forward-only automatic allocation layouts remain unfinished. See
+[automatic aggregate byte views](automatic-aggregate-byte-views.md).
 
 Source resolution uses original per-declaration compiler options. JIT data-heap
 globals retain scalar, array and aggregate storage under the existing ownership

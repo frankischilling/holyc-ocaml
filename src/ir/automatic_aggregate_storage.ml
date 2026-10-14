@@ -29,6 +29,19 @@ let of_location location =
     | Frame.Array, _ :: _ -> true
     | _ -> false
   in
+  let elements =
+    List.fold_left
+      (fun elements dimension ->
+        Option.bind elements (fun elements ->
+            let count = Frame.dimension_value dimension in
+            if
+              Frame.dimension_kind dimension <> Frame.Source_extent
+              || count <= 0L
+              || count > Int64.div (Int64.of_int Int.max_int) elements
+            then None
+            else Some (Int64.mul elements count)))
+      (Some 1L) dimensions
+  in
   let extent =
     List.fold_left
       (fun extent dimension ->
@@ -36,8 +49,9 @@ let of_location location =
             let count = Frame.dimension_value dimension in
             if
               Frame.dimension_kind dimension <> Frame.Source_extent
-              || bytes <= 0L || count <= 0L
-              || count > Int64.div (Int64.of_int Int.max_int) bytes
+              || bytes < 0L || count <= 0L
+              || bytes <> 0L
+                 && count > Int64.div (Int64.of_int Int.max_int) bytes
             then None
             else Some (Int64.mul bytes count)))
       (Some bytes) dimensions
@@ -52,7 +66,7 @@ let of_location location =
          && shape_matches
          && Frame.location_source_dimensions_checked location
          && Option.is_none (Frame.location_callback_pointer location)
-         && (bytes > 0L || Frame.location_kind location = Frame.Named_parameter)
+         && bytes >= 0L && Option.is_some elements
          && bytes <= Int64.of_int Int.max_int
          && (extent = Some (Frame.location_allocated_size location)
             || Frame.location_kind location = Frame.Named_parameter

@@ -328,7 +328,7 @@ retain their explicit compile-time phase boundary before later body effects.
 
 Nonconstant AOT statics with globals-on-data-heap remain unsupported.
 Other runtime class changes remain unfinished. Floating,
-data pointer and owned callback leaves, automatic zero-byte storage, inferred
+data pointer and owned callback leaves, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686). Native data
