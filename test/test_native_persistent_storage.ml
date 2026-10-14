@@ -451,6 +451,37 @@ let preparation_proof_and_metadata_quotas () =
     ~entry:(integer_program_entry too_many_unit)
   |> reject_layout ~code:"HCBACK0001" "array metadata hard bound"
 
+let empty_root_images () =
+  List.iter
+    (fun mode ->
+      let source =
+        "class Empty{};Empty objects[2][3];I64 F(){static Empty \
+         saved[2];return sizeof(objects)+sizeof(saved)+42;}F();"
+      in
+      let unit = integer_unit ~mode source in
+      let shape =
+        Globals.slots (integer_program_globals unit)
+        |> List.hd |> Holyc_lib__Ir.Integer_globals.slot_shape
+      in
+      let module Shape = Holyc_lib__Ir.Integer_storage_shape in
+      Alcotest.(check (list int64))
+        "original dimensions" [ 2L; 3L ] (Shape.dimensions shape);
+      Alcotest.(check (list int64))
+        "zero strides" [ 0L; 0L ] (Shape.strides shape);
+      Alcotest.(check int) "six original elements" 6 (Shape.element_count shape);
+      Alcotest.(check int) "no byte cells" 0 (Shape.cell_count shape);
+      let image = native_image ~max_global_bytes:1 ~mode source in
+      Alcotest.(check int)
+        "no persistent data bytes" 0
+        (Program.global_bytes image);
+      Alcotest.(check int)
+        "one owner word for each root" 16
+        (Program.arena_metadata_bytes image);
+      Alcotest.(check int)
+        "metadata-only physical arena" 16
+        (String.length (Program.global_image image)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let tests =
   [
     Alcotest.test_case "persistent array source authority is exact" `Quick
@@ -461,4 +492,6 @@ let tests =
       `Quick static_images_and_padding;
     Alcotest.test_case "persistent preparation proof and metadata quotas" `Slow
       preparation_proof_and_metadata_quotas;
+    Alcotest.test_case "empty roots retain geometry and native owner metadata"
+      `Quick empty_root_images;
   ]

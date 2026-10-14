@@ -950,7 +950,7 @@ with value or function references retain their original load-source receipt and
 execute through checked load-time regions. Static address access in entry is
 limited to those regions and their declaring frame. Closed leaves retain their
 prepared bytes; repeated calls retain mutations. Nonconstant AOT statics with
-globals-on-data-heap, empty roots and other initializer value families remain
+globals-on-data-heap and other initializer value families remain
 open under #686 and #690.
 
 JIT source-task initializers can read and update earlier aggregate statics through
@@ -960,3 +960,10 @@ member reads and JIT defaults, dimensions and metadata effects share the fragmen
 context. The static-load example now runs through IR and native source tasks in
 both modes. Frozen views reject foreign tables, namespaces, copied names and
 duplicate observations, and supply no storage or execution authority.
+
+Empty class and union globals and statics retain zero-byte geometry while their
+initializer expressions execute once in source order. Fixed arrays retain each
+element's effect and zero stride. Native arenas can consist only of private owner
+metadata. Source-task checks cover both modes, later class replacement, unused
+functions, repeated calls, original bounds and exact resource limits. Automatic
+zero-byte frame storage and inferred dimensions remain open.

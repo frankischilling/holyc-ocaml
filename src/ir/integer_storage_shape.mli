@@ -55,4 +55,5 @@ val create_initializer_aggregate :
 (** Geometry for native static initializer preparation from the original class
     allocation. Its owner is the nominal class, so it cannot match a variable
     storage slot. Checked dimensions come from the source declaration ledger;
-    this shape alone grants no allocation or execution authority. *)
+    zero-byte classes retain their positive element counts and zero strides.
+    This shape alone grants no allocation or execution authority. *)

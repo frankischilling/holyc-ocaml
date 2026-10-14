@@ -189,7 +189,7 @@ let () =
                     "42"
                     (invoke compiler probe target mode [] 0))
                 (Cases.ordinary_source_values @ Cases.static_load_values
-               @ Cases.fragment_member_values);
+               @ Cases.fragment_member_values @ Cases.empty_root_values);
               List.iter
                 (fun (_, source, _) ->
                   write source;
@@ -239,6 +239,7 @@ let () =
                   "class-body-callback-fields.hc";
                   "retained-aot-initializer-layouts.hc";
                   "native-aot-static-initializers.hc";
+                  "empty-aggregate-initializers.hc";
                 ])
             [ "jit"; "aot" ];
           write Cases.static_before_nested_brace;

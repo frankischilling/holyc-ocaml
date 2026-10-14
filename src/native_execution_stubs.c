@@ -1592,8 +1592,6 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
     caml_invalid_argument("native program logical literal bytes exceed their bound");
   if (metadata_bytes < 0 || (uintnat)metadata_bytes > HOLYC_NATIVE_MAX_ARENA_BYTES)
     caml_invalid_argument("native program private metadata bytes exceed their bound");
-  if (logical_global_bytes == 0 && logical_literal_bytes == 0)
-    caml_invalid_argument("native storage program has no persistent data");
   if ((uintnat)arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       (uintnat)arena_length != (uintnat)logical_global_bytes +
                                (uintnat)logical_literal_bytes + (uintnat)metadata_bytes)
@@ -2652,9 +2650,6 @@ static value native_execute_program_output(value code, value functions,
       (uintnat)arena_length != (uintnat)logical_global_bytes +
                                (uintnat)logical_literal_bytes + (uintnat)metadata_bytes)
     caml_invalid_argument("native output program arena image is inconsistent with data and metadata");
-  if (logical_global_bytes == 0 && logical_literal_bytes == 0 &&
-      metadata_bytes != 0 && !task_storage)
-    caml_invalid_argument("native output program private metadata has no persistent data");
 
   /* Validate the sealed code and unwind table before reserving the capture
      buffer. The checked execution helpers repeat these checks at entry. */
@@ -3016,12 +3011,12 @@ static value native_retain_program_identity(value identity, int task_fragment)
   globals = Long_val(Field(storage, 0));
   literals = Long_val(Field(storage, 1));
   metadata = Long_val(Field(storage, 2));
+  /* Empty persistent roots can own a metadata-only arena. */
   if (globals < 0 || (uintnat)globals > HOLYC_NATIVE_MAX_GLOBAL_BYTES ||
       literals < 0 || (uintnat)literals > HOLYC_NATIVE_MAX_LITERAL_BYTES ||
       metadata < 0 || (uintnat)metadata > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
-      arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata ||
-      (globals == 0 && literals == 0 && metadata != 0 && Wosize_val(identity) < 6))
+      arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata)
     caml_invalid_argument("retained native arena image is inconsistent with data and metadata");
   if (Wosize_val(identity) < 6) {
     for (mlsize_t index = 0; index < Wosize_val(functions); ++index)
@@ -3029,9 +3024,7 @@ static value native_retain_program_identity(value identity, int task_fragment)
         caml_invalid_argument("native leaf entries require original task owner bindings");
   }
   if (Wosize_val(identity) >= 6) {
-    size_t maximum = native_validate_task_bindings(identity, arena_length);
-    if (globals == 0 && literals == 0 && metadata != 0 && maximum == 0)
-      caml_invalid_argument("retained task metadata has no original code owner");
+    native_validate_task_bindings(identity, arena_length);
   }
   if (closed_entry && arena_length != 0)
     caml_invalid_argument("retained native closed entry cannot own a data arena");

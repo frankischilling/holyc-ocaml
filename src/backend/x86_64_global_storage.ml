@@ -290,7 +290,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         then Ok total
         else
           let elements = Globals.storage_cell_count storage in
-          if elements <= 0 || elements > (hard_max_arena_bytes - total) / 8 then
+          if elements < 0 || elements > (hard_max_arena_bytes - total) / 8 then
             resource
               (Printf.sprintf
                  "private global arena exceeds the hard allocation bound of %d \
@@ -555,7 +555,9 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           else Ok ()
         in
         let flag_offset, next_array_flag_cursor =
-          if byte_flags then
+          (* Empty aggregate roots retain the ordinal owner word, with no byte
+             flags to address before the arena's metadata prefix. *)
+          if byte_flags && element_count > 0 then
             ( array_flag_cursor + ((element_count - 1) * 8),
               array_flag_cursor + (element_count * 8) )
           else (declared_bytes + (ordinal * 8), array_flag_cursor)
@@ -953,12 +955,13 @@ let append_task_globals layout ~globals =
                       hard_max_arena_bytes - state.task_arena_bytes
                       - extent_bytes
                     in
-                    if element_count > remaining / 8 then
+                    let metadata_words = max 1 element_count in
+                    if metadata_words > remaining / 8 then
                       resource ?span
                         "native task data and initialization flags exceed the \
                          arena bound"
                     else
-                      let flag_bytes = element_count * 8 in
+                      let flag_bytes = metadata_words * 8 in
                       Ok
                         ( extent_bytes + flag_bytes,
                           state.task_arena_bytes + extent_bytes + flag_bytes - 8
@@ -1196,14 +1199,15 @@ let reserve_static layout request =
           else Ok ()
         in
         let flag_width = 8 in
+        let metadata_words = max 1 elements in
         let* arena_bytes =
           if
             padded > hard_max_arena_bytes - before.task_arena_bytes
-            || elements
+            || metadata_words
                > (hard_max_arena_bytes - before.task_arena_bytes - padded)
                  / flag_width
           then resource "native static data and flags exceed the arena bound"
-          else Ok (padded + (elements * flag_width))
+          else Ok (padded + (metadata_words * flag_width))
         in
         let callback =
           Ir.Integer_static_allocation.callback_pointer allocation
@@ -1236,7 +1240,8 @@ let reserve_static layout request =
             extent_bytes = Shape.byte_size shape;
             data_offset = before.task_arena_bytes;
             flag_offset =
-              before.task_arena_bytes + padded + ((elements - 1) * flag_width);
+              before.task_arena_bytes + padded
+              + ((metadata_words - 1) * flag_width);
             initially_initialized = false;
           }
         in

@@ -35,7 +35,8 @@ let padded_byte_size shape =
 
 let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
     ~dimensions =
-  if width <= 0 then Error Unsupported_type
+  if width < 0 || (width = 0 && Option.is_none aggregate_owner) then
+    Error Unsupported_type
   else
     let ( let* ) = Result.bind in
     let limit = Int64.of_int Int.max_int in
@@ -45,7 +46,10 @@ let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
           if count <= 0L then Error Invalid_extent
           else
             let* elements, bytes, strides = collect rest in
-            if count > Int64.div limit bytes then Error Overflow
+            if
+              count > Int64.div limit elements
+              || (bytes > 0L && count > Int64.div limit bytes)
+            then Error Overflow
             else
               Ok
                 ( Int64.mul count elements,
@@ -82,7 +86,7 @@ let create ~type_ ~dimensions =
   | _ -> Error Unsupported_type
 
 let aggregate_shape ~initializer_type ~symbol ~type_ ~element_size ~dimensions =
-  if element_size <= 0L || element_size > Int64.of_int Int.max_int then
+  if element_size < 0L || element_size > Int64.of_int Int.max_int then
     Error Invalid_extent
   else
     create_with_scalar

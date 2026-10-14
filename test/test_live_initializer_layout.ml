@@ -134,6 +134,15 @@ let scalars () =
   expect_layout {|I64 A[2][2]=1,2,3,4;|} [ 0; 1; 2; 3 ]
     [ None; None; None; None ]
 
+let empty_roots () =
+  expect_layout ~phased:true {|class Empty{};Empty object=7;|} [ 0 ] [ None ];
+  expect_layout ~phased:true
+    {|class Empty{};Empty objects[2][2]={{1,2},{3,4}};|} [ 0; 0; 0; 0 ]
+    [ None; None; None; None ];
+  expect_layout ~phased:true
+    {|class Empty{U0 first;U0 rest[2];};Empty object={1,{2,3}};|} [ 0; 0; 0 ]
+    [ None; None; None ]
+
 let copies () =
   expect_layout {|U8 A[2][3]={"AB","CD"};|} [ 0; 3 ]
     [ Some "AB\000"; Some "CD\000" ];
@@ -399,6 +408,8 @@ let tests =
       "prepared branches retain scalar, string and member cursors" `Quick
       phased_cursors;
     Alcotest.test_case "original copied-row decisions" `Quick copies;
+    Alcotest.test_case "empty roots retain every original zero-byte leaf" `Quick
+      empty_roots;
     Alcotest.test_case "early delimiter and source-bound failure" `Quick
       early_failure;
     Alcotest.test_case "ordered original leaves" `Quick ordering;

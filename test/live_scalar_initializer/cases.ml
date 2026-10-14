@@ -256,6 +256,12 @@ let backed_values =
 
 let fragment_member_faults =
   [
+    ( "empty root cannot read the following nonempty allocation",
+      {|I64 Next(){Print("A");return 7;}class Empty{};Empty object=Next();U8 guard=42;I64 F(){U8 *p=(&object)(U8*);return *p;}F();|},
+      "HCIRVM0019" );
+    ( "completion cannot enlarge an original empty root",
+      {|extern class Item;Item object=42#exe{Print("A");class Item{U8 value;};};42;|},
+      "HCRUN0006" );
     ( "earlier aggregate static still checks initialized bytes",
       {|I64 Side(){Print("A");return 40;}class Box{U8 value;};I64 F(){static I64 marker=Side();static Box object;static U8 n=object.value;return marker+n;}F();|},
       "HCIRVM0012" );
@@ -335,9 +341,46 @@ let static_load_values =
       "A" );
   ]
 
+let empty_root_values =
+  [
+    ( "closed empty initializer leaves retain zero-byte images",
+      {|class Empty{};Empty objects[2]={40,2};I64 F(){static Empty saved=7;static Empty saved_array[2]={8,9};return sizeof(objects)+sizeof(saved)+sizeof(saved_array)+42;}F();|},
+      "" );
+    ( "empty global retains its scalar initializer effect",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}class Empty{};Empty object=Next();I64 F(){return sizeof(object)+calls+41;}F();|},
+      "A" );
+    ( "empty static initializes before an unused function is published",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}class Empty{};I64 Unused(){static Empty object=Next();return sizeof(object);}I64 F(){return calls+41;}F();|},
+      "A" );
+    ( "empty static is not initialized again on invocation",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}class Empty{};I64 F(){static Empty object=Next();return sizeof(object)+calls+41;}I64 Check(){F();return F();}Check();|},
+      "A" );
+    ( "empty global arrays evaluate every original leaf",
+      {|I64 calls=0;I64 Next(){if(!calls)Print("A");return ++calls;}class Empty{};Empty objects[2][2]={{Next(),Next()},{Next(),Next()}};I64 F(){return sizeof(objects)+calls+38;}F();|},
+      "A" );
+    ( "empty static arrays retain each source effect",
+      {|I64 calls=0;I64 Next(){if(!calls)Print("A");return ++calls;}class Empty{};I64 F(){static Empty objects[2][2]={{Next(),Next()},{Next(),Next()}};return sizeof(objects)+calls+38;}I64 Check(){F();return F();}Check();|},
+      "A" );
+    ( "zero-width direct members still traverse their source leaves",
+      {|I64 calls=0;I64 Next(){if(!calls)Print("A");return ++calls;}class Empty{U0 first;U0 rest[2];};Empty object={Next(),{Next(),Next()}};I64 F(){return sizeof(object)+calls+39;}F();|},
+      "A" );
+    ( "empty unions preserve zero-width member effects",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}union Empty{U0 value;};Empty object={Next()};I64 F(){return sizeof(object)+calls+41;}F();|},
+      "A" );
+    ( "empty inherited roots retain their original scalar branch",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}class Base{};class Empty:Base{};Empty object=Next();I64 F(){return sizeof(object)+calls+41;}F();|},
+      "A" );
+    ( "replacement cannot enlarge an earlier empty root",
+      {|I64 Next(){Print("A");return 7;}class Empty{};Empty object=Next();class Empty{U16 value;};I64 F(){return sizeof(object)+42;}F();|},
+      "A" );
+    ( "uninitialized empty globals and statics retain zero geometry",
+      {|class Empty{};Empty object;I64 F(){static Empty saved[2];return sizeof(object)+sizeof(saved)+42;}F();|},
+      "" );
+  ]
+
 let both_values =
   ordinary_source_values @ backed_values @ static_load_values
-  @ fragment_member_values
+  @ fragment_member_values @ empty_root_values
   @ [
       ( "global initialization retains the forward through same-name replacement",
         {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};class Item{U16 value;};class Item{U8 replacement;};I64 F(){return object.tail;}F();|},

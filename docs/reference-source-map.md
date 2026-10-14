@@ -2445,3 +2445,15 @@ class-array strides. Shared cases check reads, writes, inheritance, nested array
 replacement and once-only effects. Foreign-view and occurrence tests check
 rejection; unknown bytes, bounds and runtime ownership retain their existing
 checks. This adds no TempleOS runtime or emitted-byte capture.
+
+Empty global and static allocations follow complete `PrsGlblVarLst` at
+`Compiler/PrsStmt.HC:209-463` and complete `PrsVarLst` at
+`Compiler/PrsVar.HC:408-742`. Both compute storage from the selected class width
+and source element count. Static rounding preserves a zero allocation.
+Complete `PrsVarInit` and `PrsVarInit2` at `Compiler/PrsVar.HC:1-205` call each
+scalar expression before copying the selected width, including zero bytes, and
+recurse through every fixed array element. Complete `PrsGlblInit` and
+`PrsStaticInit` at `Compiler/PrsVar.HC:207-246` use that traversal for both kinds of
+persistent storage. Hosted tests check these effects, original dimensions,
+replacement, zero extents and native metadata-only images. They add no TempleOS
+runtime or emitted-byte capture.

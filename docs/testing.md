@@ -2419,4 +2419,15 @@ observations, copied names and foreign tables or namespaces. Fragment contexts
 reject foreign views before typing. Narrow-read and runtime ownership suites
 remain required.
 
+Empty-root cases check class and union globals and statics, fixed multidimensional
+arrays, zero-width direct members, unused functions, repeated calls and same-name
+replacement through IR and native source tasks in both modes. Layout cases keep
+each original leaf at byte offset zero. Native image checks retain dimensions
+`[2,3]`, six source elements, zero strides and cells, and a 16-byte metadata-only
+arena for two roots. Fault cases reject reads into adjacent storage and growth
+during the current leaf while retaining earlier output. The maintained empty-root
+example checks exact and one-below execution and preparation limits.
+Native storage and output bridges also execute metadata-only arenas directly;
+malformed code and inconsistent arena counts retain their rejection checks.
+
 No TempleOS runtime or emitted-byte capture is included.

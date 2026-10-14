@@ -65,6 +65,16 @@ three-byte stride. Size queries and indexing use source geometry; allocation and
 initialization flags cover every physical byte. Static allocation rounds its
 storage charge to eight bytes without granting access to the padding.
 
+Empty global and static roots have zero data bytes and retain their original
+identity and dimensions. Their fixed arrays have positive element counts and
+zero strides. Every initializer expression still executes once, including leaves
+of zero-width direct members. Native storage retains one owner word per root and
+no byte flags, so an arena can contain only private metadata. Reads cannot cross
+the empty root into an adjacent nonempty object. The
+[empty-root example](../examples/empty-aggregate-initializers.hc) checks source
+order, unused-function preparation, repeated calls and class replacement in both
+source modes. Automatic zero-byte frame storage remains open.
+
 Owned class pointers, primitive byte views and casts retain the complete original
 root. Every reached field window must fit that root, including from an interior
 or one-past reference. Unrelated allocations cannot supply a pointer difference.

@@ -420,13 +420,7 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
         else if arena_bytes > hard_max_arena_bytes then
           error_report
             "native program private arena exceeds the hard host byte bound"
-        else if
-          global_bytes = 0 && literal_bytes = 0 && arena_bytes <> 0
-          && Image.code_owner_bindings image = []
-        then
-          error_report
-            "native program without persistent data has a nonempty private \
-             arena image"
+          (* Empty roots can retain owner metadata without any data bytes. *)
         else if arena_bytes <> global_bytes + literal_bytes + metadata_bytes
         then
           error_report

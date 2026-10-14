@@ -848,7 +848,7 @@ let local_location table aggregate_layouts ~parent ~function_symbol
                     when layout.symbol == aggregate
                          && layout.size
                             = Compiler_record.automatic_aggregate_size receipt
-                         && layout.size > 0L -> Ok layout.size
+                         && layout.size >= 0L -> Ok layout.size
                   | _ -> Error (incomplete_aggregate aggregate origin)))
       | _ ->
           element_size table aggregate_layouts ~before_item:function_item origin

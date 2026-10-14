@@ -298,9 +298,26 @@ class arrays. Unknown addresses and escaping register objects keep their existin
 rejections. The static-load example now also prints `A` and returns 42 through
 IR and native source tasks in JIT mode, with exact and one-below limits.
 
+Empty class and union globals and statics retain zero-byte allocations and their
+original initializer traversal. Scalar leaves and zero-width direct members
+execute once even when there are no bytes to copy. Fixed root arrays retain their
+positive element counts and zero strides; each original leaf still executes.
+Static preparation precedes publication of its containing function, including
+unused functions, and later calls reuse that preparation. Same-name replacement
+cannot enlarge the earlier object. The
+[empty-root example](../examples/empty-aggregate-initializers.hc) prints `A` and
+returns 42 through IR and native source tasks in both source modes.
+
+Native empty roots retain private owner metadata without allocating byte flags.
+An arena containing only that metadata is valid. Its data, literal and metadata
+counts must still match its physical image and resource bounds. Byte reads from
+an empty object fail at its original zero extent, and completion during a leaf
+cannot enlarge its root allocation. Element-count overflow remains checked even
+when multiplication by the class width yields zero bytes.
+
 Nonconstant AOT statics with globals-on-data-heap remain unsupported.
 Other runtime class changes remain unfinished. Floating,
-data pointer and owned callback leaves, empty root allocations, inferred
+data pointer and owned callback leaves, automatic zero-byte storage, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686). Native data
