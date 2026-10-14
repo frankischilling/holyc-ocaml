@@ -9616,7 +9616,6 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             ({ object_code = Some (_, home, _); _ } as object_);
                         indexed_offset;
                         indexed_remaining_strides = [];
-                        indexed_remaining_dimensions = None;
                         _;
                       } ->
                       update_callback description position result target_type
