@@ -12,7 +12,7 @@ let widths =
   ]
 
 let quota_source =
-  {|class Box{U64 word;};I64 F(){Box o;o=40;o(U8)+=2;return o(U8);}F();|}
+  {|class Box{U64 word;};I64 F(){Box o;o.word=40;o(U8)+=2;return o(U8);}F();|}
 
 let quota_frame_bytes = 8
 
@@ -39,13 +39,13 @@ let values =
         [
           ( "default class storage cast " ^ target,
             Printf.sprintf
-              {|class Box{U64 word;};I64 F(){Box o;o=-1;if(o(%s)!=%s)return -2;o=42;return o(%s);}F();|}
+              {|class Box{U64 word;};I64 F(){Box o;o.word=-1;if(o(%s)!=%s)return -2;o.word=42;return o(%s);}F();|}
               target expected target,
             42L,
             "" );
           ( "grouped class cast preserves register bits " ^ target,
             Printf.sprintf
-              {|%s class Box{U64 word;};class Raw{U64 word;};I64 F(){Raw o;o=0x1002a;return (o)(Box);}F();|}
+              {|%s class Box{U64 word;};class Raw{U64 word;};I64 F(){Raw o;o.word=0x1002a;return (o)(Box);}F();|}
               target,
             0x1002aL,
             "" );
@@ -80,27 +80,27 @@ let values =
         42L,
         "" );
       ( "cast destination writes only its selected bytes",
-        {|class Box{U64 word;};I64 F(){Box o;o=0x10000;o(U8)=42;return o;}F();|},
+        {|class Box{U64 word;};I64 F(){Box o;o.word=0x10000;o(U8)=42;return o;}F();|},
         0x1002aL,
         "" );
       ( "cast prefix and postfix updates use selected storage",
-        {|class Box{U64 word;};I64 F(){Box o;o=0x10026;if(o(U8)++!=38 || ++o(U8)!=40)return -1;o(U8)+=2;return o(U8);}F();|},
+        {|class Box{U64 word;};I64 F(){Box o;o.word=0x10026;if(o(U8)++!=38 || ++o(U8)!=40)return -1;o(U8)+=2;return o(U8);}F();|},
         42L,
         "" );
       ( "grouped update cast retains completed register value",
-        {|class Box{U64 word;};I64 F(){Box o;o=0x1002a;if((o++)(U8)!=0x1002a)return -1;return o;}F();|},
+        {|class Box{U64 word;};I64 F(){Box o;o.word=0x1002a;if((o++)(U8)!=0x1002a)return -1;return o;}F();|},
         0x1002bL,
         "" );
       ( "consecutive storage casts select the final width",
-        {|class Box{U64 word;};I64 F(){Box o;o=0x1002a;return o(U8)(U32);}F();|},
+        {|class Box{U64 word;};I64 F(){Box o;o.word=0x1002a;return o(U8)(U32);}F();|},
         0x1002aL,
         "" );
       ( "consecutive grouped casts preserve the original register word",
-        {|class Box{U64 word;};I64 F(){Box o;o=0x1002a;return (o)(U8)(U16);}F();|},
+        {|class Box{U64 word;};I64 F(){Box o;o.word=0x1002a;return (o)(U8)(U16);}F();|},
         0x1002aL,
         "" );
       ( "grouping a completed storage cast fixes its read width",
-        {|class Box{U64 word;};I64 F(){Box o;o=0x1002a;return (o(U8))(U32);}F();|},
+        {|class Box{U64 word;};I64 F(){Box o;o.word=0x1002a;return (o(U8))(U32);}F();|},
         42L,
         "" );
       ("class storage cast exposes the selected member", proof_source, 42L, "");
@@ -109,11 +109,11 @@ let values =
         42L,
         "" );
       ( "inherited cast storage keeps original member offsets",
-        {|class Base{U16 value;};class Root:Base{U8 rest[6];};class View{U16 value;};I64 F(){Root o;o=42;return o(View).value;}F();|},
+        {|class Base{U16 value;};class Root:Base{U8 rest[6];};class View{U16 value;};I64 F(){Root o;o(I64)=42;return o(View).value;}F();|},
         42L,
         "" );
       ( "cast destination is captured before RHS rebinding",
-        {|class Box{U64 word;};I64 F(){Box a[2];a[0]=20;a[1]=99;Box *p=a;p[0](U8)+=((p=&a[1])==&a[1])*22;if(a[1]!=99)return -1;return a[0];}F();|},
+        {|class Box{U64 word;};I64 F(){Box a[2];a[0].word=20;a[1].word=99;Box *p=a;p[0](U8)+=((p=&a[1])==&a[1])*22;if(a[1]!=99)return -1;return a[0];}F();|},
         42L,
         "" );
       ( "cast member address retains its original byte offset",
@@ -125,7 +125,7 @@ let values =
         42L,
         "" );
       ( "function-local storage and value casts",
-        {|I64 F(){class View{U16 value;};class Raw{U64 word;};Raw o;o=0x1002a;if(o(View).value!=42 || (o)(View)!=0x1002a)return -1;return o(View).value;}F();|},
+        {|I64 F(){class View{U16 value;};class Raw{U64 word;};Raw o;o.word=0x1002a;if(o(View).value!=42 || (o)(View)!=0x1002a)return -1;return o(View).value;}F();|},
         42L,
         "" );
       ( "persistent class cast aliases original bytes",
@@ -149,7 +149,7 @@ let retained_values =
       42L,
       "" );
     ( "retained class cast keeps original member layout",
-      {|class Root{U64 word;};class View{U16 value;};I64 F(){Root o;o=42;return o(View).value;}class View{U8 pad;U16 value;};F();|},
+      {|class Root{U64 word;};class View{U16 value;};I64 F(){Root o;o(I64)=42;return o(View).value;}class View{U8 pad;U16 value;};F();|},
       42L,
       "" );
   ]
@@ -181,7 +181,7 @@ let faults =
 let unsupported =
   [
     ( "ungrouped update does not consume another cast",
-      {|class Box{U64 word;};I64 F(){Box o;o=42;return o++(U8);}F();|} );
+      {|class Box{U64 word;};I64 F(){Box o;o.word=42;return o++(U8);}F();|} );
     ( "narrow view cannot retype owned callback code",
       {|I64 Give(){return 42;}I64 F(){I64 (*call)()=&Give;return (call)(U8);}F();|}
     );

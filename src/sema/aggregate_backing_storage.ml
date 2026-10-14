@@ -137,6 +137,8 @@ let create_visible ~visibility ~source ~table ~members ~policies ~source_type =
             then Some storage
             else None))
 
+let assignment_permitted storage = Option.is_none storage.default_class
+
 let create_local ~visibility ~local ~table ~members ~policies =
   if
     not
@@ -168,7 +170,7 @@ let create_local ~visibility ~local ~table ~members ~policies =
               Function_call_conversion_policy.function_symbol storage.function_
               == Function_aggregate_visibility.function_symbol visibility
               && permits storage.aggregate
-              && Option.is_none storage.default_class
+              && assignment_permitted storage
             then Some storage
             else None))
 

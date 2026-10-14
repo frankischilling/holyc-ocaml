@@ -84,7 +84,15 @@ let faults () =
   List.iter
     (fun mode ->
       List.iter
-        (fun (_, source, code, output) -> failure code output (run mode source))
+        (fun (name, source, code, output) ->
+          let report = run mode source in
+          Alcotest.(check bool)
+            name true
+            (match integer_program_report_outcome report with
+            | Error errors ->
+                List.exists (fun (d : Diagnostic.t) -> d.code = code) errors
+            | Ok _ -> false);
+          failure code output report)
         (Refs.faults @ Callbacks.faults @ Cases.faults @ Cases.pointer_faults
        @ Arrays.faults @ Pointers.faults @ Inherited.faults @ Backed.faults
        @ Default.faults @ Parameters.faults @ Returns.faults @ Persistent.faults

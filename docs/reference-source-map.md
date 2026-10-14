@@ -1,5 +1,14 @@
 # Reference source map
 
+Complete `PrsExpression2` at `Compiler/PrsExp.HC:65-263` applies the same lvalue
+check to every `IST_ASSIGN` binary operation. After operator lookahead it follows
+the destination with `OptClassFwd` and requires `IST_DEREF` plus a pointer or
+`Cf_INTERNAL_TYPE` endpoint (`PrsExp.HC:200-208`). The default `RT_PTR` raw class
+set by `PrsClassNew` does not set that flag. Raw-word reads and prefix/postfix
+updates use their separate producers. The hosted checker retains the original
+backing proof and applies this gate to simple and compound assignment; it does
+not grant a write from raw type alone.
+
 Automatic scalar class initializers follow complete `PrsVarLst` in
 `Compiler/PrsVar.HC:407-742`: the local branch allocates the reached class size,
 restores the original declaration input and parses its assignment expression.

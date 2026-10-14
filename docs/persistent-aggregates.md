@@ -7,8 +7,9 @@ modes. It combines a packed class global array with a function-static object.
 Nonempty classes and unions retain their original storage extent and element
 stride. Integer and Bool fields, nested aggregates, inherited members, member
 arrays and multidimensional root arrays use the same checked member projections
-as automatic objects. Ordinary and integer-backed whole values read and write
-their selected scalar prefix. A prefix copy preserves the destination's other
+as automatic objects. Ordinary whole values read their signed raw prefix.
+Whole-value assignment requires an integer backing ending in internal storage,
+or an explicit internal storage cast. A prefix copy preserves the destination's other
 bytes. Class parameters and returned register words can supply that prefix.
 
 ## Allocation and lifetime

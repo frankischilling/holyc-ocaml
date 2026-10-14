@@ -48,7 +48,7 @@ let values =
   [
     ("class parameter example", example, 42L, "");
     ( "default parameter whole value",
-      {|class Box{U64 word;};I64 Take(Box o){return o;}I64 F(){Box o;o=42;return Take(o);}F();|},
+      {|class Box{U64 word;};I64 Take(Box o){return o;}I64 F(){Box o;o.word=42;return Take(o);}F();|},
       42L,
       "" );
     ( "backed parameter whole value",
@@ -56,7 +56,7 @@ let values =
       42L,
       "" );
     ( "one-byte default class receives an eight-byte slot",
-      {|class Box{U8 byte;};I64 Take(Box o){if(sizeof(Box)!=1 || o.byte!=42)return -1;o+=2;return o-2;}Take(42);|},
+      {|class Box{U8 byte;};I64 Take(Box o){if(sizeof(Box)!=1 || o.byte!=42)return -1;o(I64)+=2;return o-2;}Take(42);|},
       42L,
       "" );
     ( "parameter pointer stride uses nominal size",
@@ -104,7 +104,7 @@ let values =
       42L,
       "" );
     ( "inherited parameter retains layout and default signed word",
-      {|U16 class Base{U16 low;};class Box:Base{U8 tail[6];};I64 Take(Box o){if(o!=-1 || o.low!=65535 || o.tail[5]!=255)return -1;o=42;return o;}Take(-1);|},
+      {|U16 class Base{U16 low;};class Box:Base{U8 tail[6];};I64 Take(Box o){if(o!=-1 || o.low!=65535 || o.tail[5]!=255)return -1;o(I64)=42;return o;}Take(-1);|},
       42L,
       "" );
     ( "forwarded backing keeps its original chain",

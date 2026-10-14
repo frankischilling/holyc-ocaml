@@ -3824,7 +3824,9 @@ and type_assignment table members policies ~before_item_index
       let destination_type = result_storage_type left in
       let valid_storage_type =
         is_writable_storage_type destination_type
-        || Option.is_some left.aggregate_backing_storage
+        || Option.fold ~none:false
+             ~some:Aggregate_backing_storage.assignment_permitted
+             left.aggregate_backing_storage
       in
       let category =
         if result_is_callback_storage left then Lvalue else left.category

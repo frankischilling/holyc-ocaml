@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+Aggregate lvalue cases reject ordinary classes and unions, backing chains ending
+in an ordinary class, inherited child classes, nested members, array elements,
+class-pointer dereferences and compound assignments. Replacement retains the
+original assignment endpoint. RHS output cases verify rejection before calls
+run. Default raw-word reads and prefix/postfix updates are initialized through
+fields or source-permitted internal storage casts; internal-backed assignment
+and the existing alias, bounds, lifetime, ABI and quota cases remain separate.
+
 Automatic aggregate scalar initializer cases share the IR, isolated native and
 CLI fixtures. They cover all integer backing widths, literals, calls, comma
 order, earlier initialized objects, named backing chains, inherited roots,

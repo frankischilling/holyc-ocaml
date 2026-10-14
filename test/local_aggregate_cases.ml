@@ -75,7 +75,8 @@ sizeof(C);
       {|U16 class C{U16 value;};I64 F(){C object;object=40;class C{U8 replacement[2];};return object+sizeof(C);}F();|}
     );
     ( "default class whole value",
-      {|I64 F(){class C{I64 value;};C object;object=42;return object;}F();|} );
+      {|I64 F(){class C{I64 value;};C object;object.value=42;return object;}F();|}
+    );
     ( "local union byte view",
       {|I64 F(){union U{U8 bytes[8];I64 word;};U object;object.word=42;return object.bytes[0];}F();|}
     );
@@ -116,7 +117,7 @@ sizeof(C);
       {|I64 F(){extern class C;C *p;class C{U16 value;};C object;p=&object;p->value=42;return p->value;}F();|}
     );
     ( "local default classes retain separate call conversions",
-      {|I64 Id(I64 n){return n;}I64 F(){class C{I64 value;};C object;object=20;return Id(object);}I64 G(){class C{I64 value;};C object;object=22;return Id(object);}F()+G();|}
+      {|I64 Id(I64 n){return n;}I64 F(){class C{I64 value;};C object;object.value=20;return Id(object);}I64 G(){class C{I64 value;};C object;object.value=22;return Id(object);}F()+G();|}
     );
     ( "do condition follows the local declaration",
       {|I64 F(){do{class C{I64 value;};C object;object.value=42;}while(object.value!=42);return object.value;}F();|}

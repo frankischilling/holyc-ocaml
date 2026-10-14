@@ -194,7 +194,7 @@ let values =
         42L,
         "" );
       ( "persistent parameter copy retains a separate source object",
-        {|class Box{I64 word;};Box saved;I64 Take(Box o){saved=o;o=99;return saved;}Take(42);|},
+        {|class Box{I64 word;};Box saved;I64 Take(Box o){saved.word=o;o.word=99;return saved;}Take(42);|},
         42L,
         "" );
       ("persistent aggregate example", example, 42L, "AB");
@@ -231,7 +231,7 @@ let values =
         42L,
         "" );
       ( "persistent ordinary class words use their complete eight-byte prefix",
-        {|class Box{U64 value;U8 guard;};Box object;I64 F(){object.guard=9;object=40;object+=2;if(object.guard!=9)return -1;return object;}F();|},
+        {|class Box{U64 value;U8 guard;};Box object;I64 F(){object.guard=9;object.value=40;object(I64)+=2;if(object.guard!=9)return -1;return object;}F();|},
         42L,
         "" );
       ( "static class bytes persist across recursive activations",
@@ -259,7 +259,7 @@ let values =
         42L,
         "" );
       ( "persistent default whole class value",
-        {|class Box{U64 word;};Box object;I64 F(){object=42;return object;}F();|},
+        {|class Box{U64 word;};Box object;I64 F(){object.word=42;return object;}F();|},
         42L,
         "" );
     ]

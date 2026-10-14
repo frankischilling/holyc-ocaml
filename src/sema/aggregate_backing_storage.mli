@@ -44,6 +44,12 @@ val create_local :
 
 val source_type : t -> Type.t
 val value_type : t -> Type.t
+
+val assignment_permitted : t -> bool
+(** PrsExpression2 requires the forwarded lvalue to reach internal storage. An
+    ordinary class endpoint retains its readable raw word but cannot make an
+    assignment destination. *)
+
 val aggregate_symbol : t -> Symbol.t
 
 val matches :

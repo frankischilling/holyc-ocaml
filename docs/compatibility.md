@@ -1,5 +1,14 @@
 # holyc-ocaml compatibility status
 
+Whole-value assignment now applies the source lvalue rule to automatic,
+parameter, global and static class storage. A nonpointer backing chain must
+reach an internal type. Ordinary class endpoints reject simple and compound
+assignment before RHS calls execute. Inheritance does not supply that backing,
+and replacement cannot change the original endpoint. Default raw-word reads and
+prefix/postfix updates retain their separate source paths. Fields, explicit
+integer storage casts and internal-backed class assignments remain available.
+See [default class values](default-aggregate-values.md).
+
 Automatic aggregate scalar initializers use the original integer backing prefix
 through IR and native execution in both modes. Literals, calls, comma order, earlier object reads,
 named backing chains, inherited roots and later replacement retain the local's

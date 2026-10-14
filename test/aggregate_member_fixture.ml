@@ -15,8 +15,8 @@ let local_pointer_contents =
 I64 G(){class Box{U8 tag;U16 value;};Box o[2];o[1].value=42;Box *p=o;p++;return p->value;}F();|}
 
 let local_backing_contents =
-  {|I64 F(){class Box{U8 tag;U8 bytes[8];};Box o;o=42;o.bytes[0]=0;return o;}
-I64 G(){class Box{U8 tag;U8 bytes[8];};Box o;o=42;o.bytes[0]=0;return o;}F();|}
+  {|I64 F(){class Box{U8 tag;U8 bytes[8];};Box o;o(I64)=42;o.bytes[0]=0;return o;}
+I64 G(){class Box{U8 tag;U8 bytes[8];};Box o;o(I64)=42;o.bytes[0]=0;return o;}F();|}
 
 let compile ?(contents = contents) mode =
   let session = Session.create () in
