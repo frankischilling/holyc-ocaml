@@ -147,7 +147,7 @@ F();N=1;F();|}
 
 let object_failures =
   [
-    ( "HCSEMA0074",
+    ( "HCIRVM0019",
       {|I64 F(){extern class C;C object;class C{I64 value;};object.value=42;return object.value;}F();|}
     );
     ( "HCSEMA0046",

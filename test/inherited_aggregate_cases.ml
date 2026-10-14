@@ -24,6 +24,14 @@ I64 G(){Box a[2];Box *p=a;p++;p->value=42;return p->value;}F();|}
 let values =
   [
     ("inherited aggregate example", example, 42L, "AB");
+    ( "forward base completion preserves the original child byte",
+      {|extern class B;class Box:B{U8 tag;};class B{U16 value;};I64 F(){Box o;o.tag=42;return o.tag;}F();|},
+      42L,
+      "" );
+    ( "self base retains direct fields in the original allocation",
+      {|class Box:Box{U8 tag;};I64 F(){Box o;o.tag=42;return o.tag;}F();|},
+      42L,
+      "" );
     ( "base prefix and packed child field",
       {|class B{U8 tag;};class Box:B{U16 value;};I64 F(){Box o;o.tag=20;o.value=22;U8 *p=(&o)(U8*);if(p[0]!=20 || p[1]!=22 || p[2]!=0 || sizeof(Box)!=3)return -1;return o.tag+o.value;}F();|},
       42L,
@@ -169,11 +177,11 @@ let source_unsupported =
     ( "runtime-prepared base outside the current object compilation",
       {|I64 Count=0;I64 Next(){Count++;return 2;}class B{U16 words[Next()];};class Box:B{U8 tag;};I64 F(){Box o;o.words[1]=41;return o.words[1]+Count;}F();|}
     );
-    ( "forward base completion cannot supply later storage",
-      {|extern class B;class Box:B{U8 tag;};class B{U16 value;};I64 F(){Box o;o.tag=42;return o.tag;}F();|}
+    ( "forward base completion cannot enlarge the original child byte",
+      {|extern class B;class Box:B{U8 tag;};class B{U16 value;};I64 F(){Box o;o.value=42;return o.value;}F();|}
     );
-    ( "self base has metadata without an acyclic object layout",
-      {|class Box:Box{U8 tag;};I64 F(){Box o;o.tag=42;return o.tag;}F();|} );
+    ( "self base cannot provide a missing inherited member",
+      {|class Box:Box{U8 tag;};I64 F(){Box o;return o.missing;}F();|} );
     ( "inherited duplicate ordinary member",
       {|class B{U8 value;};class Box:B{U16 value;};I64 F(){Box o;o.value=42;return o.value;}F();|}
     );
