@@ -63,6 +63,18 @@ use the layout admitted at their original allocation and member accesses.
 Whole-value reads and assignments use
 [default](default-aggregate-values.md) or
 [integer-backed](backed-aggregate-values.md) scalar prefixes.
+
+Automatic scalar declaration initializers use the checked integer-backed prefix. Each
+initializer runs when execution reaches its declaration, including on repeated
+calls, and comma declarators run in source order. A literal right operand needs
+no identifier to establish the destination: its original local allocation
+receipt supplies the class identity. The scalar store initializes only its
+selected width; other object bytes remain unknown until written. An empty or
+smaller root cannot accept a wider store, even when the right operand has already
+produced output. The
+[automatic initializer example](../examples/automatic-aggregate-initializers.hc)
+prints A and returns 42 in both modes and executors.
+
 [Class parameters](class-value-parameters.md) and
 [returns](class-value-returns.md) transport words without transferring
 whole-object storage. IR [data pointer fields](aggregate-pointer-fields.md)

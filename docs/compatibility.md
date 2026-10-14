@@ -1,5 +1,14 @@
 # holyc-ocaml compatibility status
 
+Automatic aggregate scalar initializers use the original integer backing prefix
+through IR and native execution in both modes. Literals, calls, comma order, earlier object reads,
+named backing chains, inherited roots and later replacement retain the local's
+original allocation proof. Only the prefix becomes initialized. Empty or
+undersized roots evaluate the operand and then reject a store outside their
+extent. The backing chain must end in an internal integer type; unbacked classes
+and chains ending in ordinary classes are rejected. U0 and floating views, general object copies and inferred dimensions
+remain unfinished. See [automatic objects](automatic-aggregate-byte-views.md).
+
 [Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
 and union globals and statics their original byte roots in IR and native execution.
 Integer fields, arrays, scalar prefixes and member size queries retain the selected

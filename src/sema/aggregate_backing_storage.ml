@@ -137,6 +137,41 @@ let create_visible ~visibility ~source ~table ~members ~policies ~source_type =
             then Some storage
             else None))
 
+let create_local ~visibility ~local ~table ~members ~policies =
+  if
+    not
+      (Function_aggregate_visibility.function_owns visibility ~table
+         ~parent:(Aggregate_member_index.parent_scope members))
+  then None
+  else
+    Option.bind
+      (Function_aggregate_visibility.local_type_frontier visibility ~local)
+      (fun layout_before_item_index ->
+        let before_item_index =
+          Function_aggregate_visibility.function_item_index visibility
+        in
+        let source_type =
+          Local_type_resolution.local_type_reference local
+          |> Type_reference.resolved_type
+        in
+        Option.bind
+          (create_at ~table ~members ~policies ~before_item_index
+             ~layout_before_item_index ~source_type) (fun storage ->
+            let permits aggregate =
+              Function_aggregate_visibility.permits_local_aggregate visibility
+                ~local
+                ~item_index:
+                  (Aggregate_member_index.aggregate_item_index aggregate)
+                ~symbol:(Aggregate_member_index.aggregate_symbol aggregate)
+            in
+            if
+              Function_call_conversion_policy.function_symbol storage.function_
+              == Function_aggregate_visibility.function_symbol visibility
+              && permits storage.aggregate
+              && Option.is_none storage.default_class
+            then Some storage
+            else None))
+
 let source_type storage = storage.source_type
 let value_type storage = storage.value_type
 

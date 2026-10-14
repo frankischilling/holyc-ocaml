@@ -189,11 +189,6 @@ let prepare_unit ?environment:task_environment ?declaration_command
     | None, None -> Ok None
     | Some _, Some _ -> assert false
   in
-  let* aggregate_visibility =
-    Sema.Function_aggregate_visibility.create ~table ~declarations ~bodies
-      ?aggregate_references ast
-    |> checked
-  in
   let* automatic_aggregate_resolver =
     match (declaration_command, source_command) with
     | Some command, None ->
@@ -206,6 +201,12 @@ let prepare_unit ?environment:task_environment ?declaration_command
         |> Result.map Option.some
     | None, None -> Ok None
     | Some _, Some _ -> assert false
+  in
+  let* aggregate_visibility =
+    Sema.Function_aggregate_visibility.create ~table ~declarations ~bodies
+      ?aggregate_references ?automatic_aggregates:automatic_aggregate_resolver
+      ast
+    |> checked
   in
   let* aggregates =
     Aggregate_resolution.resolve ~table ~declarations ast |> checked

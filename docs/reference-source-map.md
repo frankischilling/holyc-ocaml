@@ -1,5 +1,16 @@
 # Reference source map
 
+Automatic scalar class initializers follow complete `PrsVarLst` in
+`Compiler/PrsVar.HC:407-742`: the local branch allocates the reached class size,
+restores the original declaration input and parses its assignment expression.
+`Compiler/PrsExp.HC:65-263` forwards the lvalue class and produces the assignment;
+`Compiler/OptLib.HC:9-15` follows the selected backing chain.
+`Compiler/OptPass012.HC:866-885` chooses integer/floating conversion, and complete
+`ICAssign` in `Compiler/BackC.HC:159-204` stores at the pointed-to scalar width.
+The hosted destination retains its original allocation receipt and checked
+backing projection. Root bounds and unknown-byte checks are hosted policy;
+initialization does not copy the class's full extent.
+
 [Class pointer views](class-pointer-views.md) follow complete
 `Compiler/PrsExp.HC:960-1115` and `Compiler/PrsVar.HC:285-371` for original cast
 selection, member offsets and target strides. `Compiler/OptPass012.HC:87-110`

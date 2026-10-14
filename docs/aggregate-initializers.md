@@ -340,6 +340,14 @@ unknown-byte faults and resource quotas are hosted policy.
 
 ## TempleOS source
 
+Automatic scalar declaration initializers use `PrsExpression`, through the
+assignment path. Their checked integer prefix follows the same original backing
+selection as whole-value assignment. They execute when the local declaration is
+reached and initialize only that prefix. Empty integer-backed roots evaluate the
+operand before the hosted bounds check rejects the store. See
+[automatic aggregate views](automatic-aggregate-byte-views.md) and the maintained
+[automatic initializer example](../examples/automatic-aggregate-initializers.hc).
+
 The reference is commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 The audit covers complete `PrsVarInit`, `PrsVarInit2`, `PrsGlblInit` and
 `PrsStaticInit` at `Compiler/PrsVar.HC:1-246`; `PrsType` at

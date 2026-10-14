@@ -9,8 +9,7 @@ val integer_value_type :
   Type.t option
 (** Read the integer raw class of an exact completed aggregate in this checked
     namespace. This grants no object storage or byte extent. Empty classes may
-    have an integer raw class even though automatic storage cannot admit them.
-*)
+    have an integer raw class independently of their zero-byte allocation. *)
 
 val create :
   table:Symbol_table.t ->
@@ -31,6 +30,17 @@ val create_visible :
   policies:Function_call_conversion_policy.t ->
   source_type:Type.t ->
   t option
+
+val create_local :
+  visibility:Function_aggregate_visibility.function_ ->
+  local:Local_type_resolution.local ->
+  table:Symbol_table.t ->
+  members:Aggregate_member_index.t ->
+  policies:Function_call_conversion_policy.t ->
+  t option
+(** Select the scalar view using the exact local declaration's original
+    allocation receipt, independently of identifiers in its initializer operand.
+*)
 
 val source_type : t -> Type.t
 val value_type : t -> Type.t

@@ -5929,16 +5929,110 @@ let lower_initializer ~frame ?globals ?lower_call ?optimize_shifts
   match address with
   | None -> Ok Unsupported_expression
   | Some prepared ->
+      let nominal_type = Semantic_result.initializer_target_type initial in
+      let backing = Semantic_result.initializer_backing_storage initial in
+      let target_type =
+        Option.fold ~none:nominal_type
+          ~some:Sema.Aggregate_backing_storage.value_type backing
+      in
+      let* () =
+        match backing with
+        | None -> Ok ()
+        | Some storage ->
+            if
+              Sema.Aggregate_backing_storage.matches storage
+                ~function_symbol:
+                  (Sema.Function_frame_layout.function_symbol frame)
+                ~function_scope:
+                  (Sema.Function_frame_layout.function_scope frame
+                  |> Sema.Symbol_table.scope_id)
+                ~before_item_index:
+                  (Sema.Function_frame_layout.function_item_index frame)
+                ~source_type:nominal_type ~value_type:target_type
+            then Ok ()
+            else
+              Error
+                [
+                  metadata_error
+                    "initializer aggregate view belongs to another frame";
+                ]
+      in
       let lower_address ~instruction_id ~value_id =
         let* address =
           Frame_address_lowering.lower_prepared ~instruction_id ~value_id
             prepared
         in
-        Ok
-          ( Frame_address_lowering.sequence address,
-            Frame_address_lowering.result_value address,
-            Frame_address_lowering.next_instruction_id address,
-            Frame_address_lowering.next_value_id address )
+        match backing with
+        | None ->
+            Ok
+              ( Frame_address_lowering.sequence address,
+                Frame_address_lowering.result_value address,
+                Frame_address_lowering.next_instruction_id address,
+                Frame_address_lowering.next_value_id address )
+        | Some storage ->
+            let projection = Aggregate_member_projection.of_backing storage in
+            let* pointer =
+              Type.pointer_to target_type
+              |> Result.map_error (fun message -> [ metadata_error message ])
+            in
+            let allocator =
+              {
+                instruction =
+                  Sequence.Instruction_id.to_int
+                    (Frame_address_lowering.next_instruction_id address);
+                value =
+                  Sequence.Value_id.to_int
+                    (Frame_address_lowering.next_value_id address);
+              }
+            in
+            let span =
+              match
+                Semantic_result.initializer_source initial
+                |> Semantic_source.initializer_origin
+              with
+              | Sema.Symbol.Source_location location -> Some location.span
+              | _ -> None
+            in
+            let* immediate_id, offset =
+              take_identity allocator span |> Result.map_error (fun e -> [ e ])
+            in
+            let* add_id, projected =
+              take_identity allocator span |> Result.map_error (fun e -> [ e ])
+            in
+            let description instruction_id opcode operands value_id payload =
+              {
+                Sequence.instruction_id;
+                opcode;
+                operands;
+                result = Some { Sequence.value_id };
+                target_type = Some pointer;
+                payload;
+                flags = 0L;
+                span;
+              }
+            in
+            let* sequence =
+              Sequence.create
+                ((Frame_address_lowering.sequence address
+                 |> Sequence.instructions
+                 |> List.map Sequence.description)
+                @ [
+                    description immediate_id Opcode.Ic_imm_i64 [] offset
+                      (Some (Sequence.Integer 0L));
+                    description add_id Opcode.Ic_add
+                      [ Frame_address_lowering.result_value address; offset ]
+                      projected (Some (Sequence.Backing_projection projection));
+                  ])
+            in
+            let* next_instruction =
+              Sequence.Instruction_id.of_int allocator.instruction
+              |> Result.map_error (fun e -> [ e ])
+            in
+            let* next_value =
+              Sequence.Value_id.of_int allocator.value
+              |> Result.map_error (fun e -> [ e ])
+            in
+            Ok (sequence, projected, next_instruction, next_value)
       in
       let span =
         match
@@ -5949,9 +6043,8 @@ let lower_initializer ~frame ?globals ?lower_call ?optimize_shifts
         | _ -> None
       in
       lower_store_initializer ~frame ?globals ?lower_call ?optimize_shifts
-        ?optimize_division ~lower_address
-        ~target_type:(Semantic_result.initializer_target_type initial)
-        ~span ~instruction_id ~value_id
+        ?optimize_division ~lower_address ~target_type ~span ~instruction_id
+        ~value_id
         (Semantic_result.initializer_value initial)
 
 let lower_global_initializer ~globals ?lower_call ?optimize_shifts

@@ -1,5 +1,16 @@
 # Testing holyc-ocaml
 
+Automatic aggregate scalar initializer cases share the IR, isolated native and
+CLI fixtures. They cover all integer backing widths, literals, calls, comma
+order, earlier initialized objects, named backing chains, inherited roots,
+replacement and repeated activations. Source-task cases also cover generated
+initializer declarations. Empty and undersized stores preserve earlier RHS
+output, while unwritten tail bytes remain unknown. Existing graph controls now
+substitute missing, foreign, other-function and changed-offset initializer
+backing proofs. The maintained automatic-aggregate-initializers.hc example
+prints A and returns 42. These are pinned-source expectations and hosted checks;
+they contain no new TempleOS runtime capture.
+
 Initializer scalar-phase tests use original parser declarations to check cached
 forward classes, reached widths, late backing and same-name replacements. They
 also check foreign records, domain ownership, repeated settlement and preparation

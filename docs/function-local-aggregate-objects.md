@@ -26,6 +26,13 @@ or a branch that never executes. The type enters the global compiler namespace.
 Each automatic object still belongs to its function invocation, so recursive
 calls have separate storage and initialization state.
 
+Scalar automatic initializers of integer-backed classes use the original
+backing prefix. They execute in source order each time the declaration is
+reached. The original allocation receipt authorizes the
+destination even when the right operand is a literal. Initialization writes the
+scalar prefix rather than copying the complete object; bounds and unknown-byte
+checks remain attached to the original root.
+
 An object keeps the exact class selected by its declaration. A later class with
 the same spelling does not change its members, element size or pointer stride.
 Retained JIT calls keep those original selections after subsequent declarations

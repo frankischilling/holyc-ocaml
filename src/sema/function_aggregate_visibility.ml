@@ -32,6 +32,9 @@ type function_ = {
   item_index : int;
   occurrences : occurrence option Expressions.t;
   locals : (Ast.identifier * int) list;
+  automatic_aggregates :
+    (Ast.identifier -> Compiler_record.automatic_aggregate_allocation option)
+    option;
   aggregate_references :
     (Ast.identifier -> Compiler_record.aggregate_reference_visibility option)
     option;
@@ -116,6 +119,45 @@ let before_local value wanted =
     (fun (source, index) -> if source == wanted then Some index else None)
     value.locals
 
+let local_type_frontier (value : function_) ~local =
+  let symbol = Local_type_resolution.local_symbol local in
+  if not (Symbol_table.owns_symbol value.table symbol) then None
+  else
+    List.find_map
+      (fun ((identifier : Ast.identifier), index) ->
+        if origin identifier.Ast.location = Symbol.origin symbol then Some index
+        else None)
+      value.locals
+
+let permits_local_aggregate (value : function_) ~local ~item_index ~symbol =
+  match local_type_frontier value ~local with
+  | None -> false
+  | Some frontier when item_index >= frontier -> false
+  | Some _ ->
+      Option.fold ~none:false
+        ~some:(fun resolve ->
+          List.exists
+            (fun ((name : Ast.identifier), _) ->
+              match resolve name with
+              | None -> false
+              | Some allocation ->
+                  let checked_type =
+                    Local_type_resolution.local_type_reference local
+                    |> Type_reference.resolved_type
+                  in
+                  (match Type.base checked_type with
+                    | Type.Aggregate selected -> selected == symbol
+                    | _ -> false)
+                  && Result.is_ok
+                       (Compiler_record.validate_automatic_aggregate
+                          ~table:value.table ~parent:value.parent
+                          ~function_symbol:value.symbol
+                          ~local_symbol:
+                            (Local_type_resolution.local_symbol local)
+                          ~local_name:name ~checked_type allocation))
+            value.locals)
+        value.automatic_aggregates
+
 let permits_aggregate (value : function_) ~source ~item_index ~symbol =
   if not (Symbol_table.owns_symbol value.table symbol) then false
   else
@@ -157,7 +199,8 @@ let completed_aggregate (value : function_) ~source ~symbol =
                 (Compiler_record.aggregate_reference_completed_record
                    ~table:value.table ~parent:value.parent ~identifier ~symbol))))
 
-let create ~table ~declarations ~bodies ?aggregate_references module_ =
+let create ~table ~declarations ~bodies ?aggregate_references
+    ?automatic_aggregates module_ =
   let parent = Declaration_collection.scope declarations in
   let items = Ast.declaration_items module_ in
   let entries = Declaration_collection.entries declarations in
@@ -361,6 +404,7 @@ let create ~table ~declarations ~bodies ?aggregate_references module_ =
                      item_index;
                      occurrences;
                      locals = !locals;
+                     automatic_aggregates;
                      aggregate_references;
                    }
                   :: reversed)

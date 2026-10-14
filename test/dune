@@ -5427,6 +5427,7 @@
  (deps
   ../examples/automatic-aggregate-byte-views.hc
   ../examples/empty-automatic-aggregates.hc
+  ../examples/automatic-aggregate-initializers.hc
   ../examples/original-automatic-layouts.hc)
  (action
   (run

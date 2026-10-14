@@ -96,34 +96,36 @@ let quotas () =
     (fun mode ->
       ignore
         (value 42L "" (run ~max_frame_bytes:1 mode Cases.empty_quota_source));
-      let baseline = value 42L "" (run mode Cases.quota_source) in
-      let steps = baseline.execution.executed_steps in
-      let fixture =
-        Native_scalar_fixture.compile ~mode ~path:"aggregate-quota.hc"
-          ~contents:Cases.quota_source ()
-        |> checked
-      in
-      let frame =
-        Holyc_lib__Driver.Integer_unit.functions fixture.unit_
-        |> List.map (fun (f : VM.function_definition) ->
-            Semantic_function_frame_layout.function_frame_size f.frame
-            |> Int64.to_int)
-        |> List.fold_left max 0
-      in
-      ignore
-        (value 42L ""
-           (run ~max_frame_bytes:frame ~max_steps:steps mode Cases.quota_source));
-      let fault kind report =
-        match Native_program.native_outcome report with
-        | Some (P.Fault f) ->
-            Alcotest.(check bool)
-              "one below reaches native guard" true (f.kind = kind)
-        | _ -> Alcotest.fail "one below did not fault"
-      in
-      fault P.Frame_limit_exceeded
-        (run ~max_frame_bytes:(frame - 1) mode Cases.quota_source);
-      fault P.Step_limit_exceeded
-        (run ~max_steps:(steps - 1) mode Cases.quota_source))
+      List.iter
+        (fun contents ->
+          let baseline = value 42L "" (run mode contents) in
+          let steps = baseline.execution.executed_steps in
+          let fixture =
+            Native_scalar_fixture.compile ~mode ~path:"aggregate-quota.hc"
+              ~contents ()
+            |> checked
+          in
+          let frame =
+            Holyc_lib__Driver.Integer_unit.functions fixture.unit_
+            |> List.map (fun (f : VM.function_definition) ->
+                Semantic_function_frame_layout.function_frame_size f.frame
+                |> Int64.to_int)
+            |> List.fold_left max 0
+          in
+          ignore
+            (value 42L ""
+               (run ~max_frame_bytes:frame ~max_steps:steps mode contents));
+          let fault kind report =
+            match Native_program.native_outcome report with
+            | Some (P.Fault f) ->
+                Alcotest.(check bool)
+                  "one below reaches native guard" true (f.kind = kind)
+            | _ -> Alcotest.fail "one below did not fault"
+          in
+          fault P.Frame_limit_exceeded
+            (run ~max_frame_bytes:(frame - 1) mode contents);
+          fault P.Step_limit_exceeded (run ~max_steps:(steps - 1) mode contents))
+        [ Cases.quota_source; Cases.initializer_quota_source ])
     modes
 
 let images () =
@@ -167,7 +169,11 @@ let images () =
                 done)
             [ P.Windows_x64; P.System_v_x64 ])
         modes)
-    [ Cases.quota_source; Cases.empty_quota_source ]
+    [
+      Cases.quota_source;
+      Cases.empty_quota_source;
+      Cases.initializer_quota_source;
+    ]
 
 let boundaries () =
   List.iter
@@ -192,7 +198,11 @@ let boundaries () =
         (Option.map
            (fun word -> word.Native_source_execution.bits)
            result.value.final_value))
-    [ Cases.quota_source; Cases.empty_quota_source ]
+    [
+      Cases.quota_source;
+      Cases.empty_quota_source;
+      Cases.initializer_quota_source;
+    ]
 
 let empty_proofs () =
   List.iter
@@ -248,7 +258,7 @@ let () =
         List.map
           (fun (name, contents, expected, output) ->
             Alcotest.test_case name `Quick (case contents expected output))
-          (Cases.values @ Cases.view_matrix) );
+          (Cases.values @ Cases.view_matrix @ Cases.initializer_matrix) );
       ( "source values",
         List.map
           (fun (name, contents, expected, output) ->

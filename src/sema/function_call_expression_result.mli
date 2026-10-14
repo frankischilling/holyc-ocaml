@@ -306,6 +306,12 @@ val initializer_source :
 
 val initializer_value : initializer_result -> expression_result
 val initializer_target_type : initializer_result -> Type.t
+
+val initializer_backing_storage :
+  initializer_result -> Aggregate_backing_storage.t option
+(** Original checked aggregate word view for the initializer destination. The
+    nominal target type and allocation extent remain separate. *)
+
 val initializer_conversion : initializer_result -> intrinsic_conversion
 val return_source : return_result -> Function_call_resolution.return_input
 val return_declared_type : return_result -> Type.t

@@ -297,6 +297,7 @@ let field_proofs () =
       Aggregate_member_fixture.local_contents;
       Aggregate_member_fixture.local_pointer_contents;
       Aggregate_member_fixture.local_backing_contents;
+      Automatic_aggregate_cases.initializer_proof_source;
       Arrays.proof_source;
       Pointers.proof_source;
       Inherited.proof_source;

@@ -12,8 +12,18 @@ p[8]=42;return p[8];}F();|}
 let empty_quota_source =
   {|class Empty{};I64 F(){Empty first,second,objects[2][3];return sizeof(first)+sizeof(second)+sizeof(objects)+42;}F();|}
 
+let initializer_quota_source =
+  {|U16 class Box{U16 value;U8 guard;};I64 F(){Box object=40;object.guard=2;return object.value+object.guard;}F();|}
+
+let initializer_proof_source =
+  {|U16 class Box{U8 tag;U8 value;};I64 F(){Box object=10752;return object.value;}I64 G(){Box object=10752;return object.value;}F();|}
+
 let source_values =
   [
+    ( "source-generated initializers use their own allocation",
+      {|#exe{U16 class Word{U16 value;};I64 F(){Word object=42;return object.value;}Print("A");StreamPrint("%d;",F());}|},
+      42L,
+      "A" );
     ( "partial class bodies retain the allocation reached in nested input",
       {|#exe{class Item{U8 first;#exe{I64 F(){Item object;object.first=42;return object.first;}}U8 later;};Print("A");StreamPrint("%d;",F());}|},
       42L,
@@ -26,6 +36,38 @@ let source_values =
 
 let values =
   [
+    ( "automatic aggregate literal initializes its integer backing",
+      {|U16 class Box{U16 value;U8 guard;};I64 F(){Box object=298;object.guard=7;return object.value-256;}F();|},
+      42L,
+      "" );
+    ( "automatic integer-backed initializer writes its register prefix",
+      {|U64 class Box{U64 word;U8 guard;};I64 F(){Box object=42;object.guard=7;return object.word;}F();|},
+      42L,
+      "" );
+    ( "automatic comma initializers preserve calls and order",
+      {|extern U0 Print(U8 *fmt,...);U16 class Box{U16 value;};I64 Next(I64 n){Print("%c",n+45);return n;}I64 F(){Box first=Next(20),second=Next(21);return first.value+second.value+1;}F();|},
+      42L,
+      "AB" );
+    ( "automatic initializer reads the earlier selected object",
+      {|U16 class Box{U16 value;};I64 F(){Box first=40,second=first+2;return second.value;}F();|},
+      42L,
+      "" );
+    ( "automatic initializer preserves class identity after replacement",
+      {|U16 class Box{U16 value;};I64 F(){Box object=298;return object.value-256;}U8 class Box{U8 replacement;};F();|},
+      42L,
+      "" );
+    ( "automatic initializer follows a named backing chain",
+      {|U16 class Word{U16 value;};Word class Box{U16 value;U8 guard;};I64 F(){Box object=298;return object.value-256;}F();|},
+      42L,
+      "" );
+    ( "automatic initializer writes inherited storage without a whole copy",
+      {|class Base{U64 word;};U64 class Box:Base{U8 guard;};I64 F(){Box object=42;object.guard=7;return object.word;}F();|},
+      42L,
+      "" );
+    ( "automatic initializer runs separately in each activation",
+      {|I64 Count=0;U16 class Box{U16 value;};I64 Next(){Count++;return 19+Count;}I64 F(){Box object=Next();return object.value;}F()+F()+1;|},
+      42L,
+      "" );
     ( "forward automatic allocation keeps its original zero extent",
       {|extern class Box;I64 F(){Box object;return sizeof(object)+42;}class Box{U8 bytes[8];};F();|},
       42L,
@@ -169,8 +211,37 @@ let view_matrix =
       (view, contents, expected, ""))
     classes
 
+let initializer_matrix =
+  List.map
+    (fun (type_, width, unsigned) ->
+      let expected =
+        if unsigned && width < 8 then
+          Int64.pred (Int64.shift_left 1L (width * 8))
+        else -1L
+      in
+      ( "automatic initializer " ^ type_,
+        Printf.sprintf
+          "%s class Box{%s value;};I64 F(){Box object=-1;return \
+           object.value;}F();"
+          type_ type_,
+        expected,
+        "" ))
+    classes
+
 let faults =
   [
+    ( "empty backed initializer cannot write an adjacent local",
+      {|extern U0 Print(U8 *fmt,...);U8 class Empty{};I64 Value(){Print("kept");return 42;}I64 F(){U8 neighbor=7;Empty object=Value();return neighbor+sizeof(object);}F();|},
+      "HCIRVM0019",
+      "kept" );
+    ( "initializer does not initialize the rest of its class",
+      {|U16 class Box{U16 value;U8 guard;};I64 F(){Box object=42;return object.guard;}F();|},
+      "HCIRVM0012",
+      "" );
+    ( "original initializer extent cannot borrow a wider backing",
+      {|extern U0 Print(U8 *fmt,...);U16 class Box{U8 byte;};I64 Value(){Print("kept");return 42;}I64 F(){Box object=Value();return sizeof(object);}F();|},
+      "HCIRVM0019",
+      "kept" );
     ( "completion cannot add bytes to an earlier forward frame",
       {|extern U0 Print(U8 *fmt,...);extern class Box;I64 F(){Box object;Print("kept");return *(&object)(U8*);}class Box{U8 value;};F();|},
       "HCIRVM0019",
@@ -226,6 +297,11 @@ if(n)*p=42;return *p;}F(1);F(0);|},
 
 let unsupported =
   [
+    ( "unbacked class is not an automatic assignment lvalue",
+      {|class Box{U64 word;};I64 F(){Box object=42;return object.word;}F();|} );
+    ( "ordinary class backing cannot manufacture an internal lvalue",
+      {|class Word{U64 word;};Word class Box{U64 value;};I64 F(){Box object=42;return object.value;}F();|}
+    );
     ( "unreached inherited fields cannot borrow later completion",
       {|extern class Base;class Child:Base{U8 tail;};I64 F(){Child object;return object.head;}class Base{U8 head;};F();|}
     );

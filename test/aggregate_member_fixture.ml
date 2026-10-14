@@ -205,6 +205,7 @@ let controls ?(contents = contents) mode =
     if
       contents <> Backed_aggregate_cases.proof_source
       && contents <> local_backing_contents
+      && contents <> Automatic_aggregate_cases.initializer_proof_source
     then []
     else
       let proof definition =

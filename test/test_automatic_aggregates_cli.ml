@@ -116,7 +116,7 @@ let () =
           List.iter
             (fun (_, source, word, output) ->
               value word output (invoke target mode source))
-            (Cases.values @ Cases.view_matrix);
+            (Cases.values @ Cases.view_matrix @ Cases.initializer_matrix);
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "A" (invoke target mode (read Sys.argv.(3)));
           value 42L "A"
@@ -125,6 +125,12 @@ let () =
                   (Filename.concat
                      (Filename.dirname Sys.argv.(3))
                      "original-automatic-layouts.hc")));
+          value 42L "A"
+            (invoke target mode
+               (read
+                  (Filename.concat
+                     (Filename.dirname Sys.argv.(3))
+                     "automatic-aggregate-initializers.hc")));
           value 42L ""
             (invoke ~options:[ "--frame-byte-limit=1" ] target mode
                Cases.empty_quota_source);
@@ -160,6 +166,24 @@ let () =
             (invoke ~status:1
                ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
                target mode Cases.quota_source);
+          let initial = invoke target mode Cases.initializer_quota_source in
+          value 42L "" initial;
+          let initial_steps = initial |> member "executed_steps" |> to_int in
+          value 42L ""
+            (invoke
+               ~options:
+                 [
+                   "--frame-byte-limit=8";
+                   "--step-limit=" ^ string_of_int initial_steps;
+                 ]
+               target mode Cases.initializer_quota_source);
+          error ~code:"HCIRVM0011" ""
+            (invoke ~status:1 ~options:[ "--frame-byte-limit=7" ] target mode
+               Cases.initializer_quota_source);
+          error ~code:"HCIRVM0007" ""
+            (invoke ~status:1
+               ~options:[ "--step-limit=" ^ string_of_int (initial_steps - 1) ]
+               target mode Cases.initializer_quota_source);
           List.iter
             (fun (_, source) -> error "" (invoke ~status:1 target mode source))
             Cases.unsupported)

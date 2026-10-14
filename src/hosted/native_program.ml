@@ -302,7 +302,6 @@ let local_source_error (declaration : Ast.local_declaration) =
     && List.for_all
          (fun local ->
            (local.Ast.local_pointer_layers = []
-            && (is_static || Option.is_none local.local_initializer)
            || named_pointer declaration.local_type_specifier
                 local.local_pointer_layers)
            && (local.local_array_dimensions = []

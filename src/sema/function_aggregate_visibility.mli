@@ -11,6 +11,9 @@ val create :
   ?aggregate_references:
     (Frontend.Ast.identifier ->
     Compiler_record.aggregate_reference_visibility option) ->
+  ?automatic_aggregates:
+    (Frontend.Ast.identifier ->
+    Compiler_record.automatic_aggregate_allocation option) ->
   Frontend.Ast.module_ ->
   (t, string) result
 (** Immutable lexical layout positions for the exact declaration tree. This is
@@ -57,6 +60,18 @@ val before_local : function_ -> Frontend.Ast.identifier -> int option
 (** The layout frontier at one original body occurrence. Ambiguous or foreign
     nodes have no frontier. The function's own declaration index is unchanged.
 *)
+
+val local_type_frontier :
+  function_ -> local:Local_type_resolution.local -> int option
+
+val permits_local_aggregate :
+  function_ ->
+  local:Local_type_resolution.local ->
+  item_index:int ->
+  symbol:Symbol.t ->
+  bool
+(** Match one checked local to its original body declarator and saved allocation
+    receipt. The initializer's right operand does not supply this proof. *)
 
 val permits_aggregate :
   function_ ->

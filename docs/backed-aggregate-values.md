@@ -31,6 +31,19 @@ the destination's remaining bytes retain their previous state. The maintained
 and three-byte pointer stride, and returns 42 in JIT and AOT with either
 `--target=ir` or `--target=host-jit`.
 
+Automatic declarations can initialize the same scalar prefix directly:
+`Word o=42;`. The original local allocation, selected nominal class and owning
+function authenticate the destination separately from its right operand.
+Literal values, calls and reads of earlier comma declarators use the same
+projection. The initializer runs in each activation and does not initialize
+the object's remaining bytes. Named backing chains and inherited roots retain
+their original class selection and extent. Empty integer-backed roots still
+evaluate their right operand, then fail the hosted extent check when the store
+needs bytes outside that root.
+For declaration initialization, the backing chain must reach an internal integer
+type. An ordinary class's default raw type does not satisfy the source assignment
+lvalue check.
+
 The selection retains the original completed nominal class, its forwarded
 integer type, the compiler table and namespace, and the owning function, scope and source
 position. A backing chain uses the definitions selected when it was declared;

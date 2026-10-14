@@ -69,27 +69,28 @@ let quotas () =
     (fun mode ->
       ignore
         (value 42L "" (run ~max_frame_bytes:1 mode Cases.empty_quota_source));
-      let session, config, source = inputs mode Cases.quota_source in
-      let compiled =
-        (compile_integer_program session ~config ~source |> checked).value
-      in
-      let frame_bytes =
-        integer_program_functions compiled
-        |> List.map (fun (f : VM.function_definition) ->
-            Semantic_function_frame_layout.function_frame_size f.frame
-            |> Int64.to_int)
-        |> List.fold_left max 0
-      in
-      let baseline = value 42L "" (run mode Cases.quota_source) in
-      let steps = VM.executed_steps baseline in
-      ignore
-        (value 42L ""
-           (run ~max_frame_bytes:frame_bytes ~max_steps:steps mode
-              Cases.quota_source));
-      failure "HCIRVM0011" ""
-        (run ~max_frame_bytes:(frame_bytes - 1) mode Cases.quota_source);
-      failure "HCIRVM0007" ""
-        (run ~max_steps:(steps - 1) mode Cases.quota_source))
+      List.iter
+        (fun contents ->
+          let session, config, source = inputs mode contents in
+          let compiled =
+            (compile_integer_program session ~config ~source |> checked).value
+          in
+          let frame_bytes =
+            integer_program_functions compiled
+            |> List.map (fun (f : VM.function_definition) ->
+                Semantic_function_frame_layout.function_frame_size f.frame
+                |> Int64.to_int)
+            |> List.fold_left max 0
+          in
+          let baseline = value 42L "" (run mode contents) in
+          let steps = VM.executed_steps baseline in
+          ignore
+            (value 42L ""
+               (run ~max_frame_bytes:frame_bytes ~max_steps:steps mode contents));
+          failure "HCIRVM0011" ""
+            (run ~max_frame_bytes:(frame_bytes - 1) mode contents);
+          failure "HCIRVM0007" "" (run ~max_steps:(steps - 1) mode contents))
+        [ Cases.quota_source; Cases.initializer_quota_source ])
     modes
 
 let foreign_frame () =
@@ -127,7 +128,11 @@ let foreign_frame () =
                     "ownership failure precedes execution" 0 e.executed_steps)
                 errors)
         modes)
-    [ Cases.quota_source; Cases.empty_quota_source ]
+    [
+      Cases.quota_source;
+      Cases.empty_quota_source;
+      Cases.initializer_quota_source;
+    ]
 
 let boundaries () =
   List.iter
@@ -184,7 +189,8 @@ let () =
                 List.iter
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
-          (Cases.values @ Cases.source_values @ Cases.view_matrix) );
+          (Cases.values @ Cases.source_values @ Cases.view_matrix
+         @ Cases.initializer_matrix) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, extents and fresh activations"

@@ -296,6 +296,7 @@ and initializer_result = {
   initializer_source : Function_call_resolution.initializer_input;
   initializer_value : expression_result;
   initializer_target_type : Type.t;
+  initializer_backing_storage : Aggregate_backing_storage.t option;
   initializer_conversion : intrinsic_conversion;
 }
 
@@ -514,6 +515,9 @@ let initializer_value (initial : initializer_result) = initial.initializer_value
 
 let initializer_target_type (initial : initializer_result) =
   initial.initializer_target_type
+
+let initializer_backing_storage (initial : initializer_result) =
+  initial.initializer_backing_storage
 
 let initializer_conversion (initial : initializer_result) =
   initial.initializer_conversion
@@ -5490,6 +5494,15 @@ let type_initializer table members policies ~before_item_index state source =
   with
   | Error _ as error -> error
   | Ok initializer_target_type -> (
+      let initializer_backing_storage =
+        match state.function_visibility with
+        | None ->
+            Aggregate_backing_storage.create ~table ~members ~policies
+              ~before_item_index ~source_type:initializer_target_type
+        | Some visibility ->
+            Aggregate_backing_storage.create_local ~visibility ~local ~table
+              ~members ~policies
+      in
       match
         type_expression table members policies ~before_item_index
           ~context:Value_context state
@@ -5511,6 +5524,7 @@ let type_initializer table members policies ~before_item_index state source =
                     initializer_source = source;
                     initializer_value;
                     initializer_target_type;
+                    initializer_backing_storage;
                     initializer_conversion;
                   },
                   state )))
