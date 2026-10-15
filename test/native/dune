@@ -211,7 +211,8 @@
   ../../examples/persistent-aggregates.hc
   ../../examples/aggregate-initializers.hc
   ../../examples/aggregate-value-casts.hc
-  ../../examples/reference-returns.hc)
+  ../../examples/reference-returns.hc
+  ../../examples/top-level-aggregate-assignments.hc)
  (action
   (run
    %{exe:../test_aggregate_members_cli.exe}
@@ -231,6 +232,7 @@
    %{dep:../../examples/aggregate-initializers.hc}
    %{dep:../../examples/aggregate-value-casts.hc}
    %{dep:../../examples/reference-returns.hc}
+   %{dep:../../examples/top-level-aggregate-assignments.hc}
    --native)))
 
 (rule

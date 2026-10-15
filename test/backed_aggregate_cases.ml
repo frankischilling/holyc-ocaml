@@ -197,9 +197,111 @@ let source_values =
     (fun (name, source, value, output) ->
       (name, in_task_source source, value, output))
     assignment_values
+  @ [
+      ( "top-level assignment observes backing after operator lookahead",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;object.item=#exe{U16 class Item{U16 value;};}42;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level global initializer retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 n=(object.item=#exe{U16 class Item{U16 value;};}42);StreamPrint("%d;",n+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level static initializer retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 F(){static I64 n=(object.item=#exe{U16 class Item{U16 value;};}42);return n;}StreamPrint("%d;",F()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level saved default retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 F(I64 n=(object.item=#exe{U16 class Item{U16 value;};}42)){return n;}StreamPrint("%d;",F()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level dimension retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 values[(object.item=#exe{U16 class Item{U16 value;};}2)];StreamPrint("%d;",sizeof(values)+26+(object.bytes[0]!=2));}|},
+        42L,
+        "" );
+      ( "top-level initializer index retains its earlier zero stride",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;I64 n=(object.items[1]=#exe{U16 class Item{U16 value;};}42);StreamPrint("%d;",n+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level static initializer index retains its earlier zero stride",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;I64 F(){static I64 n=(object.items[1]=#exe{U16 class Item{U16 value;};}42);return n;}StreamPrint("%d;",F()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level member metadata retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;class Tagged{U8 field tag (object.item=#exe{U16 class Item{U16 value;};}42);};StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level member offset retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;class Placed{$$=(object.item=#exe{U16 class Item{U16 value;};}2);U8 field;};StreamPrint("%d;",sizeof(Placed)+39+(object.bytes[0]!=2));}|},
+        42L,
+        "" );
+      ( "top-level switch endpoint retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 F(){switch(42){case (object.item=#exe{U16 class Item{U16 value;};}42):return 42;default:return -1;}return -2;}StreamPrint("%d;",F()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level callback default retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 (*P)(I64 n=(object.item=#exe{U16 class Item{U16 value;};}42));I64 F(I64 n){return n;}P=&F;StreamPrint("%d;",P()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level internal binding retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;_intern (object.item=#exe{U16 class Item{U16 value;};}0xa9) I64 F(I64 n);StreamPrint("%d;",F(42)+(object.bytes[0]!=0xa9));}|},
+        42L,
+        "" );
+      ( "top-level compound assignment keeps the containing byte root",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;object.bytes[0]=40;object.bytes[1]=0;object.item+=#exe{U16 class Item{U16 value;};}2;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level assignment retains an earlier internal endpoint",
+        {|#exe{extern U16 class Item;class Box{Item item;U8 bytes[8];};Box object;object.bytes[1]=0;object.item=0x12a#exe{U8 class Item{U8 value;};};StreamPrint("%d;",object.bytes[1]+41);}|},
+        42L,
+        "" );
+      ( "top-level assignment result preserves its full register word",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 n;n=(object.item=#exe{U8 class Item{U8 value;};}298);StreamPrint("%d;",n-256+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level pointer member assignment retains its destination",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;(&object)->item=#exe{U16 class Item{U16 value;};}42;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level class pointer assignment uses original completion",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;*(&object.item)=#exe{U16 class Item{U16 value;};}42;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level indices retain separately reached class sizes",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;object.bytes[2]=7;object.items[1]=#exe{U16 class Item{U16 value;};}40;object.items[0]+=2;object.items[1]=44;StreamPrint("%d;",object.bytes[0]+(object.bytes[2]!=44));}|},
+        42L,
+        "" );
+      ( "top-level index opening observes class completion",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;object.items[#exe{U16 class Item{U16 value;};}1]=42;StreamPrint("%d;",object.bytes[2]);}|},
+        42L,
+        "" );
+      ( "top-level index value cannot replace its earlier zero stride",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;object.items[1#exe{U16 class Item{U16 value;};}]=42;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level multidimensional indices retain independent strides",
+        {|#exe{extern class Item;class Box{Item items[2][3];U8 bytes[16];};Box object;object.items[1#exe{U16 class Item{U16 value;};}][1]=42;StreamPrint("%d;",object.bytes[2]);}|},
+        42L,
+        "" );
+      ( "top-level equal name replacement cannot retarget original backing",
+        {|#exe{extern U16 class Item;class Box{Item item;U8 bytes[8];};Box object;object.bytes[1]=0;object.item=0x12a#exe{U16 class Item{U16 value;};U8 class Item{U8 value;};};StreamPrint("%d;",object.bytes[1]+41);}|},
+        42L,
+        "" );
+      ( "top-level completion remains selected after equal name replacement",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;object.item=#exe{U16 class Item{U16 value;};U8 class Item{U8 other;};}0x12a;StreamPrint("%d;",object.bytes[0]+(object.bytes[1]!=1));}|},
+        42L,
+        "" );
+    ]
 
 let source_faults =
   [
+    ( "top-level backing completion cannot enlarge the original root",
+      {|#exe{extern class Item;class Box{Item item;U8 byte;};Box object;Print("A");object.item=#exe{U64 class Item{U64 value;};}42;Print("B");}|},
+      "HCIRVM0019",
+      "A" );
+    ( "top-level completion after the right operand cannot authorize assignment",
+      {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;Print("A");object.item=42#exe{U16 class Item{U16 value;};};Print("B");}|},
+      "HCSEMA0046",
+      "A" );
     ( "assignment lookahead cannot enlarge an original empty local",
       in_task_source
         {|extern class Item;I64 F(){Item object;object=#exe{U16 class Item{U16 value;};}42;return 42;}F();|},

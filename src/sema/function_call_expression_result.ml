@@ -48,6 +48,7 @@ type expression_result = {
   index_operands : (expression_result * expression_result) option;
   index_element_size : int64 option;
   index_visibility : Function_aggregate_visibility.function_ option;
+  top_level_index_visibility : Function_aggregate_visibility.t option;
   member_base_result : expression_result option;
   aggregate_pointee_layout : Aggregate_pointee_layout.t option;
   aggregate_backing_storage : Aggregate_backing_storage.t option;
@@ -822,6 +823,10 @@ let result_index_layout result ~pointer_type ~stride =
   | Some visibility, Some source ->
       Aggregate_pointee_layout.create_index ~visibility ~source ~pointer_type
         ~stride
+  | None, Some source ->
+      Option.bind result.top_level_index_visibility (fun visibility ->
+          Aggregate_pointee_layout.create_top_level_index ~visibility ~source
+            ~pointer_type ~stride)
   | _ -> None
 
 let result_aggregate_return_value_type (result : expression_result) =
@@ -1762,6 +1767,7 @@ let make_result ?aggregate_return_value_type ?operand_result ?binary_operands
       index_operands;
       index_element_size = None;
       index_visibility = None;
+      top_level_index_visibility = None;
       member_base_result;
       aggregate_pointee_layout;
       aggregate_backing_storage = None;
@@ -3559,6 +3565,10 @@ and type_index table members policies ~before_item_index ~context
               | Some visibility, Some observed, Some element_type ->
                   Function_aggregate_visibility.index_element_size visibility
                     ~source:observed ~element_type
+              | None, Some observed, Some element_type ->
+                  Option.bind state.aggregate_visibility (fun visibility ->
+                      Function_aggregate_visibility.top_level_index_element_size
+                        visibility ~source:observed ~element_type)
               | _ -> None
             in
             revise_result state
@@ -3566,6 +3576,10 @@ and type_index table members policies ~before_item_index ~context
                 result with
                 index_element_size;
                 index_visibility = state.function_visibility;
+                top_level_index_visibility =
+                  (if Option.is_none state.function_visibility then
+                     state.aggregate_visibility
+                   else None);
               }
       in
       match (base.source_type, base.category) with
@@ -3888,6 +3902,24 @@ and type_assignment table members policies ~before_item_index
             | None -> Ok (left, state)
             | Some aggregate_backing_storage ->
                 revise_result state { left with aggregate_backing_storage })
+        | None, Some observed, Some source_type
+          when Type.pointer_depth source_type = 0
+               &&
+               match Type.base source_type with
+               | Type.Aggregate _ -> true
+               | _ -> false -> (
+            match state.aggregate_visibility with
+            | None -> Ok (left, state)
+            | Some visibility -> (
+                match
+                  Aggregate_backing_storage.create_top_level_assignment
+                    ~visibility ~source:observed ~table ~members ~policies
+                    ~before_item_index ~source_type
+                with
+                | None -> Ok (left, state)
+                | Some aggregate_backing_storage ->
+                    revise_result state { left with aggregate_backing_storage })
+            )
         | _ -> Ok (left, state)
       in
       let valid_storage_type =
@@ -3909,7 +3941,10 @@ and type_assignment table members policies ~before_item_index
           | Error _ as error -> error
           | Ok (right, state) -> (
               let destination_class =
-                forwarded_class policies ~before_item_index destination_type
+                forwarded_class policies ~before_item_index
+                  (match left.aggregate_backing_storage with
+                  | Some storage -> Aggregate_backing_storage.value_type storage
+                  | None -> destination_type)
               in
               let right_conversion, execution_class =
                 match assignment_kind with

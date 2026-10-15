@@ -2490,4 +2490,15 @@ copied names, rebuilt modules, foreign tables, copied current allocations and
 expired expression observations reject. The maintained storage-option example
 checks both modes/targets and exact and one-below execution/preparation limits.
 
+Top-level aggregate assignment cases share the original endpoint and index
+observations with function bodies. The CLI matrix runs direct, pointer,
+compound and indexed stores, full register results, forwarding and replacement
+through IR and native source tasks in both outer modes. Fragment cases cover
+global and static initializers, named and callback defaults, dimensions, member
+offsets and metadata, switch endpoints and internal bindings. Faults retain
+earlier output and reject completion after the assignment gate or beyond the
+original root. The maintained top-level assignment example checks exact and
+one-below execution and initializer limits. Authority tests reject foreign
+tables and namespaces, copied expressions and replayed fragment completion.
+
 No TempleOS runtime or emitted-byte capture is included.

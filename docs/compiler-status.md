@@ -1,5 +1,14 @@
 # Compiler status and implementation notes
 
+[Aggregate assignment observations](backed-aggregate-values.md) retain the
+original lvalue endpoint, lookahead gate and reached index stride in function
+bodies and top-level source tasks. Initializers, statics, saved defaults,
+dimensions, offsets, metadata, switch endpoints and internal bindings retain
+their own completed expression metadata. The
+[top-level example](../examples/top-level-aggregate-assignments.hc) prints `A`
+and returns 42 through IR and native source tasks in both outer modes.
+Other value families and the remaining #686 acceptance stay open.
+
 [Member metadata preparation](member-metadata.md) now retains strings and closed
 numeric words at original member phases in IR and native source tasks. Duplicate
 names resolve to the last source entry. Live integer metadata now executes calls,

@@ -2531,3 +2531,15 @@ the original failure boundary before later effects. JIT data-heap storage and
 constant statics execute through IR and native source tasks; the nonconstant AOT
 compile-time phase and `IC_HEAP_GLBL` loader path remain open. These checks include
 no TempleOS runtime or emitted-byte capture.
+
+Top-level aggregate assignments use the same complete `PrsExpression2` at
+`Compiler/PrsExp.HC:65-263` and `PrsUnaryModifier` at `960-1115` as function
+bodies. The original endpoint precedes operator lookahead; the internal lvalue
+gate follows it. An index records the reached class width before parsing its
+value. Complete `LexExpression2Bin` and `LexExpressionI64` at
+`Compiler/PrsExp.HC:1117-1152` compile a whole reached expression before executing
+it. Initializer, default, dimension, offset, metadata, switch and internal-binding
+consumers retain their own expression boundaries. Hosted scalar consumers use
+the checked integer value type independently of the nominal destination class.
+The top-level assignment example and shared CLI cases check both outer modes
+and source executors. They contain no new TempleOS capture.

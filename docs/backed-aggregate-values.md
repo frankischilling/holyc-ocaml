@@ -45,8 +45,8 @@ type. An ordinary class's default raw type does not satisfy the source assignmen
 lvalue check.
 
 The selection retains the original completed nominal class, its forwarded
-integer type, the compiler table and namespace, and the owning function, scope and source
-position. A backing chain uses the definitions selected when it was declared;
+integer type, the compiler table and namespace, and the owning function or source
+command, scope and source position. A backing chain uses the definitions selected when it was declared;
 a later same-name class cannot change its width or signedness. Inheritance and
 backing are separate relations. Completed inherited storage can have an
 integer backing without changing its selected base or member lookup.
@@ -86,7 +86,7 @@ controls require the original sealed source graph before image creation.
 The tests use independent expected words and hosted executions; they contain
 no TempleOS runtime capture or machine-byte comparison.
 
-Assignments retain three original observations. Before consuming the operator,
+Function-body assignments retain three original observations. Before consuming the operator,
 the lvalue selects its forwarded endpoint. After operator lookahead, the parser
 checks that endpoint for internal storage. Function completion retains the
 metadata used by optimization. Completion of an ordinary forward endpoint during
@@ -112,6 +112,27 @@ native source tasks in both outer modes. Ordinary JIT declarations also use the
 observations. An isolated AOT declaration keeps its own class identity: `#exe`
 uses the task's JIT table, so task completion cannot supply backing to that outer
 class. The classic native API retains its separate `HCPP0008` directive boundary.
+
+Top-level source tasks retain the same lvalue and index observations. Their
+optimization metadata belongs to the original completed command. An initializer,
+static leaf, saved named or callback default, dimension, member offset, metadata
+value, switch endpoint or internal binding instead retains the completed
+expression at its own parser callback. These fragments do not wait for a later
+command or function body to complete. Scalar consumers use the checked value
+type while the destination retains its original nominal class and byte root.
+
+Each observation keeps the latest reached record for its canonical class.
+Completion replaces an earlier forward record for that identity; a same-name
+definition with another identity cannot hide or retarget it. Fragment completion
+requires the exact original expression within its current callback. Another
+table, namespace or expression, and repeated or expired callbacks cannot supply
+backing or stride metadata.
+
+The [top-level assignment example](../examples/top-level-aggregate-assignments.hc)
+checks zero and completed array strides, compound stores, an earlier `U16`
+endpoint and a global initializer's full register word. It prints `A` and returns
+42 through IR and native source tasks in both outer modes. Hosted bounds and
+ownership checks still apply; completion cannot enlarge the original root.
 
 [Function-local object execution](function-local-aggregate-objects.md) preserves
 an earlier selected backing when a local type replaces its name. Inline backed

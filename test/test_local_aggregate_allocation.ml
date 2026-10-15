@@ -755,11 +755,209 @@ let assignment_observation_authority () =
            ~header ~body [] proof))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let top_level_assignment_observation_authority () =
+  List.iter
+    (fun mode ->
+      let session = Session.create () in
+      let table = Session.semantic_symbols session in
+      let source =
+        Session.add_source session ~path:"top-level-assignment-authority.hc"
+          ~contents:
+            "U16 class C{U16 value;};C items[2];items[1]=42;I64 \
+             n=(items[1]=42);I64 F(){C object;object=42;return object.value;}"
+      in
+      let ledger = D.create_source session ~source |> checked in
+      let selections = ref []
+      and indices = ref []
+      and class_entry = ref None
+      and completed = ref []
+      and fragments = ref [] in
+      let declaration event =
+        D.observe ledger event |> observed;
+        (match event with
+        | Parser.Aggregate_completed original ->
+            class_entry := Some original.aggregate_publication.aggregate_entry
+        | Parser.Assignment_operand_selected selection ->
+            selections := selection :: !selections
+        | Parser.Index_operand_selected selection ->
+            indices := selection :: !indices
+        | Parser.Global_initializer_leaf_completed _ ->
+            fragments := event :: !fragments
+        | _ -> ());
+        Ok ()
+      in
+      let checkpoint event =
+        (match event with
+        | Parser.Command_completed command ->
+            Alcotest.(check bool)
+              "original completion is current" true
+              (Parser.command_completion_is_current command);
+            completed := command :: !completed
+        | _ -> ());
+        D.observe_command ledger event
+      in
+      let commands =
+        {
+          (sink declaration) with
+          checkpoint = Some checkpoint;
+          reference = Some (D.observe_reference ledger);
+          query = Some (D.observe_query ledger);
+          dimension_count = Some (D.grammar_dimension_count ledger);
+        }
+      in
+      let ast = parse session mode source commands in
+      let command = D.seal ledger ast |> observed in
+      let resolve =
+        D.aggregate_assignment_resolver ~table ~ast command |> observed
+      in
+      let index_resolve =
+        D.aggregate_index_resolver ~table ~ast command |> observed
+      in
+      let namespace, _ =
+        D.selected_type_resolver ~table ~ast command |> observed
+      in
+      let parent = C.namespace_scope namespace in
+      let type_ =
+        Type.make_aggregate
+          ~symbol:(D.symbol_for ledger (Option.get !class_entry) |> Option.get)
+          ~pointer_depth:0
+        |> checked
+      in
+      let selection =
+        List.find
+          (fun value -> Option.is_none (Parser.assignment_function value))
+          !selections
+      in
+      let original = Parser.assignment_source selection |> Option.get in
+      let proof = resolve original |> Option.get in
+      let query ?function_source ~table ~parent source =
+        Record.aggregate_assignment_value_type ~table ~parent ?function_source
+          ~source ~source_type:type_ proof
+      in
+      let selected = query ~table ~parent original |> Option.get in
+      Alcotest.(check bool)
+        "top-level assignment retains U16" true
+        (match Type.base selected with
+        | Type.Primitive (_, Primitive_type.U16) -> true
+        | _ -> false);
+      let absent label value =
+        Alcotest.(check bool) label true (Option.is_none value)
+      in
+      let function_source =
+        List.find_map Parser.assignment_function !selections |> Option.get
+      in
+      absent "a function cannot consume top-level backing"
+        (query ~function_source ~table ~parent original);
+      absent "another table cannot consume top-level backing"
+        (query
+           ~table:(Session.semantic_symbols (Session.create ()))
+           ~parent original);
+      absent "another namespace cannot consume top-level backing"
+        (query ~table
+           ~parent:(C.create_namespace ~table () |> checked |> C.namespace_scope)
+           original);
+      let copied =
+        match original with
+        | Ast.Binary_expression value ->
+            Ast.Binary_expression
+              (Ast.make_binary_expression ~left:value.binary_left
+                 ~operator:value.binary_operator
+                 ~operator_spec:value.binary_operator_spec
+                 ~right:value.binary_right ~location:value.binary_location)
+        | _ -> Alcotest.fail "expected assignment"
+      in
+      absent "a copied top-level expression cannot consume backing"
+        (query ~table ~parent copied);
+      absent "a copied top-level expression has no resolver proof"
+        (resolve copied);
+      let function_selection =
+        List.find
+          (fun value -> Option.is_some (Parser.assignment_function value))
+          !selections
+      in
+      let function_expression =
+        Parser.assignment_source function_selection |> Option.get
+      in
+      let function_proof = resolve function_expression |> Option.get in
+      absent "top-level access cannot consume a function's backing"
+        (Record.aggregate_assignment_value_type ~table ~parent
+           ~source:function_expression ~source_type:type_ function_proof);
+      let index_selection = List.hd !indices in
+      let index_source = Parser.index_source index_selection |> Option.get in
+      let index_proof = index_resolve index_source |> Option.get in
+      let fragment_query ~table ~parent source =
+        Record.aggregate_fragment_assignment_value_type ~table ~parent ~source
+          ~source_type:type_ proof
+      in
+      Alcotest.(check bool)
+        "fragment retains its own completed backing" true
+        (Option.is_some (Option.join (fragment_query ~table ~parent original)));
+      absent "copied fragment expression cannot borrow its backing"
+        (Option.join (fragment_query ~table ~parent copied));
+      absent "foreign table cannot consume fragment backing"
+        (Option.join
+           (fragment_query
+              ~table:(Session.semantic_symbols (Session.create ()))
+              ~parent original));
+      absent "foreign namespace cannot consume fragment backing"
+        (Option.join
+           (fragment_query ~table
+              ~parent:
+                (C.create_namespace ~table () |> checked |> C.namespace_scope)
+              original));
+      absent "function statements have no fragment completion"
+        (Record.aggregate_fragment_assignment_value_type ~table ~parent
+           ~source:function_expression ~source_type:type_ function_proof);
+      Alcotest.(check (option int64))
+        "fragment index retains its reached stride" (Some 2L)
+        (Record.aggregate_fragment_index_element_size ~table ~parent
+           ~source:index_source ~element_type:type_ index_proof);
+      List.iter
+        (fun event ->
+          reject "fragment assignment completion cannot be repeated or replayed"
+            (Record.complete_fragment_aggregate_assignment_visibility ~table
+               ~namespace ~event [] proof);
+          reject "fragment index completion cannot be repeated or replayed"
+            (Record.complete_fragment_aggregate_index_visibility ~table
+               ~namespace ~event index_proof))
+        !fragments;
+      let index_query ?function_source ~table ~parent source =
+        Record.aggregate_index_element_size ~table ~parent ?function_source
+          ~source ~element_type:type_ index_proof
+      in
+      Alcotest.(check (option int64))
+        "top-level index retains two-byte stride" (Some 2L)
+        (index_query ~table ~parent index_source);
+      absent "a function cannot consume a top-level stride"
+        (index_query ~function_source ~table ~parent index_source);
+      absent "another table cannot consume a top-level stride"
+        (index_query
+           ~table:(Session.semantic_symbols (Session.create ()))
+           ~parent index_source);
+      absent "another namespace cannot consume a top-level stride"
+        (index_query ~table
+           ~parent:(C.create_namespace ~table () |> checked |> C.namespace_scope)
+           index_source);
+      List.iter
+        (fun command ->
+          Alcotest.(check bool)
+            "completion expires after parsing" false
+            (Parser.command_completion_is_current command);
+          reject
+            "expired or unrelated completion cannot finalize a top-level \
+             assignment"
+            (Record.complete_top_level_aggregate_assignment_visibility ~table
+               ~namespace ~command [] proof))
+        !completed)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Original local aggregate allocation"
     [
       ( "provenance",
         [
+          Alcotest.test_case "top-level completion, backing and stride owners"
+            `Quick top_level_assignment_observation_authority;
           Alcotest.test_case "assignment lookahead, completion and wrong owners"
             `Quick assignment_observation_authority;
           Alcotest.test_case "live allocation, wrong owners and replay" `Quick

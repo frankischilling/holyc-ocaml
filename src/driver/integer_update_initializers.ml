@@ -387,6 +387,9 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                           ~function_symbol:(Frame.function_symbol frame)
                           ~before_item_index:(Frame.function_item_index frame)
                           ~pointer_type:type_ ~stride
+                    | Some (Seq.Pointee_stride layout), None ->
+                        Sema.Aggregate_pointee_layout.matches_top_level layout
+                          ~pointer_type:type_ ~stride
                     | _ -> false
                   in
                   match (address base, address offset) with

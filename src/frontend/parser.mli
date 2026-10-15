@@ -239,6 +239,10 @@ val context_is_current : command_context -> observed_events:int -> bool
     command checkpoints. A delayed or incomplete observer cannot use remembered
     lifecycle state to activate execution after parsing advances or ends. *)
 
+val command_completion_is_current : completed_command -> bool
+(** The original command is complete at the current parser position, before
+    resuming lookahead or leaving its active input context. *)
+
 val sequence_accepted : completed_sequence -> bool
 (** Becomes true only after the sequence completion callback returns
     successfully. Rejected or exceptional completion never accepts the sequence.
@@ -1113,8 +1117,8 @@ val index_opening : index_selection -> Ast.location
 val index_source : index_selection -> Ast.expression option
 
 val index_selection_is_current : index_selection -> bool
-(** Original stride observation after '[' lookahead and before its index value.
-    Completion retains the exact original index expression. *)
+(** Original stride observation after opening-bracket lookahead and before its
+    index value. Completion retains the exact original index expression. *)
 
 type assignment_selection
 

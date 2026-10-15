@@ -225,6 +225,7 @@ type aggregate_index_visibility = {
   index_namespace : Declaration_collection.namespace;
   index_source : Parser.index_selection;
   index_records : (Symbol.t * t) list;
+  mutable index_fragment_completed : bool;
 }
 
 type aggregate_assignment_visibility = {
@@ -234,6 +235,7 @@ type aggregate_assignment_visibility = {
   assignment_initial_records : (Symbol.t * t) list;
   assignment_records : (Symbol.t * t) list;
   mutable assignment_final_records : (Symbol.t * t) list option;
+  mutable assignment_fragment_records : (Symbol.t * t) list option;
 }
 
 type inherited_base = {
@@ -1284,12 +1286,13 @@ let capture_aggregate_index_visibility ~table ~namespace source records =
           index_namespace = namespace;
           index_source = source;
           index_records = completed @ partial;
+          index_fragment_completed = false;
         })
       (capture_aggregate_visibility_records ~table ~namespace
          ~environment:(Parser.index_environment source)
          ~retain_hidden:true ~allow_forward:true records)
 
-let aggregate_index_element_size ~table ~parent ~function_source ~source
+let aggregate_index_element_size ~table ~parent ?function_source ~source
     ~element_type visibility =
   if
     visibility.index_table != table
@@ -1301,7 +1304,7 @@ let aggregate_index_element_size ~table ~parent ~function_source ~source
     || (not
           (Option.equal ( == )
              (Parser.index_function visibility.index_source)
-             (Some function_source)))
+             function_source))
     || not
          (Option.equal ( == )
             (Parser.index_source visibility.index_source)
@@ -1366,6 +1369,7 @@ let capture_aggregate_assignment_visibility ~table ~namespace ?preparation
               assignment_initial_records = preparation.preparation_records;
               assignment_records = completed @ partial;
               assignment_final_records = None;
+              assignment_fragment_records = None;
             })
           (capture_aggregate_visibility_records ~table ~namespace
              ~environment:(Parser.assignment_environment source)
@@ -1392,7 +1396,184 @@ let complete_aggregate_assignment_visibility ~table ~namespace ~header ~body
            (Parser.assignment_environment visibility.assignment_source)
          ~retain_hidden:true ~allow_forward:true records)
 
-let aggregate_assignment_value_type ~table ~parent ~function_source ~source
+let complete_top_level_aggregate_assignment_visibility ~table ~namespace
+    ~command records visibility =
+  if
+    visibility.assignment_table != table
+    || visibility.assignment_namespace != namespace
+    || (not (Parser.command_completion_is_current command))
+    || Parser.assignment_command visibility.assignment_source
+       != command.Parser.command_start
+    || Option.is_some (Parser.assignment_function visibility.assignment_source)
+    || Option.is_some visibility.assignment_final_records
+  then
+    Error
+      "assignment storage requires its original top-level command completion"
+  else
+    Result.map
+      (fun (_, completed, partial) ->
+        visibility.assignment_final_records <- Some (completed @ partial))
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:
+           (Parser.assignment_environment visibility.assignment_source)
+         ~retain_hidden:true ~allow_forward:true records)
+
+let rec expression_contains original expression =
+  original == expression
+  ||
+  match expression with
+  | Ast.Parenthesized_expression value ->
+      expression_contains original value.grouped_expression
+  | Ast.Prefix_expression value ->
+      expression_contains original value.prefix_operand
+  | Ast.Postfix_expression value ->
+      expression_contains original value.postfix_operand
+  | Ast.Postfix_cast_expression value ->
+      expression_contains original value.cast_operand
+  | Ast.Binary_expression value ->
+      expression_contains original value.binary_left
+      || expression_contains original value.binary_right
+  | Ast.Call_expression value ->
+      expression_contains original value.call_callee
+      || List.exists
+           (fun (argument : Ast.call_argument) ->
+             match argument.call_argument_value with
+             | Ast.Provided_call_argument value ->
+                 expression_contains original value
+             | Ast.Omitted_call_argument -> false)
+           value.call_arguments
+  | Ast.Index_expression value ->
+      expression_contains original value.index_base
+      || expression_contains original value.index_value
+  | Ast.Member_expression value ->
+      expression_contains original value.member_base
+  | _ -> false
+
+let fragment_expression event =
+  let scalar = function
+    | Ast.Scalar_initializer value -> Some value
+    | _ -> None
+  in
+  let default (value : Ast.parameter_default) =
+    match value.value with
+    | Ast.Expression_default expression -> Some expression
+    | _ -> None
+  in
+  let retain current command expression =
+    Option.map (fun expression -> (current, command, expression)) expression
+  in
+  match event with
+  | Parser.Internal_binding_preparing value ->
+      retain
+        (Parser.internal_binding_is_current value)
+        value.binding_command
+        (match value.binding_ast.target with
+        | Ast.Expression_binding_target expression -> Some expression
+        | _ -> None)
+  | Parser.Global_initializer_leaf_completed leaf ->
+      retain
+        (Parser.initializer_leaf_is_current leaf)
+        leaf.leaf_initializer.initializer_owner.global_header
+          .declaration_command (scalar leaf.leaf_value)
+  | Parser.Static_initializer_preparing leaf ->
+      retain
+        (Parser.static_initializer_is_current leaf)
+        leaf.static_allocation.allocation_function.function_header
+          .declaration_command
+        (scalar leaf.static_leaf_value)
+  | Parser.Parameter_default_completed value ->
+      retain
+        (Parser.parameter_default_is_current value)
+        value.default_function.function_header.declaration_command
+        (default value.default_ast)
+  | Parser.Callback_default_completed value ->
+      retain
+        (Parser.callback_default_is_current value)
+        value.callback_default_signature.callback_command
+        (default value.callback_default_ast)
+  | Parser.Array_dimension_preparing value ->
+      retain
+        (Parser.dimension_preparation_is_current value)
+        value.dimension_owner.dimensions_command value.dimension_expression
+  | Parser.Switch_case_preparing value ->
+      retain
+        (Parser.switch_case_preparation_is_current value)
+        value.switch_owner.switch_command (Some value.switch_case_expression)
+  | Parser.Aggregate_advanced phase ->
+      let expression =
+        match phase.phase_step with
+        | Parser.Aggregate_offset_reached expression -> Some expression
+        | Parser.Aggregate_member_metadata_reached { metadata; _ } -> (
+            match metadata.member_metadata_value with
+            | Ast.Member_metadata_expression expression -> Some expression
+            | _ -> None)
+        | _ -> None
+      in
+      retain
+        (Parser.aggregate_phase_is_current phase)
+        phase.phase_aggregate.aggregate_header.declaration_command expression
+  | _ -> None
+
+let fragment_contains event command source =
+  match (fragment_expression event, source) with
+  | Some (current, owner, expression), Some source
+    when owner == command && expression_contains source expression ->
+      Some current
+  | _ -> None
+
+let complete_fragment_aggregate_assignment_visibility ~table ~namespace ~event
+    records visibility =
+  match
+    fragment_contains event
+      (Parser.assignment_command visibility.assignment_source)
+      (Parser.assignment_source visibility.assignment_source)
+  with
+  | None -> Ok ()
+  | Some current ->
+      if
+        (not current)
+        || visibility.assignment_table != table
+        || visibility.assignment_namespace != namespace
+        || Option.is_some visibility.assignment_fragment_records
+      then
+        Error "assignment fragment requires its original expression completion"
+      else
+        Result.map
+          (fun (_, completed, partial) ->
+            visibility.assignment_fragment_records <- Some (completed @ partial))
+          (capture_aggregate_visibility_records ~table ~namespace
+             ~environment:
+               (Parser.assignment_environment visibility.assignment_source)
+             ~retain_hidden:true ~allow_forward:true records)
+
+let complete_fragment_aggregate_index_visibility ~table ~namespace ~event
+    visibility =
+  match
+    fragment_contains event
+      (Parser.index_command visibility.index_source)
+      (Parser.index_source visibility.index_source)
+  with
+  | None -> Ok ()
+  | Some current ->
+      if
+        (not current)
+        || visibility.index_table != table
+        || visibility.index_namespace != namespace
+        || visibility.index_fragment_completed
+      then Error "index fragment requires its original expression completion"
+      else (
+        visibility.index_fragment_completed <- true;
+        Ok ())
+
+let aggregate_fragment_index_element_size ~table ~parent ~source ~element_type
+    visibility =
+  if not visibility.index_fragment_completed then None
+  else
+    aggregate_index_element_size ~table ~parent
+      ?function_source:(Parser.index_function visibility.index_source)
+      ~source ~element_type visibility
+
+let assignment_value_type ~final_records ~table ~parent ?function_source ~source
     ~source_type visibility =
   if
     visibility.assignment_table != table
@@ -1404,7 +1585,7 @@ let aggregate_assignment_value_type ~table ~parent ~function_source ~source
     || (not
           (Option.equal ( == )
              (Parser.assignment_function visibility.assignment_source)
-             (Some function_source)))
+             function_source))
     || not
          (Option.equal ( == )
             (Parser.assignment_source visibility.assignment_source)
@@ -1447,9 +1628,24 @@ let aggregate_assignment_value_type ~table ~parent ~function_source ~source
           (fun original ->
             Option.bind (forward visibility.assignment_records original)
               (fun _ ->
-                Option.bind visibility.assignment_final_records (fun records ->
+                Option.bind final_records (fun records ->
                     forward records original)))
     | _ -> None
+
+let aggregate_assignment_value_type ~table ~parent ?function_source ~source
+    ~source_type visibility =
+  assignment_value_type ~final_records:visibility.assignment_final_records
+    ~table ~parent ?function_source ~source ~source_type visibility
+
+let aggregate_fragment_assignment_value_type ~table ~parent ~source ~source_type
+    visibility =
+  Option.map
+    (fun records ->
+      assignment_value_type ~final_records:(Some records) ~table ~parent
+        ?function_source:
+          (Parser.assignment_function visibility.assignment_source)
+        ~source ~source_type visibility)
+    visibility.assignment_fragment_records
 
 let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
   visibility.reference_table == table

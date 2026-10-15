@@ -126,17 +126,20 @@ let matches ?before_item_index ?function_identity projection ~base_pointer
   &&
   match projection.selection with
   | Field _ -> true
-  | Backing backing ->
-      Option.fold ~none:false
-        ~some:(fun before_item_index ->
+  | Backing backing -> (
+      match function_identity with
+      | None ->
+          Sema.Aggregate_backing_storage.matches_top_level backing
+            ~source_type:(Type.dereference base_pointer |> Result.get_ok)
+            ~value_type:(Type.dereference pointer_type |> Result.get_ok)
+      | Some (function_symbol, function_scope) ->
           Option.fold ~none:false
-            ~some:(fun (function_symbol, function_scope) ->
+            ~some:(fun before_item_index ->
               Sema.Aggregate_backing_storage.matches backing ~function_symbol
                 ~function_scope ~before_item_index
                 ~source_type:(Type.dereference base_pointer |> Result.get_ok)
                 ~value_type:(Type.dereference pointer_type |> Result.get_ok))
-            function_identity)
-        before_item_index
+            before_item_index)
 
 let offset projection = projection.offset
 let strides projection = projection.strides

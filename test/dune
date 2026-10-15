@@ -5390,7 +5390,8 @@
   ../examples/persistent-aggregates.hc
   ../examples/aggregate-initializers.hc
   ../examples/aggregate-value-casts.hc
-  ../examples/reference-returns.hc)
+  ../examples/reference-returns.hc
+  ../examples/top-level-aggregate-assignments.hc)
  (action
   (run
    %{test}
@@ -5409,7 +5410,8 @@
    %{dep:../examples/persistent-aggregates.hc}
    %{dep:../examples/aggregate-initializers.hc}
    %{dep:../examples/aggregate-value-casts.hc}
-   %{dep:../examples/reference-returns.hc})))
+   %{dep:../examples/reference-returns.hc}
+   %{dep:../examples/top-level-aggregate-assignments.hc})))
 
 (test
  (name test_automatic_aggregate_storage)

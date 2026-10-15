@@ -28,6 +28,12 @@ val create :
 val create_references :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
+  ?assignments:
+    (Frontend.Ast.expression ->
+    Compiler_record.aggregate_assignment_visibility option) ->
+  ?indices:
+    (Frontend.Ast.expression ->
+    Compiler_record.aggregate_index_visibility option) ->
   (Frontend.Ast.identifier * Compiler_record.aggregate_reference_visibility)
   list ->
   (t, string) result
@@ -80,6 +86,15 @@ val index_element_size :
   source:Frontend.Ast.expression ->
   element_type:Type.t ->
   int64 option
+
+val top_level_assignment_value_type :
+  t ->
+  source:Frontend.Ast.expression ->
+  source_type:Type.t ->
+  Type.t option option
+
+val top_level_index_element_size :
+  t -> source:Frontend.Ast.expression -> element_type:Type.t -> int64 option
 
 val local_type_frontier :
   function_ -> local:Local_type_resolution.local -> int option

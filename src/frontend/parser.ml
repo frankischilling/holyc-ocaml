@@ -90,6 +90,19 @@ and compiler_exception = {
   exception_cause : compiler_exception option;
 }
 
+let command_completion_is_current command =
+  let context = command.command_start.command_context in
+  context.context_active
+  && context.context_domain = Domain.self ()
+  && Option.fold ~none:false ~some:(( == ) context) !(context.context_owner)
+  &&
+  match (context.context_position, !(context.context_stack)) with
+  | Some position, active :: _ when active == position -> (
+      match !position with
+      | Awaiting_resume original -> original == command
+      | _ -> false)
+  | _ -> false
+
 let position_context = function
   | Before_first_command context -> context
   | Reading_command start -> start.command_context

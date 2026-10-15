@@ -1161,7 +1161,7 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
                               && Typed.result_is_callback_storage value
                           | _ -> false))
                     || not
-                         (match Typed.result_type value with
+                         (match Typed.result_value_type value with
                          | Some type_ ->
                              Option.is_some
                                (Integer_scalar_storage.of_type type_)

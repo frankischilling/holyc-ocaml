@@ -45,7 +45,7 @@ let create_with_globals globals typed =
   let receipt = Fragment.receipt fragment_ in
   let value = Typed.top_level_root_value root_ in
   let* type_ =
-    match Typed.result_type value with
+    match Typed.result_value_type value with
     | Some type_ -> Ok type_
     | None -> Error "member metadata expression has no checked result type"
   in
@@ -59,7 +59,7 @@ let create_with_globals globals typed =
       && Option.fold ~none:false
            ~some:(fun type_ ->
              Option.is_some (Integer_scalar_storage.of_type type_))
-           (Typed.result_type value)
+           (Typed.result_value_type value)
     then Ok ()
     else
       Error

@@ -1180,9 +1180,51 @@ let record_activation_event ledger event =
       ledger.activation_events_rev <- event :: ledger.activation_events_rev
   | _ -> ()
 
+let aggregate_observation_records ledger =
+  Entries.fold
+    (fun _ assigned records ->
+      match assigned.source with
+      | Aggregate { record = Some (Ok record); _ } ->
+          (assigned, record) :: records
+      | _ -> records)
+    ledger.entries []
+  |> List.sort (fun (left, _) (right, _) ->
+      Int.compare right.ordinal left.ordinal)
+  |> List.fold_left
+       (fun (seen, records) (assigned, record) ->
+         match
+           Collection.publication_aggregate_identity assigned.publication
+         with
+         | Some symbol when not (List.memq symbol seen) ->
+             (symbol :: seen, record :: records)
+         | _ -> (seen, records))
+       ([], [])
+  |> snd
+
 let observe_command ledger event =
+  let ( let* ) = Result.bind in
   let result =
     Result.bind (observe_command_source ledger event) (fun () ->
+        let* () =
+          protect (fun () ->
+              match event with
+              | Parser.Command_completed command ->
+                  let records = aggregate_observation_records ledger in
+                  List.iter
+                    (fun (selection, proof) ->
+                      if
+                        Parser.assignment_command selection
+                        == command.command_start
+                        && Option.is_none (Parser.assignment_function selection)
+                      then
+                        Sema.Compiler_record
+                        .complete_top_level_aggregate_assignment_visibility
+                          ~table:ledger.table ~namespace:ledger.namespace
+                          ~command records proof
+                        |> checked command.command_ast.span)
+                    ledger.assignment_observations
+              | _ -> ())
+        in
         match ledger_runtime ledger with
         | None -> Ok ()
         | Some runtime ->
@@ -2874,6 +2916,37 @@ let observe_isolated_static ledger allocation span update =
 let observe ?offset_runtime ?metadata_work_limit
     ?(isolated_initializers = false) ledger event =
   protect (fun () ->
+      (match event with
+      | Parser.Internal_binding_preparing _
+      | Parser.Global_initializer_leaf_completed _
+      | Parser.Static_initializer_preparing _
+      | Parser.Parameter_default_completed _
+      | Parser.Callback_default_completed _
+      | Parser.Array_dimension_preparing _
+      | Parser.Switch_case_preparing _
+      | Parser.Aggregate_advanced
+          {
+            phase_step =
+              ( Parser.Aggregate_offset_reached _
+              | Parser.Aggregate_member_metadata_reached _ );
+            _;
+          } ->
+          let records = aggregate_observation_records ledger in
+          List.iter
+            (fun (selection, proof) ->
+              Sema.Compiler_record
+              .complete_fragment_aggregate_assignment_visibility
+                ~table:ledger.table ~namespace:ledger.namespace ~event records
+                proof
+              |> checked (Parser.assignment_operator selection).span)
+            ledger.assignment_observations;
+          List.iter
+            (fun (selection, proof) ->
+              Sema.Compiler_record.complete_fragment_aggregate_index_visibility
+                ~table:ledger.table ~namespace:ledger.namespace ~event proof
+              |> checked (Parser.index_opening selection).span)
+            ledger.index_observations
+      | _ -> ());
       match event with
       | Parser.Index_operand_selected selection ->
           let at = Parser.index_opening selection in
@@ -2889,19 +2962,7 @@ let observe ?offset_runtime ?metadata_work_limit
           (match sequence.phase with
           | Reading saved when saved == start -> ()
           | _ -> fail at.span "index belongs to another parser command");
-          let records =
-            Entries.fold
-              (fun _ assigned records ->
-                match assigned.source with
-                | Aggregate { record = Some (Ok record); _ }
-                  when Option.fold ~none:false
-                         ~some:(( == ) assigned.publication)
-                         (Collection.current_aggregate_publication
-                            ledger.namespace assigned.publication) ->
-                    record :: records
-                | _ -> records)
-              ledger.entries []
-          in
+          let records = aggregate_observation_records ledger in
           let proof =
             Sema.Compiler_record.capture_aggregate_index_visibility
               ~table:ledger.table ~namespace:ledger.namespace selection records
@@ -2936,19 +2997,7 @@ let observe ?offset_runtime ?metadata_work_limit
           (match sequence.phase with
           | Reading saved when saved == start -> ()
           | _ -> fail at.span "assignment belongs to another parser command");
-          let records =
-            Entries.fold
-              (fun _ assigned records ->
-                match assigned.source with
-                | Aggregate { record = Some (Ok record); _ }
-                  when Option.fold ~none:false
-                         ~some:(( == ) assigned.publication)
-                         (Collection.current_aggregate_publication
-                            ledger.namespace assigned.publication) ->
-                    record :: records
-                | _ -> records)
-              ledger.entries []
-          in
+          let records = aggregate_observation_records ledger in
           if preparing then
             let proof =
               Sema.Compiler_record.prepare_aggregate_assignment_visibility
@@ -4246,19 +4295,7 @@ let observe ?offset_runtime ?metadata_work_limit
                 Some
                   (Parser.function_body_compiler_options header body
                   |> checked body.location.span);
-              let records =
-                Entries.fold
-                  (fun _ assigned records ->
-                    match assigned.source with
-                    | Aggregate { record = Some (Ok record); _ }
-                      when Option.fold ~none:false
-                             ~some:(( == ) assigned.publication)
-                             (Collection.current_aggregate_publication
-                                ledger.namespace assigned.publication) ->
-                        record :: records
-                    | _ -> records)
-                  ledger.entries []
-              in
+              let records = aggregate_observation_records ledger in
               List.iter
                 (fun (selection, proof) ->
                   if
@@ -7604,7 +7641,28 @@ let aggregate_fragment_visibility ~span ledger =
           ledger.references []
       in
       Sema.Function_aggregate_visibility.create_references ~table:ledger.table
-        ~parent:(initializer_scope ledger) references
+        ~parent:(initializer_scope ledger)
+        ~assignments:(fun source ->
+          List.find_map
+            (fun (selection, proof) ->
+              if
+                Option.equal ( == )
+                  (Parser.assignment_source selection)
+                  (Some source)
+              then Some proof
+              else None)
+            ledger.assignment_observations)
+        ~indices:(fun source ->
+          List.find_map
+            (fun (selection, proof) ->
+              if
+                Option.equal ( == )
+                  (Parser.index_source selection)
+                  (Some source)
+              then Some proof
+              else None)
+            ledger.index_observations)
+        references
       |> checked span)
 
 let aggregate_value_headers ~span ledger =

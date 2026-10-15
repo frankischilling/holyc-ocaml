@@ -183,7 +183,7 @@ val capture_aggregate_index_visibility :
 val aggregate_index_element_size :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
-  function_source:Frontend.Parser.function_publication ->
+  ?function_source:Frontend.Parser.function_publication ->
   source:Frontend.Ast.expression ->
   element_type:Type.t ->
   aggregate_index_visibility ->
@@ -216,14 +216,66 @@ val complete_aggregate_assignment_visibility :
 val aggregate_assignment_value_type :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
-  function_source:Frontend.Parser.function_publication ->
+  ?function_source:Frontend.Parser.function_publication ->
   source:Frontend.Ast.expression ->
   source_type:Type.t ->
   aggregate_assignment_visibility ->
   Type.t option
 (** Assignment permission follows the original lookahead endpoint; integer
-    storage width follows the original function-completion observation. Later
-    backing cannot authorize an earlier ordinary endpoint. *)
+    storage width follows the original function or top-level command completion.
+    Later backing cannot authorize an earlier ordinary endpoint. *)
+
+val complete_top_level_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  command:Frontend.Parser.completed_command ->
+  t list ->
+  aggregate_assignment_visibility ->
+  (unit, string) result
+
+(** Complete an original top-level assignment at its current command callback. A
+    function assignment, another command or repeated completion rejects. *)
+
+val complete_fragment_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  t list ->
+  aggregate_assignment_visibility ->
+  (unit, string) result
+
+(** Retain optimization metadata at the original completed expression callback
+    for initializers, defaults, dimensions, offsets, metadata, switch endpoints
+    and internal bindings. Unrelated expressions do not change the proof. *)
+
+val complete_fragment_aggregate_index_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  aggregate_index_visibility ->
+  (unit, string) result
+
+(** Mark an original index contained in the same current expression fragment.
+    This retains its earlier stride observation and grants no object extent. *)
+
+val aggregate_fragment_assignment_value_type :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  source:Frontend.Ast.expression ->
+  source_type:Type.t ->
+  aggregate_assignment_visibility ->
+  Type.t option option
+
+(** [None] means no original fragment completion exists. [Some None] means the
+    completed original fragment cannot supply this assignment's scalar view. *)
+
+val aggregate_fragment_index_element_size :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  source:Frontend.Ast.expression ->
+  element_type:Type.t ->
+  aggregate_index_visibility ->
+  int64 option
 
 val create_compiler_positions :
   sources:Common.Source_manager.t -> compiler_positions

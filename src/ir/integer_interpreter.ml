@@ -7168,15 +7168,19 @@ let indexed_address frame types (description : Sequence.description) =
   let selected_stride pointer =
     match description.payload with
     | Some (Sequence.Pointee_stride layout) ->
-        Option.bind frame (fun context ->
-            let stride = Sema.Aggregate_pointee_layout.byte_size layout in
-            if
+        let stride = Sema.Aggregate_pointee_layout.byte_size layout in
+        let valid =
+          match frame with
+          | None ->
+              Sema.Aggregate_pointee_layout.matches_top_level layout
+                ~pointer_type:pointer ~stride
+          | Some context ->
               Sema.Aggregate_pointee_layout.matches layout
                 ~function_symbol:(Frame.function_symbol context.layout)
                 ~before_item_index:(Frame.function_item_index context.layout)
                 ~pointer_type:pointer ~stride
-            then Some stride
-            else None)
+        in
+        if valid then Some stride else None
     | _ -> None
   in
   let valid_payload pointer stride =

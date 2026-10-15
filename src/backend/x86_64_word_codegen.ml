@@ -8832,18 +8832,25 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             in
                             if
                               not
-                                (Option.fold ~none:false
-                                   ~some:(fun before_item_index ->
-                                     Sema.Aggregate_pointee_layout.matches
-                                       ?function_symbol:
-                                         (match runtime_owner with
-                                         | Runtime.Function body ->
-                                             Some (Function.symbol body)
-                                         | _ -> None)
-                                       layout ~before_item_index
-                                       ~pointer_type:target_type
-                                       ~stride:scaled.index_stride)
-                                   source_item_index)
+                                (match runtime_owner with
+                                | Runtime.Function _ ->
+                                    Option.fold ~none:false
+                                      ~some:(fun before_item_index ->
+                                        Sema.Aggregate_pointee_layout.matches
+                                          ?function_symbol:
+                                            (match runtime_owner with
+                                            | Runtime.Function body ->
+                                                Some (Function.symbol body)
+                                            | _ -> None)
+                                          layout ~before_item_index
+                                          ~pointer_type:target_type
+                                          ~stride:scaled.index_stride)
+                                      source_item_index
+                                | _ ->
+                                    Sema.Aggregate_pointee_layout
+                                    .matches_top_level layout
+                                      ~pointer_type:target_type
+                                      ~stride:scaled.index_stride)
                             then
                               malformed description
                                 "pointee stride does not match its original \

@@ -54,6 +54,18 @@ val create_assignment :
     original observation leaves the existing lexical path unchanged. *)
 
 val source_type : t -> Type.t
+
+val create_top_level_assignment :
+  visibility:Function_aggregate_visibility.t ->
+  source:Frontend.Ast.expression ->
+  table:Symbol_table.t ->
+  members:Aggregate_member_index.t ->
+  policies:Function_call_conversion_policy.t ->
+  before_item_index:int ->
+  source_type:Type.t ->
+  t option option
+
+val matches_top_level : t -> source_type:Type.t -> value_type:Type.t -> bool
 val value_type : t -> Type.t
 
 val assignment_permitted : t -> bool

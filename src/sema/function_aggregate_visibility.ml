@@ -53,6 +53,11 @@ type t = {
   aggregate_references :
     (Ast.identifier -> Compiler_record.aggregate_reference_visibility option)
     option;
+  assignments :
+    (Ast.expression -> Compiler_record.aggregate_assignment_visibility option)
+    option;
+  indices :
+    (Ast.expression -> Compiler_record.aggregate_index_visibility option) option;
 }
 
 let origin = Initializer_source.origin_of_location
@@ -81,7 +86,7 @@ let member_reference (value : t) ~source =
               else None))
   | _ -> None
 
-let create_references ~table ~parent references =
+let create_references ~table ~parent ?assignments ?indices references =
   if not (Symbol_table.owns_scope table parent) then
     Error "fragment aggregate visibility belongs to another table"
   else
@@ -106,6 +111,8 @@ let create_references ~table ~parent references =
           parent;
           functions = [];
           aggregate_references = Some (Identifiers.find_opt captured);
+          assignments;
+          indices;
         })
       (check references)
 
@@ -134,6 +141,33 @@ let assignment_value_type value ~source ~source_type =
              ~parent:value.parent ~function_source:value.source_function ~source
              ~source_type)
           (resolve source))
+
+let top_level_assignment_value_type (value : t) ~source ~source_type =
+  Option.bind value.assignments (fun resolve ->
+      Option.map
+        (fun proof ->
+          match
+            Compiler_record.aggregate_fragment_assignment_value_type
+              ~table:value.table ~parent:value.parent ~source ~source_type proof
+          with
+          | Some value -> value
+          | None ->
+              Compiler_record.aggregate_assignment_value_type ~table:value.table
+                ~parent:value.parent ~source ~source_type proof)
+        (resolve source))
+
+let top_level_index_element_size (value : t) ~source ~element_type =
+  Option.bind value.indices (fun resolve ->
+      Option.bind (resolve source) (fun proof ->
+          match
+            Compiler_record.aggregate_fragment_index_element_size
+              ~table:value.table ~parent:value.parent ~source ~element_type
+              proof
+          with
+          | Some size -> Some size
+          | None ->
+              Compiler_record.aggregate_index_element_size ~table:value.table
+                ~parent:value.parent ~source ~element_type proof))
 
 let index_element_size value ~source ~element_type =
   if not (Expressions.mem value.occurrences source) then None
@@ -241,6 +275,8 @@ let create ~table ~declarations ~bodies ?aggregate_references
               parent;
               functions = List.rev reversed;
               aggregate_references;
+              assignments;
+              indices;
             }
       | (item_index, Ast.Function_definition definition) :: rest -> (
           let entry =

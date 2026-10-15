@@ -52,7 +52,7 @@ let create_with_globals globals typed =
       && Option.fold ~none:false
            ~some:(fun type_ ->
              Option.is_some (Integer_scalar_storage.of_type type_))
-           (Typed.result_type value)
+           (Typed.result_value_type value)
     then Ok ()
     else
       Error

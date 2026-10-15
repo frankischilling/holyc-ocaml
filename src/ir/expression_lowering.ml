@@ -2396,18 +2396,27 @@ let prepare_value_address ?frame ?globals result =
   | None -> Ok address
   | Some storage -> (
       match (frame, result_span result, address) with
-      | Some frame, Some span, Some address
-        when Sema.Aggregate_backing_storage.matches storage
-               ~function_symbol:
-                 (Sema.Function_frame_layout.function_symbol frame)
-               ~function_scope:
-                 (Sema.Function_frame_layout.function_scope frame
-                 |> Sema.Symbol_table.scope_id)
-               ~before_item_index:
-                 (Sema.Function_frame_layout.function_item_index frame)
-               ~source_type:(Option.get (Semantic_result.result_type result))
-               ~value_type:
-                 (Option.get (Semantic_result.result_value_type result)) ->
+      | frame, Some span, Some address
+        when match frame with
+             | None ->
+                 Sema.Aggregate_backing_storage.matches_top_level storage
+                   ~source_type:
+                     (Option.get (Semantic_result.result_type result))
+                   ~value_type:
+                     (Option.get (Semantic_result.result_value_type result))
+             | Some frame ->
+                 Sema.Aggregate_backing_storage.matches storage
+                   ~function_symbol:
+                     (Sema.Function_frame_layout.function_symbol frame)
+                   ~function_scope:
+                     (Sema.Function_frame_layout.function_scope frame
+                     |> Sema.Symbol_table.scope_id)
+                   ~before_item_index:
+                     (Sema.Function_frame_layout.function_item_index frame)
+                   ~source_type:
+                     (Option.get (Semantic_result.result_type result))
+                   ~value_type:
+                     (Option.get (Semantic_result.result_value_type result)) ->
           Ok
             (Some
                (Backing_address

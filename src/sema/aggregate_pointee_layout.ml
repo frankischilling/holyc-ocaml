@@ -10,6 +10,8 @@ type t = {
   index :
     (Function_aggregate_visibility.function_ * Frontend.Ast.expression * int64)
     option;
+  top_level_index :
+    (Function_aggregate_visibility.t * Frontend.Ast.expression * int64) option;
 }
 
 let create_at ~members ~before_item_index ~layout_before_item_index
@@ -33,6 +35,7 @@ let create_at ~members ~before_item_index ~layout_before_item_index
                 layout_before_item_index;
                 function_symbol = None;
                 index = None;
+                top_level_index = None;
               }
           else None)
   | _ -> None
@@ -106,8 +109,49 @@ let create_index ~visibility ~source ~pointer_type ~stride =
                           (Function_aggregate_visibility.function_symbol
                              visibility);
                       index = Some (visibility, source, element_size);
+                      top_level_index = None;
                     }
               | _ -> None))
+
+let create_top_level_index ~visibility ~source ~pointer_type ~stride =
+  if Type.pointer_depth pointer_type <> 1 || stride < 0L then None
+  else
+    Option.bind
+      (Type.dereference pointer_type |> Result.to_option)
+      (fun element_type ->
+        Option.bind
+          (Function_aggregate_visibility.top_level_index_element_size visibility
+             ~source ~element_type) (fun element_size ->
+            if
+              (element_size = 0L && stride <> 0L)
+              || (element_size > 0L && Int64.rem stride element_size <> 0L)
+            then None
+            else
+              Some
+                {
+                  aggregate = None;
+                  pointer_type;
+                  byte_size = stride;
+                  before_item_index = 0;
+                  layout_before_item_index = 0;
+                  function_symbol = None;
+                  index = None;
+                  top_level_index = Some (visibility, source, element_size);
+                }))
+
+let matches_top_level layout ~pointer_type ~stride =
+  Type.equal layout.pointer_type pointer_type
+  && layout.byte_size = stride
+  &&
+  match layout.top_level_index with
+  | None -> false
+  | Some (visibility, source, element_size) ->
+      Option.fold ~none:false
+        ~some:(fun element_type ->
+          Function_aggregate_visibility.top_level_index_element_size visibility
+            ~source ~element_type
+          = Some element_size)
+        (Type.dereference pointer_type |> Result.to_option)
 
 let byte_size layout = layout.byte_size
 

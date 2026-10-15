@@ -1008,9 +1008,13 @@ statics and the AOT `IC_HEAP_GLBL`/loader path remain open.
 
 ## Aggregate assignment observations
 
-Function-body integer aggregate assignments retain the endpoint selected before operator
+Function-body and top-level integer aggregate assignments retain the endpoint selected before operator
 lookahead, the internal-storage check reached after lookahead and the original
-function's completion metadata. JIT forward completion can supply backing to the
+function or command's completion metadata. Initializers, static leaves, saved
+defaults, dimensions, member offsets and metadata, switch endpoints and internal
+bindings retain their own original expression-completion metadata. Scalar
+consumers read the checked value type while preserving the nominal destination.
+JIT forward completion can supply backing to the
 selected endpoint; later extern completion cannot retarget an already selected
 primitive endpoint. Root extents, member offsets and zero array strides remain
 separate. Isolated AOT declarations retain their original table while `#exe`

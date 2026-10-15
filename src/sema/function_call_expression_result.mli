@@ -564,8 +564,8 @@ val result_binary_operands :
     source order. Other expression forms return [None]. *)
 
 val result_index_element_size : expression_result -> int64 option
-(** Checked original class size at '[' lookahead. This numeric view grants no
-    object allocation, stride dimensions or byte extent. *)
+(** Checked original class size at opening-bracket lookahead. This numeric view
+    grants no object allocation, stride dimensions or byte extent. *)
 
 val result_index_layout :
   expression_result ->

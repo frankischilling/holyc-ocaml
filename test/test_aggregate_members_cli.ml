@@ -34,11 +34,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 17 || Array.length Sys.argv = 18)
-    "expected compiler and fifteen aggregate examples, optionally --native"
+    (Array.length Sys.argv = 18 || Array.length Sys.argv = 19)
+    "expected compiler and sixteen aggregate examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 18 && Sys.argv.(17) = "--native"
+let native = Array.length Sys.argv = 19 && Sys.argv.(18) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -569,4 +569,41 @@ let () =
       (invoke_task ~status:1
          ~options:[ "--initializer-step-limit=4" ]
          Defaults.quota_source));
+  List.iter
+    (fun target ->
+      List.iter
+        (fun mode ->
+          let source = read Sys.argv.(17) in
+          let options = [ "--code-byte-limit=524288" ] in
+          let baseline = invoke ~options target mode source in
+          value 42L "A" baseline;
+          let steps = baseline |> member "executed_steps" |> to_int in
+          let initializers =
+            baseline |> member "compiled_initializer_steps" |> to_int
+          in
+          value 42L "A"
+            (invoke
+               ~options:
+                 (options
+                 @ [
+                     "--step-limit=" ^ string_of_int steps;
+                     "--initializer-step-limit=" ^ string_of_int initializers;
+                   ])
+               target mode source);
+          error ~code:"HCIRVM0007" "A"
+            (invoke ~status:1
+               ~options:
+                 (options @ [ "--step-limit=" ^ string_of_int (steps - 1) ])
+               target mode source);
+          error ~code:"HCIRVM0007" ""
+            (invoke ~status:1
+               ~options:
+                 (options
+                 @ [
+                     "--initializer-step-limit="
+                     ^ string_of_int (initializers - 1);
+                   ])
+               target mode source))
+        [ "jit"; "aot" ])
+    (if native then [ "ir"; "host-jit-task" ] else [ "ir" ]);
   Printf.printf "Aggregate member CLI checks passed (%d reports).\n" !reports
