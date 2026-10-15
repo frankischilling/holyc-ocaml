@@ -294,6 +294,43 @@ module Native_dispatch = struct
   let initializer_entered request =
     Atomic.get request.initializer_state = Entered
 
+  let prepare_initializer_copy request capture ~work =
+    if
+      (not (owns_domain request.initializer_domain))
+      || not (initializer_entered request)
+    then Error "native initializer copy requires its entered original request"
+    else
+      VM.prepare_native_initializer_copy request.initializer_task
+        request.initializer_attempt request.initializer_execution
+        request.initializer_program_ capture ~work
+
+  let check_initializer_copy request copy =
+    if
+      (not (owns_domain request.initializer_domain))
+      || not (initializer_entered request)
+    then Error "native initializer copy belongs to another request or domain"
+    else
+      VM.check_native_initializer_copy request.initializer_task
+        request.initializer_attempt request.initializer_execution
+        request.initializer_program_ copy
+
+  let initializer_copy_layout copy = VM.native_initializer_copy_layout copy
+  let initializer_copy_bytes copy = VM.native_initializer_copy_bytes copy
+
+  let claim_initializer_copy request copy =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_copy request copy in
+    VM.claim_native_initializer_copy request.initializer_task
+      request.initializer_attempt request.initializer_execution
+      request.initializer_program_ copy
+
+  let finish_initializer_copy request copy receipt =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_copy request copy in
+    VM.finish_native_initializer_copy request.initializer_task
+      request.initializer_attempt request.initializer_execution
+      request.initializer_program_ copy receipt
+
   let command_entered request = Atomic.get request.command_state = Entered
 
   let initializer_source_callback request =
@@ -385,12 +422,64 @@ module Native_static_initializer = struct
     compiler_options_handler : VM.compiler_options option;
     domain : Domain.id;
     phase : phase Atomic.t;
+    mutable accounted_steps : int option;
   }
 
   type t = request -> (unit, Common.Diagnostic.t list) result
 
   let generation request = request.generation_
   let program request = request.program_
+  let initializer_remaining request = VM.task_initializer_remaining request.task
+
+  let record_steps request steps =
+    if
+      Domain.self () <> request.domain
+      || Atomic.get request.phase <> Entered
+      || Option.is_some request.accounted_steps
+      || steps < 0
+    then
+      Error "static evaluation work has another request or was already recorded"
+    else
+      let before = VM.task_initializer_steps request.task in
+      let available = VM.task_initializer_remaining request.task in
+      let charged = min steps available in
+      VM.record_task_preparation request.task ~before ~steps:charged;
+      request.accounted_steps <- Some steps;
+      if steps <= available then Ok ()
+      else
+        Error
+          "HCIRVM0007: static evaluation exhausted the initializer allowance"
+
+  let check_copy request copy =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native static copy requires its entered original request"
+    else
+      VM.check_native_static_initializer_copy request.task request.program_ copy
+
+  let prepare_copy request capture ~work =
+    if
+      Domain.self () <> request.domain
+      || Atomic.get request.phase <> Entered
+      || request.accounted_steps <> Some work
+    then
+      Error
+        "native static scalar capture has another domain, work count or request"
+    else
+      VM.prepare_native_static_initializer_copy request.task request.program_
+        capture ~work
+
+  let copy_bytes copy = VM.native_static_initializer_copy_bytes copy
+
+  let claim_copy request copy =
+    let ( let* ) = Result.bind in
+    let* () = check_copy request copy in
+    VM.claim_native_static_initializer_copy request.task request.program_ copy
+
+  let finish_copy request copy receipt =
+    let ( let* ) = Result.bind in
+    let* () = check_copy request copy in
+    VM.finish_native_static_initializer_copy request.task request.program_ copy
+      receipt
 
   let check request =
     if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
@@ -474,6 +563,7 @@ module Native_static_initializer = struct
       compiler_options_handler = compiler_options;
       domain = Domain.self ();
       phase = Atomic.make Offered;
+      accounted_steps = None;
     }
 
   let entered request = Atomic.get request.phase = Entered
@@ -1163,6 +1253,145 @@ module Native_offset = struct
   let close request = Atomic.set request.phase Closed
 end
 
+module Native_member_metadata = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    attempt : VM.member_metadata_attempt;
+    program_ : Ir.Member_metadata_fragment_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
+    compiler_options_handler : VM.compiler_options option;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t =
+    request ->
+    ( Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  let generation request = request.generation_
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then
+      Error
+        "native member metadata belongs to another domain or was already \
+         claimed"
+    else
+      VM.check_native_task_member_metadata request.task request.attempt
+        request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match
+        VM.claim_native_task_member_metadata request.task request.attempt
+          request.program_
+      with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native member metadata was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None -> Error "native member metadata lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Member_metadata_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Member_metadata_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Member_metadata_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Member_metadata_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Member_metadata_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Member_metadata_fragment_program.initialization request.program_))
+      binding
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
+  let initializer_remaining request = VM.task_initializer_remaining request.task
+
+  let record_steps request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then
+      Error "native member metadata work requires its entered original request"
+    else
+      VM.record_native_member_metadata_steps request.task request.attempt steps
+
+  let create ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+      task attempt program_ =
+    {
+      task;
+      attempt;
+      program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
+      compiler_options_handler = compiler_options;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
+
+  let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ?compiler_options:request.compiler_options_handler
+      ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
+  let close request = Atomic.set request.phase Closed
+end
+
 module Native_static_copy = struct
   type phase = Offered | Claiming | Entered | Closed
 
@@ -1226,6 +1455,7 @@ type t = {
   native_dimension : Native_dimension.t option;
   native_switch_case : Native_switch_case.t option;
   native_offset : Native_offset.t option;
+  native_member_metadata : Native_member_metadata.t option;
   native_internal_binding : Native_internal_binding.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
   compiled_rev : Integer_unit.compiled list ref;
@@ -1260,7 +1490,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
     ?max_stream_depth ?native_dispatch ?native_static_allocation
     ?native_static_initializer ?native_static_copy ?native_default
-    ?native_dimension ?native_switch_case ?native_offset
+    ?native_dimension ?native_switch_case ?native_offset ?native_member_metadata
     ?native_internal_binding session =
   let session = Session.task_frontend session in
   let config =
@@ -1293,6 +1523,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             native_dimension;
             native_switch_case;
             native_offset;
+            native_member_metadata;
             native_internal_binding;
             commands = [];
             compiled_rev = ref [];
@@ -1353,7 +1584,8 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
     ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
     ?native_dispatch ?native_static_allocation ?native_static_initializer
     ?native_static_copy ?native_default ?native_dimension ?native_switch_case
-    ?native_offset ?native_internal_binding session ~source ~ledger =
+    ?native_offset ?native_member_metadata ?native_internal_binding session
+    ~source ~ledger =
   let ( let* ) = Result.bind in
   let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
   let* state =
@@ -1380,6 +1612,7 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       native_dimension;
       native_switch_case;
       native_offset;
+      native_member_metadata;
       native_internal_binding;
       commands = [];
       compiled_rev = ref [];
@@ -1427,6 +1660,22 @@ let admit_global task publication =
   Task_declarations.admit_global task.declarations ~runtime:task.state
     publication
 
+let source_fragment_context ~span ~compilation_mode ~session ~ledger =
+  let ( let* ) = Result.bind in
+  let* aggregate_visibility =
+    Task_declarations.aggregate_fragment_visibility ~span ledger
+  in
+  let* aggregate_headers =
+    Task_declarations.aggregate_value_headers ~span ledger
+  in
+  Initializer_fragment_typing.create_context_selected ~aggregate_visibility
+    ~aggregate_headers ~compilation_mode
+    ~table:(Session.semantic_symbols session)
+    ~parent:(Task_declarations.initializer_scope ledger)
+    ()
+  |> Result.map_error (fun message ->
+      [ Integer_source.message_diagnostic ~span message ])
+
 let prepare_initializer_context task receipt =
   let ( let* ) = Result.bind in
   let span =
@@ -1446,10 +1695,8 @@ let prepare_initializer_context task receipt =
   in
   let fragment = Sema.Initializer_fragment.authorized_fragment authority in
   let* context =
-    Initializer_fragment_typing.create_context
-      ~table:(Session.semantic_symbols task.session)
-      ~parent:(Task_declarations.initializer_scope task.declarations)
-    |> diagnose
+    source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+      ~ledger:task.declarations
   in
   let* typed =
     Initializer_fragment_typing.prepare context fragment |> diagnose
@@ -1474,16 +1721,9 @@ let prepare_default_context task receipt =
       ~runtime:task.state ~task_view receipt
   in
   let fragment = Sema.Default_fragment.authorized_fragment authority in
-  let* aggregate_headers =
-    Task_declarations.aggregate_value_headers ~span task.declarations
-  in
   let* context =
-    Initializer_fragment_typing.create_context_selected ~aggregate_headers
-      ~compilation_mode:Jit
-      ~table:(Session.semantic_symbols task.session)
-      ~parent:(Task_declarations.initializer_scope task.declarations)
-      ()
-    |> diagnose
+    source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+      ~ledger:task.declarations
   in
   let* typed =
     Initializer_fragment_typing.prepare_default context fragment |> diagnose
@@ -1505,10 +1745,8 @@ let prepare_callback_default_context task receipt =
   in
   let fragment = Sema.Default_fragment.authorized_fragment authority in
   let* context =
-    Initializer_fragment_typing.create_context
-      ~table:(Session.semantic_symbols task.session)
-      ~parent:(Task_declarations.initializer_scope task.declarations)
-    |> diagnose
+    source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+      ~ledger:task.declarations
   in
   let* typed =
     Initializer_fragment_typing.prepare_default context fragment |> diagnose
@@ -1542,15 +1780,7 @@ let prepare_source_default task ~session ~ledger receipt =
     else Ok ()
   in
   let* context =
-    let* aggregate_headers =
-      Task_declarations.aggregate_value_headers ~span ledger
-    in
-    Initializer_fragment_typing.create_context_selected ~aggregate_headers
-      ~compilation_mode:Aot
-      ~table:(Session.semantic_symbols session)
-      ~parent:(Task_declarations.initializer_scope ledger)
-      ()
-    |> diagnose
+    source_fragment_context ~span ~compilation_mode:Aot ~session ~ledger
   in
   let* typed =
     Initializer_fragment_typing.prepare_default context fragment |> diagnose
@@ -1866,10 +2096,8 @@ let execute_runtime_dimension ?(use_active_stream = true) ?stream_exe_print task
   let outcome =
     let fragment = Sema.Dimension_fragment.authorized_fragment authority in
     let* context =
-      Initializer_fragment_typing.create_context
-        ~table:(Session.semantic_symbols task.session)
-        ~parent:(Task_declarations.initializer_scope task.declarations)
-      |> diagnose
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
     in
     let* typed =
       Initializer_fragment_typing.prepare_dimension context fragment |> diagnose
@@ -1950,10 +2178,8 @@ let execute_runtime_switch_case ?(use_active_stream = true) ?stream_exe_print
   let outcome =
     let fragment = Sema.Switch_case_fragment.authorized_fragment authority in
     let* context =
-      Initializer_fragment_typing.create_context
-        ~table:(Session.semantic_symbols task.session)
-        ~parent:(Task_declarations.initializer_scope task.declarations)
-      |> diagnose
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
     in
     let* typed =
       Initializer_fragment_typing.prepare_switch_case context fragment
@@ -2033,10 +2259,8 @@ let execute_runtime_internal_binding ?(use_active_stream = true)
       Sema.Internal_binding_fragment.authorized_fragment authority
     in
     let* context =
-      Initializer_fragment_typing.create_context
-        ~table:(Session.semantic_symbols task.session)
-        ~parent:(Task_declarations.initializer_scope task.declarations)
-      |> diagnose
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
     in
     let* typed =
       Initializer_fragment_typing.prepare_internal_binding context fragment
@@ -2116,10 +2340,8 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
   let outcome =
     let fragment = Sema.Offset_fragment.authorized_fragment authority in
     let* context =
-      Initializer_fragment_typing.create_context
-        ~table:(Session.semantic_symbols task.session)
-        ~parent:(Task_declarations.initializer_scope task.declarations)
-      |> diagnose
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
     in
     let* typed =
       Initializer_fragment_typing.prepare_offset context fragment |> diagnose
@@ -2177,6 +2399,89 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
   let* () = outcome in
   finished
 
+let execute_runtime_member_metadata ?(use_active_stream = true)
+    ?stream_exe_print task receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.phase_location.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let before = VM.task_initializer_steps task.state in
+  let* task_view = VM.task_snapshot task.state |> diagnose in
+  let* authority, attempt =
+    Task_declarations.begin_runtime_member_metadata task.declarations
+      ~runtime:task.state ~task_view receipt
+  in
+  let outcome =
+    let fragment =
+      Sema.Member_metadata_fragment.authorized_fragment authority
+    in
+    let* context =
+      source_fragment_context ~span ~compilation_mode:Jit ~session:task.session
+        ~ledger:task.declarations
+    in
+    let* typed =
+      Initializer_fragment_typing.prepare_member_metadata context fragment
+      |> diagnose
+    in
+    let* destination =
+      Ir.Member_metadata_fragment_destination.create ~task_view typed
+      |> diagnose
+    in
+    match task.native_member_metadata with
+    | Some evaluate ->
+        let* program =
+          Member_metadata_fragment_lowering.lower_native ~context ~authority
+            destination
+        in
+        let request =
+          Native_member_metadata.create
+            ~compiler_options:(compiler_options task ~span)
+            ~use_active_stream ?stream_exe_print task.state attempt program
+        in
+        Fun.protect
+          ~finally:(fun () -> Native_member_metadata.close request)
+          (fun () ->
+            let* capture = evaluate request in
+            if Native_member_metadata.entered request then
+              VM.complete_native_task_member_metadata task.state attempt program
+                capture
+              |> diagnose
+            else
+              Error
+                [
+                  Integer_source.diagnostic ~span "HCIRVM0026"
+                    "native member metadata returned without claiming its \
+                     original expression";
+                ])
+    | None when Option.is_some task.native_dispatch ->
+        Error
+          [
+            Integer_source.diagnostic ~span "HCRUN0006"
+              "native task execution requires its member metadata adapter";
+          ]
+    | None ->
+        let* execution =
+          Member_metadata_fragment_lowering.prepare ~context ~authority
+            ~runtime:task.state destination
+        in
+        VM.execute_task_member_metadata
+          ~compiler_options:(compiler_options task ~span)
+          ~use_active_stream ?stream_exe_print task.state attempt execution
+        |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+  in
+  (match outcome with
+  | Error _ -> ignore (VM.fail_task_member_metadata task.state attempt)
+  | Ok () -> ());
+  let finished =
+    Task_declarations.finish_runtime_member_metadata task.declarations
+      ~runtime:task.state ~before ~succeeded:(Result.is_ok outcome) receipt
+  in
+  let* () = outcome in
+  finished
+
 let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     task event =
   let ( let* ) = Result.bind in
@@ -2204,10 +2509,8 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
             ~runtime:task.state ~task_view receipt
         in
         let* context =
-          Initializer_fragment_typing.create_context
-            ~table:(Session.semantic_symbols task.session)
-            ~parent:(Task_declarations.initializer_scope task.declarations)
-          |> diagnose
+          source_fragment_context ~span ~compilation_mode:Jit
+            ~session:task.session ~ledger:task.declarations
         in
         let* typed =
           Initializer_fragment_typing.prepare_static context fragment
@@ -2288,6 +2591,10 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
       when Task_declarations.dimension_requires_runtime receipt ->
         execute_runtime_dimension ~use_active_stream ?stream_exe_print task
           receipt
+    | Frontend.Parser.Aggregate_advanced receipt
+      when Task_declarations.member_metadata_requires_runtime receipt ->
+        execute_runtime_member_metadata ~use_active_stream ?stream_exe_print
+          task receipt
     | Frontend.Parser.Switch_case_preparing receipt
       when Task_declarations.switch_case_requires_runtime receipt ->
         execute_runtime_switch_case ~use_active_stream ?stream_exe_print task
@@ -2328,6 +2635,15 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
           ~runtime:task.state start
     | Frontend.Parser.Global_initializer_delimiter_completed receipt ->
         Task_declarations.observe_initializer_delimiter task.declarations
+          ~runtime:task.state receipt
+    | Frontend.Parser.Global_initializer_leaf_preparing receipt ->
+        Task_declarations.observe_initializer_preparation task.declarations
+          ~runtime:task.state receipt
+    | Frontend.Parser.Static_initializer_expression_preparing receipt ->
+        Task_declarations.observe_static_expression_preparation
+          task.declarations ~runtime:task.state receipt
+    | Frontend.Parser.Static_initializer_delimiter_completed receipt ->
+        Task_declarations.observe_static_delimiter task.declarations
           ~runtime:task.state receipt
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
         execute_initializer_leaf ~use_active_stream ?stream_exe_print task
@@ -2762,6 +3078,9 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
     let open Frontend.Parser in
     let start =
       match event with
+      | Index_operand_selected p -> Frontend.Parser.index_command p
+      | Assignment_operand_preparing p | Assignment_operand_selected p ->
+          Frontend.Parser.assignment_command p
       | Internal_binding_preparing p -> p.binding_command
       | Aggregate_declared p -> p.aggregate_header.declaration_command
       | Aggregate_advanced p ->
@@ -2781,6 +3100,9 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
           publication.global_header.declaration_command
       | Global_initializer_started start ->
           start.initializer_owner.global_header.declaration_command
+      | Global_initializer_leaf_preparing preparation ->
+          preparation.preparation_initializer.initializer_owner.global_header
+            .declaration_command
       | Global_initializer_leaf_completed leaf ->
           leaf.leaf_initializer.initializer_owner.global_header
             .declaration_command
@@ -2791,6 +3113,14 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
           publication.function_header.declaration_command
       | Function_position_written p ->
           p.position_function.function_header.declaration_command
+      | Static_initializer_expression_preparing p ->
+          p.static_expression_start.static_start_allocation.allocation_function
+            .function_header
+            .declaration_command
+      | Static_initializer_delimiter_completed p ->
+          p.static_delimiter_start.static_start_allocation.allocation_function
+            .function_header
+            .declaration_command
       | Static_initializer_preparing p ->
           p.static_allocation.allocation_function.function_header
             .declaration_command

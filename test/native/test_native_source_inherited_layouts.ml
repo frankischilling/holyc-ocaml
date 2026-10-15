@@ -105,6 +105,44 @@ let boundaries () =
   value (run Cases.object_storage);
   failure "HCRUN0001" (run Cases.overflow)
 
+let metadata_preparation () =
+  let source = {|class B{I64 x data 40+2;};42;|} in
+  value (run ~max_initializer_steps:3 source);
+  failure "HCIRVM0007" (run ~max_initializer_steps:2 source);
+  let source = {|class B{I64 x data 40+2;};I64 N=42;N;|} in
+  value (run ~max_initializer_steps:6 source);
+  failure "HCIRVM0007" (run ~max_initializer_steps:5 source);
+  value
+    (run {|I64 N=0;I64 Side(){N++;return 42;}class B{I64 x data Side();};N+41;|})
+
+let runtime_metadata () =
+  failure "HCRUN0006" (run {|I64 F(){return 42;}class B{I64 x data &F;};42;|});
+  let report = run Cases.metadata_effects in
+  value report;
+  Alcotest.(check string)
+    "metadata output occurs once per entry" "MM"
+    (Native.output_bytes report);
+  List.iter
+    (fun (source, code, output) ->
+      let report = run source in
+      failure code report;
+      Alcotest.(check string)
+        "earlier metadata output survives failure" output
+        (Native.output_bytes report))
+    Cases.metadata_faults;
+  List.iter
+    (fun source ->
+      let baseline = run source in
+      value baseline;
+      let work = Native.preparation_steps baseline in
+      value (run ~max_initializer_steps:work source);
+      let failed = run ~max_initializer_steps:(work - 1) source in
+      failure "HCIRVM0007" failed;
+      Alcotest.(check int)
+        "failed runtime metadata spends only its allowance" (work - 1)
+        (Native.preparation_steps failed))
+    (Cases.metadata_counter :: Cases.metadata_children)
+
 let () =
   Alcotest.run "Native original inherited metadata"
     [
@@ -117,6 +155,12 @@ let () =
             Alcotest.test_case "once-only native effects and source order"
               `Quick effects;
             Alcotest.test_case "exact source and native budgets" `Quick quotas;
+            Alcotest.test_case
+              "runtime metadata effects, failures and nested quotas" `Quick
+              runtime_metadata;
+            Alcotest.test_case
+              "metadata preparation quotas and live expression boundary" `Quick
+              metadata_preparation;
             Alcotest.test_case "existing storage boundaries" `Quick boundaries;
           ] );
     ]

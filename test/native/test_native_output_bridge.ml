@@ -144,8 +144,8 @@ let storage_validation () =
       Obj.repr (0, 0, 0, "\000");
       Obj.repr (1, 1, 0, "\000");
     ];
-  rejects "metadata without persistent data"
-    "native output program private metadata has no persistent data"
+  rejects "metadata-only arena still requires a checked code image"
+    "native program unwind table has an unsupported function count"
     ~storage:(Obj.repr (0, 0, 1, "\000"))
     ()
 
@@ -236,7 +236,22 @@ let valid_empty_and_storage_arenas () =
   Alcotest.(check bool)
     "storage fixture has an arena" true
     (String.length (Program.global_image with_storage) > 0);
-  check_success "storage" "42" 4 with_storage
+  check_success "storage" "42" 4 with_storage;
+  let metadata_only =
+    source_image
+      "extern U0 PutChars(U64 ch);class Empty{};Empty object;I64 F(){static \
+       Empty saved;return sizeof(object)+sizeof(saved)+42;}'42';F();"
+  in
+  Alcotest.(check int)
+    "metadata-only global bytes" 0
+    (Program.global_bytes metadata_only);
+  Alcotest.(check int)
+    "metadata-only literal bytes" 0
+    (Program.literal_bytes metadata_only);
+  Alcotest.(check int)
+    "two original root owner words" 16
+    (Program.arena_metadata_bytes metadata_only);
+  check_success "metadata-only" "42" 4 metadata_only
 
 let report_fault_prefixes () =
   let image = source_image "extern U0 PutChars(U64 ch);'42';42;" in

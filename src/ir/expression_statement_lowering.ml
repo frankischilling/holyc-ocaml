@@ -115,6 +115,7 @@ let top_level_expression_statement root =
       | Top_level_source.Dimension_fragment _
       | Top_level_source.Switch_case_fragment _
       | Top_level_source.Offset_fragment _
+      | Top_level_source.Member_metadata_fragment _
       | Top_level_source.Static_initializer_fragment _
       | Top_level_source.Default_fragment _
       | Top_level_source.Implicit_output_argument _

@@ -1,11 +1,14 @@
 type t = {
-  aggregate : Aggregate_member_index.aggregate;
+  aggregate : Aggregate_member_index.aggregate option;
   source_type : Type.t;
   value_type : Type.t;
   default_class : Aggregate_member_index.aggregate option;
   before_item_index : int;
   layout_before_item_index : int;
-  function_ : Function_call_conversion_policy.resolved_function;
+  function_ : Function_call_conversion_policy.resolved_function option;
+  assignment :
+    (Function_aggregate_visibility.function_ * Frontend.Ast.expression) option;
+  top_level : (Function_aggregate_visibility.t * Frontend.Ast.expression) option;
 }
 
 let scalar_type ~members ~before_item_index forwarded =
@@ -86,13 +89,15 @@ let create_at ~table ~members ~policies ~before_item_index
           = before_item_index)
       |> Option.map (fun function_ ->
           {
-            aggregate;
+            aggregate = Some aggregate;
             source_type;
             value_type;
             default_class;
             before_item_index;
             layout_before_item_index;
-            function_;
+            function_ = Some function_;
+            assignment = None;
+            top_level = None;
           }))
 
 let create ~table ~members ~policies ~before_item_index ~source_type =
@@ -116,15 +121,18 @@ let create_visible ~visibility ~source ~table ~members ~policies ~source_type =
           (create_at ~table ~members ~policies ~before_item_index
              ~layout_before_item_index ~source_type) (fun storage ->
             if
-              Function_call_conversion_policy.function_symbol storage.function_
+              Function_call_conversion_policy.function_symbol
+                (Option.get storage.function_)
               == Function_aggregate_visibility.function_symbol visibility
-              && Function_aggregate_visibility.permits_aggregate visibility
-                   ~source
-                   ~item_index:
-                     (Aggregate_member_index.aggregate_item_index
-                        storage.aggregate)
-                   ~symbol:
-                     (Aggregate_member_index.aggregate_symbol storage.aggregate)
+              && Option.fold ~none:false
+                   ~some:(fun aggregate ->
+                     Function_aggregate_visibility.permits_aggregate visibility
+                       ~source
+                       ~item_index:
+                         (Aggregate_member_index.aggregate_item_index aggregate)
+                       ~symbol:
+                         (Aggregate_member_index.aggregate_symbol aggregate))
+                   storage.aggregate
               && Option.fold ~none:true
                    ~some:(fun aggregate ->
                      Function_aggregate_visibility.permits_aggregate visibility
@@ -137,23 +145,165 @@ let create_visible ~visibility ~source ~table ~members ~policies ~source_type =
             then Some storage
             else None))
 
+let assignment_permitted storage = Option.is_none storage.default_class
+
+let create_assignment ~visibility ~source ~table ~members ~policies ~source_type
+    =
+  if
+    (not
+       (Function_aggregate_visibility.function_owns visibility ~table
+          ~parent:(Aggregate_member_index.parent_scope members)))
+    || (not (Aggregate_member_index.owns_table members table))
+    || (not (Function_call_conversion_policy.owns_table policies table))
+    || not
+         (Function_call_conversion_policy.owns_parent policies
+            (Aggregate_member_index.parent_scope members))
+  then Some None
+  else
+    Option.map
+      (fun selected ->
+        Option.bind selected (fun value_type ->
+            match Type.base source_type with
+            | Type.Aggregate symbol when Type.pointer_depth source_type = 0 ->
+                let aggregate =
+                  Aggregate_member_index.find_aggregate members symbol
+                in
+                let before_item_index =
+                  Function_aggregate_visibility.function_item_index visibility
+                in
+                Function_call_conversion_policy.functions policies
+                |> List.find_opt (fun function_ ->
+                    Function_call_conversion_policy.function_symbol function_
+                    == Function_aggregate_visibility.function_symbol visibility
+                    && Function_call_conversion_policy.function_item_index
+                         function_
+                       = before_item_index)
+                |> Option.map (fun function_ ->
+                    {
+                      aggregate;
+                      source_type;
+                      value_type;
+                      default_class = None;
+                      before_item_index;
+                      layout_before_item_index = before_item_index;
+                      function_ = Some function_;
+                      assignment = Some (visibility, source);
+                      top_level = None;
+                    })
+            | _ -> None))
+      (Function_aggregate_visibility.assignment_value_type visibility ~source
+         ~source_type)
+
+let create_local ~visibility ~local ~table ~members ~policies =
+  if
+    not
+      (Function_aggregate_visibility.function_owns visibility ~table
+         ~parent:(Aggregate_member_index.parent_scope members))
+  then None
+  else
+    Option.bind
+      (Function_aggregate_visibility.local_type_frontier visibility ~local)
+      (fun layout_before_item_index ->
+        let before_item_index =
+          Function_aggregate_visibility.function_item_index visibility
+        in
+        let source_type =
+          Local_type_resolution.local_type_reference local
+          |> Type_reference.resolved_type
+        in
+        Option.bind
+          (create_at ~table ~members ~policies ~before_item_index
+             ~layout_before_item_index ~source_type) (fun storage ->
+            let permits aggregate =
+              Function_aggregate_visibility.permits_local_aggregate visibility
+                ~local
+                ~item_index:
+                  (Aggregate_member_index.aggregate_item_index aggregate)
+                ~symbol:(Aggregate_member_index.aggregate_symbol aggregate)
+            in
+            if
+              Function_call_conversion_policy.function_symbol
+                (Option.get storage.function_)
+              == Function_aggregate_visibility.function_symbol visibility
+              && Option.fold ~none:false ~some:permits storage.aggregate
+              && assignment_permitted storage
+            then Some storage
+            else None))
+
 let source_type storage = storage.source_type
 let value_type storage = storage.value_type
 
 let aggregate_symbol storage =
-  Aggregate_member_index.aggregate_symbol storage.aggregate
+  match Type.base storage.source_type with
+  | Type.Aggregate symbol -> symbol
+  | _ -> assert false
+
+let create_top_level_assignment ~visibility ~source ~table ~members ~policies
+    ~before_item_index ~source_type =
+  if
+    (not
+       (Function_aggregate_visibility.owns visibility ~table
+          ~parent:(Aggregate_member_index.parent_scope members)))
+    || (not (Aggregate_member_index.owns_table members table))
+    || (not (Function_call_conversion_policy.owns_table policies table))
+    || not
+         (Function_call_conversion_policy.owns_parent policies
+            (Aggregate_member_index.parent_scope members))
+  then Some None
+  else
+    Option.map
+      (Option.map (fun value_type ->
+           {
+             aggregate = None;
+             source_type;
+             value_type;
+             default_class = None;
+             before_item_index;
+             layout_before_item_index = before_item_index;
+             function_ = None;
+             assignment = None;
+             top_level = Some (visibility, source);
+           }))
+      (Function_aggregate_visibility.top_level_assignment_value_type visibility
+         ~source ~source_type)
+
+let matches_top_level storage ~source_type ~value_type =
+  Option.is_none storage.function_
+  && Type.equal storage.source_type source_type
+  && Type.equal storage.value_type value_type
+  &&
+  match storage.top_level with
+  | None -> false
+  | Some (visibility, source) ->
+      Option.equal (Option.equal Type.equal)
+        (Function_aggregate_visibility.top_level_assignment_value_type
+           visibility ~source ~source_type)
+        (Some (Some value_type))
 
 let matches storage ~function_symbol ~function_scope ~before_item_index
     ~source_type ~value_type =
   storage.before_item_index = before_item_index
-  && Function_call_conversion_policy.function_symbol storage.function_
-     == function_symbol
-  && Symbol.Scope_id.equal
-       (Function_call_conversion_policy.function_scope storage.function_
-       |> Symbol_table.scope_id)
-       function_scope
-  && Aggregate_member_index.aggregate_item_index storage.aggregate
-     < storage.layout_before_item_index
+  && Option.fold ~none:false
+       ~some:(fun function_ ->
+         Function_call_conversion_policy.function_symbol function_
+         == function_symbol
+         && Symbol.Scope_id.equal
+              (Function_call_conversion_policy.function_scope function_
+              |> Symbol_table.scope_id)
+              function_scope)
+       storage.function_
+  && (match storage.assignment with
+    | None ->
+        Option.fold ~none:false
+          ~some:(fun aggregate ->
+            Aggregate_member_index.aggregate_item_index aggregate
+            < storage.layout_before_item_index)
+          storage.aggregate
+    | Some (visibility, source) ->
+        Option.equal (Option.equal Type.equal)
+          (Function_aggregate_visibility.assignment_value_type visibility
+             ~source ~source_type)
+          (Some (Some value_type)))
   && Option.fold ~none:true
        ~some:(fun aggregate ->
          Aggregate_member_index.aggregate_item_index aggregate

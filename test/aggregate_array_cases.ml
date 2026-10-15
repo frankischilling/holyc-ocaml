@@ -137,10 +137,6 @@ let unsupported =
     ( "aggregate extent multiplication overflow",
       {|class Box{U64 value;};I64 F(){Box a[0x7fffffffffffffff][2];return 42;}F();|}
     );
-    ("empty class array", {|class Box{};I64 F(){Box a[2];return 42;}F();|});
-    ("persistent class array", {|class Box{U8 byte;};Box a[2];42;|});
-    ( "static class array",
-      {|class Box{U8 byte;};I64 F(){static Box a[2];return 42;}F();|} );
     ( "aggregate array initializer",
       {|class Box{U8 byte;};I64 F(){Box a[2]={1,2};return 42;}F();|} );
     ( "whole root array element value",

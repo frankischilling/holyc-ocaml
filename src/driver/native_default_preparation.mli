@@ -27,6 +27,7 @@ val prepare :
   (unit, Common.Diagnostic.t list) result
 
 val work : t -> int
+val remaining_work : t -> int
 
 val synchronize_work : t -> work:int -> bytes:int -> (unit, string) result
 (** Charge other original source contexts to the same invocation allowance.

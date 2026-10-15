@@ -11,6 +11,7 @@ type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
   | Aggregate_position_expression of Offset_fragment.position
+  | Metadata_position_expression of Member_metadata_fragment.position
   | Default_position_expression of Default_fragment.position
   | Offset_expression
   | Postfix_cast_expression
@@ -771,6 +772,7 @@ let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
   | Aggregate_position_expression _ -> "aggregate-position"
+  | Metadata_position_expression _ -> "member-metadata-position"
   | Default_position_expression _ -> "default-position"
   | Offset_expression -> "offset"
   | Postfix_cast_expression -> "postfix-cast"
@@ -1900,8 +1902,8 @@ let make_return ~index ~keyword_origin ~expression ~origin =
   else Ok { index; keyword_origin; expression; origin }
 
 let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
-    ?default_fragment ?(callee_expressions = []) ?(call_expressions = [])
-    ?(source_occurrences = false) () =
+    ?metadata_fragment ?default_fragment ?(callee_expressions = [])
+    ?(call_expressions = []) ?(source_occurrences = false) () =
   let module Ast = Frontend.Ast in
   let origin = Initializer_source.origin_of_location in
   let same_list check left right =
@@ -2036,6 +2038,7 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
     | ( Ast.Current_position_expression _,
         Unresolved_expression Current_position_expression ) ->
         Option.is_none offset_fragment
+        && Option.is_none metadata_fragment
         && Option.fold ~none:true
              ~some:(fun fragment ->
                Default_fragment.position_is_instruction fragment ast)
@@ -2052,6 +2055,12 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
           ~some:(fun fragment ->
             Offset_fragment.position_matches position fragment ast)
           offset_fragment
+    | ( Ast.Current_position_expression _,
+        Unresolved_expression (Metadata_position_expression position) ) ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
+            Member_metadata_fragment.position_matches position fragment ast)
+          metadata_fragment
     | Ast.Sizeof_expression ast, Sizeof_expression checked ->
         ast.sizeof_keyword_spelling = checked.sizeof_keyword_spelling_
         && origin ast.sizeof_keyword_location = checked.sizeof_keyword_origin_
@@ -2187,12 +2196,14 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
       "initializer expression or calls do not match its retained source leaf"
 
 let validate_source_expression ~source ~expression ~calls ?offset_fragment
-    ?default_fragment ?callee_expressions ?call_expressions () =
+    ?metadata_fragment ?default_fragment ?callee_expressions ?call_expressions
+    () =
   validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
-    ~calls ?offset_fragment ?default_fragment ?callee_expressions
-    ?call_expressions ()
+    ~calls ?offset_fragment ?metadata_fragment ?default_fragment
+    ?callee_expressions ?call_expressions ()
 
-let retain_source_expression ~source expression =
+let retain_source_expression ?offset_fragment ?metadata_fragment
+    ?default_fragment ~source expression =
   if
     Option.fold ~none:false
       ~some:(fun owned -> owned != source)
@@ -2201,7 +2212,8 @@ let retain_source_expression ~source expression =
   else
     let expression = { expression with source_expression = Some source } in
     validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
-      ~calls:[] ~source_occurrences:true ()
+      ~calls:[] ?offset_fragment ?metadata_fragment ?default_fragment
+      ~source_occurrences:true ()
     |> Result.map (fun () -> expression)
 
 let validate_initializer_expression ~leaf ~expression ~calls ?callee_expressions
@@ -2693,7 +2705,12 @@ let publish_aggregates_before visible publications item_index =
   in
   loop visible publications
 
-let validate_cast_target table parent visible target =
+type aggregate_visibility = {
+  published_aggregates : Symbol.t String_map.t;
+  cast_selection : (argument_expression -> string -> Symbol.t option) option;
+}
+
+let validate_cast_target table parent visible expression target =
   let resolved = Type_reference.resolved_type target in
   match Type.base resolved with
   | Type.Primitive _ -> Ok ()
@@ -2707,7 +2724,15 @@ let validate_cast_target table parent visible target =
       else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
       then Error (invalid_input "function call cast target is not an aggregate")
       else
-        match String_map.find_opt (Type_reference.spelling target) visible with
+        let selected =
+          match visible.cast_selection with
+          | None ->
+              String_map.find_opt
+                (Type_reference.spelling target)
+                visible.published_aggregates
+          | Some select -> select expression (Type_reference.spelling target)
+        in
+        match selected with
         | None ->
             Error
               (invalid_input
@@ -2754,7 +2779,7 @@ let rec validate_argument_expression table parent visible declarations
       validate_argument_expression table parent visible declarations
         compilation_mode member.member_base
   | Postfix_cast_expression (operand, target) -> (
-      match validate_cast_target table parent visible target with
+      match validate_cast_target table parent visible expression target with
       | Error _ as error -> error
       | Ok () ->
           validate_argument_expression table parent visible declarations
@@ -2798,7 +2823,7 @@ let rec validate_argument_expression table parent visible declarations
         match
           String_map.find_opt
             (Module_expression_binding.occurrence_name occurrence)
-            visible
+            visible.published_aggregates
         with
         | Some expected when same_symbol expected symbol -> Ok ()
         | Some _ ->
@@ -2828,7 +2853,7 @@ let rec validate_argument_expression table parent visible declarations
             if
               String_map.exists
                 (fun _ expected -> same_symbol expected symbol)
-                visible
+                visible.published_aggregates
             then Ok ()
             else
               Error
@@ -2836,7 +2861,8 @@ let rec validate_argument_expression table parent visible declarations
                    "offset object type is not source-visible at the function")
           else
             match
-              String_map.find_opt offset.offset_target_spelling_ visible
+              String_map.find_opt offset.offset_target_spelling_
+                visible.published_aggregates
             with
             | Some expected when same_symbol expected symbol -> Ok ()
             | Some _ ->
@@ -3707,8 +3733,8 @@ let validate_function_input table parent visible declarations compilation_mode
                                           input.returns occurrences queries)))))
                 )))
 
-let validate_function_inputs table parent expressions declarations
-    compilation_mode outer inputs =
+let validate_function_inputs ?aggregate_visibility table parent expressions
+    declarations compilation_mode outer inputs =
   let rec unique seen = function
     | [] -> true
     | (output : implicit_output_input) :: rest -> (
@@ -3754,9 +3780,35 @@ let validate_function_inputs table parent expressions declarations
         match queries with
         | Error _ as error -> error
         | Ok queries -> (
+            let cast_selection =
+              Option.map
+                (fun visibility ->
+                  let function_ =
+                    Function_aggregate_visibility.find_function visibility
+                      ~symbol:input.symbol ~item_index:input.item_index
+                  in
+                  fun expression name ->
+                    Option.bind function_ (fun function_ ->
+                        Option.bind (argument_expression_source expression)
+                          (fun source ->
+                            Option.bind
+                              (Function_aggregate_visibility.before_expression
+                                 function_ source) (fun frontier ->
+                                let selected, _ =
+                                  publish_aggregates_before String_map.empty
+                                    (Module_expression_binding.publications
+                                       expressions)
+                                    frontier
+                                in
+                                String_map.find_opt name selected))))
+                aggregate_visibility
+            in
+            let expression_visibility =
+              { published_aggregates = visible; cast_selection }
+            in
             match
-              validate_function_input table parent visible declarations
-                compilation_mode expected queries input
+              validate_function_input table parent expression_visibility
+                declarations compilation_mode expected queries input
             with
             | Error _ as error -> error
             | Ok () -> pair visible publications expected_rest input_rest))
@@ -3866,7 +3918,8 @@ let same_publication_target publication declaration =
 
 type computed_type = { type_ : Type.t; array_rank : int }
 
-let rec computed_expression_type members ~before_item_index expression =
+let rec computed_expression_type ?aggregate_visibility ?outer members
+    ~before_item_index expression =
   let invalid origin message = Error (invalid_input_at origin message) in
   match argument_expression_kind expression with
   | Bound_identifier_expression identifier ->
@@ -3876,14 +3929,15 @@ let rec computed_expression_type members ~before_item_index expression =
           array_rank = bound_identifier_array_rank identifier;
         }
   | Parenthesized_expression grouped ->
-      computed_expression_type members ~before_item_index grouped
+      computed_expression_type ?aggregate_visibility ?outer members
+        ~before_item_index grouped
   | Postfix_cast_expression (_, target) ->
       Ok { type_ = Type_reference.resolved_type target; array_rank = 0 }
   | Prefix_expression prefix -> (
       let origin = prefix_operator_origin prefix in
       match
-        computed_expression_type members ~before_item_index
-          (prefix_operand prefix)
+        computed_expression_type ?aggregate_visibility ?outer members
+          ~before_item_index (prefix_operand prefix)
       with
       | Error _ as error -> error
       | Ok source -> (
@@ -3912,7 +3966,8 @@ let rec computed_expression_type members ~before_item_index expression =
                  unary operator"))
   | Index_expression index -> (
       match
-        computed_expression_type members ~before_item_index (index_base index)
+        computed_expression_type ?aggregate_visibility ?outer members
+          ~before_item_index (index_base index)
       with
       | Error _ as error -> error
       | Ok source when source.array_rank > 0 ->
@@ -3925,7 +3980,10 @@ let rec computed_expression_type members ~before_item_index expression =
                 (index_opening_origin index)
                 "callback member index base is neither an array nor a pointer"))
   | Member_access_expression member -> (
-      match resolve_computed_member members ~before_item_index member with
+      match
+        resolve_computed_member ?aggregate_visibility ?outer members
+          ~before_item_index ~source:expression member
+      with
       | Error _ as error -> error
       | Ok lookup ->
           let indexed = Aggregate_member_index.lookup_member lookup in
@@ -3935,6 +3993,43 @@ let rec computed_expression_type members ~before_item_index expression =
               type_ = Aggregate_member_index.member_type indexed;
               array_rank = List.length layout.dimensions;
             })
+  | Unresolved_expression Identifier_expression -> (
+      let metadata =
+        Option.bind outer (fun outer ->
+            Option.bind (argument_expression_source_identifier expression)
+              (fun occurrence ->
+                Outer_expression_binding.functions outer
+                |> List.find_map (fun function_ ->
+                    Outer_expression_binding.function_occurrences function_
+                    |> List.find_map (fun selected ->
+                        if
+                          Outer_expression_binding.occurrence_source selected
+                          != occurrence
+                        then None
+                        else
+                          match
+                            Outer_expression_binding.occurrence_resolution
+                              selected
+                          with
+                          | Outer_expression_binding.Outer_binding binding ->
+                              Outer_environment.entry_global_metadata
+                                (Outer_environment.binding_entry binding)
+                          | _ -> None))))
+      in
+      match metadata with
+      | Some metadata ->
+          Ok
+            {
+              type_ =
+                Type_reference.resolved_type
+                  (Outer_environment.global_type_reference metadata);
+              array_rank = Outer_environment.global_array_rank metadata;
+            }
+      | None ->
+          invalid
+            (argument_expression_origin expression)
+            "callback member base does not have a statically resolved source \
+             type")
   | Postfix_expression _
   | Binary_expression _
   | Aggregate_offset_base_expression _
@@ -3951,12 +4046,14 @@ let rec computed_expression_type members ~before_item_index expression =
         (argument_expression_origin expression)
         "callback member base does not have a statically resolved source type"
 
-and resolve_computed_member members ~before_item_index member =
+and resolve_computed_member ?aggregate_visibility ?outer members
+    ~before_item_index ~source member =
   let operator_origin = member_operator_origin member in
   let member_origin = member_origin member in
   let invalid origin message = Error (invalid_input_at origin message) in
   match
-    computed_expression_type members ~before_item_index (member_base member)
+    computed_expression_type ?aggregate_visibility ?outer members
+      ~before_item_index (member_base member)
   with
   | Error _ as error -> error
   | Ok base when base.array_rank <> 0 ->
@@ -3987,37 +4084,73 @@ and resolve_computed_member members ~before_item_index member =
           match Type.base aggregate_type with
           | Type.Primitive _ ->
               invalid operator_origin "member access base is not an aggregate"
-          | Type.Aggregate aggregate_symbol -> (
-              match
-                Aggregate_member_index.find_aggregate members aggregate_symbol
-              with
-              | None ->
-                  invalid member_origin
-                    (Printf.sprintf
-                       "aggregate `%s` has no completed member index"
-                       (Symbol.name aggregate_symbol))
-              | Some aggregate
-                when Aggregate_member_index.aggregate_item_index aggregate
-                     >= before_item_index ->
-                  invalid member_origin
-                    (Printf.sprintf
-                       "aggregate `%s` is not complete before this member \
-                        access"
-                       (Symbol.name aggregate_symbol))
-              | Some _ -> (
-                  match
-                    Aggregate_member_index.lookup members
-                      ~aggregate:aggregate_symbol ~name:(member_name member)
-                  with
-                  | Error error ->
-                      invalid member_origin
-                        (Aggregate_member_index.error_message error)
-                  | Ok None ->
-                      invalid member_origin
-                        (Printf.sprintf "aggregate `%s` has no member `%s`"
-                           (Symbol.name aggregate_symbol)
-                           (member_name member))
-                  | Ok (Some lookup) -> Ok lookup))))
+          | Type.Aggregate aggregate_symbol ->
+              let reference =
+                Option.bind aggregate_visibility (fun visibility ->
+                    Option.bind (argument_expression_source source)
+                      (fun source ->
+                        Function_aggregate_visibility.member_reference
+                          visibility ~source))
+              in
+              let partial =
+                match reference with
+                | None -> Ok None
+                | Some (identifier, visibility) ->
+                    Aggregate_member_index.lookup_reference members ~identifier
+                      ~visibility ~aggregate:aggregate_symbol
+                      ~name:(member_name member)
+                    |> Result.map_error (fun error ->
+                        invalid_input_at member_origin
+                          (Aggregate_member_index.error_message error))
+              in
+              let original_complete =
+                Option.bind aggregate_visibility (fun visibility ->
+                    Option.map
+                      (fun (identifier, proof) ->
+                        Function_aggregate_visibility.reference_allows
+                          visibility ~identifier ~symbol:aggregate_symbol proof)
+                      reference)
+              in
+              Result.bind partial (function
+                | Some lookup -> Ok lookup
+                | None -> (
+                    match
+                      Aggregate_member_index.find_aggregate members
+                        aggregate_symbol
+                    with
+                    | None ->
+                        invalid member_origin
+                          (Printf.sprintf
+                             "aggregate `%s` has no completed member index"
+                             (Symbol.name aggregate_symbol))
+                    | Some aggregate
+                      when Option.fold
+                             ~none:
+                               (Aggregate_member_index.aggregate_item_index
+                                  aggregate
+                               >= before_item_index)
+                             ~some:not original_complete ->
+                        invalid member_origin
+                          (Printf.sprintf
+                             "aggregate `%s` is not complete before this \
+                              member access"
+                             (Symbol.name aggregate_symbol))
+                    | Some _ -> (
+                        match
+                          Aggregate_member_index.lookup members
+                            ~aggregate:aggregate_symbol
+                            ~name:(member_name member)
+                        with
+                        | Error error ->
+                            invalid member_origin
+                              (Aggregate_member_index.error_message error)
+                        | Ok None ->
+                            invalid member_origin
+                              (Printf.sprintf
+                                 "aggregate `%s` has no member `%s`"
+                                 (Symbol.name aggregate_symbol)
+                                 (member_name member))
+                        | Ok (Some lookup) -> Ok lookup)))))
 
 let member_callable_chain computed =
   let rec peel_indexes origins computed =
@@ -4088,11 +4221,15 @@ let validate_member_callable computed lookup =
                      (Aggregate_member_index.member_type_reference indexed)
                    ~function_pointer))
 
-let resolve_member_callable members ~before_item_index computed =
+let resolve_member_callable ?aggregate_visibility ?outer members
+    ~before_item_index computed =
   match member_callable_chain computed with
   | Error _ as error -> error
-  | Ok (_, member, _) -> (
-      match resolve_computed_member members ~before_item_index member with
+  | Ok (source, member, _) -> (
+      match
+        resolve_computed_member ?aggregate_visibility ?outer members
+          ~before_item_index ~source member
+      with
       | Error _ as error -> error
       | Ok lookup -> (
           match validate_member_callable computed lookup with
@@ -4188,8 +4325,8 @@ let bind_indexed_identifier_call occurrence (call : call) computed base
                            variadic_count;
                          }))))
 
-let resolve_call ?members ?outer ~before_item_index types declarations
-    occurrence (call : call) =
+let resolve_call ?members ?outer ?aggregate_visibility ~before_item_index types
+    declarations occurrence (call : call) =
   let outer_callback =
     match Module_expression_binding.occurrence_resolution occurrence with
     | Module_expression_binding.Outer_candidate ->
@@ -4282,8 +4419,8 @@ let resolve_call ?members ?outer ~before_item_index types declarations
                          })
                 | Some members -> (
                     match
-                      resolve_member_callable members ~before_item_index
-                        computed
+                      resolve_member_callable ?aggregate_visibility ?outer
+                        members ~before_item_index computed
                     with
                     | Error _ as error -> error
                     | Ok (member_lookup, callable) -> (
@@ -4426,8 +4563,8 @@ let resolve_call ?members ?outer ~before_item_index types declarations
                            "function call publication has no active typed \
                             header"))))
 
-let resolve_function ?members ?outer types declarations expected
-    (input : function_input) =
+let resolve_function ?members ?outer ?aggregate_visibility types declarations
+    expected (input : function_input) =
   let occurrences = Module_expression_binding.function_occurrences expected in
   let occurrence_by_index =
     List.fold_left
@@ -4472,21 +4609,24 @@ let resolve_function ?members ?outer types declarations expected
                  "function call lost its validated callee occurrence")
         | Some occurrence -> (
             match
-              resolve_call ?members ?outer ~before_item_index:input.item_index
-                types declarations occurrence call
+              resolve_call ?members ?outer ?aggregate_visibility
+                ~before_item_index:input.item_index types declarations
+                occurrence call
             with
             | Error _ as error -> error
             | Ok call -> calls (call :: rev) rest))
   in
   calls [] input.calls
 
-let resolve_validated ?members ?outer types declarations expressions inputs =
+let resolve_validated ?members ?outer ?aggregate_visibility types declarations
+    expressions inputs =
   let rec pair functions_rev by_symbol expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok (List.rev functions_rev, by_symbol)
     | expected :: expected_rest, input :: input_rest -> (
         match
-          resolve_function ?members ?outer types declarations expected input
+          resolve_function ?members ?outer ?aggregate_visibility types
+            declarations expected input
         with
         | Error _ as error -> error
         | Ok function_ ->
@@ -4499,8 +4639,8 @@ let resolve_validated ?members ?outer types declarations expressions inputs =
   in
   pair [] Int_map.empty (Module_expression_binding.functions expressions) inputs
 
-let resolve ~table ~parent ?members ~function_types ~functions ~expressions
-    ?outer inputs =
+let resolve ~table ~parent ?members ?aggregate_visibility ~function_types
+    ~functions ~expressions ?outer inputs =
   if not (Symbol_table.owns_scope table parent) then
     Error (invalid_input "function call parent belongs to another symbol table")
   else if Symbol_table.scope_kind parent <> Symbol_table.Module then
@@ -4527,6 +4667,12 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
     Error
       (invalid_input "aggregate member index belongs to another symbol table")
   else if
+    Option.fold ~none:false
+      ~some:(fun visibility ->
+        not (Function_aggregate_visibility.owns visibility ~table ~parent))
+      aggregate_visibility
+  then Error (invalid_input "cast visibility belongs to another compilation")
+  else if
     Function_resolution.compilation_mode functions
     <> Module_expression_binding.compilation_mode expressions
   then
@@ -4541,15 +4687,16 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
         | Error _ as error -> error
         | Ok declarations -> (
             match
-              validate_function_inputs table parent expressions declarations
+              validate_function_inputs ?aggregate_visibility table parent
+                expressions declarations
                 (Function_resolution.compilation_mode functions)
                 outer inputs
             with
             | Error _ as error -> error
             | Ok () -> (
                 match
-                  resolve_validated ?members ?outer types declarations
-                    expressions inputs
+                  resolve_validated ?members ?outer ?aggregate_visibility types
+                    declarations expressions inputs
                 with
                 | Error _ as error -> error
                 | Ok (functions_result, by_symbol) ->

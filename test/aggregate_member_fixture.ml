@@ -15,8 +15,18 @@ let local_pointer_contents =
 I64 G(){class Box{U8 tag;U16 value;};Box o[2];o[1].value=42;Box *p=o;p++;return p->value;}F();|}
 
 let local_backing_contents =
-  {|I64 F(){class Box{U8 tag;U8 bytes[8];};Box o;o=42;o.bytes[0]=0;return o;}
-I64 G(){class Box{U8 tag;U8 bytes[8];};Box o;o=42;o.bytes[0]=0;return o;}F();|}
+  {|I64 F(){class Box{U8 tag;U8 bytes[8];};Box o;o(I64)=42;o.bytes[0]=0;return o;}
+I64 G(){class Box{U8 tag;U8 bytes[8];};Box o;o(I64)=42;o.bytes[0]=0;return o;}F();|}
+
+let index_contents =
+  {|class Item{U8 tag;U16 value;};class Box{Item items[2][3];};
+I64 F(){Box object;Item *p=object.items[0];p[1].value=42;return p[1].value;}
+I64 G(){Box object;Item *p=object.items[0];p[1].value=42;return p[1].value;}F();|}
+
+let dynamic_index_contents =
+  {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};
+I64 F(){Box object;object.items[1]=#exe{U16 class Item{U16 value;};}42;object.items[1]=44;return object.bytes[0];}
+I64 G(){Box object;object.items[1]=42;return object.bytes[2];}F();}|}
 
 let compile ?(contents = contents) mode =
   let session = Session.create () in
@@ -24,14 +34,36 @@ let compile ?(contents = contents) mode =
   let config =
     Preprocessor.Config.create ~compilation_mode:mode () |> Result.get_ok
   in
-  match compile_integer_program session ~config ~source with
-  | Ok compiled -> compiled.value
-  | Error diagnostics ->
-      failwith
-        (String.concat "; "
-           (List.map
-              (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
-              diagnostics))
+  if contents = dynamic_index_contents then
+    let report =
+      run_integer_program_report session ~config ~source ~max_steps:100_000
+    in
+    match integer_program_report_outcome report with
+    | Error diagnostics ->
+        failwith
+          (String.concat "; "
+             (List.map
+                (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
+                diagnostics))
+    | Ok _ ->
+        integer_program_report_task_units report
+        |> List.find (fun program ->
+            List.exists
+              (fun definition ->
+                Semantic_symbol.name
+                  (Semantic_function_frame_layout.function_symbol
+                     definition.VM.frame)
+                = "F")
+              (integer_program_functions program))
+  else
+    match compile_integer_program session ~config ~source with
+    | Ok compiled -> compiled.value
+    | Error diagnostics ->
+        failwith
+          (String.concat "; "
+             (List.map
+                (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
+                diagnostics))
 
 let first_definition compiled = integer_program_functions compiled |> List.hd
 
@@ -91,6 +123,29 @@ let rebuild definition transform =
 
 let controls ?(contents = contents) mode =
   let original = compile ~contents mode and foreign = compile ~contents mode in
+  let other_definition =
+    if contents <> dynamic_index_contents then
+      match List.tl (integer_program_functions original) with
+      | other :: _ -> other
+      | [] -> first_definition original
+    else
+      let session = Session.create () in
+      let source =
+        Session.add_source session ~path:"other-index-proof.hc" ~contents
+      in
+      let config =
+        Preprocessor.Config.create ~compilation_mode:mode () |> Result.get_ok
+      in
+      let report =
+        run_integer_program_report session ~config ~source ~max_steps:100_000
+      in
+      integer_program_report_task_units report
+      |> List.concat_map integer_program_functions
+      |> List.find (fun definition ->
+          Semantic_symbol.name
+            (Semantic_function_frame_layout.function_symbol definition.VM.frame)
+          = "G")
+  in
   let definition = first_definition original in
   let foreign_projection = projection (first_definition foreign) in
   let substitute payload (d : Seq.description) =
@@ -107,6 +162,13 @@ let controls ?(contents = contents) mode =
   in
   let wrong_stride (d : Seq.description) =
     match (d.opcode, d.payload, d.target_type) with
+    | Ir_opcode.Ic_imm_i64, Some (Seq.Integer 2L), Some type_
+      when contents = dynamic_index_contents
+           && Semantic_type.pointer_depth type_ = 1 ->
+        { d with payload = Some (Seq.Integer 3L) }
+    | Ir_opcode.Ic_imm_i64, Some (Seq.Integer 9L), Some type_
+      when contents = index_contents && Semantic_type.pointer_depth type_ = 1 ->
+        { d with payload = Some (Seq.Integer 10L) }
     | Ir_opcode.Ic_imm_i64, Some (Seq.Integer 3L), Some type_
       when Semantic_type.pointer_depth type_ = 1 ->
         { d with payload = Some (Seq.Integer 4L) }
@@ -119,6 +181,9 @@ let controls ?(contents = contents) mode =
     if
       contents <> Aggregate_pointer_cases.proof_source
       && contents <> local_pointer_contents
+      && contents <> Aggregate_cast_cases.proof_source
+      && contents <> index_contents
+      && contents <> dynamic_index_contents
     then []
     else
       let proof definition =
@@ -128,19 +193,19 @@ let controls ?(contents = contents) mode =
             Graph.instructions block |> Seq.instructions)
         |> List.find_map (fun instruction ->
             match (Seq.description instruction).payload with
-            | Some (Seq.Pointee_stride _ as proof) -> Some proof
+            | Some ((Seq.Pointee_stride _ | Seq.Class_pointer_view _) as proof)
+              -> Some proof
             | _ -> None)
         |> Option.get
       in
       let substitute payload (d : Seq.description) =
         match d.payload with
-        | Some (Seq.Pointee_stride _) -> { d with payload }
+        | Some (Seq.Pointee_stride _ | Seq.Class_pointer_view _) ->
+            { d with payload }
         | _ -> d
       in
       let foreign_proof = proof (first_definition foreign) in
-      let later_function_proof =
-        proof (List.nth (integer_program_functions original) 1)
-      in
+      let later_function_proof = proof other_definition in
       let frame = definition.VM.frame in
       let instruction =
         Body.body definition.VM.body
@@ -150,11 +215,17 @@ let controls ?(contents = contents) mode =
         |> List.find_map (fun instruction ->
             let description = Seq.description instruction in
             match description.payload with
-            | Some (Seq.Pointee_stride layout) -> Some (description, layout)
+            | Some
+                (Seq.Pointee_stride layout | Seq.Class_pointer_view (layout, _))
+              -> Some (description, layout)
             | _ -> None)
         |> Option.get
       in
       let description, layout = instruction in
+      (if contents = Aggregate_pointer_cases.proof_source then
+         match description.payload with
+         | Some (Seq.Class_pointer_view (_, true)) -> ()
+         | _ -> failwith "class cast lost its original parenthesis flag");
       let pointer_type = Option.get description.target_type in
       let stride = Semantic_aggregate_pointee_layout.byte_size layout in
       let before_item_index =
@@ -166,7 +237,7 @@ let controls ?(contents = contents) mode =
       in
       let own = Semantic_function_frame_layout.function_symbol frame in
       let other =
-        List.nth (integer_program_functions original) 1 |> fun value ->
+        other_definition |> fun value ->
         Semantic_function_frame_layout.function_symbol value.VM.frame
       in
       if not (matches ~function_symbol:own ()) then
@@ -175,20 +246,38 @@ let controls ?(contents = contents) mode =
         failwith "reused numeric function index admitted another function owner";
       if matches () then
         failwith "numeric function index alone admitted a source pointee proof";
+      if
+        contents = index_contents
+        && Semantic_aggregate_pointee_layout.matches ~function_symbol:own layout
+             ~before_item_index ~pointer_type ~stride:(Int64.add stride 1L)
+      then failwith "altered index stride acquired the original observation";
       [
         ( "foreign equal-name pointee layout",
           rebuild definition (substitute (Some foreign_proof)) );
-        ("missing selected pointee layout", rebuild definition (substitute None));
-        ( "scaled offset differs from selected pointee",
-          rebuild definition wrong_stride );
+        ( "numeric cast payload cannot replace its selected class proof",
+          rebuild definition (substitute (Some (Seq.Integer 0L))) );
         ( "pointee layout belongs to another function",
           rebuild definition (substitute (Some later_function_proof)) );
       ]
+      @ (if contents = index_contents then []
+         else
+           [
+             ( "missing selected pointee layout",
+               rebuild definition (substitute None) );
+           ])
+      @
+      if contents = Aggregate_cast_cases.proof_source then []
+      else
+        [
+          ( "scaled offset differs from selected pointee",
+            rebuild definition wrong_stride );
+        ]
   in
   let backing_proofs =
     if
       contents <> Backed_aggregate_cases.proof_source
       && contents <> local_backing_contents
+      && contents <> Automatic_aggregate_cases.initializer_proof_source
     then []
     else
       let proof definition =
@@ -247,3 +336,39 @@ let controls ?(contents = contents) mode =
           rebuild definition wrong_stride );
       ]
     else [] )
+
+let empty_frame_controls mode =
+  let contents =
+    {|class Empty{};I64 F(){Empty object;U8 *p=(&object)(U8*);if(p!=p)return -1;return 42;}F();|}
+  in
+  let original = compile ~contents mode and foreign = compile ~contents mode in
+  let definition = first_definition original in
+  let root definition =
+    Body.body definition.VM.body
+    |> Graph.blocks
+    |> List.concat_map (fun block ->
+        Graph.instructions block |> Seq.instructions)
+    |> List.find_map (fun instruction ->
+        match (Seq.description instruction).payload with
+        | Some (Seq.Empty_frame_root location) -> Some location
+        | _ -> None)
+    |> Option.get
+  in
+  let substitute payload (description : Seq.description) =
+    match description.payload with
+    | Some (Seq.Empty_frame_root _) -> { description with payload }
+    | _ -> description
+  in
+  let copied = Obj.obj (Obj.dup (Obj.repr (root definition))) in
+  ( original,
+    [
+      ( "foreign equal-looking empty frame root",
+        rebuild definition
+          (substitute
+             (Some (Seq.Empty_frame_root (root (first_definition foreign))))) );
+      ( "copied original empty frame root",
+        rebuild definition (substitute (Some (Seq.Empty_frame_root copied))) );
+      ("missing empty frame root", rebuild definition (substitute None));
+      ( "numeric payload cannot select empty frame storage",
+        rebuild definition (substitute (Some (Seq.Integer 0L))) );
+    ] )

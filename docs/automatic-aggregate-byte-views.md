@@ -1,6 +1,6 @@
 # Automatic aggregate byte views
 
-The interpreter and native executor allocate nonempty automatic class and union
+The interpreter and native executor allocate automatic class and union
 objects from the exact layouts admitted at their original allocations. An
 explicit primitive pointer cast exposes an object's bytes:
 
@@ -63,15 +63,45 @@ use the layout admitted at their original allocation and member accesses.
 Whole-value reads and assignments use
 [default](default-aggregate-values.md) or
 [integer-backed](backed-aggregate-values.md) scalar prefixes.
+
+Automatic scalar declaration initializers use the checked integer-backed prefix. Each
+initializer runs when execution reaches its declaration, including on repeated
+calls, and comma declarators run in source order. A literal right operand needs
+no identifier to establish the destination: its original local allocation
+receipt supplies the class identity. The scalar store initializes only its
+selected width; other object bytes remain unknown until written. An empty or
+smaller root cannot accept a wider store, even when the right operand has already
+produced output. The
+[automatic initializer example](../examples/automatic-aggregate-initializers.hc)
+prints A and returns 42 in both modes and executors.
+
 [Class parameters](class-value-parameters.md) and
 [returns](class-value-returns.md) transport words without transferring
 whole-object storage. IR [data pointer fields](aggregate-pointer-fields.md)
 retain separate ownership shadows; overlapping scalar stores invalidate those
-shadows. Native execution of data pointer fields remains gated with `HCBACK0002`.
+shadows. Native data pointer fields also retain ownership and activation identities.
 
 Local and member size queries use their own original metadata. Zero-sized
-automatic objects, persistent aggregate objects, general aggregate copies,
-callback fields, native data pointer fields, pointer returns and compiler
+automatic objects retain their original frame location without consuming source
+frame bytes. Multiple empty roots can share that displacement, including an
+adjacent nonempty local. Their checked addresses compare equal when those source
+positions match, while each empty root keeps its own zero-byte extent and
+activation lifetime. Fixed arrays retain positive checked dimensions and zero
+strides. Index bounds still apply; casts and calls cannot expose neighboring
+bytes. Native images reserve private owner metadata separately from source frame
+bytes. The [empty automatic example](../examples/empty-automatic-aggregates.hc)
+checks shared addresses, arrays, unions and pointer calls and returns 42 with
+output A in both modes and executors.
+
+Forward and partial classes use their original checked allocation receipts.
+Their saved extent is independent of a later completed layout. Inherited member
+observations retain the canonical base records reached at the member name;
+completion can add fields but cannot enlarge the object. Same-name replacement
+cannot substitute a new base. Metadata without the original allocation receipt
+still grants no storage. See
+[original allocation layouts](function-local-aggregate-objects.md).
+General aggregate copies,
+callback fields, pointer returns and compiler
 position queries for aggregate-valued frames remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 

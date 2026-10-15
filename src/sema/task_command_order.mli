@@ -120,3 +120,10 @@ val check_offset :
   admitted:command list ->
   Frontend.Parser.aggregate_phase ->
   (unit, string) result
+
+val check_member_metadata :
+  ?require_admitted:bool ->
+  t ->
+  admitted:command list ->
+  Frontend.Parser.aggregate_phase ->
+  (unit, string) result

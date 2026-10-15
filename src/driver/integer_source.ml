@@ -9,6 +9,8 @@ type prepared = {
   records_ : Sema.Function_record_classification.t;
   global_records_ : Sema.Global_record_classification.t;
   global_layouts_ : Sema.Global_array_layout.t;
+  aggregate_headers_ : Sema.Aggregate_header_resolution.t;
+  aggregate_members_ : Sema.Aggregate_member_index.t;
   initializers_ : Sema.Global_initializer_binding.t option;
   function_outputs_ : Sema.Implicit_output_argument_binding.t;
   top_level_outputs_ : Sema.Top_level_implicit_output_argument_binding.t;
@@ -23,6 +25,8 @@ let frames prepared = prepared.frames_
 let records prepared = prepared.records_
 let global_records prepared = prepared.global_records_
 let global_layouts prepared = prepared.global_layouts_
+let aggregate_headers prepared = prepared.aggregate_headers_
+let aggregate_members prepared = prepared.aggregate_members_
 let initializers prepared = prepared.initializers_
 let function_outputs prepared = prepared.function_outputs_
 let top_level_outputs prepared = prepared.top_level_outputs_
@@ -185,11 +189,6 @@ let prepare_unit ?environment:task_environment ?declaration_command
     | None, None -> Ok None
     | Some _, Some _ -> assert false
   in
-  let* aggregate_visibility =
-    Sema.Function_aggregate_visibility.create ~table ~declarations ~bodies
-      ?aggregate_references ast
-    |> checked
-  in
   let* automatic_aggregate_resolver =
     match (declaration_command, source_command) with
     | Some command, None ->
@@ -202,6 +201,38 @@ let prepare_unit ?environment:task_environment ?declaration_command
         |> Result.map Option.some
     | None, None -> Ok None
     | Some _, Some _ -> assert false
+  in
+  let* assignment_resolver =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.aggregate_assignment_resolver ~table ~ast:source_ast
+          command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_aggregate_assignment_resolver ~table
+          ~ast:source_ast command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
+  let* aggregate_visibility =
+    let* index_resolver =
+      match (declaration_command, source_command) with
+      | Some command, None ->
+          Task_declarations.aggregate_index_resolver ~table ~ast:source_ast
+            command
+          |> Result.map Option.some
+      | None, Some command ->
+          Task_declarations.source_aggregate_index_resolver ~table
+            ~ast:source_ast command
+          |> Result.map Option.some
+      | None, None -> Ok None
+      | Some _, Some _ -> assert false
+    in
+    Sema.Function_aggregate_visibility.create ~table ~declarations ~bodies
+      ?aggregate_references ?automatic_aggregates:automatic_aggregate_resolver
+      ?assignments:assignment_resolver ?indices:index_resolver ast
+    |> checked
   in
   let* aggregates =
     Aggregate_resolution.resolve ~table ~declarations ast |> checked
@@ -420,8 +451,22 @@ let prepare_unit ?environment:task_environment ?declaration_command
         )
     | Some _ -> Ok ([], [])
   in
+  let* declaration_options =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.declaration_compiler_options ~table ~ast:source_ast
+          command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_declaration_compiler_options ~table
+          ~ast:source_ast command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
   let* functions =
     Function_resolution.resolve ?namespace:function_namespace
+      ?compiler_options:declaration_options
       ~record_heads:
         (List.map
            Sema.Function_record_classification.classified_declaration_source
@@ -434,8 +479,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* globals =
-    Global_resolution.resolve ~table ~declarations ~globals:global_types
-      ~compilation_mode:mode ast
+    Global_resolution.resolve ?compiler_options:declaration_options ~table
+      ~declarations ~globals:global_types ~compilation_mode:mode ast
     |> checked
   in
   let* module_expressions =
@@ -490,8 +535,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   let* calls =
     Function_call_resolution.resolve ?call_phases ~table ~declarations
-      ~function_types ~members ~local_types ~global_types ~functions
-      ~expressions:module_expressions ?outer ast
+      ~function_types ~members ~aggregate_visibility ~local_types ~global_types
+      ~functions ~expressions:module_expressions ?outer ast
     |> checked
   in
   let* policies =
@@ -546,7 +591,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* typed =
-    Typed.analyze_top_level ~table ~members ~policies ~identifiers expressions
+    Typed.analyze_top_level ~table ~members ~policies ~identifiers
+      ~aggregate_visibility expressions
     |> Result.map_error Typed.error_to_string
     |> checked
   in
@@ -652,6 +698,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
       semantic_ast_ = ast;
       global_records_ = global_records;
       global_layouts_;
+      aggregate_members_ = members;
+      aggregate_headers_ = headers;
       initializers_;
       top_level_ = typed;
       functions_ = function_results;

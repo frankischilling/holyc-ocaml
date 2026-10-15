@@ -239,6 +239,10 @@ val context_is_current : command_context -> observed_events:int -> bool
     command checkpoints. A delayed or incomplete observer cannot use remembered
     lifecycle state to activate execution after parsing advances or ends. *)
 
+val command_completion_is_current : completed_command -> bool
+(** The original command is complete at the current parser position, before
+    resuming lookahead or leaving its active input context. *)
+
 val sequence_accepted : completed_sequence -> bool
 (** Becomes true only after the sequence completion callback returns
     successfully. Rejected or exceptional completion never accepts the sequence.
@@ -300,6 +304,11 @@ val selected_local : reference_selection -> local_publication option
     semantic symbol or storage authority. *)
 
 val selected_command : reference_selection -> command_start
+
+val selected_member_reference : reference_selection -> bool
+(** A member-name observation follows dot/arrow lookahead and precedes skipping
+    that name. Its lexical lookup is not an expression binding or callee. *)
+
 val reference_selection_is_current : reference_selection -> bool
 
 type call_activity
@@ -542,7 +551,18 @@ type initializer_delimiter =
   | Initializer_close of Ast.location
   | Initializer_comma of Ast.location
 
-type completed_initializer_leaf = private {
+type initializer_leaf_preparation = private {
+  preparation_initializer : global_initializer_start;
+  preparation_index : int;
+  preparation_predecessor : completed_initializer_leaf option;
+  preparation_path : int list;
+  preparation_first : Token.t;
+  preparation_delimiters : initializer_delimiter list;
+  preparation_delimiter_predecessor : completed_initializer_delimiter option;
+}
+
+and completed_initializer_leaf = private {
+  leaf_preparation : initializer_leaf_preparation;
   leaf_initializer : global_initializer_start;
   leaf_index : int;
   leaf_predecessor : completed_initializer_leaf option;
@@ -569,6 +589,13 @@ val initializer_start_is_current : global_initializer_start -> bool
 val initializer_leaf_is_current : completed_initializer_leaf -> bool
 (** True only during the original synchronous declaration callback. Remembered
     events cannot be observed later, even while their command remains open. *)
+
+val initializer_leaf_preparation_is_current :
+  initializer_leaf_preparation -> bool
+(** Original scalar-branch callback before parsing its expression. It retains
+    the already reached first token and both predecessor chains without adding a
+    lexer read. The completed leaf keeps this exact preparation. These witnesses
+    supply source timing, not a scalar destination or execution authority. *)
 
 val initializer_delimiter_is_current : completed_initializer_delimiter -> bool
 (** Original delimiter callback, before requesting the following token. Both
@@ -675,15 +702,35 @@ type static_initializer_start = private {
   static_start_activity : static_initializer_activity;
 }
 
-type static_initializer_preparation = private {
+type static_leaf_preparation = private {
+  static_expression_start : static_initializer_start;
+  static_expression_index : int;
+  static_expression_predecessor : static_initializer_preparation option;
+  static_expression_path : int list;
+  static_expression_first : Token.t;
+  static_expression_delimiters : initializer_delimiter list;
+  static_expression_delimiter_predecessor :
+    completed_static_initializer_delimiter option;
+}
+
+and static_initializer_preparation = private {
   static_initializer : static_initializer_start;
   static_allocation : function_local_allocation;
   static_leaf_index : int;
   static_leaf_predecessor : static_initializer_preparation option;
   static_leaf_path : int list;
   static_leaf_value : Ast.initial_value;
+  static_expression_preparation : static_leaf_preparation;
   static_leaf_delimiters : initializer_delimiter list;
   static_activity : static_initializer_activity;
+}
+
+and completed_static_initializer_delimiter = private {
+  static_delimiter_start : static_initializer_start;
+  static_delimiter_index : int;
+  static_delimiter_predecessor : completed_static_initializer_delimiter option;
+  static_delimiter_leaf_predecessor : static_initializer_preparation option;
+  static_delimiter_value : initializer_delimiter;
 }
 
 type completed_static_initializer = private {
@@ -691,6 +738,18 @@ type completed_static_initializer = private {
   static_preparation : static_initializer_preparation option;
   static_declarator : Ast.local_declarator;
 }
+
+val static_leaf_preparation_is_current : static_leaf_preparation -> bool
+(** The original callback before expression parsing. Its already reached token,
+    predecessor, syntax path and delimiters stay attached to the completed leaf.
+    It expires before expression completion and grants no execution authority.
+*)
+
+val static_initializer_delimiter_is_current :
+  completed_static_initializer_delimiter -> bool
+(** Original delimiter callback before lexer advancement. It retains both
+    predecessor chains and expires when its callback ends, including on failure.
+    These syntax receipts grant no execution or successful-copy authority. *)
 
 val static_initializer_is_current : static_initializer_preparation -> bool
 
@@ -713,7 +772,7 @@ val static_initializer_allocation :
     callback to the AST later retained by the completed declarator. Completion
     records the last leaf (or [None] for an empty initializer) only after the
     declarator delimiter is consumed and the entire retained root is verified.
-    Callback-free parsing emits neither event. *)
+    Callback-free parsing emits none of these static events. *)
 
 type function_position_write = private {
   position_function : function_publication;
@@ -993,10 +1052,15 @@ type aggregate_step =
       member_callback : Ast.function_pointer_declarator option;
       member_dimensions : Ast.array_dimension list;
     }
+  | Aggregate_member_metadata_reached of {
+      member_name : Ast.identifier;
+      metadata : Ast.aggregate_member_metadata;
+    }
   | Aggregate_union_entered
   | Aggregate_union_left
   | Aggregate_offset_reached of Ast.expression
   | Aggregate_body_finished
+  | Aggregate_backing_attached of Ast.aggregate_backing
   | Aggregate_position_reset
 
 type aggregate_publication = private {
@@ -1044,7 +1108,42 @@ type completed_aggregate = private {
 val aggregate_publication_is_current : aggregate_publication -> bool
 val aggregate_completion_is_current : completed_aggregate -> bool
 
+type index_selection
+
+val index_command : index_selection -> command_start
+val index_environment : index_selection -> Symbol_visibility.Environment.t
+val index_function : index_selection -> function_publication option
+val index_opening : index_selection -> Ast.location
+val index_source : index_selection -> Ast.expression option
+
+val index_selection_is_current : index_selection -> bool
+(** Original stride observation after opening-bracket lookahead and before its
+    index value. Completion retains the exact original index expression. *)
+
+type assignment_selection
+
+val assignment_left : assignment_selection -> Ast.expression
+val assignment_operator : assignment_selection -> Ast.location
+
+val assignment_environment :
+  assignment_selection -> Symbol_visibility.Environment.t
+
+val assignment_command : assignment_selection -> command_start
+val assignment_function : assignment_selection -> function_publication option
+val assignment_source : assignment_selection -> Ast.expression option
+val assignment_selection_is_current : assignment_selection -> bool
+
+val assignment_preparation_is_current : assignment_selection -> bool
+(** Preparation observes the original lvalue before assignment-operator
+    lookahead; selection follows that lookahead before parsing the right
+    operand. Each query is current only during its own callback. Completion
+    retains the exact binary source node. These receipts grant no storage, type
+    or execution authority. *)
+
 type declaration_event = private
+  | Index_operand_selected of index_selection
+  | Assignment_operand_preparing of assignment_selection
+  | Assignment_operand_selected of assignment_selection
   | Internal_binding_preparing of internal_binding_preparation
   | Aggregate_declared of aggregate_publication
   | Aggregate_advanced of aggregate_phase
@@ -1056,12 +1155,16 @@ type declaration_event = private
   | Switch_completed of completed_switch
   | Global_declared of global_publication
   | Global_initializer_started of global_initializer_start
+  | Global_initializer_leaf_preparing of initializer_leaf_preparation
   | Global_initializer_leaf_completed of completed_initializer_leaf
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
   | Function_position_written of function_position_write
   | Function_local_allocated of function_local_allocation
+  | Static_initializer_expression_preparing of static_leaf_preparation
+  | Static_initializer_delimiter_completed of
+      completed_static_initializer_delimiter
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
   | Callback_position_written of callback_position_write
@@ -1088,20 +1191,22 @@ type declaration_event = private
           initializer inference.
 
           A global is declared after its dimensions, before its initializer.
-          Initializer start precedes reading the first value. Each leaf retains
-          its original scalar node after expression lookahead and before parent
-          delimiter validation or the next leaf's lexer reads. Adjacent strings
-          remain one expression and one leaf. Paths describe the original syntax
-          tree, not checked destination indices or byte offsets. These callbacks
-          also describe unsupported initializer shapes; they grant no layout or
-          execution authority. Global completion precedes lookahead past its
-          delimiter. A function is provisional before parameter parsing. Header
-          completion follows the first lookahead past ')' or an unterminated
-          variadic marker; body completion follows body parsing and its
-          terminating lookahead, including a native empty body at EOF.
-          Completion records reuse exact source nodes and their declaration
-          witness. Runtime validation, installation and replay admission remain
-          the consumer's work. *)
+          Initializer start precedes reading the first value. Scalar preparation
+          precedes expression parsing and retains its reached first token. Each
+          completed leaf keeps that exact preparation and its original scalar
+          node after expression lookahead and before parent delimiter validation
+          or the next leaf's lexer reads. Adjacent strings remain one expression
+          and one leaf. Paths describe the original syntax tree, not checked
+          destination indices or byte offsets. These callbacks also describe
+          unsupported initializer shapes; they grant no layout or execution
+          authority. Global completion precedes lookahead past its delimiter. A
+          function is provisional before parameter parsing. Header completion
+          follows the first lookahead past ')' or an unterminated variadic
+          marker; body completion follows body parsing and its terminating
+          lookahead, including a native empty body at EOF. Completion records
+          reuse exact source nodes and their declaration witness. Runtime
+          validation, installation and replay admission remain the consumer's
+          work. *)
 
 type source_observation =
   | Command of command_event

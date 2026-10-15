@@ -11,12 +11,53 @@ val create :
   ?aggregate_references:
     (Frontend.Ast.identifier ->
     Compiler_record.aggregate_reference_visibility option) ->
+  ?automatic_aggregates:
+    (Frontend.Ast.identifier ->
+    Compiler_record.automatic_aggregate_allocation option) ->
+  ?assignments:
+    (Frontend.Ast.expression ->
+    Compiler_record.aggregate_assignment_visibility option) ->
+  ?indices:
+    (Frontend.Ast.expression ->
+    Compiler_record.aggregate_index_visibility option) ->
   Frontend.Ast.module_ ->
   (t, string) result
 (** Immutable lexical layout positions for the exact declaration tree. This is
     semantic evidence, not permission to execute a reconstructed source tree. *)
 
+val create_references :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  ?assignments:
+    (Frontend.Ast.expression ->
+    Compiler_record.aggregate_assignment_visibility option) ->
+  ?indices:
+    (Frontend.Ast.expression ->
+    Compiler_record.aggregate_index_visibility option) ->
+  (Frontend.Ast.identifier * Compiler_record.aggregate_reference_visibility)
+  list ->
+  (t, string) result
+(** Immutable metadata view of original observations in one namespace, without
+    reconstructing an AST or granting function, storage or execution authority.
+    Foreign occurrences and duplicate observations reject. *)
+
 val owns : t -> table:Symbol_table.t -> parent:Symbol_table.scope -> bool
+
+val member_reference :
+  t ->
+  source:Frontend.Ast.expression ->
+  (Frontend.Ast.identifier * Compiler_record.aggregate_reference_visibility)
+  option
+(** Resolve the original member-name observation from this source namespace.
+    Copied names and expressions without a member occurrence have no proof. *)
+
+val reference_allows :
+  t ->
+  identifier:Frontend.Ast.identifier ->
+  symbol:Symbol.t ->
+  Compiler_record.aggregate_reference_visibility ->
+  bool
+(** Check the original completed-class observation in this exact namespace. *)
 
 val function_owns :
   function_ -> table:Symbol_table.t -> parent:Symbol_table.scope -> bool
@@ -32,6 +73,41 @@ val before_local : function_ -> Frontend.Ast.identifier -> int option
     nodes have no frontier. The function's own declaration index is unchanged.
 *)
 
+val assignment_value_type :
+  function_ ->
+  source:Frontend.Ast.expression ->
+  source_type:Type.t ->
+  Type.t option option
+(** [None] means that no original assignment observation exists. [Some None]
+    retains an observed endpoint without supported internal integer backing. *)
+
+val index_element_size :
+  function_ ->
+  source:Frontend.Ast.expression ->
+  element_type:Type.t ->
+  int64 option
+
+val top_level_assignment_value_type :
+  t ->
+  source:Frontend.Ast.expression ->
+  source_type:Type.t ->
+  Type.t option option
+
+val top_level_index_element_size :
+  t -> source:Frontend.Ast.expression -> element_type:Type.t -> int64 option
+
+val local_type_frontier :
+  function_ -> local:Local_type_resolution.local -> int option
+
+val permits_local_aggregate :
+  function_ ->
+  local:Local_type_resolution.local ->
+  item_index:int ->
+  symbol:Symbol.t ->
+  bool
+(** Match one checked local to its original body declarator and saved allocation
+    receipt. The initializer's right operand does not supply this proof. *)
+
 val permits_aggregate :
   function_ ->
   source:Frontend.Ast.expression ->
@@ -41,3 +117,20 @@ val permits_aggregate :
 (** Imported layouts must also have been complete at the original identifier
     observation. This veto cannot grant a layout or replay a later completion.
 *)
+
+val partial_aggregate :
+  function_ ->
+  source:Frontend.Ast.expression ->
+  symbol:Symbol.t ->
+  Compiler_record.t option
+(** Original reached metadata at the exact member-name observation. Other
+    expression forms retain their original identifier observation. *)
+
+val completed_aggregate :
+  function_ ->
+  source:Frontend.Ast.expression ->
+  symbol:Symbol.t ->
+  Compiler_record.t option
+(** Completed member metadata retained by the exact original member-name
+    observation, independently of a completed aggregate layout index. This
+    grants no storage or execution authority. *)

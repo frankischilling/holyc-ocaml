@@ -214,7 +214,7 @@ let callback_execution_matches prepared execution =
        ~some:(Int64.equal (Program.default_constant_bits execution))
        (Prepared_callback.word_bits prepared)
 
-let callback_pointers globals functions =
+let callback_pointers ?runtime_calls globals functions =
   let pointers = ref [] in
   let rec add_pointer pointer =
     if not (List.exists (( == ) pointer) !pointers) then (
@@ -244,6 +244,23 @@ let callback_pointers globals functions =
           |> Headers.function_signature |> add_signature)
         (Function.definition_declaration definition.body))
     functions;
+  Option.iter
+    (fun calls ->
+      let owners =
+        Runtime_call_context.Entry
+        :: List.map
+             (fun (definition : Integer_interpreter.function_definition) ->
+               Runtime_call_context.Function definition.body)
+             functions
+      in
+      List.iter
+        (fun owner ->
+          Option.iter
+            (List.iter (fun (call : Runtime_call_context.callback_call) ->
+                 add_pointer call.callback_pointer))
+            (Runtime_call_context.original_callback_calls calls ~owner))
+        owners)
+    runtime_calls;
   !pointers
 
 let add_callback_requirements ?(allow_data = false) globals prepared
@@ -409,7 +426,7 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
         add_callback_requirements globals prepared_callbacks requirements
           pointer)
       (Ok [])
-      (callback_pointers globals functions)
+      (callback_pointers ~runtime_calls globals functions)
   in
   let callback_used =
     List.map

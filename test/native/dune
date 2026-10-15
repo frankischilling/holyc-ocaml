@@ -176,6 +176,7 @@
   holyc_lib
   native_scalar_support
   automatic_aggregate_fixture
+  aggregate_member_support
   alcotest))
 
 (executable
@@ -206,7 +207,12 @@
   ../../examples/class-value-returns.hc
   ../../examples/class-default-words.hc
   ../../examples/retained-nested-members.hc
-  ../../examples/aggregate-pointer-fields.hc)
+  ../../examples/aggregate-pointer-fields.hc
+  ../../examples/persistent-aggregates.hc
+  ../../examples/aggregate-initializers.hc
+  ../../examples/aggregate-value-casts.hc
+  ../../examples/reference-returns.hc
+  ../../examples/top-level-aggregate-assignments.hc)
  (action
   (run
    %{exe:../test_aggregate_members_cli.exe}
@@ -222,6 +228,11 @@
    %{dep:../../examples/class-default-words.hc}
    %{dep:../../examples/retained-nested-members.hc}
    %{dep:../../examples/aggregate-pointer-fields.hc}
+   %{dep:../../examples/persistent-aggregates.hc}
+   %{dep:../../examples/aggregate-initializers.hc}
+   %{dep:../../examples/aggregate-value-casts.hc}
+   %{dep:../../examples/reference-returns.hc}
+   %{dep:../../examples/top-level-aggregate-assignments.hc}
    --native)))
 
 (rule
@@ -231,12 +242,17 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/automatic-aggregate-byte-views.hc)
+ (deps
+  ../../examples/automatic-aggregate-byte-views.hc
+  ../../examples/empty-automatic-aggregates.hc
+  ../../examples/automatic-aggregate-initializers.hc
+  ../../examples/original-automatic-layouts.hc)
  (action
   (run
    %{exe:../test_automatic_aggregates_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/automatic-aggregate-byte-views.hc}
+   %{dep:../../examples/empty-automatic-aggregates.hc}
    --native)))
 
 (rule
@@ -911,7 +927,9 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/native-aot-callback-initializers.hc)
+ (deps
+  ../../examples/native-aot-callback-initializers.hc
+  ../../examples/native-aot-static-initializers.hc)
  (action
   (run
    %{exe:test_native_load_initializer_cli.exe}

@@ -153,6 +153,7 @@ let unknown_values () =
 let boundaries () =
   List.iter
     (fun mode ->
+      ignore (G.run ~mode "I64 *F(){I64 n=42;return &n;}42;" |> F.expect 42L);
       List.iter
         (fun text -> ignore (F.first_error (G.run ~mode text)))
         [
@@ -160,7 +161,6 @@ let boundaries () =
           "I64 F(){I64 n=42;I64 *p=&n;p*=1;return n;}F();";
           "I64 F(){I64 n=42;I64 *p=&n;return p(I64);}F();";
           "I64 F(){I64 n=42;I64 *p=&n;return p;}F();";
-          "I64 *F(){I64 n=42;return &n;}42;";
           "I64 n=42;I64 *p=&n;42;";
           "I64 F(){static I64 n=42;static I64 *p=&n;return n;}F();";
           "I64 F(){I64 n=42;I64 *p=&n;I64 **q=&p;return **q;}F();";

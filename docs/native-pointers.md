@@ -1,14 +1,20 @@
 # Native scalar pointer aliases
 
+[Class pointer views](class-pointer-views.md) cast owned integer and class
+references to complete earlier class layouts. They preserve the original
+allocation, logical offset, initialization region and extent in isolated native
+programs and retained native tasks. Numeric casts still cannot supply ownership.
+
 [Owned aggregate members](aggregate-members.md) also admit one-level class
 pointer locals and fixed parameters in isolated programs. Exact field proofs
 select integer member windows and member-array strides over the caller's
 original automatic object. Descriptors retain the original initialization
 region and extent; the admitted storage and call paths keep that allocation
 live. [Class pointer operations](class-pointers.md) support indexing, arithmetic,
-comparisons and updates with the selected layout. Native execution of
-[data pointer fields](aggregate-pointer-fields.md) remains rejected with
-`HCBACK0002`. The IR field-storage path does not provide native lifetime tracking.
+comparisons and updates with the selected layout.
+[Data pointer fields](aggregate-pointer-fields.md) retain native ownership
+shadows and activation identities across calls and source fragments. Expired
+locals and numeric reconstructions fail before target storage is read.
 
 Native [owned scalar pointer difference](pointer-difference.md) checks original
 data-base, initialization-region and extent fields, then subtracts offsets.
@@ -116,13 +122,17 @@ in [SECURITY.md](SECURITY.md).
 Automatic scalar arrays use the same references; see
 [native arrays](native-arrays.md). Global/static arrays and mutable byte literals
 use the [persistent storage](native-persistent-storage.md) path. Persistent
-pointer variables, pointer returns, raw address ordering, null/integer
+pointer variables, raw address ordering, null/integer
 conversions, raw pointer difference, deeper indirection, automatic root arrays
 of data pointers, data pointer fields, general aggregate copies, foreign calls
 and the full HolyC ABI remain unfinished native work. Class value operations
 use their selected scalar prefixes and register words, as described in
 [class value returns](class-value-returns.md). This feature does not produce
 object files or BIN files, establish loader acceptance, or complete the compiler.
+
+[Owned reference returns](reference-returns.md) preserve checked integer and
+class references across named and callback calls. Callee retirement preserves
+caller and persistent roots while expiring the callee's own storage.
 
 [Owned class pointers](class-pointers.md) now support generic indexing,
 arithmetic, difference, comparisons and updates over exact earlier automatic

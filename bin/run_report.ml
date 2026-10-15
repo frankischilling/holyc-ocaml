@@ -268,6 +268,7 @@ let native_fragment_json (fragment : Holyc_lib.Native_source_execution.fragment)
           | Dimension -> "dimension"
           | Switch_case -> "switch-case"
           | Offset -> "offset"
+          | Metadata -> "metadata"
           | Aot_module -> "aot-module"
           | Command -> "command") );
       ("outcome", `String outcome);

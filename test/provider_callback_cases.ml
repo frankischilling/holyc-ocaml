@@ -14,6 +14,14 @@ let cases =
       ( "automatic cell",
         "I64 Run(){U0 (*p)(U64 ch);p=&PutChars;p('AB');return 42;}Run();",
         "AB" );
+      ( "aggregate callback field",
+        "class Box{U0 (*f)(U64 ch);};I64 Run(){Box \
+         b;b.f=&PutChars;b.f('AB');return 42;}Run();",
+        "AB" );
+      ( "aggregate field retains provider after joined definition",
+        "I64 N=0;class Box{U0 (*f)(U64 ch);};Box b;b.f=&PutChars;U0 \
+         PutChars(U64 ch){N=ch;}b.f('A');N+42;",
+        "A" );
       ( "global array copy",
         "U0 (*p)(U64 ch)[2];p[0]=&PutChars;p[1]=p[0];p[1]('AB');42;",
         "AB" );
@@ -117,6 +125,10 @@ let print_cases =
         "I64 Run(){U0 (*p)(U8 *fmt,...);p=&Print;p(\"%s\",\"A\");return \
          42;}Run();",
         "A" );
+      ( "aggregate variadic provider field",
+        "class Box{U0 (*f)(U8 *fmt,...);};I64 Run(){Box \
+         b;b.f=&Print;b.f(\"A%d;%s\",42,\"B\");return 42;}Run();",
+        "A42;B" );
       ( "fixed callback parameter",
         "I64 Run(U0 (*p)(U8 *fmt,...)){p(\"A%d\",42);return 42;}Run(&Print);",
         "A42" );

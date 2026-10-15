@@ -353,6 +353,54 @@ let source_pre_entry_failure ?max_initializer_steps ?max_default_bytes ~mode
     (Option.is_none (Native_program.image report));
   (report, diagnostics)
 
+let source_member_metadata_budgets () =
+  List.iter
+    (fun mode ->
+      let simple = {|class B{I64 x data 40+2;};42;|} in
+      let report, success =
+        source_success_report ~max_initializer_steps:3 ~mode ~max_steps:1000
+          simple
+      in
+      check_program_word "metadata leaves entry word" "I64" 42L
+        success.execution.final_value;
+      Alcotest.(check int)
+        "native metadata reports its original numeric work" 3
+        (Native_program.preparation_steps report);
+      let report, errors =
+        source_pre_entry_failure ~max_initializer_steps:2 ~mode simple
+      in
+      Alcotest.(check int)
+        "failed metadata retains reached work" 2
+        (Native_program.preparation_steps report);
+      Alcotest.(check bool)
+        "metadata quota diagnosis" true
+        (List.exists (fun (d : Diagnostic.t) -> d.code = "HCIRVM0007") errors);
+      List.iter
+        (fun source ->
+          let report, _ =
+            source_success_report ~max_initializer_steps:6 ~mode ~max_steps:1000
+              source
+          in
+          Alcotest.(check int)
+            "metadata and initializer share one allowance" 6
+            (Native_program.preparation_steps report);
+          let report, errors =
+            source_pre_entry_failure ~max_initializer_steps:5 ~mode source
+          in
+          Alcotest.(check int)
+            "mixed failure retains reached work" 5
+            (Native_program.preparation_steps report);
+          Alcotest.(check bool)
+            "mixed quota diagnosis" true
+            (List.exists
+               (fun (d : Diagnostic.t) -> d.code = "HCIRVM0007")
+               errors))
+        [
+          {|class B{I64 x data 40+2;};I64 N=42;N;|};
+          {|I64 N=42;class B{I64 x data 40+2;};N;|};
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let integer_source_fault ?max_frame_bytes ?max_call_depth ~mode ~max_steps
     contents =
   let session, config, source = source_inputs ~mode contents in
@@ -1128,15 +1176,15 @@ let physical_native_stack_is_bounded_independently () =
                "root one-below fails before native entry" true (message <> "")
          | Ok _ -> Alcotest.fail "root one-below physical stack budget executed");
       let identity_image = source_image ~mode identity in
-      (* The independent callable byte golden has a 32-byte entry allocation:
-         return address + PUSH RBP + allocation = 48 bytes. Identity is frameless,
-         so its return address + PUSH RBP costs 16 more. This private convention is
-         shared by both host status ABIs, making the complete call require 64 bytes. *)
+      (* The independent callable byte golden has a 144-byte entry allocation
+         and a 128-byte Identity allocation, including ownership bookkeeping.
+         Each return address + PUSH RBP adds 16 bytes. Both host status ABIs
+         therefore require 160 + 144 = 304 bytes for the complete call. *)
       Alcotest.(check int)
-        "Identity entry physical charge matches byte golden" 48
+        "Identity entry physical charge matches byte golden" 160
         (Program.entry_stack_bytes identity_image);
       let exact_identity =
-        execute ~max_active_stack_bytes:64 ~max_steps:100
+        execute ~max_active_stack_bytes:304 ~max_steps:100
           "Identity exact physical stack budget" identity_image
         |> completed "Identity exact physical stack budget"
       in
@@ -1144,7 +1192,7 @@ let physical_native_stack_is_bounded_independently () =
         exact_identity.final_value;
       let expected_call_id, expected_call_span = identity_call_site mode in
       let one_below =
-        execute ~max_active_stack_bytes:63 ~max_steps:100
+        execute ~max_active_stack_bytes:303 ~max_steps:100
           "Identity one-below physical stack budget" identity_image
         |> faulted "Identity one-below physical stack budget"
       in
@@ -1162,7 +1210,7 @@ let physical_native_stack_is_bounded_independently () =
            (fun (span : Span.t) -> (span.start, span.stop))
            one_below.span);
       let reused_identity =
-        execute ~max_active_stack_bytes:64 ~max_steps:100
+        execute ~max_active_stack_bytes:304 ~max_steps:100
           "Identity healthy reuse after physical fault" identity_image
         |> completed "Identity healthy reuse after physical fault"
       in
@@ -1170,8 +1218,10 @@ let physical_native_stack_is_bounded_independently () =
         reused_identity.final_value;
       let recursive_image = source_image ~mode recursive in
       let root_bytes = Program.entry_stack_bytes recursive_image in
+      (* Admit one recursive activation, including its reference service home;
+         the next recursive call must fail inside Recur, rather than at entry. *)
       let allowance =
-        min Runtime.hard_max_active_stack_bytes (root_bytes + 32)
+        min Runtime.hard_max_active_stack_bytes (root_bytes + 160)
       in
       let outcome =
         execute ~max_frame_bytes:1 ~max_call_depth:10000
@@ -1726,6 +1776,9 @@ let () =
                 skipped_and_eager_faults;
               Alcotest.test_case "source arithmetic faults map to VM semantics"
                 `Quick source_arithmetic_fault_mapping;
+              Alcotest.test_case
+                "source member metadata shares native preparation work" `Quick
+                source_member_metadata_budgets;
               Alcotest.test_case
                 "source functions locals calls recursion and argument order"
                 `Quick source_functions_and_locals_both_modes;

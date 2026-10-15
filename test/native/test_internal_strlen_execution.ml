@@ -206,6 +206,8 @@ let status_kind = function
   | Program.Output_invalid_pointer -> 15L
   | Program.Output_invalid_byte -> 16L
   | Program.Pointer_object_mismatch -> 17L
+  | Program.Pointer_ownership_unavailable -> 34L
+  | Program.Reference_shadow_limit_exceeded -> 35L
   | Program.Pointer_difference_object_mismatch -> 18L
   | Program.Callback_unowned_address -> 19L
   | Program.Callback_signature_mismatch -> 20L

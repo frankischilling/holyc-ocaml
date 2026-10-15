@@ -35,6 +35,14 @@ let create ~lookup ~base_pointer ~pointer_type =
   let member = Members.lookup_member lookup in
   let member_type = Members.member_type member in
   let layout = Members.member_layout member in
+  let callback = Members.member_function_pointer member in
+  let storage_type =
+    match callback with
+    | None -> Some member_type
+    | Some pointer ->
+        Sema.Function_type_resolution.function_pointer_storage_type pointer
+        |> Result.to_option
+  in
   let exact_aggregate =
     Automatic_aggregate_storage.aggregate_pointer base_pointer
     &&
@@ -43,17 +51,31 @@ let create ~lookup ~base_pointer ~pointer_type =
     | _ -> false
   in
   let exact_member =
-    Option.fold ~none:false ~some:(Type.equal pointer_type)
-      (Type.pointer_to member_type |> Result.to_option)
+    Option.fold ~none:false
+      ~some:(fun storage ->
+        Option.fold ~none:false ~some:(Type.equal pointer_type)
+          (Type.pointer_to storage |> Result.to_option))
+      storage_type
     && Type.equal member_type
          (Sema.Type_reference.resolved_type
             (Members.member_type_reference member))
   in
-  let supported_member = supported_member_type member_type in
-  if
-    (not exact_aggregate) || (not exact_member) || (not supported_member)
-    || Members.member_is_function_pointer member
-  then
+  let supported_callback =
+    Option.fold ~none:false
+      ~some:(fun pointer ->
+        List.length
+          (Sema.Function_type_resolution.function_pointer_indirection_origins
+             pointer)
+        = 1
+        && Option.is_some storage_type
+        && layout.element_size = 8L)
+      callback
+  in
+  let supported_member =
+    if Members.member_is_function_pointer member then supported_callback
+    else Option.is_none callback && supported_member_type member_type
+  in
+  if (not exact_aggregate) || (not exact_member) || not supported_member then
     Error
       "member projection does not match its selected aggregate and field type"
   else
@@ -62,7 +84,7 @@ let create ~lookup ~base_pointer ~pointer_type =
         (fun state dimension ->
           Result.bind state (fun (bytes, strides) ->
               if
-                bytes <= 0L || dimension < 0L
+                bytes < 0L || dimension < 0L
                 || (dimension > 0L && bytes > Int64.div Int64.max_int dimension)
               then Error "member array strides exceed the hosted address range"
               else Ok (Int64.mul bytes dimension, bytes :: strides)))
@@ -104,17 +126,20 @@ let matches ?before_item_index ?function_identity projection ~base_pointer
   &&
   match projection.selection with
   | Field _ -> true
-  | Backing backing ->
-      Option.fold ~none:false
-        ~some:(fun before_item_index ->
+  | Backing backing -> (
+      match function_identity with
+      | None ->
+          Sema.Aggregate_backing_storage.matches_top_level backing
+            ~source_type:(Type.dereference base_pointer |> Result.get_ok)
+            ~value_type:(Type.dereference pointer_type |> Result.get_ok)
+      | Some (function_symbol, function_scope) ->
           Option.fold ~none:false
-            ~some:(fun (function_symbol, function_scope) ->
+            ~some:(fun before_item_index ->
               Sema.Aggregate_backing_storage.matches backing ~function_symbol
                 ~function_scope ~before_item_index
                 ~source_type:(Type.dereference base_pointer |> Result.get_ok)
                 ~value_type:(Type.dereference pointer_type |> Result.get_ok))
-            function_identity)
-        before_item_index
+            before_item_index)
 
 let offset projection = projection.offset
 let strides projection = projection.strides
@@ -123,3 +148,9 @@ let member_symbol projection =
   match projection.selection with
   | Field lookup -> Members.member_symbol (Members.lookup_member lookup)
   | Backing backing -> Sema.Aggregate_backing_storage.aggregate_symbol backing
+
+let callback_pointer projection =
+  match projection.selection with
+  | Field lookup ->
+      Members.member_function_pointer (Members.lookup_member lookup)
+  | Backing _ -> None

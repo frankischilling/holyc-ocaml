@@ -96,7 +96,7 @@ let initializer_failure_settles_once () =
     (Option.is_some parsed.ast);
   Alcotest.(check bool) "original initializer leaf was reached" true !reached
 
-let fixture ?contents ?(statics = false) mode =
+let fixture ?contents ?(statics = false) ?(isolated = false) mode =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-initializer-authority.hc"
@@ -164,7 +164,8 @@ let fixture ?contents ?(statics = false) mode =
       declaration =
         Some
           (fun event ->
-            Result.bind (D.observe ledger event) (fun () ->
+            Result.bind (D.observe ~isolated_initializers:isolated ledger event)
+              (fun () ->
                 match event with
                 | Parser.Global_initializer_started receipt ->
                     Alcotest.(check bool)
@@ -300,7 +301,9 @@ let fixture ?contents ?(statics = false) mode =
         (Option.is_some
            (Parser.static_initializer_completed_declarator receipt));
       reject "expired static cannot prepare"
-        (Preparation.prepare_static preparation ~session ~ledger receipt))
+        (Preparation.prepare_static preparation ~session ~ledger receipt);
+      reject "expired static cannot supply native cursor metadata"
+        (D.native_static_initializer_destination ledger receipt))
     (Preparation.static_initializers preparation);
   let ast = Option.get output.ast in
   let source_command = D.seal_source ledger ast |> diagnostics in
@@ -489,6 +492,102 @@ let static_ownership ?contents () =
            ~max_initializer_steps:(steps - 1) ()))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let static_load_ownership () =
+  let contents =
+    "I64 calls=0;I64 Next(){return ++calls;}extern class Item;class Box{Item \
+     item;U8 tail;$$=8;};I64 F(){static Box object={Next(),42};static U8 \
+     n=object.tail;return n;}I64 G(){static U8 other=41;return other;}class \
+     Item{U16 value;};F();"
+  in
+  let make () = fixture ~contents ~isolated:true Preprocessor.Aot in
+  let span, prepared, compile = make () in
+  let evidence = Preparation.static_initializers prepared in
+  let globals = Preparation.initializers prepared in
+  let completions = Preparation.static_completions prepared in
+  let unit_ =
+    compile ~native_initializers:globals ~native_static_initializers:evidence ()
+    |> diagnostics
+  in
+  let seal ?(static_completions = completions) unit_ =
+    proof ~static_completions span
+      (Preparation.initializer_completions prepared)
+      unit_
+  in
+  let sealed = seal unit_ |> checked in
+  Alcotest.(check int)
+    "two original static load leaves" 2
+    (List.filter Initializers.native_static_is_load evidence |> List.length);
+  List.iter
+    (fun status_abi ->
+      ignore
+        (emit ~global_initializers:sealed ~status_abi unit_
+        |> Result.map_error (fun _ -> "static load ABI encoding failed")
+        |> checked))
+    [ Image.Windows_x64; Image.System_v_x64 ];
+  reject "static load emission requires the sealed bundle" (emit unit_);
+  reject "static load completion cannot be omitted"
+    (seal ~static_completions:[] unit_);
+  reject "static load completions preserve original order"
+    (seal ~static_completions:(List.rev completions) unit_);
+  List.iter
+    (fun mutate ->
+      let _, fresh, compile = make () in
+      reject
+        "static load proofs reject missing, repeated, reordered and foreign \
+         leaves"
+        (compile
+           ~native_initializers:(Preparation.initializers fresh)
+           ~native_static_initializers:
+             (mutate (Preparation.static_initializers fresh))
+           ()))
+    [
+      (fun _ -> []);
+      List.tl;
+      (fun xs -> List.hd xs :: xs);
+      List.rev;
+      (fun _ -> evidence);
+    ];
+  let reconstructed =
+    compile ~native_initializers:globals
+      ~native_static_initializers:
+        (List.map (fun value -> Obj.obj (Obj.dup (Obj.repr value))) evidence)
+      ()
+    |> diagnostics
+  in
+  reject "copied load proof cannot replace an original completion"
+    (seal reconstructed);
+  let initialization = Unit.initialization unit_ in
+  let regions = Ir_global_initialization.static_regions initialization in
+  let region = List.hd regions in
+  let slot = Ir_global_initialization.static_slot region in
+  let description = Ir_global_initialization.describe_static region in
+  let globals = Unit.globals unit_ in
+  Alcotest.(check bool)
+    "original static address belongs to its load region" true
+    (Proof.owns_static_load_address sealed ~globals ~slot
+       ~instruction:description.first);
+  let other =
+    Ir_integer_globals.statics globals
+    |> List.find (fun other ->
+        Ir_integer_globals.static_frame other
+        != Ir_integer_globals.static_frame slot)
+  in
+  Alcotest.(check bool)
+    "another function's static is unavailable in this region" false
+    (Proof.owns_static_load_address sealed ~globals ~slot:other
+       ~instruction:description.first);
+  let outside =
+    let ending =
+      Ir_global_initialization.describe_static (List.hd (List.rev regions))
+    in
+    Ir_instruction_sequence.Instruction_id.of_int
+      (Ir_instruction_sequence.Instruction_id.to_int ending.last + 1)
+    |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "address permission ends with the original load region" false
+    (Proof.owns_static_load_address sealed ~globals ~slot ~instruction:outside)
+
 let array_ownership () =
   let contents =
     "I16 G[2][2]={{40,0},{0,2}};I64 F(){static U8 \
@@ -650,9 +749,6 @@ let failed_preparation () =
            ("I64 F(){static I8 n=40;return n;}I64 B=1/0;42;", "HCIRVM0009");
            ("I64 F(){return 1;static I8 n=1/0;}42;", "HCIRVM0009");
            ("I64 F(){static I8 n=40 junk;return n;}42;", "HCPARSE0102");
-           ("I64 A=40;I64 F(){static I8 n=A;return n;}42;", "HCRUN0006");
-           ( "I64 A=40;I64 H(){return 2;}I64 F(){static I8 n=H();return n;}42;",
-             "HCRUN0006" );
            ("I64 A=40;I64 F(){static I8 n={2};return n;}42;", "HCRUN0001");
            ("I64 A=40;I64 F(){static I8 n=\"a\";return n;}42;", "HCRUN0006");
            ("I64 A=40;I64 F(){static I8 n=A<<2;return n;}42;", "HCRUN0006");
@@ -660,7 +756,12 @@ let failed_preparation () =
          ]
         @
         if mode = Preprocessor.Jit then
-          [ ("I64 A=40;I64 B=A;42;", "HCRUN0006") ]
+          [
+            ("I64 A=40;I64 B=A;42;", "HCRUN0006");
+            ("I64 A=40;I64 F(){static I8 n=A;return n;}42;", "HCRUN0006");
+            ( "I64 A=40;I64 H(){return 2;}I64 F(){static I8 n=H();return n;}42;",
+              "HCRUN0006" );
+          ]
         else []))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -760,6 +861,8 @@ let () =
                 [ "U8"; "F64"; "U0"; "I64 ****" ]);
           Alcotest.test_case "static original preparation and bundle ownership"
             `Quick (fun () -> static_ownership ());
+          Alcotest.test_case "static load source, bundle and region ownership"
+            `Quick static_load_ownership;
           Alcotest.test_case
             "folded global leaves retain original preparation authority" `Quick
             (fun () ->

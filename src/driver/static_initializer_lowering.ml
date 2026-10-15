@@ -18,6 +18,7 @@ let lower ?runtime ~context destination =
          consumer" |> diagnose
   in
   let typed = Destination.typed destination in
+  let scalar_evaluation = Destination.requires_settlement destination in
   let records = Initializer_fragment_typing.records context in
   let* top_calls =
     List.fold_right
@@ -52,18 +53,29 @@ let lower ?runtime ~context destination =
       ~records ~top_calls
       ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
       ~span
-      [ Lower.Initialize_static_fragment destination ]
+      [
+        (if scalar_evaluation then
+           Lower.Expression
+             (Typed.top_level_root_value (Destination.root destination))
+         else Lower.Initialize_static_fragment destination);
+      ]
   in
   let entry = Lower.graph lowered in
-  let* description =
-    match Lower.initializer_regions lowered with
-    | [ description ] -> Ok description
-    | _ ->
-        Error "static initializer lost its unique original region" |> diagnose
-  in
   let* initialization =
-    Ir.Global_initialization.create_static_fragment ~destination ~entry
-      description
+    if scalar_evaluation then
+      Ir.Global_initialization.create ~span
+        ~globals:(Destination.globals destination)
+        ~entry []
+    else
+      let* description =
+        match Lower.initializer_regions lowered with
+        | [ description ] -> Ok description
+        | _ ->
+            Error "static initializer lost its unique original region"
+            |> diagnose
+      in
+      Ir.Global_initialization.create_static_fragment ~destination ~entry
+        description
   in
   let* runtime_calls =
     Ir.Runtime_call_context.create ~records
@@ -72,6 +84,7 @@ let lower ?runtime ~context destination =
       ~entry_calls:(Lower.runtime_calls lowered)
       ~functions:[]
   in
-  Ir.Static_initializer_program.create ~destination ~entry ~initialization
-    ~runtime_calls
+  Ir.Static_initializer_program.create
+    ?scalar_lowered:(if scalar_evaluation then Some lowered else None)
+    ~destination ~entry ~initialization ~runtime_calls ()
   |> diagnose

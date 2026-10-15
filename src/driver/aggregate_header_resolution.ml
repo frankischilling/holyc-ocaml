@@ -215,12 +215,17 @@ let resolve_backing ?selected_types ~table visible
              backing.backing_pointer_layers)
         ~resolved_type
 
-let resolve_base ?inherited_storage ~original_definitions ~table ~scope
-    definition visible (base : Frontend.Ast.aggregate_base) =
+let resolve_base ?(metadata_bases = []) ?inherited_storage ~original_definitions
+    ~table ~scope definition visible (base : Frontend.Ast.aggregate_base) =
   let selected =
-    Option.bind inherited_storage (fun storage ->
-        Inherited_metadata.selected_base ~original_definitions ~table ~scope
-          storage definition)
+    match
+      List.find_opt (fun (original, _) -> original == definition) metadata_bases
+    with
+    | Some (_, symbol) -> Some symbol
+    | None ->
+        Option.bind inherited_storage (fun storage ->
+            Inherited_metadata.selected_base ~original_definitions ~table ~scope
+              storage definition)
   in
   match
     match selected with
@@ -239,8 +244,8 @@ let resolve_base ?inherited_storage ~original_definitions ~table ~scope
         ~name_origin:(origin base.base_name.location)
         ~symbol
 
-let resolve_events ?selected_types ?inherited_storage ~original_definitions
-    ~metadata_only ~table ~scope events =
+let resolve_events ?selected_types ?metadata_bases ?inherited_storage
+    ~original_definitions ~metadata_only ~table ~scope events =
   let rec resolve visible headers_rev = function
     | [] ->
         Sema.Aggregate_header_resolution.resolve ~table ~parent:scope
@@ -275,8 +280,9 @@ let resolve_events ?selected_types ?inherited_storage ~original_definitions
                   | None -> Ok None
                   | Some base ->
                       Result.map Option.some
-                        (resolve_base ?inherited_storage ~original_definitions
-                           ~table ~scope definition visible base)
+                        (resolve_base ?metadata_bases ?inherited_storage
+                           ~original_definitions ~table ~scope definition
+                           visible base)
                 in
                 match base with
                 | Error _ as error -> error
@@ -320,8 +326,15 @@ let resolve_metadata ?selected_types ~table ~parent metadata =
         | None ->
             Error "aggregate value header has another completed source owner")
   in
+  let metadata_bases =
+    List.filter_map
+      (fun (_, proof) ->
+        Sema.Compiler_record.aggregate_value_header_base ~table ~scope:parent
+          proof)
+      metadata
+  in
   Result.bind (events [] metadata)
-    (resolve_events ?selected_types ~original_definitions:[]
+    (resolve_events ?selected_types ~metadata_bases ~original_definitions:[]
        ~metadata_only:(fun _ -> false)
        ~table ~scope:parent)
 

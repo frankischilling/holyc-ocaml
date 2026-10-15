@@ -10,6 +10,16 @@ module Expressions = Hashtbl.Make (struct
     Hashtbl.hash (Common.Source_id.to_int span.source, span.start, span.stop)
 end)
 
+module Identifiers = Hashtbl.Make (struct
+  type t = Ast.identifier
+
+  let equal = ( == )
+
+  let hash (identifier : Ast.identifier) =
+    let span = identifier.Ast.location.span in
+    Hashtbl.hash (Common.Source_id.to_int span.source, span.start, span.stop)
+end)
+
 type occurrence = {
   before_item_index : int;
   first_identifier : Ast.identifier option;
@@ -20,8 +30,17 @@ type function_ = {
   parent : Symbol_table.scope;
   symbol : Symbol.t;
   item_index : int;
+  source_function : Frontend.Parser.function_publication;
+  assignments :
+    (Ast.expression -> Compiler_record.aggregate_assignment_visibility option)
+    option;
+  indices :
+    (Ast.expression -> Compiler_record.aggregate_index_visibility option) option;
   occurrences : occurrence option Expressions.t;
   locals : (Ast.identifier * int) list;
+  automatic_aggregates :
+    (Ast.identifier -> Compiler_record.automatic_aggregate_allocation option)
+    option;
   aggregate_references :
     (Ast.identifier -> Compiler_record.aggregate_reference_visibility option)
     option;
@@ -31,6 +50,14 @@ type t = {
   table : Symbol_table.t;
   parent : Symbol_table.scope;
   functions : function_ list;
+  aggregate_references :
+    (Ast.identifier -> Compiler_record.aggregate_reference_visibility option)
+    option;
+  assignments :
+    (Ast.expression -> Compiler_record.aggregate_assignment_visibility option)
+    option;
+  indices :
+    (Ast.expression -> Compiler_record.aggregate_index_visibility option) option;
 }
 
 let origin = Initializer_source.origin_of_location
@@ -44,6 +71,50 @@ let function_owns (value : function_) ~table ~parent =
   value.table == table && value.parent == parent
 
 let function_table (value : function_) = value.table
+
+let reference_allows (value : t) ~identifier ~symbol proof =
+  Compiler_record.aggregate_reference_allows ~table:value.table
+    ~parent:value.parent ~identifier ~symbol proof
+
+let member_reference (value : t) ~source =
+  match source with
+  | Ast.Member_expression member ->
+      Option.bind value.aggregate_references (fun resolve ->
+          Option.bind (resolve member.member_name) (fun proof ->
+              if Compiler_record.aggregate_reference_is_member proof then
+                Some (member.member_name, proof)
+              else None))
+  | _ -> None
+
+let create_references ~table ~parent ?assignments ?indices references =
+  if not (Symbol_table.owns_scope table parent) then
+    Error "fragment aggregate visibility belongs to another table"
+  else
+    let captured = Identifiers.create (List.length references) in
+    let rec check = function
+      | [] -> Ok ()
+      | (identifier, proof) :: rest ->
+          if
+            Identifiers.mem captured identifier
+            || not
+                 (Compiler_record.aggregate_reference_owns ~table ~parent
+                    ~identifier proof)
+          then Error "fragment aggregate visibility is foreign or duplicated"
+          else (
+            Identifiers.add captured identifier proof;
+            check rest)
+    in
+    Result.map
+      (fun () ->
+        {
+          table;
+          parent;
+          functions = [];
+          aggregate_references = Some (Identifiers.find_opt captured);
+          assignments;
+          indices;
+        })
+      (check references)
 
 let find_function value ~symbol ~item_index =
   List.find_opt
@@ -60,6 +131,91 @@ let before_local value wanted =
   List.find_map
     (fun (source, index) -> if source == wanted then Some index else None)
     value.locals
+
+let assignment_value_type value ~source ~source_type =
+  if not (Expressions.mem value.occurrences source) then None
+  else
+    Option.bind value.assignments (fun resolve ->
+        Option.map
+          (Compiler_record.aggregate_assignment_value_type ~table:value.table
+             ~parent:value.parent ~function_source:value.source_function ~source
+             ~source_type)
+          (resolve source))
+
+let top_level_assignment_value_type (value : t) ~source ~source_type =
+  Option.bind value.assignments (fun resolve ->
+      Option.map
+        (fun proof ->
+          match
+            Compiler_record.aggregate_fragment_assignment_value_type
+              ~table:value.table ~parent:value.parent ~source ~source_type proof
+          with
+          | Some value -> value
+          | None ->
+              Compiler_record.aggregate_assignment_value_type ~table:value.table
+                ~parent:value.parent ~source ~source_type proof)
+        (resolve source))
+
+let top_level_index_element_size (value : t) ~source ~element_type =
+  Option.bind value.indices (fun resolve ->
+      Option.bind (resolve source) (fun proof ->
+          match
+            Compiler_record.aggregate_fragment_index_element_size
+              ~table:value.table ~parent:value.parent ~source ~element_type
+              proof
+          with
+          | Some size -> Some size
+          | None ->
+              Compiler_record.aggregate_index_element_size ~table:value.table
+                ~parent:value.parent ~source ~element_type proof))
+
+let index_element_size value ~source ~element_type =
+  if not (Expressions.mem value.occurrences source) then None
+  else
+    Option.bind value.indices (fun resolve ->
+        Option.bind (resolve source)
+          (Compiler_record.aggregate_index_element_size ~table:value.table
+             ~parent:value.parent ~function_source:value.source_function ~source
+             ~element_type))
+
+let local_type_frontier (value : function_) ~local =
+  let symbol = Local_type_resolution.local_symbol local in
+  if not (Symbol_table.owns_symbol value.table symbol) then None
+  else
+    List.find_map
+      (fun ((identifier : Ast.identifier), index) ->
+        if origin identifier.Ast.location = Symbol.origin symbol then Some index
+        else None)
+      value.locals
+
+let permits_local_aggregate (value : function_) ~local ~item_index ~symbol =
+  match local_type_frontier value ~local with
+  | None -> false
+  | Some frontier when item_index >= frontier -> false
+  | Some _ ->
+      Option.fold ~none:false
+        ~some:(fun resolve ->
+          List.exists
+            (fun ((name : Ast.identifier), _) ->
+              match resolve name with
+              | None -> false
+              | Some allocation ->
+                  let checked_type =
+                    Local_type_resolution.local_type_reference local
+                    |> Type_reference.resolved_type
+                  in
+                  (match Type.base checked_type with
+                    | Type.Aggregate selected -> selected == symbol
+                    | _ -> false)
+                  && Result.is_ok
+                       (Compiler_record.validate_automatic_aggregate
+                          ~table:value.table ~parent:value.parent
+                          ~function_symbol:value.symbol
+                          ~local_symbol:
+                            (Local_type_resolution.local_symbol local)
+                          ~local_name:name ~checked_type allocation))
+            value.locals)
+        value.automatic_aggregates
 
 let permits_aggregate (value : function_) ~source ~item_index ~symbol =
   if not (Symbol_table.owns_symbol value.table symbol) then false
@@ -82,7 +238,28 @@ let permits_aggregate (value : function_) ~source ~item_index ~symbol =
               occurrence.first_identifier)
           value.aggregate_references
 
-let create ~table ~declarations ~bodies ?aggregate_references module_ =
+let partial_aggregate (value : function_) ~source ~symbol =
+  Option.bind
+    (Option.join (Expressions.find_opt value.occurrences source))
+    (fun occurrence ->
+      Option.bind occurrence.first_identifier (fun identifier ->
+          Option.bind value.aggregate_references (fun resolve ->
+              Option.bind (resolve identifier)
+                (Compiler_record.aggregate_reference_partial ~table:value.table
+                   ~parent:value.parent ~identifier ~symbol))))
+
+let completed_aggregate (value : function_) ~source ~symbol =
+  Option.bind
+    (Option.join (Expressions.find_opt value.occurrences source))
+    (fun occurrence ->
+      Option.bind occurrence.first_identifier (fun identifier ->
+          Option.bind value.aggregate_references (fun resolve ->
+              Option.bind (resolve identifier)
+                (Compiler_record.aggregate_reference_completed_record
+                   ~table:value.table ~parent:value.parent ~identifier ~symbol))))
+
+let create ~table ~declarations ~bodies ?aggregate_references
+    ?automatic_aggregates ?assignments ?indices module_ =
   let parent = Declaration_collection.scope declarations in
   let items = Ast.declaration_items module_ in
   let entries = Declaration_collection.entries declarations in
@@ -91,7 +268,16 @@ let create ~table ~declarations ~bodies ?aggregate_references module_ =
     invalid "declarations belong to another table"
   else
     let rec functions reversed = function
-      | [] -> Ok { table; parent; functions = List.rev reversed }
+      | [] ->
+          Ok
+            {
+              table;
+              parent;
+              functions = List.rev reversed;
+              aggregate_references;
+              assignments;
+              indices;
+            }
       | (item_index, Ast.Function_definition definition) :: rest -> (
           let entry =
             List.find_opt
@@ -166,7 +352,8 @@ let create ~table ~declarations ~bodies ?aggregate_references module_ =
                         let index = visit_expression value.index_value in
                         prefer base index
                     | Ast.Member_expression value ->
-                        visit_expression value.member_base
+                        ignore (visit_expression value.member_base);
+                        Some value.member_name
                     | _ -> None
                   in
                   (match Expressions.find_opt occurrences value with
@@ -276,8 +463,15 @@ let create ~table ~declarations ~bodies ?aggregate_references module_ =
                      parent;
                      symbol;
                      item_index;
+                     source_function =
+                       (List.find (fun (_, body) -> body == definition) bodies
+                       |> fst)
+                         .Frontend.Parser.function_publication;
+                     assignments;
+                     indices;
                      occurrences;
                      locals = !locals;
+                     automatic_aggregates;
                      aggregate_references;
                    }
                   :: reversed)

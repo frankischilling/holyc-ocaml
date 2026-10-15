@@ -135,6 +135,14 @@ val defer_source_runtime_offset :
 (** Record the original pending offset event before JIT activation without
     advancing its layout, evaluating its expression or charging work. *)
 
+val defer_source_runtime_member_metadata :
+  t ->
+  phase:Frontend.Parser.aggregate_phase ->
+  Frontend.Parser.declaration_event ->
+  (unit, Common.Diagnostic.t list) result
+(** Record the original pending offset event before JIT activation without
+    advancing its layout, evaluating its expression or charging work. *)
+
 val finish_runtime_dimension :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
@@ -188,6 +196,14 @@ val default_fragment_authority :
     queries in its exact runtime snapshot. *)
 
 val initializer_scope : t -> Sema.Symbol_table.scope
+
+val aggregate_fragment_visibility :
+  span:Common.Span.t ->
+  t ->
+  (Sema.Function_aggregate_visibility.t, Common.Diagnostic.t list) result
+(** Freeze original member-name observations in this source namespace for a
+    fragment's metadata lookup. This grants no storage or execution authority.
+*)
 
 val aggregate_value_headers :
   span:Common.Span.t ->
@@ -256,6 +272,24 @@ val observe_initializer_delimiter :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
   Frontend.Parser.completed_initializer_delimiter ->
+  (unit, Common.Diagnostic.t list) result
+
+val observe_static_expression_preparation :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.static_leaf_preparation ->
+  (unit, Common.Diagnostic.t list) result
+
+val observe_static_delimiter :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_static_initializer_delimiter ->
+  (unit, Common.Diagnostic.t list) result
+
+val observe_initializer_preparation :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.initializer_leaf_preparation ->
   (unit, Common.Diagnostic.t list) result
 
 val begin_initializer_attempt :
@@ -344,6 +378,17 @@ val retained_function_headers :
     Common.Diagnostic.t list )
   result
 
+val declaration_compiler_options :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.identifier -> (int64, string) result,
+    Common.Diagnostic.t list )
+  result
+(** Frozen original global allocation and function declaration option masks.
+    Copied name occurrences and foreign commands reject. This is metadata only.
+*)
+
 val function_compiler_options :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -384,6 +429,24 @@ val automatic_aggregate_resolver :
     statics, inline backed-class locals and missing layout proof return [None].
     The resolver grants no frame layout or runtime storage authority. *)
 
+val aggregate_index_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.expression ->
+    Sema.Compiler_record.aggregate_index_visibility option,
+    Common.Diagnostic.t list )
+  result
+
+val aggregate_assignment_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.expression ->
+    Sema.Compiler_record.aggregate_assignment_visibility option,
+    Common.Diagnostic.t list )
+  result
+
 val aggregate_reference_resolver :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -421,6 +484,14 @@ val source_aggregate_field_resolver :
     Common.Diagnostic.t list )
   result
 
+val source_declaration_compiler_options :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Frontend.Ast.identifier -> (int64, string) result,
+    Common.Diagnostic.t list )
+  result
+
 val source_function_compiler_options :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -449,6 +520,24 @@ val source_automatic_aggregate_resolver :
   source_command ->
   ( Frontend.Ast.identifier ->
     Sema.Compiler_record.automatic_aggregate_allocation option,
+    Common.Diagnostic.t list )
+  result
+
+val source_aggregate_index_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Frontend.Ast.expression ->
+    Sema.Compiler_record.aggregate_index_visibility option,
+    Common.Diagnostic.t list )
+  result
+
+val source_aggregate_assignment_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Frontend.Ast.expression ->
+    Sema.Compiler_record.aggregate_assignment_visibility option,
     Common.Diagnostic.t list )
   result
 
@@ -626,6 +715,27 @@ val initializer_for :
   Frontend.Ast.identifier ->
   Frontend.Ast.global_initializer ->
   (Sema.Initializer_source.t, Common.Diagnostic.t list) result
+
+val source_static_initializer_snapshots :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Ir.Integer_initializer_layout.static_snapshot list,
+    Common.Diagnostic.t list )
+  result
+(** Original isolated static cursor metadata for this exact source seal. No
+    computed values, runtime admission or successful copy evidence is retained.
+*)
+
+val source_initializer_layouts :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( (Sema.Compiler_record.declared_global * Ir.Integer_initializer_layout.t) list,
+    Common.Diagnostic.t list )
+  result
+(** Original global initializer layouts, joined only to their exact declared
+    roots, leaves and storage extents. These supply metadata, not execution. *)
 
 val source_initializer_for :
   table:Sema.Symbol_table.t ->
@@ -822,6 +932,8 @@ val observe_command :
 
 val observe :
   ?offset_runtime:Ir.Integer_interpreter.task_state ->
+  ?metadata_work_limit:int ->
+  ?isolated_initializers:bool ->
   t ->
   Frontend.Parser.declaration_event ->
   (unit, Common.Diagnostic.t list) result
@@ -943,6 +1055,9 @@ val source_offset_work : source_command -> int
 val source_offsets :
   source_command -> Sema.Compiler_record.aggregate_offset list
 
+val source_member_metadata :
+  source_command -> Sema.Compiler_record.member_metadata list
+
 val checked_offset_for :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -958,6 +1073,7 @@ val source_checked_offset_for :
   (Sema.Compiler_record.aggregate_offset, Common.Diagnostic.t list) result
 
 val offset_requires_runtime : Frontend.Parser.aggregate_phase -> bool
+val member_metadata_requires_runtime : Frontend.Parser.aggregate_phase -> bool
 
 val begin_runtime_offset :
   t ->
@@ -968,7 +1084,25 @@ val begin_runtime_offset :
     Common.Diagnostic.t list )
   result
 
+val begin_runtime_member_metadata :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.aggregate_phase ->
+  ( Sema.Member_metadata_fragment.authority
+    * Ir.Integer_interpreter.member_metadata_attempt,
+    Common.Diagnostic.t list )
+  result
+
 val finish_runtime_offset :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  before:int ->
+  succeeded:bool ->
+  Frontend.Parser.aggregate_phase ->
+  (unit, Common.Diagnostic.t list) result
+
+val finish_runtime_member_metadata :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
   before:int ->
@@ -993,6 +1127,29 @@ val native_static_initializer_fragment :
   runtime:Ir.Integer_interpreter.task_state ->
   Frontend.Parser.static_initializer_preparation ->
   (Sema.Static_initializer_fragment.t, Common.Diagnostic.t list) result
+
+val native_load_static_initializer_source :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.static_initializer_preparation ->
+  (Sema.Static_initializer_fragment.load, Common.Diagnostic.t list) result
+(** Retain a current original AOT static leaf for completed source typing and
+    its checked load-time region. Attempts are consumed once in the original
+    ledger and invocation; this supplies no prepared value or execution proof.
+*)
+
+val native_static_initializer_destination :
+  t ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( (int
+    * int
+    * Ir.Integer_initializer_layout.operation
+    * Sema.Initializer_type.scalar option)
+    option,
+    Common.Diagnostic.t list )
+  result
+(** Read retained aggregate cursor metadata during its original attempted leaf.
+    This does not execute a value or authorize a copy. *)
 
 val task_static_fragment :
   t ->

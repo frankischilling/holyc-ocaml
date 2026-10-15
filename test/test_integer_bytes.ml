@@ -158,6 +158,7 @@ let errors () =
 let unsupported_domains () =
   List.iter
     (fun mode ->
+      ignore (G.run ~mode "U8 *F(){U8 n=42;return &n;}42;" |> F.expect 42L);
       List.iter
         (fun source -> ignore (F.first_error (G.run ~mode source)))
         [
@@ -176,7 +177,6 @@ let unsupported_domains () =
           "I64 F(){U8 *p=0;return 42;}F();";
           "I64 F(){U8 n=42;U8 *p=&n;p*=1;return n;}F();";
           "I64 F(){U8 n=42;U8 *p=&n;return p(I64);}F();";
-          "U8 *F(){U8 n=42;return &n;}42;";
           "I64 F(){U8 n=42;U8 *p=&n,**q=&p;return **q;}F();";
           "I64 F(){U8 *a[2];return a[0][0];}F();";
         ])
@@ -473,6 +473,8 @@ let narrow_operand_boundaries () =
                               d with
                               opcode = O.Ic_holyc_typecast;
                               operands = [ byte ];
+                              target_type =
+                                Some (T.pointer_to H.public_i64 |> Result.get_ok);
                               flags = 0L;
                               payload = Some (Seq.Integer 0L);
                             }
@@ -547,7 +549,7 @@ let tests =
       Alcotest.test_case "malformed byte IR types strides layouts and owners"
         `Quick malformed_ir_and_owners;
       Alcotest.test_case
-        "byte values cannot forge pointer strides or word casts" `Quick
+        "byte values cannot forge pointer strides or references" `Quick
         narrow_operand_boundaries;
       Alcotest.test_case "byte arithmetic result rank is checked" `Quick
         malformed_arithmetic_rank;

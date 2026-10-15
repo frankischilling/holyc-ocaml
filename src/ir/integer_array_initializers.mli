@@ -9,6 +9,33 @@ val create :
   source_leaf:('root -> Sema.Initializer_source.leaf option) ->
   ('root t, string) result
 
+val create_retained_static :
+  allocation:Integer_static_allocation.t ->
+  shape:Integer_storage_shape.t ->
+  source:Sema.Initializer_source.t ->
+  roots:'root list ->
+  source_leaf:('root -> Sema.Initializer_source.leaf option) ->
+  ('root t, string) result
+
+val create_static_snapshot :
+  snapshot:Integer_initializer_layout.static_snapshot ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  location:Sema.Function_frame_layout.location ->
+  shape:Integer_storage_shape.t ->
+  source:Sema.Initializer_source.t ->
+  roots:'root list ->
+  source_leaf:('root -> Sema.Initializer_source.leaf option) ->
+  ('root t, string) result
+
+val create_retained :
+  declaration:Sema.Compiler_record.declared_global ->
+  layout:Integer_initializer_layout.t ->
+  shape:Integer_storage_shape.t ->
+  source:Sema.Initializer_source.t ->
+  roots:'root list ->
+  source_leaf:('root -> Sema.Initializer_source.leaf option) ->
+  ('root t, string) result
+
 val entries : 'root t -> 'root entry list
 val root : 'root entry -> 'root
 val destination : 'root entry -> Integer_initializer_layout.entry
@@ -21,3 +48,5 @@ val publish :
   'root t -> ('root * payload * int) list -> ('root t, string) result
 (** Internal immutable publication requires an original root, a determined copy
     or scalar word, and positive bounded preparation work. *)
+
+val storage_payload : 'root entry -> payload -> payload

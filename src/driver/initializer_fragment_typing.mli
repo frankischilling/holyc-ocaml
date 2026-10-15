@@ -2,6 +2,7 @@ type context
 
 val create_context_selected :
   ?aggregate_headers:Sema.Aggregate_header_resolution.t ->
+  ?aggregate_visibility:Sema.Function_aggregate_visibility.t ->
   compilation_mode:Frontend.Preprocessor.compilation_mode ->
   table:Sema.Symbol_table.t ->
   parent:Sema.Symbol_table.scope ->
@@ -51,6 +52,11 @@ val prepare_default :
 val prepare_offset :
   context ->
   Sema.Offset_fragment.t ->
+  (Sema.Function_call_expression_result.top_level_t, string) result
+
+val prepare_member_metadata :
+  context ->
+  Sema.Member_metadata_fragment.t ->
   (Sema.Function_call_expression_result.top_level_t, string) result
 
 val prepare_static :

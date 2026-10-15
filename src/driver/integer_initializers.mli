@@ -57,6 +57,7 @@ type native_static_preparation
 type native_preparation
 
 val prepare_native :
+  scalar:Sema.Initializer_type.scalar option ->
   authority:Sema.Initializer_fragment.authority ->
   typed:Sema.Function_call_expression_result.top_level_t ->
   cell_offset:int ->
@@ -75,6 +76,7 @@ val native_is_load : native_preparation -> bool
 val native_evidence : t -> native_preparation list
 
 val prepare_native_load :
+  scalar:Sema.Initializer_type.scalar option ->
   declaration:Sema.Compiler_record.declared_global ->
   leaf:Sema.Initializer_source.leaf ->
   cell_offset:int ->
@@ -186,7 +188,19 @@ val prepare_offset :
   Ir.Offset_fragment_destination.t ->
   (classification * int, Common.Diagnostic.t list) result
 
+val prepare_member_metadata :
+  ?top_callback_calls:Ir.Callback_source.t list ->
+  ?retained_function_source:
+    (Ir.Retained_function.t ->
+    Ir.Integer_interpreter.task_function_source option) ->
+  ?on_progress:(int -> unit) ->
+  max_steps:int ->
+  top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  Ir.Member_metadata_fragment_destination.t ->
+  (classification * int, Common.Diagnostic.t list) result
+
 val prepare_native_static :
+  scalar:Sema.Initializer_type.scalar option ->
   fragment:Sema.Static_initializer_fragment.t ->
   typed:Sema.Function_call_expression_result.top_level_t ->
   cell_offset:int ->
@@ -197,6 +211,24 @@ val prepare_native_static :
   (native_static_preparation, Common.Diagnostic.t list) result
 
 val native_static_evidence : t -> native_static_preparation list
+
+val prepare_native_static_load :
+  source:Sema.Static_initializer_fragment.load ->
+  scalar:Sema.Initializer_type.scalar option ->
+  cell_offset:int ->
+  byte_offset:int ->
+  operation:Ir.Integer_initializer_layout.operation ->
+  (native_static_preparation, Common.Diagnostic.t list) result
+(** Retain a current AOT leaf and selected cursor for a checked static load-time
+    region. No prepared payload or successful execution is claimed. *)
+
+val native_static_is_load : native_static_preparation -> bool
+
+val native_static_load_roots :
+  t ->
+  (Ir.Integer_globals.static_slot
+  * Sema.Function_call_expression_result.initializer_result)
+  list
 
 val native_static_receipt :
   native_static_preparation -> Frontend.Parser.static_initializer_preparation

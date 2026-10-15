@@ -90,6 +90,19 @@ and compiler_exception = {
   exception_cause : compiler_exception option;
 }
 
+let command_completion_is_current command =
+  let context = command.command_start.command_context in
+  context.context_active
+  && context.context_domain = Domain.self ()
+  && Option.fold ~none:false ~some:(( == ) context) !(context.context_owner)
+  &&
+  match (context.context_position, !(context.context_stack)) with
+  | Some position, active :: _ when active == position -> (
+      match !position with
+      | Awaiting_resume original -> original == command
+      | _ -> false)
+  | _ -> false
+
 let position_context = function
   | Before_first_command context -> context
   | Reading_command start -> start.command_context
@@ -559,6 +572,7 @@ type reference_selection = {
   lookup : Symbol_visibility.lookup;
   selected_local : local_publication option;
   selected_command : command_start;
+  member_reference : bool;
   mutable reference_active : bool;
 }
 
@@ -567,6 +581,7 @@ let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
 let selected_local selection = selection.selected_local
 let selected_command selection = selection.selected_command
+let selected_member_reference selection = selection.member_reference
 let reference_selection_is_current selection = selection.reference_active
 
 type exception_arm = Try_arm | Catch_arm
@@ -854,6 +869,7 @@ let global_publication_is_current publication =
 
 type initializer_phase =
   | Starting_initializer
+  | Preparing_leaf of int
   | Completing_leaf of int
   | Completing_delimiter of int
 
@@ -865,6 +881,7 @@ type initializer_delimiter =
 type initializer_activity = {
   mutable initializer_phase : initializer_phase option;
   mutable initializer_current_start : global_initializer_start option;
+  mutable initializer_current_preparation : initializer_leaf_preparation option;
   mutable initializer_current_leaf : completed_initializer_leaf option;
   mutable initializer_current_delimiter : completed_initializer_delimiter option;
 }
@@ -875,7 +892,18 @@ and global_initializer_start = {
   initializer_activity : initializer_activity;
 }
 
+and initializer_leaf_preparation = {
+  preparation_initializer : global_initializer_start;
+  preparation_index : int;
+  preparation_predecessor : completed_initializer_leaf option;
+  preparation_path : int list;
+  preparation_first : Token.t;
+  preparation_delimiters : initializer_delimiter list;
+  preparation_delimiter_predecessor : completed_initializer_delimiter option;
+}
+
 and completed_initializer_leaf = {
+  leaf_preparation : initializer_leaf_preparation;
   leaf_initializer : global_initializer_start;
   leaf_index : int;
   leaf_predecessor : completed_initializer_leaf option;
@@ -907,6 +935,17 @@ let initializer_leaf_is_current leaf =
        leaf.leaf_initializer.initializer_activity.initializer_current_leaf
   && context_has_focus
        leaf.leaf_initializer.initializer_owner.global_header.declaration_command
+         .command_context
+
+let initializer_leaf_preparation_is_current preparation =
+  preparation.preparation_initializer.initializer_activity.initializer_phase
+  = Some (Preparing_leaf preparation.preparation_index)
+  && Option.fold ~none:false ~some:(( == ) preparation)
+       preparation.preparation_initializer.initializer_activity
+         .initializer_current_preparation
+  && context_has_focus
+       preparation.preparation_initializer.initializer_owner.global_header
+         .declaration_command
          .command_context
 
 let initializer_delimiter_is_current delimiter =
@@ -1011,16 +1050,30 @@ type function_local_allocation = {
   allocation_activity : function_position_activity;
 }
 
+let current_local_allocations = Domain.DLS.new_key (fun () -> ref [])
+
 let function_local_allocation_is_current receipt =
   !(receipt.allocation_activity)
   && receipt.allocation_function.function_header.declaration_command
        .command_context
        .context_active
+  && List.exists (( == ) receipt) !(Domain.DLS.get current_local_allocations)
 
 type static_initializer_start = {
   static_start_allocation : function_local_allocation;
   static_equals : Ast.location;
   static_start_activity : static_initializer_activity;
+}
+
+and static_leaf_preparation = {
+  static_expression_start : static_initializer_start;
+  static_expression_index : int;
+  static_expression_predecessor : static_initializer_preparation option;
+  static_expression_path : int list;
+  static_expression_first : Token.t;
+  static_expression_delimiters : initializer_delimiter list;
+  static_expression_delimiter_predecessor :
+    completed_static_initializer_delimiter option;
 }
 
 and static_initializer_preparation = {
@@ -1030,8 +1083,17 @@ and static_initializer_preparation = {
   static_leaf_predecessor : static_initializer_preparation option;
   static_leaf_path : int list;
   static_leaf_value : Ast.initial_value;
+  static_expression_preparation : static_leaf_preparation;
   static_leaf_delimiters : initializer_delimiter list;
   static_activity : static_initializer_activity;
+}
+
+and completed_static_initializer_delimiter = {
+  static_delimiter_start : static_initializer_start;
+  static_delimiter_index : int;
+  static_delimiter_predecessor : completed_static_initializer_delimiter option;
+  static_delimiter_leaf_predecessor : static_initializer_preparation option;
+  static_delimiter_value : initializer_delimiter;
 }
 
 and completed_static_initializer = {
@@ -1041,6 +1103,9 @@ and completed_static_initializer = {
 }
 
 and static_initializer_activity = {
+  mutable static_current_delimiter :
+    completed_static_initializer_delimiter option;
+  mutable static_current_expression : static_leaf_preparation option;
   mutable static_current : static_initializer_preparation option;
   mutable static_completion_current : completed_static_initializer option;
   mutable static_completed : Ast.local_declarator option;
@@ -1056,6 +1121,20 @@ let static_initializer_allocation_context_is_current allocation =
 let static_initializer_context_is_current
     (receipt : static_initializer_preparation) =
   static_initializer_allocation_context_is_current receipt.static_allocation
+
+let static_leaf_preparation_is_current receipt =
+  let start = receipt.static_expression_start in
+  Option.fold ~none:false ~some:(( == ) receipt)
+    start.static_start_activity.static_current_expression
+  && static_initializer_allocation_context_is_current
+       start.static_start_allocation
+
+let static_initializer_delimiter_is_current receipt =
+  let start = receipt.static_delimiter_start in
+  Option.fold ~none:false ~some:(( == ) receipt)
+    start.static_start_activity.static_current_delimiter
+  && static_initializer_allocation_context_is_current
+       start.static_start_allocation
 
 let static_initializer_is_current (receipt : static_initializer_preparation) =
   Option.fold ~none:false ~some:(( == ) receipt)
@@ -1535,10 +1614,15 @@ and aggregate_step =
       member_callback : Ast.function_pointer_declarator option;
       member_dimensions : Ast.array_dimension list;
     }
+  | Aggregate_member_metadata_reached of {
+      member_name : Ast.identifier;
+      metadata : Ast.aggregate_member_metadata;
+    }
   | Aggregate_union_entered
   | Aggregate_union_left
   | Aggregate_offset_reached of Ast.expression
   | Aggregate_body_finished
+  | Aggregate_backing_attached of Ast.aggregate_backing
   | Aggregate_position_reset
 
 and aggregate_base_selection = {
@@ -1576,10 +1660,61 @@ let aggregate_completion_is_current source =
 
 let aggregate_phase_is_current phase =
   phase.phase_activity.aggregate_active
+  && Option.fold ~none:false ~some:(( == ) phase)
+       phase.phase_aggregate.aggregate_activity.aggregate_last_phase
   && phase.phase_aggregate.aggregate_header.declaration_command.command_context
        .context_active
 
+type index_selection = {
+  index_command : command_start;
+  index_environment : Symbol_visibility.Environment.t;
+  index_function : function_publication option;
+  index_opening : Ast.location;
+  mutable index_source : Ast.expression option;
+  mutable index_active : bool;
+}
+
+let index_command selection = selection.index_command
+let index_environment selection = selection.index_environment
+let index_function selection = selection.index_function
+let index_opening selection = selection.index_opening
+let index_source selection = selection.index_source
+
+let index_selection_is_current selection =
+  selection.index_active
+  && selection.index_command.command_context.context_active
+
+type assignment_selection = {
+  assignment_left : Ast.expression;
+  assignment_operator : Ast.location;
+  assignment_environment : Symbol_visibility.Environment.t;
+  assignment_command : command_start;
+  assignment_function : function_publication option;
+  mutable assignment_source : Ast.expression option;
+  mutable assignment_active : bool;
+  mutable assignment_preparing : bool;
+}
+
+let assignment_left selection = selection.assignment_left
+let assignment_operator selection = selection.assignment_operator
+let assignment_environment selection = selection.assignment_environment
+let assignment_command selection = selection.assignment_command
+let assignment_function selection = selection.assignment_function
+let assignment_source selection = selection.assignment_source
+
+let assignment_selection_is_current selection =
+  selection.assignment_active
+  && (not selection.assignment_preparing)
+  && selection.assignment_command.command_context.context_active
+
+let assignment_preparation_is_current selection =
+  selection.assignment_active && selection.assignment_preparing
+  && selection.assignment_command.command_context.context_active
+
 type declaration_event =
+  | Index_operand_selected of index_selection
+  | Assignment_operand_preparing of assignment_selection
+  | Assignment_operand_selected of assignment_selection
   | Internal_binding_preparing of internal_binding_preparation
   | Aggregate_declared of aggregate_publication
   | Aggregate_advanced of aggregate_phase
@@ -1591,12 +1726,16 @@ type declaration_event =
   | Switch_completed of completed_switch
   | Global_declared of global_publication
   | Global_initializer_started of global_initializer_start
+  | Global_initializer_leaf_preparing of initializer_leaf_preparation
   | Global_initializer_leaf_completed of completed_initializer_leaf
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
   | Function_position_written of function_position_write
   | Function_local_allocated of function_local_allocation
+  | Static_initializer_expression_preparing of static_leaf_preparation
+  | Static_initializer_delimiter_completed of
+      completed_static_initializer_delimiter
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
   | Callback_position_written of callback_position_write
@@ -2596,7 +2735,7 @@ let cache_dimension_count cursor at receipt =
           raise Stop_command)
     cursor.dimension_count
 
-let expression_identifier cursor item =
+let expression_identifier ?(member_reference = false) cursor item =
   let identifier =
     Ast.make_identifier ~spelling:item.token.raw
       ~location:(token_location item.token)
@@ -2610,6 +2749,7 @@ let expression_identifier cursor item =
           lookup;
           selected_local = item.local_selection;
           selected_command = Option.get cursor.current_command;
+          member_reference;
           reference_active = false;
         }
       in
@@ -5032,6 +5172,28 @@ and parse_postfix_cast_suffix cursor ~context (operand : parsed_expression)
 and parse_index_suffix cursor ~context ~depth (base : parsed_expression) :
     parsed_expression option =
   let opening = take cursor in
+  let following = peek cursor in
+  let selection =
+    Option.map
+      (fun command ->
+        let selection =
+          {
+            index_command = command;
+            index_environment = cursor.symbols;
+            index_function = cursor.local_function;
+            index_opening = token_location opening.token;
+            index_source = None;
+            index_active = true;
+          }
+        in
+        Fun.protect
+          ~finally:(fun () -> selection.index_active <- false)
+          (fun () ->
+            publish_declaration cursor following
+              (Index_operand_selected selection));
+        selection)
+      cursor.current_command
+  in
   match
     parse_expression cursor ~context:Index_expression ~depth:(depth + 1)
       ~minimum_binding_power:0
@@ -5059,6 +5221,9 @@ and parse_index_suffix cursor ~context ~depth (base : parsed_expression) :
                ~closing_bracket:(token_location closing.token)
                ~location:(location_from_expression_tokens tokens))
         in
+        Option.iter
+          (fun selection -> selection.index_source <- Some node)
+          selection;
         Some { node; tokens }
 
 and parse_member_suffix cursor ~context (base : parsed_expression) access_kind :
@@ -5076,8 +5241,9 @@ and parse_member_suffix cursor ~context (base : parsed_expression) access_kind :
     let member_item = take cursor in
     let operator = make_expression_operator operator_item.token in
     let member =
-      Ast.make_identifier ~spelling:member_item.token.raw
-        ~location:(token_location member_item.token)
+      match expression_identifier ~member_reference:true cursor member_item with
+      | Ast.Identifier_expression identifier -> identifier
+      | _ -> assert false
     in
     let tokens = base.tokens @ [ operator_item.token; member_item.token ] in
     let node =
@@ -5322,10 +5488,45 @@ and parse_expression_binary_tail cursor ~parenthesis_phase ~context ~depth
   match binary_operator item.token with
   | Some operator_spec
     when binary_binding_power operator_spec >= minimum_binding_power -> (
+      let assignment =
+        if
+          operator_spec.Operator.precedence_name = "PREC_ASSIGN"
+          && Option.is_some cursor.current_command
+        then (
+          let selection =
+            {
+              assignment_left = left.node;
+              assignment_operator = token_location item.token;
+              assignment_environment = cursor.symbols;
+              assignment_command = Option.get cursor.current_command;
+              assignment_function = cursor.local_function;
+              assignment_source = None;
+              assignment_active = true;
+              assignment_preparing = true;
+            }
+          in
+          Fun.protect
+            ~finally:(fun () -> selection.assignment_active <- false)
+            (fun () ->
+              publish_declaration cursor item
+                (Assignment_operand_preparing selection));
+          Some selection)
+        else None
+      in
       let operator_item = take cursor in
       let following = peek cursor in
       if operator_spec.Operator.precedence_name = "PREC_ASSIGN" then
         unaudit_expression cursor;
+      Option.iter
+        (fun selection ->
+          selection.assignment_active <- true;
+          selection.assignment_preparing <- false;
+          Fun.protect
+            ~finally:(fun () -> selection.assignment_active <- false)
+            (fun () ->
+              publish_declaration cursor operator_item
+                (Assignment_operand_selected selection)))
+        assignment;
       consume_parenthesis_binary cursor parenthesis_phase operator_spec
         following;
       let binding_power = binary_binding_power operator_spec in
@@ -5344,6 +5545,9 @@ and parse_expression_binary_tail cursor ~parenthesis_phase ~context ~depth
             combine_binary_expression left.node operator_item operator_spec
               right.node
           in
+          Option.iter
+            (fun selection -> selection.assignment_source <- Some node)
+            assignment;
           let left : parsed_expression =
             {
               node;
@@ -5686,6 +5890,7 @@ let initializer_failure ?(secondary = []) ?(local_open_braces = 0) cursor
 
 type live_initializer = {
   start : global_initializer_start;
+  mutable preparing_leaf : initializer_leaf_preparation option;
   mutable previous_leaf : completed_initializer_leaf option;
   mutable delimiters_rev : initializer_delimiter list;
   mutable previous_delimiter : completed_initializer_delimiter option;
@@ -5694,7 +5899,10 @@ type live_initializer = {
 type live_static_initializer = {
   static_start : static_initializer_start;
   mutable static_previous : static_initializer_preparation option;
+  mutable static_preparing_expression : static_leaf_preparation option;
   mutable static_delimiters_rev : initializer_delimiter list;
+  mutable static_previous_delimiter :
+    completed_static_initializer_delimiter option;
 }
 
 let publish_initializer_phase cursor at start phase event =
@@ -5703,6 +5911,8 @@ let publish_initializer_phase cursor at start phase event =
   (match event with
   | Global_initializer_started receipt ->
       activity.initializer_current_start <- Some receipt
+  | Global_initializer_leaf_preparing receipt ->
+      activity.initializer_current_preparation <- Some receipt
   | Global_initializer_leaf_completed receipt ->
       activity.initializer_current_leaf <- Some receipt
   | Global_initializer_delimiter_completed receipt ->
@@ -5712,6 +5922,7 @@ let publish_initializer_phase cursor at start phase event =
     ~finally:(fun () ->
       activity.initializer_phase <- None;
       activity.initializer_current_start <- None;
+      activity.initializer_current_preparation <- None;
       activity.initializer_current_leaf <- None;
       activity.initializer_current_delimiter <- None)
     (fun () -> publish_declaration cursor at event)
@@ -5740,6 +5951,34 @@ let publish_initializer_delimiter cursor at live delimiter_value =
       state.delimiters_rev <- delimiter_value :: state.delimiters_rev)
     live
 
+let publish_initializer_preparation cursor live =
+  Option.iter
+    (fun (state, path_rev) ->
+      if Option.is_some state.preparing_leaf then
+        invalid_arg "initializer leaf preparation is already active";
+      let preparation_index =
+        Option.fold ~none:0
+          ~some:(fun previous -> previous.leaf_index + 1)
+          state.previous_leaf
+      in
+      let first = peek cursor in
+      let preparation =
+        {
+          preparation_initializer = state.start;
+          preparation_index;
+          preparation_predecessor = state.previous_leaf;
+          preparation_path = List.rev path_rev;
+          preparation_first = first.token;
+          preparation_delimiters = List.rev state.delimiters_rev;
+          preparation_delimiter_predecessor = state.previous_delimiter;
+        }
+      in
+      state.preparing_leaf <- Some preparation;
+      publish_initializer_phase cursor first state.start
+        (Preparing_leaf preparation_index)
+        (Global_initializer_leaf_preparing preparation))
+    live
+
 let publish_initializer_leaf cursor live node =
   Option.iter
     (fun (state, path_rev) ->
@@ -5751,6 +5990,7 @@ let publish_initializer_leaf cursor live node =
       let leaf =
         {
           leaf_initializer = state.start;
+          leaf_preparation = Option.get state.preparing_leaf;
           leaf_index;
           leaf_predecessor = state.previous_leaf;
           leaf_path = List.rev path_rev;
@@ -5762,11 +6002,42 @@ let publish_initializer_leaf cursor live node =
       publish_initializer_phase cursor (peek cursor) state.start
         (Completing_leaf leaf_index) (Global_initializer_leaf_completed leaf);
       state.previous_leaf <- Some leaf;
+      state.preparing_leaf <- None;
       state.delimiters_rev <- [])
     live
 
 let initializer_child live index =
   Option.map (fun (state, path_rev) -> (state, index :: path_rev)) live
+
+let publish_static_expression_preparation cursor ~first live =
+  Option.iter
+    (fun (state, path_rev) ->
+      if Option.is_some state.static_preparing_expression then
+        invalid_arg "static expression preparation is already active";
+      let preparation =
+        {
+          static_expression_start = state.static_start;
+          static_expression_index =
+            Option.fold ~none:0
+              ~some:(fun prior -> prior.static_leaf_index + 1)
+              state.static_previous;
+          static_expression_predecessor = state.static_previous;
+          static_expression_path = List.rev path_rev;
+          static_expression_first = first.token;
+          static_expression_delimiters = List.rev state.static_delimiters_rev;
+          static_expression_delimiter_predecessor =
+            state.static_previous_delimiter;
+        }
+      in
+      state.static_preparing_expression <- Some preparation;
+      let activity = state.static_start.static_start_activity in
+      activity.static_current_expression <- Some preparation;
+      Fun.protect
+        ~finally:(fun () -> activity.static_current_expression <- None)
+        (fun () ->
+          publish_declaration cursor first
+            (Static_initializer_expression_preparing preparation)))
+    live
 
 let publish_static_initializer_leaf cursor live node =
   Option.iter
@@ -5785,6 +6056,8 @@ let publish_static_initializer_leaf cursor live node =
           static_leaf_predecessor = state.static_previous;
           static_leaf_path = List.rev path_rev;
           static_leaf_value = node;
+          static_expression_preparation =
+            Option.get state.static_preparing_expression;
           static_leaf_delimiters = List.rev state.static_delimiters_rev;
           static_activity = start.static_start_activity;
         }
@@ -5796,15 +6069,36 @@ let publish_static_initializer_leaf cursor live node =
           publish_declaration cursor (peek cursor)
             (Static_initializer_preparing preparation));
       state.static_previous <- Some preparation;
+      state.static_preparing_expression <- None;
       state.static_delimiters_rev <- [])
     live
 
 let static_initializer_child live index =
   Option.map (fun (state, path_rev) -> (state, index :: path_rev)) live
 
-let record_static_initializer_delimiter live delimiter =
+let publish_static_initializer_delimiter cursor at live delimiter =
   Option.iter
     (fun (state, _) ->
+      let receipt =
+        {
+          static_delimiter_start = state.static_start;
+          static_delimiter_index =
+            Option.fold ~none:0
+              ~some:(fun prior -> prior.static_delimiter_index + 1)
+              state.static_previous_delimiter;
+          static_delimiter_predecessor = state.static_previous_delimiter;
+          static_delimiter_leaf_predecessor = state.static_previous;
+          static_delimiter_value = delimiter;
+        }
+      in
+      let activity = state.static_start.static_start_activity in
+      activity.static_current_delimiter <- Some receipt;
+      Fun.protect
+        ~finally:(fun () -> activity.static_current_delimiter <- None)
+        (fun () ->
+          publish_declaration cursor at
+            (Static_initializer_delimiter_completed receipt));
+      state.static_previous_delimiter <- Some receipt;
       state.static_delimiters_rev <- delimiter :: state.static_delimiters_rev)
     live
 
@@ -5839,6 +6133,8 @@ let rec parse_initializer_value ?live ?static_live cursor ~declarator_context
                "expected a static local initializer value, but found %s"
                (token_description item.token))
     | _ -> (
+        publish_initializer_preparation cursor live;
+        publish_static_expression_preparation cursor ~first:item static_live;
         let expression_context =
           match declarator_context with
           | Global_initializer_declarator -> Global_initializer_expression
@@ -5849,7 +6145,12 @@ let rec parse_initializer_value ?live ?static_live cursor ~declarator_context
           parse_expression cursor ~context:expression_context ~depth:0
             ~minimum_binding_power:0
         with
-        | None -> None
+        | None ->
+            Option.iter (fun (state, _) -> state.preparing_leaf <- None) live;
+            Option.iter
+              (fun (state, _) -> state.static_preparing_expression <- None)
+              static_live;
+            None
         | Some expression ->
             let node = Ast.Scalar_initializer expression.node in
             publish_initializer_leaf cursor live node;
@@ -5862,7 +6163,7 @@ and parse_braced_initializer ?live ?static_live cursor ~declarator_context
   let opening_brace = token_location opening_item.token in
   publish_initializer_delimiter cursor opening_item live
     (Initializer_open opening_brace);
-  record_static_initializer_delimiter static_live
+  publish_static_initializer_delimiter cursor opening_item static_live
     (Initializer_open opening_brace);
   let rec parse_elements index elements_rev token_groups_rev :
       parsed_initializer option =
@@ -5873,7 +6174,7 @@ and parse_braced_initializer ?live ?static_live cursor ~declarator_context
         let closing_brace = token_location closing_item.token in
         publish_initializer_delimiter cursor closing_item live
           (Initializer_close closing_brace);
-        record_static_initializer_delimiter static_live
+        publish_static_initializer_delimiter cursor closing_item static_live
           (Initializer_close closing_brace);
         let tokens =
           (opening_item.token :: (List.rev token_groups_rev |> List.concat))
@@ -5918,8 +6219,8 @@ and parse_braced_initializer ?live ?static_live cursor ~declarator_context
                   let comma = token_location comma_item.token in
                   publish_initializer_delimiter cursor comma_item live
                     (Initializer_comma comma);
-                  record_static_initializer_delimiter static_live
-                    (Initializer_comma comma);
+                  publish_static_initializer_delimiter cursor comma_item
+                    static_live (Initializer_comma comma);
                   (Some comma, value.tokens @ [ comma_item.token ])
               | Token_kind.Punctuation '}' -> (None, value.tokens)
               | _ -> (None, [])
@@ -6008,8 +6309,8 @@ and parse_unbraced_array_initializer ?live ?static_live cursor
               let closing = token_location closing_item.token in
               publish_initializer_delimiter cursor closing_item live
                 (Initializer_close closing);
-              record_static_initializer_delimiter static_live
-                (Initializer_close closing);
+              publish_static_initializer_delimiter cursor closing_item
+                static_live (Initializer_close closing);
               (Some closing, [ closing_item.token ]))
             else (None, [])
           in
@@ -6052,8 +6353,8 @@ and parse_unbraced_array_initializer ?live ?static_live cursor
                     let comma = token_location comma_item.token in
                     publish_initializer_delimiter cursor comma_item live
                       (Initializer_comma comma);
-                    record_static_initializer_delimiter static_live
-                      (Initializer_comma comma);
+                    publish_static_initializer_delimiter cursor comma_item
+                      static_live (Initializer_comma comma);
                     (Some comma, value.tokens @ [ comma_item.token ]))
                   else (None, [])
                 else (None, value.tokens)
@@ -6098,6 +6399,7 @@ let parse_global_initializer ?publication cursor ~array_dimensions =
                 {
                   initializer_phase = None;
                   initializer_current_start = None;
+                  initializer_current_preparation = None;
                   initializer_current_leaf = None;
                   initializer_current_delimiter = None;
                 };
@@ -6107,6 +6409,7 @@ let parse_global_initializer ?publication cursor ~array_dimensions =
             Starting_initializer (Global_initializer_started start);
           ( {
               start;
+              preparing_leaf = None;
               previous_leaf = None;
               delimiters_rev = [];
               previous_delimiter = None;
@@ -6569,7 +6872,10 @@ and parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
                      member_callback = function_pointer;
                      member_dimensions = array_dimensions;
                    });
-              match parse_aggregate_member_metadata cursor ~recovery_depth with
+              match
+                parse_aggregate_member_metadata cursor ~recovery_depth
+                  ~aggregate ~member_name:name
+              with
               | Error failure -> Error failure
               | Ok metadata -> (
                   let delimiter_item = peek cursor in
@@ -6602,7 +6908,8 @@ and parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
                       in
                       Ok { node; tokens }))))
 
-and parse_aggregate_member_metadata cursor ~recovery_depth :
+and parse_aggregate_member_metadata cursor ~recovery_depth ~aggregate
+    ~member_name :
     (parsed_aggregate_member_metadata, aggregate_parse_failure) result =
   let rec collect nodes_rev tokens_rev =
     let name_item = peek cursor in
@@ -6618,12 +6925,14 @@ and parse_aggregate_member_metadata cursor ~recovery_depth :
         Ast.make_identifier ~spelling:name_item.token.raw
           ~location:(token_location name_item.token)
       in
-      let finish value value_tokens =
+      let finish ?(positions = []) value value_tokens =
         let tokens = name_item.token :: value_tokens in
         let node =
           Ast.make_aggregate_member_metadata ~name ~value
             ~location:(location_from_expression_tokens tokens)
         in
+        advance_aggregate ~positions cursor (peek cursor) aggregate
+          (Aggregate_member_metadata_reached { member_name; metadata = node });
         collect (node :: nodes_rev) (List.rev_append tokens tokens_rev)
       in
       let value_item = peek cursor in
@@ -6664,14 +6973,25 @@ and parse_aggregate_member_metadata cursor ~recovery_depth :
                  name.spelling
                  (token_description value_item.token))
       | _ -> (
+          let capture =
+            { capture_aggregate = aggregate; capture_positions_rev = [] }
+          in
+          let previous_capture = cursor.offset_position_capture in
           match
-            parse_expression cursor
-              ~context:Aggregate_member_metadata_expression ~depth:0
-              ~minimum_binding_power:0
+            Fun.protect
+              ~finally:(fun () ->
+                cursor.offset_position_capture <- previous_capture)
+              (fun () ->
+                cursor.offset_position_capture <- Some capture;
+                parse_expression cursor
+                  ~context:Aggregate_member_metadata_expression ~depth:0
+                  ~minimum_binding_power:0)
           with
           | None -> Error { recovery_depth }
           | Some expression ->
-              finish (Ast.Member_metadata_expression expression.node)
+              finish
+                ~positions:(List.rev capture.capture_positions_rev)
+                (Ast.Member_metadata_expression expression.node)
                 expression.tokens)
   in
   collect [] []
@@ -6742,6 +7062,11 @@ let parse_aggregate_definition ?backing_selection ?(local = false)
               let following_item = peek cursor in
               advance_aggregate cursor following_item publication
                 Aggregate_body_finished;
+              Option.iter
+                (fun (backing : parsed_aggregate_backing) ->
+                  advance_aggregate cursor following_item publication
+                    (Aggregate_backing_attached backing.node))
+                backing;
               let parsed_tail =
                 if type_tail then Some ([], [], None)
                 else if
@@ -7657,6 +7982,133 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
              parsed_parameters.parameters parsed_parameters.variadic);
       Some (Ast.Function_prototype prototype)
 
+let parse_aggregate_forward ?backing_selection cursor ~modifiers
+    ~modifier_tokens ~binding ~binding_tokens ~backing ~aggregate_kind ~local
+    ~on_tokens =
+  let aggregate_item = take cursor in
+  let name_item = peek cursor in
+  if not (token_is_name_position_identifier name_item.token) then (
+    report cursor name_item ~code:"HCPARSE0107"
+      ~message:
+        (Printf.sprintf "expected a name after %S %S, but found %s"
+           binding.Ast.spelling aggregate_item.token.raw
+           (token_description name_item.token));
+    recover_declaration cursor;
+    None)
+  else
+    let name_item = take cursor in
+    let name =
+      Ast.make_identifier ~spelling:name_item.token.raw
+        ~location:(token_location name_item.token)
+    in
+    let publication =
+      declare_aggregate ?backing_selection
+        ?backing:
+          (Option.map (fun (b : parsed_aggregate_backing) -> b.node) backing)
+        cursor name_item ~modifiers ~binding:(Some binding) ~aggregate_kind name
+    in
+    let semicolon_item = peek cursor in
+    if
+      semicolon_item.token.kind <> Token_kind.Punctuation ';'
+      && not (local && semicolon_item.token.kind = Token_kind.Punctuation ',')
+    then (
+      report cursor semicolon_item
+        ~code:
+          (if
+             Option.is_some backing
+             && semicolon_item.token.kind = Token_kind.Punctuation '{'
+           then "HCPARSE0125"
+           else "HCPARSE0108")
+        ~message:
+          (Printf.sprintf
+             "expected ';' after %s forward declaration %S, but found %s"
+             aggregate_item.token.raw name.spelling
+             (token_description semicolon_item.token));
+      let rec recover nested_braces =
+        let item = peek cursor in
+        match item.token.kind with
+        | Token_kind.Eof -> ()
+        | Token_kind.Punctuation ';' when nested_braces = 0 ->
+            ignore (take cursor)
+        | Token_kind.Punctuation '{' ->
+            ignore (take cursor);
+            recover (nested_braces + 1)
+        | Token_kind.Punctuation '}' when nested_braces > 0 ->
+            ignore (take cursor);
+            recover (nested_braces - 1)
+        | _ ->
+            ignore (take cursor);
+            recover nested_braces
+      in
+      recover 0;
+      None)
+    else
+      let delimiter =
+        if semicolon_item.token.kind = Token_kind.Punctuation ';' then
+          Some (take cursor)
+        else None
+      in
+      let declaration_tokens =
+        modifier_tokens @ binding_tokens
+        @ Option.fold ~none:[]
+            ~some:(fun (b : parsed_aggregate_backing) -> b.tokens)
+            backing
+        @ [ aggregate_item.token; name_item.token ]
+        @ List.map (fun item -> item.token) (Option.to_list delimiter)
+      in
+      let base_location = location_from_tokens declaration_tokens in
+      let first_token = List.hd declaration_tokens in
+      let location =
+        Ast.make_location ?generated_from:first_token.origin.generated_from
+          ?defined_at:first_token.origin.defined_at ~span:base_location.span
+          ~source_segments:base_location.source_segments ()
+      in
+      let declaration =
+        let make =
+          match (backing, delimiter) with
+          | Some (backing : parsed_aggregate_backing), delimiter ->
+              fun ~modifiers
+                ~binding
+                ~aggregate_kind
+                ~aggregate_keyword_spelling
+                ~aggregate_keyword_location
+                ~name
+                ~location
+              ->
+                Ast.make_backed_aggregate_forward ~modifiers ~binding
+                  ~backing:backing.node ~aggregate_kind
+                  ~aggregate_keyword_spelling ~aggregate_keyword_location ~name
+                  ~semicolon:
+                    (Option.map
+                       (fun item -> token_location item.token)
+                       delimiter)
+                  ~location
+          | None, None -> Ast.make_aggregate_forward_before_comma
+          | None, Some item ->
+              fun ~modifiers
+                ~binding
+                ~aggregate_kind
+                ~aggregate_keyword_spelling
+                ~aggregate_keyword_location
+                ~name
+                ~location
+              ->
+                Ast.make_aggregate_forward_declaration ~modifiers ~binding
+                  ~aggregate_kind ~aggregate_keyword_spelling
+                  ~aggregate_keyword_location ~name
+                  ~semicolon:(token_location item.token)
+                  ~location
+        in
+        make ~modifiers ~binding ~aggregate_kind
+          ~aggregate_keyword_spelling:aggregate_item.token.raw
+          ~aggregate_keyword_location:(token_location aggregate_item.token)
+          ~name ~location
+      in
+      on_tokens declaration_tokens;
+      Some
+        (complete_aggregate cursor semicolon_item publication
+           (Ast.Aggregate_forward_declaration declaration))
+
 let parse_global ?(aggregate_local = false) ?(on_aggregate_tokens = ignore)
     cursor ~parse_function_definition =
   let parse_global_function_pointer ~return_type ~return_selection
@@ -7692,109 +8144,15 @@ let parse_global ?(aggregate_local = false) ?(on_aggregate_tokens = ignore)
   match aggregate_forward_kind with
   | Some aggregate_kind ->
       let binding_item = take cursor in
-      let aggregate_item = take cursor in
       let binding =
         Ast.make_declaration_binding ~kind:Ast.Extern
           ~spelling:binding_item.token.raw
           ~location:(token_location binding_item.token)
           ~target:Ast.No_binding_target
       in
-      let name_item = peek cursor in
-      if not (token_is_name_position_identifier name_item.token) then (
-        report cursor name_item ~code:"HCPARSE0107"
-          ~message:
-            (Printf.sprintf "expected a name after %S %S, but found %s"
-               binding_item.token.raw aggregate_item.token.raw
-               (token_description name_item.token));
-        recover_declaration cursor;
-        None)
-      else
-        let name_item = take cursor in
-        let name =
-          Ast.make_identifier ~spelling:name_item.token.raw
-            ~location:(token_location name_item.token)
-        in
-        let publication =
-          declare_aggregate cursor name_item ~modifiers ~binding:(Some binding)
-            ~aggregate_kind name
-        in
-        let semicolon_item = peek cursor in
-        if
-          semicolon_item.token.kind <> Token_kind.Punctuation ';'
-          && not
-               (aggregate_local
-               && semicolon_item.token.kind = Token_kind.Punctuation ',')
-        then (
-          report cursor semicolon_item ~code:"HCPARSE0108"
-            ~message:
-              (Printf.sprintf
-                 "expected ';' after %s forward declaration %S, but found %s"
-                 aggregate_item.token.raw name.spelling
-                 (token_description semicolon_item.token));
-          let rec recover nested_braces =
-            let item = peek cursor in
-            match item.token.kind with
-            | Token_kind.Eof -> ()
-            | Token_kind.Punctuation ';' when nested_braces = 0 ->
-                ignore (take cursor)
-            | Token_kind.Punctuation '{' ->
-                ignore (take cursor);
-                recover (nested_braces + 1)
-            | Token_kind.Punctuation '}' when nested_braces > 0 ->
-                ignore (take cursor);
-                recover (nested_braces - 1)
-            | _ ->
-                ignore (take cursor);
-                recover nested_braces
-          in
-          recover 0;
-          None)
-        else
-          let delimiter =
-            if semicolon_item.token.kind = Token_kind.Punctuation ';' then
-              Some (take cursor)
-            else None
-          in
-          let declaration_tokens =
-            modifier_tokens
-            @ [ binding_item.token; aggregate_item.token; name_item.token ]
-            @ List.map (fun item -> item.token) (Option.to_list delimiter)
-          in
-          let base_location = location_from_tokens declaration_tokens in
-          let first_token = List.hd declaration_tokens in
-          let location =
-            Ast.make_location ?generated_from:first_token.origin.generated_from
-              ?defined_at:first_token.origin.defined_at ~span:base_location.span
-              ~source_segments:base_location.source_segments ()
-          in
-          let declaration =
-            let make =
-              match delimiter with
-              | None -> Ast.make_aggregate_forward_before_comma
-              | Some item ->
-                  fun ~modifiers
-                    ~binding
-                    ~aggregate_kind
-                    ~aggregate_keyword_spelling
-                    ~aggregate_keyword_location
-                    ~name
-                    ~location
-                  ->
-                    Ast.make_aggregate_forward_declaration ~modifiers ~binding
-                      ~aggregate_kind ~aggregate_keyword_spelling
-                      ~aggregate_keyword_location ~name
-                      ~semicolon:(token_location item.token)
-                      ~location
-            in
-            make ~modifiers ~binding ~aggregate_kind
-              ~aggregate_keyword_spelling:aggregate_item.token.raw
-              ~aggregate_keyword_location:(token_location aggregate_item.token)
-              ~name ~location
-          in
-          on_aggregate_tokens declaration_tokens;
-          Some
-            (complete_aggregate cursor semicolon_item publication
-               (Ast.Aggregate_forward_declaration declaration))
+      parse_aggregate_forward cursor ~modifiers ~modifier_tokens ~binding
+        ~binding_tokens:[ binding_item.token ] ~backing:None ~aggregate_kind
+        ~local:aggregate_local ~on_tokens:on_aggregate_tokens
   | None -> (
       match aggregate_kind_of_token (peek cursor).token with
       | Some aggregate_kind ->
@@ -7829,6 +8187,19 @@ let parse_global ?(aggregate_local = false) ?(on_aggregate_tokens = ignore)
                   match aggregate_kind_after_backing cursor ~offset:0 with
                   | Some aggregate_kind -> (
                       match binding with
+                      | Some binding when binding.Ast.kind = Ast.Extern -> (
+                          match
+                            parse_aggregate_backing cursor type_item
+                              type_specifier
+                          with
+                          | None -> None
+                          | Some backing ->
+                              parse_aggregate_forward
+                                ?backing_selection:type_selection cursor
+                                ~modifiers ~modifier_tokens ~binding
+                                ~binding_tokens ~backing:(Some backing)
+                                ~aggregate_kind ~local:aggregate_local
+                                ~on_tokens:on_aggregate_tokens)
                       | Some binding ->
                           report cursor type_item ~code:"HCPARSE0125"
                             ~message:
@@ -9143,8 +9514,15 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                       allocation_activity = ref true;
                     }
                   in
+                  let active_allocations =
+                    Domain.DLS.get current_local_allocations
+                  in
+                  let previous_allocations = !active_allocations in
+                  active_allocations := receipt :: previous_allocations;
                   Fun.protect
-                    ~finally:(fun () -> receipt.allocation_activity := false)
+                    ~finally:(fun () ->
+                      active_allocations := previous_allocations;
+                      receipt.allocation_activity := false)
                     (fun () ->
                       publish_declaration cursor equals_item
                         (Function_local_allocated receipt));
@@ -9180,6 +9558,8 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                     | Some _, Some static_allocation ->
                         let static_activity =
                           {
+                            static_current_delimiter = None;
+                            static_current_expression = None;
                             static_current = None;
                             static_completion_current = None;
                             static_completed = None;
@@ -9196,7 +9576,9 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                           ( {
                               static_start;
                               static_previous = None;
+                              static_preparing_expression = None;
                               static_delimiters_rev = [];
+                              static_previous_delimiter = None;
                             },
                             [] )
                     | _ -> None

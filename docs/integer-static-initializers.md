@@ -72,6 +72,19 @@ nonconstant AOT statics with it enabled retain an explicit HCRUN0006 boundary.
 Their separate compile-time execution phase remains required. JIT scheduled
 values and constant preparation retain the option snapshot.
 
+Each original static allocation and scalar expression retains its own option
+mask. The expression mask selects AOT deferral after expression lookahead, as
+`PrsVarInit` does. A later body option cannot change an earlier leaf.
+Static ownership still checks the declaring function's immutable mask, so an
+altered checked body cannot borrow the allocation or expression mask.
+Constant statics remain on the code heap in both modes, including with the
+data-heap option enabled. AOT bodies without a live task function record retain metadata at the
+original callback; it grants no runtime allocation or successful copy.
+Reference-bearing AOT leaves that require the unfinished compile-time phase
+reject before later body directives. The
+[storage-option example](../examples/compiler-storage-options.hc) prints `A`
+and returns 42 in both modes through IR and native source tasks.
+
 ## Checked regions
 
 The source driver retains each exact static root and published storage slot.

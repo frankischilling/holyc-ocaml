@@ -343,7 +343,10 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               | O.Ic_rbp, [], None when T.pointer_depth type_ > 0 -> Base type_
               | Ic_imm_i64, [], Some (Seq.Integer bits)
                 when T.pointer_depth type_ > 0 -> Offset (type_, bits)
-              | Ic_mul, [ stride; _ ], None when pointer type_ -> (
+              | Ic_mul, [ stride; _ ], None
+                when pointer type_
+                     || Ir.Automatic_aggregate_storage.aggregate_pointer type_
+                -> (
                   match address stride with
                   | Offset (expected, stride)
                     when T.equal expected type_ && stride > 0L ->
@@ -354,18 +357,19 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                   Some
                     (Seq.Member_projection proof | Seq.Backing_projection proof)
                 ) -> (
-                  match (frame, address base, address offset) with
-                  | ( Some frame,
-                      Reference (expected, [], Memory),
-                      Offset (offset_type, delta) )
+                  match (address base, address offset) with
+                  | Reference (expected, [], Memory), Offset (offset_type, delta)
                     when T.equal offset_type type_
                          && Ir.Aggregate_member_projection.matches
-                              ~function_identity:
-                                ( Frame.function_symbol frame,
-                                  Sema.Symbol_table.scope_id
-                                    (Frame.function_scope frame) )
-                              ~before_item_index:
-                                (Frame.function_item_index frame)
+                              ?function_identity:
+                                (Option.map
+                                   (fun frame ->
+                                     ( Frame.function_symbol frame,
+                                       Sema.Symbol_table.scope_id
+                                         (Frame.function_scope frame) ))
+                                   frame)
+                              ?before_item_index:
+                                (Option.map Frame.function_item_index frame)
                               proof ~base_pointer:expected ~pointer_type:type_
                               ~offset:delta ->
                       Reference
@@ -373,7 +377,21 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                           Ir.Aggregate_member_projection.strides proof,
                           Memory )
                   | _ -> Unknown_address)
-              | Ic_add, [ base; offset ], None -> (
+              | Ic_add, [ base; offset ], (None | Some (Seq.Pointee_stride _))
+                -> (
+                  let selected_stride stride =
+                    match (item.payload, frame) with
+                    | None, _ -> false
+                    | Some (Seq.Pointee_stride layout), Some frame ->
+                        Sema.Aggregate_pointee_layout.matches layout
+                          ~function_symbol:(Frame.function_symbol frame)
+                          ~before_item_index:(Frame.function_item_index frame)
+                          ~pointer_type:type_ ~stride
+                    | Some (Seq.Pointee_stride layout), None ->
+                        Sema.Aggregate_pointee_layout.matches_top_level layout
+                          ~pointer_type:type_ ~stride
+                    | _ -> false
+                  in
                   match (address base, address offset) with
                   | Base expected, Offset (offset_type, bits)
                     when T.equal expected type_ && T.equal offset_type type_ ->
@@ -383,7 +401,8 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                     when T.equal expected type_ && T.equal offset_type type_
                     -> (
                       match dimensions with
-                      | head :: tail when head = stride ->
+                      | head :: tail
+                        when head = stride || selected_stride stride ->
                           Reference (type_, tail, memory)
                       | [] -> Reference (type_, [], memory)
                       | _ -> Unknown_address)

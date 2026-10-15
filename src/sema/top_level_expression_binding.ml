@@ -97,6 +97,7 @@ type input = {
   dimension_owner : Dimension_fragment.t option;
   switch_case_owner : Switch_case_fragment.t option;
   offset_owner : Offset_fragment.t option;
+  metadata_owner : Member_metadata_fragment.t option;
 }
 
 let make_statement ~statement_index ~item_index ~origin events =
@@ -119,6 +120,7 @@ let make_statement ~statement_index ~item_index ~origin events =
         dimension_owner = None;
         switch_case_owner = None;
         offset_owner = None;
+        metadata_owner = None;
       }
 
 let make_source_statement ~source ~statement_index ~item_index events =
@@ -130,8 +132,8 @@ let make_source_statement ~source ~statement_index ~item_index events =
   |> Result.map (fun input -> { input with original_statement = Some source })
 
 let make_fragment_input ?internal_binding_owner ?static_owner ?switch_case_owner
-    ~leaf ~origin ~references ~source_queries ~fragment_owner ~default_owner
-    ~dimension_owner ~offset_owner events =
+    ?metadata_owner ~leaf ~origin ~references ~source_queries ~fragment_owner
+    ~default_owner ~dimension_owner ~offset_owner events =
   let same_leaf actual =
     match (leaf, actual) with
     | None, None -> true
@@ -200,6 +202,7 @@ let make_fragment_input ?internal_binding_owner ?static_owner ?switch_case_owner
         dimension_owner;
         switch_case_owner;
         offset_owner;
+        metadata_owner;
       }
 
 let make_initializer_fragment ~fragment events =
@@ -258,6 +261,14 @@ let make_offset_fragment ~fragment events =
     ~source_queries:(Offset_fragment.queries fragment)
     ~fragment_owner:None ~default_owner:None ~offset_owner:(Some fragment)
     ~dimension_owner:None events
+
+let make_member_metadata_fragment ~fragment events =
+  make_fragment_input ~leaf:None
+    ~origin:(Member_metadata_fragment.origin fragment)
+    ~references:(Member_metadata_fragment.references fragment)
+    ~source_queries:(Member_metadata_fragment.queries fragment)
+    ~fragment_owner:None ~default_owner:None ~offset_owner:None
+    ~metadata_owner:fragment ~dimension_owner:None events
 
 let make_global_initializer ~statement_index ~initializers ~global events =
   let symbol = Global_initializer_binding.global_symbol global in
@@ -344,6 +355,9 @@ let statement_internal_binding (statement : statement) =
   statement.source.internal_binding_owner
 
 let statement_offset (statement : statement) = statement.source.offset_owner
+
+let statement_member_metadata (statement : statement) =
+  statement.source.metadata_owner
 
 let initializer_bindings result =
   List.find_map
@@ -827,6 +841,16 @@ let resolve ~table ~parent ~module_expressions inputs =
                   <> []
                || List.length inputs <> 1)
              input.offset_owner
+        || Option.fold ~none:false
+             ~some:(fun fragment ->
+               (not (Member_metadata_fragment.owns_table fragment table))
+               || Declaration_collection.namespace_scope
+                    (Member_metadata_fragment.namespace fragment)
+                  != parent
+               || Module_expression_binding.publications module_expressions
+                  <> []
+               || List.length inputs <> 1)
+             input.metadata_owner
         ||
         match input.fragment_owner with
         | None -> false

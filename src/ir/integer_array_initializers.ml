@@ -30,8 +30,24 @@ let has_unprepared initializers =
 let ( let* ) = Result.bind
 let invalid detail = Error ("HCIRL0004: array initializer " ^ detail)
 
-let create ~shape ~source ~roots ~source_leaf =
-  let* layout = Layout.create ~shape source in
+let create_impl ~source_layout ~static_allocation ~retained_layout ~shape
+    ~source ~roots ~source_leaf =
+  let* layout =
+    match (source_layout, retained_layout) with
+    | Some layout, None when Layout.source layout == source -> Ok layout
+    | Some _, _ -> invalid "source layout has another original initializer"
+    | None, None -> (
+        match static_allocation with
+        | None -> Layout.create ~shape source
+        | Some allocation ->
+            Integer_static_allocation.retained_layout allocation ~shape source)
+    | None, Some (declaration, layout)
+      when Layout.source layout == source
+           && Layout.belongs_to_declared_shape layout declaration shape ->
+        Ok layout
+    | None, Some _ ->
+        invalid "retained layout has another declaration, source or extent"
+  in
   let rec join reversed roots destinations =
     match (roots, destinations) with
     | [], [] -> Ok (List.rev reversed)
@@ -48,6 +64,33 @@ let create ~shape ~source ~roots ~source_leaf =
   let* entries = join [] roots (Layout.entries layout) in
   Ok { entries; scalar = Integer_storage_shape.scalar shape; steps = 0 }
 
+let create ~shape ~source ~roots ~source_leaf =
+  create_impl ~source_layout:None ~static_allocation:None ~retained_layout:None
+    ~shape ~source ~roots ~source_leaf
+
+let create_static_snapshot ~snapshot ~frame ~location ~shape ~source ~roots
+    ~source_leaf =
+  let* source_layout =
+    Layout.static_snapshot_layout snapshot ~frame ~location ~shape ~source
+  in
+  create_impl ~source_layout:(Some source_layout) ~static_allocation:None
+    ~retained_layout:None ~shape ~source ~roots ~source_leaf
+
+let create_retained ~declaration ~layout ~shape ~source ~roots ~source_leaf =
+  create_impl ~source_layout:None ~static_allocation:None
+    ~retained_layout:(Some (declaration, layout))
+    ~shape ~source ~roots ~source_leaf
+
+let create_retained_static ~allocation ~shape ~source ~roots ~source_leaf =
+  create_impl ~source_layout:None ~static_allocation:(Some allocation)
+    ~retained_layout:None ~shape ~source ~roots ~source_leaf
+
+let storage_payload entry payload =
+  match (payload, Layout.scalar entry.destination) with
+  | Word bits, Some scalar ->
+      Bytes (Layout.word_bytes scalar bits |> Result.get_ok)
+  | _ -> payload
+
 let publish initializers updates =
   let rec validate total seen = function
     | [] -> Ok total
@@ -59,7 +102,12 @@ let publish initializers updates =
                && not (List.exists (( == ) root) seen) ->
             let* () =
               match (Layout.operation entry.destination, payload) with
-              | Layout.Scalar_store, Word _ -> Ok ()
+              | Layout.Scalar_store, Word bits -> (
+                  match Layout.scalar entry.destination with
+                  | None -> Ok ()
+                  | Some scalar ->
+                      Layout.normalized_word scalar bits
+                      |> Result.map (fun _ -> ()))
               | Layout.Copy_bytes expected, Bytes actual
                 when String.equal expected actual -> Ok ()
               | _ ->
@@ -82,7 +130,12 @@ let publish initializers updates =
               match payload with
               | Word bits ->
                   Word
-                    (Integer_scalar_storage.normalize initializers.scalar bits)
+                    (match Layout.scalar entry.destination with
+                    | None ->
+                        Integer_scalar_storage.normalize initializers.scalar
+                          bits
+                    | Some scalar ->
+                        Layout.normalized_word scalar bits |> Result.get_ok)
               | _ -> payload
             in
             { entry with prepared = Some (payload, steps) })

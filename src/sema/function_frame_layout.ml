@@ -30,6 +30,7 @@ type location = {
   value_shape : value_shape;
   dimensions : dimension list;
   source_dimensions_checked : bool;
+  aggregate_allocation : Compiler_record.automatic_aggregate_allocation option;
   register_selection : Register_request.selection;
   element_size : int64;
   allocated_size : int64;
@@ -120,6 +121,9 @@ let location_storage_type (location : location) =
   | None -> Ok location.checked_type
   | Some pointer ->
       Function_type_resolution.function_pointer_storage_type pointer
+
+let location_aggregate_allocation (location : location) =
+  location.aggregate_allocation
 
 let location_register_selection (location : location) =
   location.register_selection
@@ -644,6 +648,7 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                       value_shape = Scalar;
                       dimensions = [];
                       source_dimensions_checked = true;
+                      aggregate_allocation = None;
                       register_selection =
                         Function_type_resolution.parameter_register_selection
                           parameter;
@@ -749,6 +754,7 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                     value_shape;
                     dimensions;
                     source_dimensions_checked = dimensions = [];
+                    aggregate_allocation = None;
                     register_selection =
                       Function_type_resolution
                       .synthetic_binding_register_selection typed_binding;
@@ -810,11 +816,21 @@ let local_location table aggregate_layouts ~parent ~function_symbol
       | Local_type_resolution.Function_pointer pointer -> Some pointer
       | Local_type_resolution.Object -> None
     in
+    let aggregate_allocation =
+      Option.bind automatic_aggregates (fun receipts ->
+          List.find_map
+            (fun (owned, _, receipt) ->
+              if owned == local then Some receipt else None)
+            receipts)
+    in
     let local_element_size =
       match
         (automatic_aggregates, kind, declarator_shape, Type.base checked_type)
       with
-      | Some receipts, Automatic_local, Object, Type.Aggregate aggregate
+      | ( Some receipts,
+          (Automatic_local | Static_local),
+          Object,
+          Type.Aggregate aggregate )
         when Type.pointer_depth checked_type = 0 -> (
           match
             List.find_opt (fun (owned, _, _) -> owned == local) receipts
@@ -827,13 +843,13 @@ let local_location table aggregate_layouts ~parent ~function_symbol
                    receipt
                 |> Result.map_error (invalid_input ~origin))
                 (fun () ->
-                  match Aggregate_layout.find aggregate_layouts aggregate with
-                  | Some layout
-                    when layout.symbol == aggregate
-                         && layout.size
-                            = Compiler_record.automatic_aggregate_size receipt
-                         && layout.size > 0L -> Ok layout.size
-                  | _ -> Error (incomplete_aggregate aggregate origin)))
+                  let size = Compiler_record.automatic_aggregate_size receipt in
+                  if size >= 0L then Ok size
+                  else
+                    Error
+                      (invalid_input ~origin
+                         "the original automatic allocation has a negative \
+                          class size")))
       | _ ->
           element_size table aggregate_layouts ~before_item:function_item origin
             declarator_shape checked_type
@@ -889,6 +905,7 @@ let local_location table aggregate_layouts ~parent ~function_symbol
                             value_shape;
                             dimensions;
                             source_dimensions_checked;
+                            aggregate_allocation;
                             register_selection = Register_request.Disabled;
                             element_size;
                             allocated_size;
@@ -915,6 +932,7 @@ let local_location table aggregate_layouts ~parent ~function_symbol
                             value_shape;
                             dimensions;
                             source_dimensions_checked;
+                            aggregate_allocation;
                             register_selection =
                               Register_request.effective
                                 (Local_type_resolution.local_register_requests

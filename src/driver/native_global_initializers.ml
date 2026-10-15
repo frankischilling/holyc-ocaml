@@ -5,6 +5,10 @@ type t = {
   runtime_calls : Ir.Runtime_call_context.t;
   functions : Ir.Function_body.t list;
   load_roots : Sema.Function_call_expression_result.top_level_root_result list;
+  static_load_roots :
+    (Ir.Integer_globals.static_slot
+    * Sema.Function_call_expression_result.initializer_result)
+    list;
 }
 
 let bodies functions =
@@ -32,6 +36,34 @@ let is_load_root proof slot root =
 let is_load_slot proof slot =
   List.exists (is_load_root proof slot)
     (Ir.Integer_globals.slot_initializers slot)
+
+let is_static_load_root proof slot root =
+  List.exists (( == ) slot) (Ir.Integer_globals.statics proof.globals)
+  && List.exists (( == ) root) (Ir.Integer_globals.static_initializers slot)
+  && List.exists
+       (fun (original, source) -> original == slot && source == root)
+       proof.static_load_roots
+
+let is_static_load_slot proof slot =
+  List.exists
+    (is_static_load_root proof slot)
+    (Ir.Integer_globals.static_initializers slot)
+
+let owns_static_load_address proof ~globals ~slot ~instruction =
+  let module Initialization = Ir.Global_initialization in
+  let module Id = Ir.Instruction_sequence.Instruction_id in
+  globals == proof.globals
+  && List.exists (( == ) slot) (Ir.Integer_globals.statics globals)
+  && List.exists
+       (fun region ->
+         let original = Initialization.static_slot region in
+         let description = Initialization.describe_static region in
+         is_static_load_root proof original (Initialization.static_root region)
+         && Ir.Integer_globals.static_frame original
+            == Ir.Integer_globals.static_frame slot
+         && Id.compare description.first instruction <= 0
+         && Id.compare instruction description.last <= 0)
+       (Initialization.static_regions proof.initialization)
 
 let publications_precede_entry ~globals ~initialization ~entry =
   let module Initialization = Ir.Global_initialization in
@@ -79,6 +111,13 @@ let create ~span ~static_completions ~completions ~preparation ~runtime_calls
     List.filter Integer_initializers.native_is_load evidence
   in
   let load_regions = Ir.Global_initialization.regions initialization in
+  let static_load_roots =
+    Integer_initializers.native_static_load_roots preparation
+  in
+  let static_load_evidence =
+    List.filter Integer_initializers.native_static_is_load static_evidence
+  in
+  let static_regions = Ir.Global_initialization.static_regions initialization in
   if
     (not (Integer_initializers.native_statics_complete ~span preparation))
     || List.length static_evidence <> List.length completed_statics
@@ -102,7 +141,16 @@ let create ~span ~static_completions ~completions ~preparation ~runtime_calls
                && Ir.Global_initialization.phase region
                   = Ir.Global_initialization.Load_initializer)
              load_regions load_roots))
-    || Ir.Global_initialization.static_regions initialization <> []
+    || List.length static_load_roots <> List.length static_load_evidence
+    || List.length static_regions <> List.length static_load_roots
+    || (not
+          (List.for_all2
+             (fun region (slot, root) ->
+               Ir.Global_initialization.static_slot region == slot
+               && Ir.Global_initialization.static_root region == root
+               && Ir.Global_initialization.static_phase region
+                  = Ir.Global_initialization.Load_initializer)
+             static_regions static_load_roots))
     || (not (publications_precede_entry ~globals ~initialization ~entry))
     || Ir.Integer_globals.is_task_command globals
     || Ir.Global_initialization.prepared_steps initialization
@@ -111,4 +159,13 @@ let create ~span ~static_completions ~completions ~preparation ~runtime_calls
     Error
       "native global preparation has another initialization or callable bundle"
   else
-    Ok { globals; initialization; entry; runtime_calls; functions; load_roots }
+    Ok
+      {
+        globals;
+        initialization;
+        entry;
+        runtime_calls;
+        functions;
+        load_roots;
+        static_load_roots;
+      }

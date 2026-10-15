@@ -42,10 +42,24 @@ let create ?callback
       when local.local_pointer_layers = []
            && Option.is_none local.local_function_pointer
            && Option.is_none callback ->
-        Source_type_reference.builtin local.local_type_specifier []
-        |> Result.map (fun reference ->
-            let type_ = Type_reference.resolved_type reference in
-            (type_, type_, None, None))
+        let* type_ =
+          match Compiler_record.static_allocation_aggregate allocation with
+          | Some aggregate
+            when Compiler_record.static_initializer_aggregate_matches ~table
+                   ~namespace:
+                     (Compiler_record.static_allocation_namespace allocation)
+                   ~publication:
+                     (Compiler_record.static_allocation_publication allocation)
+                   ~source:receipt aggregate ->
+              Ok (Compiler_record.automatic_aggregate_type aggregate)
+          | Some _ ->
+              Error
+                "static reference replaced its original aggregate allocation"
+          | None ->
+              Source_type_reference.builtin local.local_type_specifier []
+              |> Result.map Type_reference.resolved_type
+        in
+        Ok (type_, type_, None, None)
     | Frontend.Parser.Local_variable local -> (
         let module Headers = Function_type_resolution in
         match (local.local_function_pointer, callback) with

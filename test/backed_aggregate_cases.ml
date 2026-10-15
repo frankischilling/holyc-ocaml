@@ -107,6 +107,213 @@ let values =
         "42" );
     ]
 
+let assignment_values =
+  List.map
+    (fun (primitive, _) ->
+      ( "assignment lookahead reaches " ^ primitive ^ " backing",
+        Printf.sprintf
+          {|extern class Item;class Box{Item item;U8 bytes[16];};I64 F(){Box object;object.bytes[8]=7;object.item=#exe{%s class Item{%s value;};}42;if(object.bytes[8]!=7)return -1;return object.bytes[0];}F();|}
+          primitive primitive,
+        42L,
+        "" ))
+    widths
+  @ [
+      ( "compound assignment observes backing after operator lookahead",
+        {|extern class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;object.bytes[0]=40;object.bytes[1]=0;object.item+=#exe{U16 class Item{U16 value;};}2;return object.bytes[0];}F();|},
+        42L,
+        "" );
+      ( "assignment result retains its observed backing word",
+        {|extern class Item;class Box{Item item;U8 bytes[8];};I64 Take(I64 n){return n;}I64 F(){Box object;return Take(object.item=#exe{U16 class Item{U16 value;};}42);}F();|},
+        42L,
+        "" );
+      ( "lookahead assignment result preserves the full register word",
+        {|extern class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;I64 n=(object.item=#exe{U8 class Item{U8 value;};}298);if(object.bytes[0]!=42)return -1;return n-256;}F();|},
+        42L,
+        "" );
+      ( "pointer member assignment keeps the original containing root",
+        {|extern class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;Box *p=&object;p->item=#exe{U16 class Item{U16 value;};}42;return object.bytes[0];}F();|},
+        42L,
+        "" );
+      ( "class dereference assignment observes original forward completion",
+        {|extern class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;Item *p=&object.item;*p=#exe{U16 class Item{U16 value;};}42;return object.bytes[0];}F();|},
+        42L,
+        "" );
+      ( "zero stride class array assignment retains its original dimensions",
+        {|extern class Item;class Box{Item items[2];U8 bytes[8];};I64 F(){Box object;object.items[1]=#exe{U16 class Item{U16 value;};}42;return object.bytes[0];}F();|},
+        42L,
+        "" );
+      ( "zero member stride aliases stay within the original containing root",
+        {|extern class Item;class Box{Item items[2];U8 bytes[8];};I64 F(){Box object;object.items[2]=#exe{U16 class Item{U16 value;};}42;return object.bytes[0];}F();|},
+        42L,
+        "" );
+      ( "later member index observes the completed original class size",
+        {|extern class Item;class Box{Item items[2];U8 bytes[8];};I64 F(){Box object;object.items[1]=#exe{U16 class Item{U16 value;};}42;object.items[1]=44;if(object.bytes[2]!=44)return -1;return object.bytes[0];}F();|},
+        42L,
+        "" );
+      ( "index opening lookahead observes original class completion",
+        {|extern class Item;class Box{Item items[2];U8 bytes[8];};I64 F(){Box object;object.items[#exe{U16 class Item{U16 value;};}1]=42;return object.bytes[2];}F();|},
+        42L,
+        "" );
+      ( "completion during index value preserves its earlier zero stride",
+        {|extern class Item;class Box{Item items[2];U8 bytes[8];};I64 F(){Box object;object.items[1#exe{U16 class Item{U16 value;};}]=42;return object.bytes[0];}F();|},
+        42L,
+        "" );
+      ( "multidimensional indices keep separately reached strides",
+        {|extern class Item;class Box{Item items[2][3];U8 bytes[16];};I64 F(){Box object;object.items[1#exe{U16 class Item{U16 value;};}][1]=42;return object.bytes[2];}F();|},
+        42L,
+        "" );
+      ( "original internal endpoint survives right operand completion",
+        {|extern U16 class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;object.bytes[1]=0;object.item=0x12a#exe{U8 class Item{U8 value;};};return object.bytes[1]+41;}F();|},
+        42L,
+        "" );
+      ( "original internal endpoint survives later body completion",
+        {|extern U16 class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;object.bytes[1]=0;object.item=0x12a;#exe{U8 class Item{U8 value;};}return object.bytes[1]+41;}F();|},
+        42L,
+        "" );
+      ( "later equal name definition does not change the original store width",
+        {|extern U16 class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;object.bytes[1]=0;object.item=0x12a#exe{U16 class Item{U16 value;};U8 class Item{U8 value;};};return object.bytes[1]+41;}F();|},
+        42L,
+        "" );
+      ( "named backing chain reaches the original completed endpoint",
+        {|extern class Word;Word class Item{U64 word;};I64 F(){Item object;object=#exe{U16 class Word{U16 value;};}42;U8 *p=(&object)(U8*);return p[0];}F();|},
+        42L,
+        "" );
+    ]
+
+let in_task_source source =
+  let suffix = "F();" in
+  assert (String.ends_with ~suffix source);
+  Printf.sprintf "#exe{%sStreamPrint(\"%%d;\",F());}"
+    (String.sub source 0 (String.length source - String.length suffix))
+
+let isolated_assignment_source =
+  {|extern class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;object.item=#exe{U16 class Item{U16 value;};}42;return object.bytes[0];}F();|}
+
+let isolated_assignment_value_source =
+  {|extern U16 class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;object.bytes[1]=0;object.item=0x12a#exe{U8 class Item{U8 value;};};return object.bytes[1]+42;}F();|}
+
+let source_values =
+  List.map
+    (fun (name, source, value, output) ->
+      (name, in_task_source source, value, output))
+    assignment_values
+  @ [
+      ( "top-level assignment observes backing after operator lookahead",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;object.item=#exe{U16 class Item{U16 value;};}42;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level global initializer retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 n=(object.item=#exe{U16 class Item{U16 value;};}42);StreamPrint("%d;",n+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level static initializer retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 F(){static I64 n=(object.item=#exe{U16 class Item{U16 value;};}42);return n;}StreamPrint("%d;",F()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level saved default retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 F(I64 n=(object.item=#exe{U16 class Item{U16 value;};}42)){return n;}StreamPrint("%d;",F()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level dimension retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 values[(object.item=#exe{U16 class Item{U16 value;};}2)];StreamPrint("%d;",sizeof(values)+26+(object.bytes[0]!=2));}|},
+        42L,
+        "" );
+      ( "top-level initializer index retains its earlier zero stride",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;I64 n=(object.items[1]=#exe{U16 class Item{U16 value;};}42);StreamPrint("%d;",n+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level static initializer index retains its earlier zero stride",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;I64 F(){static I64 n=(object.items[1]=#exe{U16 class Item{U16 value;};}42);return n;}StreamPrint("%d;",F()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level member metadata retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;class Tagged{U8 field tag (object.item=#exe{U16 class Item{U16 value;};}42);};StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level member offset retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;class Placed{$$=(object.item=#exe{U16 class Item{U16 value;};}2);U8 field;};StreamPrint("%d;",sizeof(Placed)+39+(object.bytes[0]!=2));}|},
+        42L,
+        "" );
+      ( "top-level switch endpoint retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 F(){switch(42){case (object.item=#exe{U16 class Item{U16 value;};}42):return 42;default:return -1;}return -2;}StreamPrint("%d;",F()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level callback default retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 (*P)(I64 n=(object.item=#exe{U16 class Item{U16 value;};}42));I64 F(I64 n){return n;}P=&F;StreamPrint("%d;",P()+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level internal binding retains its assignment expression boundary",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;_intern (object.item=#exe{U16 class Item{U16 value;};}0xa9) I64 F(I64 n);StreamPrint("%d;",F(42)+(object.bytes[0]!=0xa9));}|},
+        42L,
+        "" );
+      ( "top-level compound assignment keeps the containing byte root",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;object.bytes[0]=40;object.bytes[1]=0;object.item+=#exe{U16 class Item{U16 value;};}2;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level assignment retains an earlier internal endpoint",
+        {|#exe{extern U16 class Item;class Box{Item item;U8 bytes[8];};Box object;object.bytes[1]=0;object.item=0x12a#exe{U8 class Item{U8 value;};};StreamPrint("%d;",object.bytes[1]+41);}|},
+        42L,
+        "" );
+      ( "top-level assignment result preserves its full register word",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;I64 n;n=(object.item=#exe{U8 class Item{U8 value;};}298);StreamPrint("%d;",n-256+(object.bytes[0]!=42));}|},
+        42L,
+        "" );
+      ( "top-level pointer member assignment retains its destination",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;(&object)->item=#exe{U16 class Item{U16 value;};}42;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level class pointer assignment uses original completion",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;*(&object.item)=#exe{U16 class Item{U16 value;};}42;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level indices retain separately reached class sizes",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;object.bytes[2]=7;object.items[1]=#exe{U16 class Item{U16 value;};}40;object.items[0]+=2;object.items[1]=44;StreamPrint("%d;",object.bytes[0]+(object.bytes[2]!=44));}|},
+        42L,
+        "" );
+      ( "top-level index opening observes class completion",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;object.items[#exe{U16 class Item{U16 value;};}1]=42;StreamPrint("%d;",object.bytes[2]);}|},
+        42L,
+        "" );
+      ( "top-level index value cannot replace its earlier zero stride",
+        {|#exe{extern class Item;class Box{Item items[2];U8 bytes[8];};Box object;object.items[1#exe{U16 class Item{U16 value;};}]=42;StreamPrint("%d;",object.bytes[0]);}|},
+        42L,
+        "" );
+      ( "top-level multidimensional indices retain independent strides",
+        {|#exe{extern class Item;class Box{Item items[2][3];U8 bytes[16];};Box object;object.items[1#exe{U16 class Item{U16 value;};}][1]=42;StreamPrint("%d;",object.bytes[2]);}|},
+        42L,
+        "" );
+      ( "top-level equal name replacement cannot retarget original backing",
+        {|#exe{extern U16 class Item;class Box{Item item;U8 bytes[8];};Box object;object.bytes[1]=0;object.item=0x12a#exe{U16 class Item{U16 value;};U8 class Item{U8 value;};};StreamPrint("%d;",object.bytes[1]+41);}|},
+        42L,
+        "" );
+      ( "top-level completion remains selected after equal name replacement",
+        {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;object.item=#exe{U16 class Item{U16 value;};U8 class Item{U8 other;};}0x12a;StreamPrint("%d;",object.bytes[0]+(object.bytes[1]!=1));}|},
+        42L,
+        "" );
+    ]
+
+let source_faults =
+  [
+    ( "top-level backing completion cannot enlarge the original root",
+      {|#exe{extern class Item;class Box{Item item;U8 byte;};Box object;Print("A");object.item=#exe{U64 class Item{U64 value;};}42;Print("B");}|},
+      "HCIRVM0019",
+      "A" );
+    ( "top-level completion after the right operand cannot authorize assignment",
+      {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object;Print("A");object.item=42#exe{U16 class Item{U16 value;};};Print("B");}|},
+      "HCSEMA0046",
+      "A" );
+    ( "assignment lookahead cannot enlarge an original empty local",
+      in_task_source
+        {|extern class Item;I64 F(){Item object;object=#exe{U16 class Item{U16 value;};}42;return 42;}F();|},
+      "HCIRVM0019",
+      "" );
+    ( "observed backing width remains bounded by the original containing root",
+      in_task_source
+        {|extern class Item;class Box{Item item;U8 byte;};I64 F(){Box object;object.item=#exe{U64 class Item{U64 value;};}42;return 42;}F();|},
+      "HCIRVM0019",
+      "" );
+  ]
+
 let faults =
   [
     ( "whole backing read requires every scalar byte initialized",
@@ -129,6 +336,15 @@ let faults =
 
 let unsupported =
   [
+    ( "completion after the right operand cannot authorize assignment",
+      {|extern class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;object.item=42#exe{U16 class Item{U16 value;};};return 42;}F();|}
+    );
+    ( "completion after assignment cannot authorize its earlier lvalue",
+      {|extern class Item;class Box{Item item;U8 bytes[8];};I64 F(){Box object;object.item=42;#exe{U16 class Item{U16 value;};}return 42;}F();|}
+    );
+    ( "lookahead replacement cannot supply backing to an earlier class",
+      {|class Item{U16 value;};class Box{Item item;U8 bytes[8];};I64 F(){Box object;object.item=#exe{U16 class Item{U16 value;};}42;return 42;}F();|}
+    );
     ( "floating whole-value arithmetic execution",
       {|U16 class Box{U16 word;U8 guard;};I64 F(){Box o;o=40;return o+2.;}F();|}
     );
@@ -139,8 +355,4 @@ let unsupported =
       {|F64 class Box{F64 word;};I64 F(){Box o;o=42;return o;}F();|} );
     ( "pointer class backing",
       {|U8 *class Box{U8 *word;};I64 F(){Box o;o=0;return o;}F();|} );
-    ( "backed persistent class object",
-      {|I64 class Box{I64 word;};Box o;I64 F(){o=42;return o;}F();|} );
-    ( "backed whole postfix cast",
-      {|I64 class Box{I64 word;};I64 F(){Box o;o=42;return o(U8);}F();|} );
   ]

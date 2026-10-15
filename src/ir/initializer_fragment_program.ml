@@ -1,4 +1,5 @@
 type t = {
+  scalar_lowered_ : Integer_program_lowering.t option;
   authority_ : Sema.Initializer_fragment.authority;
   destination_ : Initializer_fragment_destination.t;
   entry_ : X87_stack.t;
@@ -11,23 +12,45 @@ let destination value = value.destination_
 let entry value = value.entry_
 let initialization value = value.initialization_
 let runtime_calls value = value.runtime_calls_
+let is_scalar_evaluation value = Option.is_some value.scalar_lowered_
 
-let create ~authority ~destination ~entry ~initialization ~runtime_calls =
+let create ?scalar_lowered ~authority ~destination ~entry ~initialization
+    ~runtime_calls () =
+  let scalar =
+    Integer_initializer_layout.requires_settlement
+      (Initializer_fragment_destination.layout destination)
+  in
   if
-    Sema.Initializer_fragment.authorized_fragment authority
-    != Initializer_fragment_destination.fragment destination
+    scalar <> Option.is_some scalar_lowered
+    || (match scalar_lowered with
+      | None -> false
+      | Some lowered ->
+          Integer_program_lowering.graph lowered != entry
+          || not
+               (Integer_program_lowering.owns_expression lowered
+                  ~globals:
+                    (Initializer_fragment_destination.globals destination)
+                  ~value:
+                    (Sema.Function_call_expression_result.top_level_root_value
+                       (Initializer_fragment_destination.root destination))))
+    || Sema.Initializer_fragment.authorized_fragment authority
+       != Initializer_fragment_destination.fragment destination
   then Error "initializer program has another source authority"
   else if
     (not
        (Global_initialization.matches initialization ~entry
           ~globals:(Initializer_fragment_destination.globals destination)))
+    || (not
+          (Runtime_call_context.matches runtime_calls ~entry
+             ~initialization:(Some initialization) ~functions:[]))
     || not
-         (Runtime_call_context.matches runtime_calls ~entry
-            ~initialization:(Some initialization) ~functions:[])
+         (Runtime_call_context.owns_top_level runtime_calls
+            (Initializer_fragment_destination.typed destination))
   then Error "initializer program has another graph, storage or call context"
   else
     Ok
       {
+        scalar_lowered_ = scalar_lowered;
         authority_ = authority;
         destination_ = destination;
         entry_ = entry;

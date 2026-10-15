@@ -1,0 +1,59 @@
+(test
+ (name test_live_scalar_initializer)
+ (modules test_live_scalar_initializer cases)
+ (libraries holyc_lib alcotest))
+
+(executable
+ (name test_native_live_scalar_initializer)
+ (modules test_native_live_scalar_initializer cases authority)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_live_scalar_initializer.exe})))
+
+(test
+ (name test_live_scalar_initializer_cli)
+ (modules test_live_scalar_initializer_cli cases)
+ (libraries unix yojson)
+ (deps
+  ../../examples/live-scalar-initializers.hc
+  ../../examples/source-aggregate-initializers.hc
+  ../../examples/retained-aot-initializer-layouts.hc
+  ../../examples/native-aot-static-initializers.hc
+  ../../examples/empty-aggregate-initializers.hc
+  ../../examples/compiler-storage-options.hc
+  ../../examples/live-static-scalar-initializers.hc
+  ../../examples/backed-forward-initializers.hc
+  ../../examples/class-body-initializers.hc
+  ../../examples/class-body-member-reads.hc
+  ../../examples/class-body-top-level-members.hc
+  ../../examples/class-body-callback-fields.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/live-scalar-initializers.hc})))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/live-scalar-initializers.hc
+  ../../examples/source-aggregate-initializers.hc
+  ../../examples/retained-aot-initializer-layouts.hc
+  ../../examples/native-aot-static-initializers.hc
+  ../../examples/empty-aggregate-initializers.hc
+  ../../examples/compiler-storage-options.hc
+  ../../examples/live-static-scalar-initializers.hc
+  ../../examples/backed-forward-initializers.hc
+  ../../examples/class-body-initializers.hc
+  ../../examples/class-body-member-reads.hc
+  ../../examples/class-body-top-level-members.hc
+  ../../examples/class-body-callback-fields.hc)
+ (action
+  (run
+   %{exe:test_live_scalar_initializer_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/live-scalar-initializers.hc}
+   --native)))

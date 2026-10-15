@@ -458,6 +458,7 @@ let literals_and_module_values () =
             | Semantic_top_level_expression_tree.Internal_binding_fragment _
             | Semantic_top_level_expression_tree.Dimension_fragment _
             | Semantic_top_level_expression_tree.Offset_fragment _
+            | Semantic_top_level_expression_tree.Member_metadata_fragment _
             | Semantic_top_level_expression_tree.Implicit_output_argument _
             | Semantic_top_level_expression_tree.Condition _
             | Semantic_top_level_expression_tree.Switch_selector _
@@ -2616,6 +2617,35 @@ let unavailable_boundaries_and_checked_ownership () =
         value |> Semantic_function_call_expression_result.result_id
         |> Semantic_function_call_expression_result.Id.to_int));
   let foreign = Session.create () in
+  let module Visibility = Holyc_lib__Sema.Function_aggregate_visibility in
+  let module Results = Holyc_lib__Sema.Function_call_expression_result in
+  let visibility table =
+    let namespace =
+      Semantic_declaration_collection.create_namespace ~table () |> checked
+    in
+    let declarations =
+      Semantic_declaration_collection.view namespace [] |> checked
+    in
+    Visibility.create ~table ~declarations ~bodies:[] source.ast |> checked
+  in
+  List.iter
+    (fun aggregate_visibility ->
+      match
+        Results.analyze_top_level
+          ~table:(Session.semantic_symbols source.session)
+          ~members:source.members ~policies ~identifiers ~aggregate_visibility
+          expressions
+      with
+      | Ok _ ->
+          Alcotest.fail "foreign member visibility must reject before lookup"
+      | Error error ->
+          Alcotest.(check string)
+            "member visibility namespace diagnostic" "HCSEMA0057"
+            (Results.error_code error))
+    [
+      visibility (Session.semantic_symbols foreign);
+      visibility (Session.semantic_symbols source.session);
+    ];
   match
     Holyc_lib.type_top_level_expressions foreign ~members:source.members
       ~policies ~identifiers expressions

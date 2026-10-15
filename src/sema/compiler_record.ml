@@ -103,18 +103,38 @@ type sizeof_class =
   | Pointer_class
   | Unavailable_class
 
+type member_metadata_value =
+  | Metadata_word of int64
+  | Metadata_string of string
+
+type member_metadata = {
+  metadata_table : Symbol_table.t;
+  metadata_namespace : Declaration_collection.namespace;
+  metadata_phase : Parser.aggregate_phase;
+  metadata_source : Ast.aggregate_member_metadata;
+  metadata_value : member_metadata_value;
+  metadata_work : int;
+}
+
 type aggregate_field = {
   field_phase : Parser.aggregate_phase;
   field_namespace : Declaration_collection.namespace;
   field_publication : Declaration_collection.publication;
   field_type : Type.t;
+  field_type_reference : Type_reference.t;
+  field_callback_signature :
+    (Type_reference.t * Function_type_resolution.function_pointer) option;
+  field_offset : int64;
   field_element_size : int64;
   field_count : int64;
   field_dimensions : runtime_dimension_proposal list;
   field_offsets : aggregate_offset list;
+  field_counts : int64 list;
+  field_record : t option;
+  field_metadata : member_metadata list;
 }
 
-type t = {
+and t = {
   table : Symbol_table.t;
   entry : Visibility.entry;
   symbol : Symbol.t;
@@ -132,6 +152,9 @@ type t = {
   aggregate_stamp : (aggregate_stamp * unit ref) option;
   aggregate_base_snapshot : t option;
   aggregate_fields : aggregate_field list option;
+  aggregate_initializer_backing : (Type_reference.t * t option) option option;
+  aggregate_initializer_body : Parser.aggregate_phase option;
+  aggregate_initializer_records : (Type.t -> t option) option;
 }
 
 type aggregate_member = {
@@ -156,12 +179,63 @@ type automatic_aggregate_allocation = {
 let automatic_aggregate_size allocation = allocation.automatic_size
 let automatic_aggregate_source allocation = allocation.automatic_source
 let automatic_aggregate_local_name allocation = allocation.automatic_name
+let automatic_aggregate_record allocation = allocation.automatic_record
+
+let automatic_aggregate_owns allocation ~table ~parent =
+  allocation.automatic_table == table
+  && Declaration_collection.namespace_scope allocation.automatic_namespace
+     == parent
+
+let static_initializer_aggregate_matches ~table ~namespace ~publication ~source
+    allocation =
+  allocation.automatic_table == table
+  && allocation.automatic_namespace == namespace
+  && allocation.automatic_function == publication
+  && allocation.automatic_source == source
+  && source.Parser.allocation_storage = Ast.Static_local
+
+let automatic_aggregate_type allocation =
+  Type_reference.resolved_type allocation.automatic_type
+
+let automatic_aggregate_runtime_dependencies allocation =
+  allocation.automatic_record.runtime_dimensions
+
+let automatic_aggregate_offset_dependencies allocation =
+  allocation.automatic_record.runtime_offsets
 
 type aggregate_reference_visibility = {
   reference_table : Symbol_table.t;
   reference_namespace : Declaration_collection.namespace;
   reference_source : Parser.reference_selection;
   reference_completed_symbols : Symbol.t list;
+  reference_completed_records : (Symbol.t * t) list;
+  reference_partial_records : (Symbol.t * t) list;
+}
+
+type aggregate_assignment_preparation = {
+  preparation_table : Symbol_table.t;
+  preparation_namespace : Declaration_collection.namespace;
+  preparation_source : Parser.assignment_selection;
+  preparation_records : (Symbol.t * t) list;
+  mutable preparation_consumed : bool;
+}
+
+type aggregate_index_visibility = {
+  index_table : Symbol_table.t;
+  index_namespace : Declaration_collection.namespace;
+  index_source : Parser.index_selection;
+  index_records : (Symbol.t * t) list;
+  mutable index_fragment_completed : bool;
+}
+
+type aggregate_assignment_visibility = {
+  assignment_table : Symbol_table.t;
+  assignment_namespace : Declaration_collection.namespace;
+  assignment_source : Parser.assignment_selection;
+  assignment_initial_records : (Symbol.t * t) list;
+  assignment_records : (Symbol.t * t) list;
+  mutable assignment_final_records : (Symbol.t * t) list option;
+  mutable assignment_fragment_records : (Symbol.t * t) list option;
 }
 
 type inherited_base = {
@@ -254,7 +328,11 @@ type static_allocation = {
   static_namespace : Declaration_collection.namespace;
   static_publication : Declaration_collection.publication;
   static_receipt : Parser.function_local_allocation;
+  static_compiler_options : int64;
+  mutable static_initializer_options :
+    (Parser.static_initializer_preparation * int64) list;
   static_dimensions : declared_dimension list;
+  static_aggregate : automatic_aggregate_allocation option;
 }
 
 type compiler_positions = {
@@ -289,7 +367,39 @@ let static_allocation_table value = value.static_table
 let static_allocation_namespace value = value.static_namespace
 let static_allocation_publication value = value.static_publication
 let static_allocation_receipt value = value.static_receipt
+let static_allocation_compiler_options value = value.static_compiler_options
+
+let observe_static_initializer_options ~table allocation receipt =
+  if
+    allocation.static_table != table
+    || allocation.static_receipt != receipt.Parser.static_allocation
+    || (not (Parser.static_initializer_is_current receipt))
+    || List.exists
+         (fun (original, _) -> original == receipt)
+         allocation.static_initializer_options
+  then
+    Error
+      "static initializer options require their original unconsumed callback"
+  else
+    Result.map
+      (fun mask ->
+        allocation.static_initializer_options <-
+          (receipt, mask) :: allocation.static_initializer_options)
+      (Parser.context_compiler_options
+         receipt.static_allocation.allocation_function.function_header
+           .declaration_command
+           .command_context)
+
+let static_initializer_compiler_options allocation expression =
+  List.find_map
+    (fun (receipt, mask) ->
+      match receipt.Parser.static_leaf_value with
+      | Ast.Scalar_initializer original when original == expression -> Some mask
+      | _ -> None)
+    allocation.static_initializer_options
+
 let static_allocation_dimensions value = value.static_dimensions
+let static_allocation_aggregate value = value.static_aggregate
 let compiler_position_value position = position.position_value
 let compiler_position_dependencies position = position.position_dependencies
 
@@ -383,7 +493,17 @@ type declared_global = {
     * Function_type_resolution.function_pointer)
     option;
   declared_dimensions : declared_dimension list;
+  declared_aggregate : global_aggregate_allocation option;
   mutable declared_completion : Ast.global_declarator option;
+}
+
+and global_aggregate_allocation = {
+  global_object_table : Symbol_table.t;
+  global_object_namespace : Declaration_collection.namespace;
+  global_object_publication : Declaration_collection.publication;
+  global_object_source : Parser.global_publication;
+  global_object_type : Type_reference.t;
+  global_object_record : t;
 }
 
 let ( let* ) = Result.bind
@@ -517,6 +637,57 @@ let scalar_size type_ =
         Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
     | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
 
+let capture_static_allocation ?automatic_aggregate ~table ~namespace
+    ~publication ~dimensions receipt =
+  if
+    (not (Parser.function_local_allocation_is_current receipt))
+    || receipt.Parser.allocation_storage <> Ast.Static_local
+    || (not (Declaration_collection.namespace_owns_table namespace table))
+    || (not
+          (Declaration_collection.namespace_owns_publication namespace
+             publication))
+    || not
+         (Option.fold ~none:false
+            ~some:(( == ) receipt.allocation_function)
+            (Declaration_collection.publication_source_function publication))
+  then Error "static metadata requires its original allocation and namespace"
+  else
+    let* () =
+      match automatic_aggregate with
+      | Some allocation
+        when allocation.automatic_table != table
+             || allocation.automatic_namespace != namespace
+             || allocation.automatic_source != receipt ->
+          Error "static metadata has another original aggregate allocation"
+      | _ -> Ok ()
+    in
+    let* _ =
+      match receipt.allocation_local.local_source with
+      | Parser.Local_variable source ->
+          declared_array_size ~table ~namespace
+            ~command:
+              receipt.allocation_function.function_header.declaration_command
+            ~name:source.local_name ~dimensions:source.local_array_dimensions
+            ~checked:dimensions 1L
+      | _ -> Error "static metadata requires its original local variable"
+    in
+    let* static_compiler_options =
+      Parser.context_compiler_options
+        receipt.allocation_function.function_header.declaration_command
+          .command_context
+    in
+    Ok
+      {
+        static_table = table;
+        static_namespace = namespace;
+        static_publication = publication;
+        static_receipt = receipt;
+        static_compiler_options;
+        static_initializer_options = [];
+        static_dimensions = dimensions;
+        static_aggregate = automatic_aggregate;
+      }
+
 let record_local_allocation ?automatic_aggregate ~table ~namespace ~dimensions
     positions record receipt =
   let local = receipt.Parser.allocation_local in
@@ -606,6 +777,11 @@ let record_local_allocation ?automatic_aggregate ~table ~namespace ~dimensions
                      extent))
       | _ -> Error "frame allocation requires its original local variable"
     in
+    let* static_compiler_options =
+      Parser.context_compiler_options
+        receipt.allocation_function.function_header.declaration_command
+          .command_context
+    in
     let* () = Function_record_phase.observe_local_allocation record receipt in
     Local_allocations.add positions.allocations receipt allocation;
     if receipt.allocation_storage = Ast.Static_local then
@@ -615,7 +791,10 @@ let record_local_allocation ?automatic_aggregate ~table ~namespace ~dimensions
           static_namespace = namespace;
           static_publication = Function_record_phase.publication snapshot;
           static_receipt = receipt;
+          static_compiler_options;
+          static_initializer_options = [];
           static_dimensions = dimensions;
+          static_aggregate = automatic_aggregate;
         };
     Ok ()
 
@@ -649,6 +828,9 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           aggregate_stamp = None;
           aggregate_base_snapshot = None;
           aggregate_fields = None;
+          aggregate_initializer_backing = None;
+          aggregate_initializer_body = None;
+          aggregate_initializer_records = None;
         }
 
 let seed_public_union ~table ~entry ~symbol
@@ -695,6 +877,9 @@ let seed_public_union ~table ~entry ~symbol
               aggregate_stamp = None;
               aggregate_base_snapshot = None;
               aggregate_fields = None;
+              aggregate_initializer_backing = None;
+              aggregate_initializer_body = None;
+              aggregate_initializer_records = None;
             }
 
 let aggregate_snapshot_is_current record =
@@ -835,6 +1020,7 @@ let select_automatic_aggregate ~table ~namespace ~function_publication
   if
     (not (Parser.function_local_allocation_is_current receipt))
     || receipt.allocation_storage <> Ast.Automatic_local
+       && receipt.allocation_storage <> Ast.Static_local
   then Error "automatic class layout requires its original live allocation"
   else if
     (not (Declaration_collection.namespace_owns_table namespace table))
@@ -957,59 +1143,509 @@ let validate_automatic_aggregate ~table ~parent ~function_symbol ~local_symbol
   then Error "automatic class allocation changed its selected original type"
   else Ok ()
 
+let capture_aggregate_visibility_records ~table ~namespace ~environment
+    ~retain_hidden ?(allow_forward = false) records =
+  let rec completed symbols partial captured = function
+    | [] ->
+        let reached records =
+          if not retain_hidden then records
+          else
+            let available = captured @ partial in
+            let rec retain visited record =
+              let identity =
+                Option.bind record.aggregate_owner (fun (_, publication, _) ->
+                    Declaration_collection.publication_aggregate_identity
+                      publication)
+              in
+              match identity with
+              | None -> record
+              | Some symbol when List.memq symbol visited -> record
+              | Some symbol ->
+                  let base =
+                    Option.map
+                      (fun original ->
+                        let current =
+                          Option.bind original.aggregate_owner
+                            (fun (_, publication, _) ->
+                              Option.bind
+                                (Declaration_collection
+                                 .publication_aggregate_identity publication)
+                                (fun identity ->
+                                  List.find_map
+                                    (fun (selected, record) ->
+                                      if selected == identity then Some record
+                                      else None)
+                                    available))
+                          |> Option.value ~default:original
+                        in
+                        retain (symbol :: visited) current)
+                      record.aggregate_base_snapshot
+                  in
+                  { record with aggregate_base_snapshot = base }
+            in
+            List.map
+              (fun (symbol, record) -> (symbol, retain [] record))
+              records
+        in
+        Ok (symbols, reached captured, reached partial)
+    | (record : t) :: rest -> (
+        match record.aggregate_owner with
+        | Some (owner, publication, Some source)
+          when record.table == table && owner == namespace
+               && (match source.aggregate_item with
+                 | Ast.Aggregate_definition _ -> true
+                 | Ast.Aggregate_forward_declaration _ -> allow_forward
+                 | _ -> false)
+               && Declaration_collection.namespace_owns_publication namespace
+                    publication
+               && record.symbol
+                  == Declaration_collection.publication_symbol publication
+               && aggregate_snapshot_is_current record
+               && source.aggregate_publication.aggregate_environment
+                  == environment
+               && source.aggregate_publication.aggregate_entry == record.entry
+               && Option.fold ~none:false
+                    ~some:(( == ) source.aggregate_publication)
+                    (Declaration_collection.publication_source_aggregate
+                       publication)
+               && (retain_hidden
+                  || Option.fold ~none:false ~some:(( == ) publication)
+                       (Declaration_collection.current_aggregate_publication
+                          namespace publication)) -> (
+            match
+              Declaration_collection.publication_aggregate_identity publication
+            with
+            | Some symbol ->
+                completed (symbol :: symbols) partial
+                  ((symbol, record) :: captured)
+                  rest
+            | None ->
+                Error "completed reference class lacks its canonical identity")
+        | Some (owner, publication, None)
+          when record.table == table && owner == namespace
+               && Declaration_collection.namespace_owns_publication namespace
+                    publication
+               && record.symbol
+                  == Declaration_collection.publication_symbol publication
+               && aggregate_snapshot_is_current record -> (
+            match
+              ( Declaration_collection.publication_source_aggregate publication,
+                Declaration_collection.publication_aggregate_identity
+                  publication,
+                Declaration_collection.current_aggregate_publication namespace
+                  publication )
+            with
+            | Some source, Some symbol, current
+              when (retain_hidden
+                   || Option.fold ~none:false ~some:(( == ) publication) current
+                   )
+                   && (allow_forward
+                      || Option.is_none source.aggregate_header.binding)
+                   && source.aggregate_environment == environment
+                   && source.aggregate_entry == record.entry ->
+                completed symbols ((symbol, record) :: partial) captured rest
+            | _ -> Error "partial member visibility has another original class")
+        | _ ->
+            Error
+              "aggregate reference visibility requires current completed \
+               original class records")
+  in
+  completed [] [] [] records
+
 let capture_aggregate_reference_visibility ~table ~namespace reference records =
   if
     (not (Parser.reference_selection_is_current reference))
     || not (Declaration_collection.namespace_owns_table namespace table)
   then Error "aggregate visibility requires its original live reference"
   else
-    let rec completed symbols = function
-      | [] ->
-          Ok
+    Result.map
+      (fun (symbols, completed, partial) ->
+        {
+          reference_table = table;
+          reference_namespace = namespace;
+          reference_source = reference;
+          reference_completed_symbols = symbols;
+          reference_completed_records = completed;
+          reference_partial_records = partial;
+        })
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:(Parser.selected_environment reference)
+         ~retain_hidden:(Parser.selected_member_reference reference)
+         records)
+
+let capture_aggregate_index_visibility ~table ~namespace source records =
+  if
+    (not (Parser.index_selection_is_current source))
+    || not (Declaration_collection.namespace_owns_table namespace table)
+  then Error "index stride requires its original live operand observation"
+  else
+    Result.map
+      (fun (_, completed, partial) ->
+        {
+          index_table = table;
+          index_namespace = namespace;
+          index_source = source;
+          index_records = completed @ partial;
+          index_fragment_completed = false;
+        })
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:(Parser.index_environment source)
+         ~retain_hidden:true ~allow_forward:true records)
+
+let aggregate_index_element_size ~table ~parent ?function_source ~source
+    ~element_type visibility =
+  if
+    visibility.index_table != table
+    || Declaration_collection.namespace_scope visibility.index_namespace
+       != parent
+    || (not
+          (Declaration_collection.namespace_owns_table
+             visibility.index_namespace table))
+    || (not
+          (Option.equal ( == )
+             (Parser.index_function visibility.index_source)
+             function_source))
+    || not
+         (Option.equal ( == )
+            (Parser.index_source visibility.index_source)
+            (Some source))
+  then None
+  else
+    match Type.base element_type with
+    | Type.Aggregate selected
+      when Type.pointer_depth element_type = 0
+           && Symbol_table.owns_symbol table selected ->
+        List.find_map
+          (fun (symbol, record) ->
+            if symbol == selected && record.byte_size >= 0L then
+              Some record.byte_size
+            else None)
+          visibility.index_records
+    | _ -> None
+
+let prepare_aggregate_assignment_visibility ~table ~namespace source records =
+  if
+    (not (Parser.assignment_preparation_is_current source))
+    || not (Declaration_collection.namespace_owns_table namespace table)
+  then Error "assignment preparation requires its original live operand"
+  else
+    Result.map
+      (fun (_, completed, partial) ->
+        {
+          preparation_table = table;
+          preparation_namespace = namespace;
+          preparation_source = source;
+          preparation_records = completed @ partial;
+          preparation_consumed = false;
+        })
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:(Parser.assignment_environment source)
+         ~retain_hidden:true ~allow_forward:true records)
+
+let capture_aggregate_assignment_visibility ~table ~namespace ?preparation
+    source records =
+  if
+    (not (Parser.assignment_selection_is_current source))
+    || not (Declaration_collection.namespace_owns_table namespace table)
+  then Error "assignment backing requires its original live operand observation"
+  else
+    match preparation with
+    | None ->
+        Error "assignment observation lacks its original operand preparation"
+    | Some preparation
+      when preparation.preparation_table != table
+           || preparation.preparation_namespace != namespace
+           || preparation.preparation_source != source
+           || preparation.preparation_consumed ->
+        Error "assignment operand preparation is foreign or already consumed"
+    | Some preparation ->
+        Result.map
+          (fun (_, completed, partial) ->
+            preparation.preparation_consumed <- true;
             {
-              reference_table = table;
-              reference_namespace = namespace;
-              reference_source = reference;
-              reference_completed_symbols = symbols;
-            }
-      | (record : t) :: rest -> (
-          match record.aggregate_owner with
-          | Some
-              ( owner,
-                publication,
-                Some
-                  ({ aggregate_item = Ast.Aggregate_definition _; _ } as source)
-              )
-            when record.table == table && owner == namespace
-                 && Declaration_collection.namespace_owns_publication namespace
-                      publication
-                 && record.symbol
-                    == Declaration_collection.publication_symbol publication
-                 && aggregate_snapshot_is_current record
-                 && source.aggregate_publication.aggregate_environment
-                    == Parser.selected_environment reference
-                 && source.aggregate_publication.aggregate_entry == record.entry
-                 && Option.fold ~none:false
-                      ~some:(( == ) source.aggregate_publication)
-                      (Declaration_collection.publication_source_aggregate
-                         publication)
-                 && Option.fold ~none:false ~some:(( == ) publication)
-                      (Declaration_collection.current_aggregate_publication
-                         namespace publication) -> (
-              match
-                Declaration_collection.publication_aggregate_identity
-                  publication
-              with
-              | Some symbol -> completed (symbol :: symbols) rest
-              | None ->
-                  Error "completed reference class lacks its canonical identity"
-              )
-          | _ ->
-              Error
-                "aggregate reference visibility requires current completed \
-                 original class records")
+              assignment_table = table;
+              assignment_namespace = namespace;
+              assignment_source = source;
+              assignment_initial_records = preparation.preparation_records;
+              assignment_records = completed @ partial;
+              assignment_final_records = None;
+              assignment_fragment_records = None;
+            })
+          (capture_aggregate_visibility_records ~table ~namespace
+             ~environment:(Parser.assignment_environment source)
+             ~retain_hidden:true ~allow_forward:true records)
+
+let complete_aggregate_assignment_visibility ~table ~namespace ~header ~body
+    records visibility =
+  if
+    visibility.assignment_table != table
+    || visibility.assignment_namespace != namespace
+    || (not (Parser.function_body_completion_is_current header body))
+    || (not
+          (Option.equal ( == )
+             (Parser.assignment_function visibility.assignment_source)
+             (Some header.Parser.function_publication)))
+    || Option.is_some visibility.assignment_final_records
+  then Error "assignment storage requires its original function completion"
+  else
+    Result.map
+      (fun (_, completed, partial) ->
+        visibility.assignment_final_records <- Some (completed @ partial))
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:
+           (Parser.assignment_environment visibility.assignment_source)
+         ~retain_hidden:true ~allow_forward:true records)
+
+let complete_top_level_aggregate_assignment_visibility ~table ~namespace
+    ~command records visibility =
+  if
+    visibility.assignment_table != table
+    || visibility.assignment_namespace != namespace
+    || (not (Parser.command_completion_is_current command))
+    || Parser.assignment_command visibility.assignment_source
+       != command.Parser.command_start
+    || Option.is_some (Parser.assignment_function visibility.assignment_source)
+    || Option.is_some visibility.assignment_final_records
+  then
+    Error
+      "assignment storage requires its original top-level command completion"
+  else
+    Result.map
+      (fun (_, completed, partial) ->
+        visibility.assignment_final_records <- Some (completed @ partial))
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:
+           (Parser.assignment_environment visibility.assignment_source)
+         ~retain_hidden:true ~allow_forward:true records)
+
+let rec expression_contains original expression =
+  original == expression
+  ||
+  match expression with
+  | Ast.Parenthesized_expression value ->
+      expression_contains original value.grouped_expression
+  | Ast.Prefix_expression value ->
+      expression_contains original value.prefix_operand
+  | Ast.Postfix_expression value ->
+      expression_contains original value.postfix_operand
+  | Ast.Postfix_cast_expression value ->
+      expression_contains original value.cast_operand
+  | Ast.Binary_expression value ->
+      expression_contains original value.binary_left
+      || expression_contains original value.binary_right
+  | Ast.Call_expression value ->
+      expression_contains original value.call_callee
+      || List.exists
+           (fun (argument : Ast.call_argument) ->
+             match argument.call_argument_value with
+             | Ast.Provided_call_argument value ->
+                 expression_contains original value
+             | Ast.Omitted_call_argument -> false)
+           value.call_arguments
+  | Ast.Index_expression value ->
+      expression_contains original value.index_base
+      || expression_contains original value.index_value
+  | Ast.Member_expression value ->
+      expression_contains original value.member_base
+  | _ -> false
+
+let fragment_expression event =
+  let scalar = function
+    | Ast.Scalar_initializer value -> Some value
+    | _ -> None
+  in
+  let default (value : Ast.parameter_default) =
+    match value.value with
+    | Ast.Expression_default expression -> Some expression
+    | _ -> None
+  in
+  let retain current command expression =
+    Option.map (fun expression -> (current, command, expression)) expression
+  in
+  match event with
+  | Parser.Internal_binding_preparing value ->
+      retain
+        (Parser.internal_binding_is_current value)
+        value.binding_command
+        (match value.binding_ast.target with
+        | Ast.Expression_binding_target expression -> Some expression
+        | _ -> None)
+  | Parser.Global_initializer_leaf_completed leaf ->
+      retain
+        (Parser.initializer_leaf_is_current leaf)
+        leaf.leaf_initializer.initializer_owner.global_header
+          .declaration_command (scalar leaf.leaf_value)
+  | Parser.Static_initializer_preparing leaf ->
+      retain
+        (Parser.static_initializer_is_current leaf)
+        leaf.static_allocation.allocation_function.function_header
+          .declaration_command
+        (scalar leaf.static_leaf_value)
+  | Parser.Parameter_default_completed value ->
+      retain
+        (Parser.parameter_default_is_current value)
+        value.default_function.function_header.declaration_command
+        (default value.default_ast)
+  | Parser.Callback_default_completed value ->
+      retain
+        (Parser.callback_default_is_current value)
+        value.callback_default_signature.callback_command
+        (default value.callback_default_ast)
+  | Parser.Array_dimension_preparing value ->
+      retain
+        (Parser.dimension_preparation_is_current value)
+        value.dimension_owner.dimensions_command value.dimension_expression
+  | Parser.Switch_case_preparing value ->
+      retain
+        (Parser.switch_case_preparation_is_current value)
+        value.switch_owner.switch_command (Some value.switch_case_expression)
+  | Parser.Aggregate_advanced phase ->
+      let expression =
+        match phase.phase_step with
+        | Parser.Aggregate_offset_reached expression -> Some expression
+        | Parser.Aggregate_member_metadata_reached { metadata; _ } -> (
+            match metadata.member_metadata_value with
+            | Ast.Member_metadata_expression expression -> Some expression
+            | _ -> None)
+        | _ -> None
+      in
+      retain
+        (Parser.aggregate_phase_is_current phase)
+        phase.phase_aggregate.aggregate_header.declaration_command expression
+  | _ -> None
+
+let fragment_contains event command source =
+  match (fragment_expression event, source) with
+  | Some (current, owner, expression), Some source
+    when owner == command && expression_contains source expression ->
+      Some current
+  | _ -> None
+
+let complete_fragment_aggregate_assignment_visibility ~table ~namespace ~event
+    records visibility =
+  match
+    fragment_contains event
+      (Parser.assignment_command visibility.assignment_source)
+      (Parser.assignment_source visibility.assignment_source)
+  with
+  | None -> Ok ()
+  | Some current ->
+      if
+        (not current)
+        || visibility.assignment_table != table
+        || visibility.assignment_namespace != namespace
+        || Option.is_some visibility.assignment_fragment_records
+      then
+        Error "assignment fragment requires its original expression completion"
+      else
+        Result.map
+          (fun (_, completed, partial) ->
+            visibility.assignment_fragment_records <- Some (completed @ partial))
+          (capture_aggregate_visibility_records ~table ~namespace
+             ~environment:
+               (Parser.assignment_environment visibility.assignment_source)
+             ~retain_hidden:true ~allow_forward:true records)
+
+let complete_fragment_aggregate_index_visibility ~table ~namespace ~event
+    visibility =
+  match
+    fragment_contains event
+      (Parser.index_command visibility.index_source)
+      (Parser.index_source visibility.index_source)
+  with
+  | None -> Ok ()
+  | Some current ->
+      if
+        (not current)
+        || visibility.index_table != table
+        || visibility.index_namespace != namespace
+        || visibility.index_fragment_completed
+      then Error "index fragment requires its original expression completion"
+      else (
+        visibility.index_fragment_completed <- true;
+        Ok ())
+
+let aggregate_fragment_index_element_size ~table ~parent ~source ~element_type
+    visibility =
+  if not visibility.index_fragment_completed then None
+  else
+    aggregate_index_element_size ~table ~parent
+      ?function_source:(Parser.index_function visibility.index_source)
+      ~source ~element_type visibility
+
+let assignment_value_type ~final_records ~table ~parent ?function_source ~source
+    ~source_type visibility =
+  if
+    visibility.assignment_table != table
+    || Declaration_collection.namespace_scope visibility.assignment_namespace
+       != parent
+    || (not
+          (Declaration_collection.namespace_owns_table
+             visibility.assignment_namespace table))
+    || (not
+          (Option.equal ( == )
+             (Parser.assignment_function visibility.assignment_source)
+             function_source))
+    || not
+         (Option.equal ( == )
+            (Parser.assignment_source visibility.assignment_source)
+            (Some source))
+  then None
+  else
+    let rec endpoint records visited type_ =
+      if Type.pointer_depth type_ <> 0 then None
+      else
+        match Type.base type_ with
+        | Type.Primitive _ -> Some type_
+        | Type.Aggregate symbol
+          when Symbol_table.owns_symbol table symbol
+               && not (List.memq symbol visited) ->
+            Option.bind
+              (List.find_map
+                 (fun (selected, record) ->
+                   if selected == symbol then Some record else None)
+                 records)
+              (fun record ->
+                Option.bind record.aggregate_initializer_backing (function
+                  | None -> Some type_
+                  | Some (backing, _) ->
+                      endpoint records (symbol :: visited)
+                        (Type_reference.resolved_type backing)))
+        | _ -> None
     in
-    completed [] records
+    let forward records type_ =
+      Option.bind (endpoint records [] type_) (fun type_ ->
+          match Type.base type_ with
+          | Type.Primitive (_, primitive)
+            when Option.is_some (Primitive_type.integer_storage_info primitive)
+            -> Some type_
+          | _ -> None)
+    in
+    match Type.base source_type with
+    | Type.Aggregate _ when Type.pointer_depth source_type = 0 ->
+        Option.bind
+          (endpoint visibility.assignment_initial_records [] source_type)
+          (fun original ->
+            Option.bind (forward visibility.assignment_records original)
+              (fun _ ->
+                Option.bind final_records (fun records ->
+                    forward records original)))
+    | _ -> None
+
+let aggregate_assignment_value_type ~table ~parent ?function_source ~source
+    ~source_type visibility =
+  assignment_value_type ~final_records:visibility.assignment_final_records
+    ~table ~parent ?function_source ~source ~source_type visibility
+
+let aggregate_fragment_assignment_value_type ~table ~parent ~source ~source_type
+    visibility =
+  Option.map
+    (fun records ->
+      assignment_value_type ~final_records:(Some records) ~table ~parent
+        ?function_source:
+          (Parser.assignment_function visibility.assignment_source)
+        ~source ~source_type visibility)
+    visibility.assignment_fragment_records
 
 let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
   visibility.reference_table == table
@@ -1021,11 +1657,50 @@ let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
   && Symbol_table.owns_symbol table symbol
   && List.exists (( == ) symbol) visibility.reference_completed_symbols
 
+let aggregate_reference_is_member visibility =
+  Parser.selected_member_reference visibility.reference_source
+
+let aggregate_reference_owns ~table ~parent ~identifier visibility =
+  visibility.reference_table == table
+  && Declaration_collection.namespace_scope visibility.reference_namespace
+     == parent
+  && Declaration_collection.namespace_owns_table visibility.reference_namespace
+       table
+  && Parser.selected_identifier visibility.reference_source == identifier
+
+let aggregate_reference_completed_record ~table ~parent ~identifier ~symbol
+    visibility =
+  if
+    (not (aggregate_reference_owns ~table ~parent ~identifier visibility))
+    || (not (aggregate_reference_is_member visibility))
+    || not (Symbol_table.owns_symbol table symbol)
+  then None
+  else
+    List.find_map
+      (fun (original, record) ->
+        if original == symbol then Some record else None)
+      visibility.reference_completed_records
+
+let aggregate_reference_partial ~table ~parent ~identifier ~symbol visibility =
+  if
+    visibility.reference_table != table
+    || Declaration_collection.namespace_scope visibility.reference_namespace
+       != parent
+    || Parser.selected_identifier visibility.reference_source != identifier
+    || not (Symbol_table.owns_symbol table symbol)
+  then None
+  else
+    List.find_map
+      (fun (original, record) ->
+        if original == symbol then Some record else None)
+      visibility.reference_partial_records
+
 type aggregate_progress = {
   progress_compiler_positions : compiler_positions;
   progress_namespace : Declaration_collection.namespace;
   progress_publication : Declaration_collection.publication;
   progress_source : Parser.aggregate_publication;
+  progress_initializer_backing : (Type_reference.t * t option) option option;
   mutable progress_phase : Parser.aggregate_phase option;
   mutable progress_scopes : (Ast.aggregate_kind * int64) list;
   mutable progress_record : (t, string) result;
@@ -1036,9 +1711,12 @@ type aggregate_progress = {
   mutable progress_base : inherited_base option;
   mutable progress_body_started : bool;
   mutable progress_body_finished : bool;
+  mutable progress_backing_attached : bool;
   mutable progress_offset_attempt : Parser.aggregate_phase option;
   mutable progress_offsets : aggregate_offset list;
   mutable progress_members : aggregate_member list;
+  mutable progress_metadata_attempt : Parser.aggregate_phase option;
+  mutable progress_metadata : member_metadata list;
 }
 
 type runtime_aggregate_offset = {
@@ -1051,13 +1729,32 @@ type runtime_aggregate_offset = {
   runtime_offset_dependencies : aggregate_offset list;
 }
 
+type runtime_member_metadata = {
+  runtime_metadata_progress : aggregate_progress;
+  runtime_metadata_phase : Parser.aggregate_phase;
+  runtime_metadata_table : Symbol_table.t;
+  runtime_metadata_source : Ast.aggregate_member_metadata;
+  mutable runtime_metadata_finished : bool;
+  runtime_metadata_dimensions : runtime_dimension_proposal list;
+  runtime_metadata_offsets : aggregate_offset list;
+}
+
+let runtime_member_metadata_dimension_dependencies value =
+  value.runtime_metadata_dimensions
+
+let runtime_member_metadata_offset_dependencies value =
+  value.runtime_metadata_offsets
+
 let runtime_aggregate_offset_dimension_dependencies preparation =
   preparation.runtime_dimension_dependencies
 
 let runtime_aggregate_offset_dependencies preparation =
   preparation.runtime_offset_dependencies
 
-let begin_aggregate ?compiler_positions ~table ~namespace publication =
+let begin_aggregate ?compiler_positions ?backing_record ?previous_record
+    ?initializer_records
+    ?(selected_aggregate : Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace publication =
   match Declaration_collection.publication_source_aggregate publication with
   | Some source
     when Option.fold ~none:true
@@ -1069,7 +1766,87 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
          && Declaration_collection.namespace_owns_publication namespace
               publication
          && Parser.aggregate_publication_is_current source ->
+      let initializer_backing =
+        match source.aggregate_backing with
+        | None -> Some None
+        | Some backing ->
+            let reference =
+              match backing.Ast.backing_type_specifier with
+              | Ast.Named_type_specifier _ as type_specifier ->
+                  Option.bind (selected_aggregate type_specifier)
+                    (fun selected ->
+                      Result.to_option
+                        (let* () =
+                           Source_type_reference.validate_selected_aggregate
+                             ~table ~namespace selected
+                         in
+                         Source_type_reference.selected_header_class selected
+                           type_specifier backing.backing_pointer_layers))
+              | type_specifier ->
+                  Result.to_option
+                    (Source_type_reference.builtin type_specifier
+                       backing.backing_pointer_layers)
+            in
+            Option.map
+              (fun reference -> Some (reference, backing_record))
+              reference
+      in
+      let* () =
+        match backing_record with
+        | None -> Ok ()
+        | Some record -> (
+            match (initializer_backing, record.aggregate_owner) with
+            | Some (Some (reference, _)), Some (owner, selected, _) -> (
+                match Type.base (Type_reference.resolved_type reference) with
+                | Type.Aggregate symbol
+                  when record.table == table && owner == namespace
+                       && Type.pointer_depth
+                            (Type_reference.resolved_type reference)
+                          = 0
+                       && Option.fold ~none:false ~some:(( == ) symbol)
+                            (Declaration_collection
+                             .publication_aggregate_identity selected) -> Ok ()
+                | _ ->
+                    Error
+                      "initializer backing replaced its original selected \
+                       class record")
+            | _ ->
+                Error
+                  "initializer backing record has no original class selection")
+      in
       let stamp = { current_stamp = ref () } in
+      let* initial_backing =
+        match previous_record with
+        | None -> Ok (Some None)
+        | Some previous -> (
+            match previous.aggregate_owner with
+            | Some (owner, previous_publication, _)
+              when previous.table == table && owner == namespace
+                   && Option.is_none source.aggregate_header.binding
+                   && Option.equal ( == )
+                        (Declaration_collection.publication_aggregate_identity
+                           previous_publication)
+                        (Declaration_collection.publication_aggregate_identity
+                           publication)
+                   && Option.fold ~none:false
+                        ~some:(fun original ->
+                          Option.fold ~none:false
+                            ~some:(( == ) original.Parser.aggregate_entry)
+                            source.aggregate_previous
+                          && original.aggregate_environment
+                             == source.aggregate_environment
+                          && Option.fold ~none:false
+                               ~some:(fun binding ->
+                                 binding.Ast.kind = Ast.Extern)
+                               original.aggregate_header.binding)
+                        (Declaration_collection.publication_source_aggregate
+                           previous_publication) ->
+                Ok previous.aggregate_initializer_backing
+            | _ ->
+                Error
+                  "initial forwarding has no original completed forward \
+                   selection")
+      in
       let compiler_positions =
         match compiler_positions with
         | Some positions -> positions
@@ -1083,6 +1860,7 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
           progress_namespace = namespace;
           progress_publication = publication;
           progress_source = source;
+          progress_initializer_backing = initializer_backing;
           progress_phase = None;
           progress_scopes = [ (source.aggregate_kind, 0L) ];
           progress_finished = false;
@@ -1092,9 +1870,12 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
           progress_base = None;
           progress_body_started = false;
           progress_body_finished = false;
+          progress_backing_attached = false;
           progress_offset_attempt = None;
           progress_offsets = [];
           progress_members = [];
+          progress_metadata_attempt = None;
+          progress_metadata = [];
           progress_record =
             Ok
               {
@@ -1111,6 +1892,9 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
                 aggregate_stamp = Some (stamp, stamp.current_stamp);
                 aggregate_base_snapshot = None;
                 aggregate_fields = Some [];
+                aggregate_initializer_backing = initial_backing;
+                aggregate_initializer_body = None;
+                aggregate_initializer_records = initializer_records;
               };
         }
   | _ ->
@@ -1123,6 +1907,98 @@ let aggregate_field_name field =
   match field.field_phase.phase_step with
   | Parser.Aggregate_member_prepared member -> member.member_name
   | _ -> assert false
+
+let aggregate_initializer_size (record : t) = record.byte_size
+
+let aggregate_initializer_has_members (record : t) =
+  Option.is_some record.aggregate_fields
+
+let aggregate_initializer_is_complete (record : t) =
+  match record.aggregate_owner with
+  | Some (_, _, Some { Parser.aggregate_item = Ast.Aggregate_definition _; _ })
+    -> true
+  | _ -> Option.is_some record.aggregate_initializer_body
+
+let aggregate_initializer_is_definition (record : t) =
+  match record.aggregate_owner with
+  | Some (_, publication, _) ->
+      Option.fold ~none:false
+        ~some:(fun source ->
+          Option.is_none source.Parser.aggregate_header.binding)
+        (Declaration_collection.publication_source_aggregate publication)
+  | None -> false
+
+let aggregate_field_type field = field.field_type
+let aggregate_field_type_reference field = field.field_type_reference
+let aggregate_field_callback_signature field = field.field_callback_signature
+let aggregate_field_offset field = field.field_offset
+let aggregate_field_placement_size field = field.field_element_size
+let aggregate_field_counts field = field.field_counts
+let aggregate_field_record field = field.field_record
+let aggregate_field_metadata field = field.field_metadata
+let member_metadata_source metadata = metadata.metadata_source
+let member_metadata_value metadata = metadata.metadata_value
+let member_metadata_work metadata = metadata.metadata_work
+let member_metadata_phase metadata = metadata.metadata_phase
+let member_metadata_table metadata = metadata.metadata_table
+let member_metadata_namespace metadata = metadata.metadata_namespace
+
+let aggregate_field_metadata_find field name =
+  List.find_opt
+    (fun metadata ->
+      metadata.metadata_source.member_metadata_name.spelling = name)
+    field.field_metadata
+
+let aggregate_field_callback field =
+  match field.field_phase.Parser.phase_step with
+  | Parser.Aggregate_member_prepared member -> member.member_callback
+  | _ -> assert false
+
+let aggregate_reached_field record name =
+  let rec find visited depth record =
+    match record.aggregate_owner with
+    | None -> None
+    | Some (_, publication, _) -> (
+        match
+          Declaration_collection.publication_aggregate_identity publication
+        with
+        | None -> None
+        | Some symbol when List.memq symbol visited -> None
+        | Some symbol -> (
+            let field =
+              List.fold_left
+                (fun found field ->
+                  if (aggregate_field_name field).spelling = name then
+                    Some field
+                  else found)
+                None (aggregate_fields record)
+            in
+            match field with
+            | Some field -> Some (symbol, depth, field)
+            | None ->
+                Option.bind record.aggregate_base_snapshot
+                  (find (symbol :: visited) (depth + 1))))
+  in
+  find [] 0 record
+
+let aggregate_initializer_backing record = record.aggregate_initializer_backing
+
+let aggregate_initializer_record record type_ =
+  Option.bind record.aggregate_initializer_records (fun resolve ->
+      resolve type_)
+
+let aggregate_record_matches ~(owner : t) ~type_ (record : t) =
+  record.table == owner.table
+  &&
+  match (record.aggregate_owner, owner.aggregate_owner, Type.base type_) with
+  | ( Some (namespace, publication, _),
+      Some (original, _, _),
+      Type.Aggregate symbol )
+    when Type.pointer_depth type_ = 0 ->
+      namespace == original
+      && Option.fold ~none:false ~some:(( == ) symbol)
+           (Declaration_collection.publication_aggregate_identity publication)
+  | _ -> false
 
 let aggregate_field_element_size ~table ~parent ~aggregate ~type_specifier
     ~(declarator : Ast.aggregate_member_declarator) ~type_ field =
@@ -1164,7 +2040,7 @@ let same_phase left right =
 let advance_aggregate
     ?(members =
       fun _ -> Error "member lacks its original selected class layout")
-    ?(callbacks = fun _ -> None)
+    ?(callbacks = fun _ -> None) ?(callback_types = fun _ -> None)
     ?(bases =
       fun _ -> Error "inherited layout lacks its original selected record")
     ~dimensions progress (phase : Parser.aggregate_phase) =
@@ -1267,9 +2143,37 @@ let advance_aggregate
                   ~size:record.byte_size
                   ~negative_offset:progress.progress_negative_offset
               in
-              Ok { record with byte_size }
+              Ok
+                {
+                  record with
+                  byte_size;
+                  aggregate_initializer_body = Some phase;
+                }
             in
             Ok (record, scopes))
+      | Parser.Aggregate_backing_attached backing ->
+          if
+            (not progress.progress_body_finished)
+            || progress.progress_backing_attached
+            || not
+                 (Option.fold ~none:false ~some:(( == ) backing)
+                    progress.progress_source.aggregate_backing)
+          then
+            Error
+              "aggregate forwarding is foreign, repeated or precedes body \
+               completion"
+          else (
+            progress.progress_backing_attached <- true;
+            Ok
+              ( Result.map
+                  (fun record ->
+                    {
+                      record with
+                      aggregate_initializer_backing =
+                        progress.progress_initializer_backing;
+                    })
+                  progress.progress_record,
+                scopes ))
       | Parser.Aggregate_offset_reached _ -> (
           match progress.progress_offsets with
           | offset :: _ when offset.offset_phase == phase -> (
@@ -1314,7 +2218,7 @@ let advance_aggregate
       | Parser.Aggregate_member_prepared member ->
           let record =
             let* record = progress.progress_record in
-            let* element_size, selected_record, field_type =
+            let* element_size, selected_record, field_type_reference =
               match (member.member_callback, member.member_type) with
               | None, Ast.Named_type_specifier _ ->
                   let* selected = members phase in
@@ -1331,7 +2235,7 @@ let advance_aggregate
                     Ok
                       ( selected.member_size,
                         selected.member_record,
-                        Type_reference.resolved_type selected.member_type ))
+                        selected.member_type ))
               | callback, _ ->
                   let* type_ =
                     match callback with
@@ -1351,9 +2255,58 @@ let advance_aggregate
                   let* size =
                     scalar_size (Type_reference.resolved_type type_)
                   in
-                  Ok (size, None, Type_reference.resolved_type type_)
+                  Ok (size, None, type_)
             in
             let checked = List.filter_map dimensions member.member_dimensions in
+            let* field_callback_signature =
+              match Option.bind member.member_callback callback_types with
+              | None -> Ok None
+              | Some (return_type, pointer) as signature ->
+                  let* storage_type =
+                    Function_type_resolution.function_pointer_storage_type
+                      pointer
+                  in
+                  if
+                    (not
+                       (Option.equal ( == )
+                          (Function_type_resolution.function_pointer_source
+                             pointer)
+                          member.member_callback))
+                    || Type_reference.spelling_origin return_type
+                       <> Closed_numeric_expression.origin
+                            (Ast.type_specifier_location member.member_type)
+                    || Type_reference.spelling return_type
+                       <> Ast.type_specifier_spelling member.member_type
+                    || Type_reference.pointer_origins return_type
+                       <> List.map
+                            (fun (layer : Ast.pointer_layer) ->
+                              Closed_numeric_expression.origin layer.location)
+                            member.member_pointers
+                    || (match
+                          Type.base (Type_reference.resolved_type return_type)
+                        with
+                      | Type.Aggregate symbol ->
+                          not (Symbol_table.owns_symbol record.table symbol)
+                      | Type.Primitive _ -> (
+                          match
+                            Source_type_reference.builtin member.member_type
+                              member.member_pointers
+                          with
+                          | Ok expected ->
+                              not
+                                (Type.equal
+                                   (Type_reference.resolved_type expected)
+                                   (Type_reference.resolved_type return_type))
+                          | Error _ -> true))
+                    || not
+                         (Type.equal storage_type
+                            (Type_reference.resolved_type field_type_reference))
+                  then
+                    Error
+                      "callback member substituted its original signature or \
+                       return type"
+                  else Ok signature
+            in
             let* field_count =
               declared_array_size ~table:record.table
                 ~namespace:progress.progress_namespace
@@ -1385,13 +2338,23 @@ let advance_aggregate
                         field_phase = phase;
                         field_namespace = progress.progress_namespace;
                         field_publication = progress.progress_publication;
-                        field_type;
+                        field_type =
+                          Type_reference.resolved_type field_type_reference;
+                        field_type_reference;
+                        field_callback_signature;
+                        field_offset =
+                          (match kind with
+                          | Ast.Class_aggregate -> record.byte_size
+                          | Ast.Union_aggregate -> union_base);
                         field_element_size = element_size;
                         field_count;
+                        field_counts = List.map dimension_count checked;
+                        field_record = selected_record;
                         field_dimensions =
                           List.concat_map dimension_runtime_dependencies checked;
                         field_offsets =
                           List.concat_map dimension_offset_dependencies checked;
+                        field_metadata = [];
                       }
                       :: fields)
                     record.aggregate_fields;
@@ -1410,6 +2373,30 @@ let advance_aggregate
               }
           in
           Ok (record, scopes)
+      | Parser.Aggregate_member_metadata_reached original ->
+          let* metadata =
+            match progress.progress_metadata with
+            | metadata :: _
+              when metadata.metadata_phase == phase
+                   && metadata.metadata_source == original.metadata ->
+                Ok metadata
+            | _ -> Error "member metadata lacks its original prepared value"
+          in
+          let* record = progress.progress_record in
+          let* fields =
+            match record.aggregate_fields with
+            | Some (field :: rest)
+              when aggregate_field_name field == original.member_name ->
+                Ok
+                  ({
+                     field with
+                     field_metadata = metadata :: field.field_metadata;
+                   }
+                  :: rest)
+            | _ ->
+                Error "member metadata substituted its original placed member"
+          in
+          Ok (Ok { record with aggregate_fields = Some fields }, scopes)
     in
     progress.progress_phase <- Some phase;
     progress.progress_scopes <- scopes;
@@ -1471,6 +2458,9 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
                   (same_phase progress.progress_phase
                      receipt.aggregate_final_phase))
             || List.length progress.progress_scopes <> 1
+            || Option.is_none source.aggregate_header.binding
+               && Option.is_some source.aggregate_backing
+               && not progress.progress_backing_attached
           then
             Error
               "aggregate completion lacks its original complete layout phase \
@@ -1484,9 +2474,13 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
     let* byte_size =
       match receipt.aggregate_item with
       | Ast.Aggregate_forward_declaration forward
-        when forward.name == source.aggregate_name -> Ok 0L
+        when forward.name == source.aggregate_name
+             && Option.equal ( == ) forward.backing source.aggregate_backing ->
+          Ok 0L
       | Ast.Aggregate_definition definition
-        when definition.name == source.aggregate_name ->
+        when definition.name == source.aggregate_name
+             && Option.equal ( == ) definition.backing source.aggregate_backing
+        ->
           let member_dimensions (member : Ast.aggregate_member_declarator) =
             let checked =
               List.filter_map dimensions member.member_array_dimensions
@@ -1533,9 +2527,30 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
                     | _ -> None)
                   progress.progress_members)
           in
-          Source_aggregate_layout.layout ~members ~callbacks ?initial_size
-            ~offsets ~dimensions:member_dimensions ~table ~namespace ~symbol
-            definition
+          let metadata (member : Ast.aggregate_member_declarator) =
+            let prepared =
+              Option.bind progress (fun progress ->
+                  Result.to_option progress.progress_record)
+              |> Option.map aggregate_fields
+              |> Option.value ~default:[]
+              |> List.find_opt (fun field ->
+                  aggregate_field_name field == member.member_name)
+            in
+            match prepared with
+            | Some field
+              when List.length field.field_metadata
+                   = List.length member.member_metadata
+                   && List.for_all2
+                        (fun value source -> value.metadata_source == source)
+                        (List.rev field.field_metadata)
+                        member.member_metadata -> Ok ()
+            | None when member.member_metadata = [] -> Ok ()
+            | _ ->
+                Error "member metadata differs from its original source chain"
+          in
+          Source_aggregate_layout.layout ~members ~callbacks ~metadata
+            ?initial_size ~offsets ~dimensions:member_dimensions ~table
+            ~namespace ~symbol definition
       | _ -> Error "aggregate completion has another original declaration"
     in
     let* () =
@@ -1581,6 +2596,25 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
           Option.bind progress (fun progress ->
               match progress.progress_record with
               | Ok record -> record.aggregate_fields
+              | Error _ -> None);
+        aggregate_initializer_backing =
+          Option.bind progress (fun progress ->
+              match receipt.aggregate_item with
+              | Ast.Aggregate_forward_declaration _ ->
+                  progress.progress_initializer_backing
+              | _ -> (
+                  match progress.progress_record with
+                  | Ok record -> record.aggregate_initializer_backing
+                  | Error _ -> None));
+        aggregate_initializer_body =
+          Option.bind progress (fun progress ->
+              match progress.progress_record with
+              | Ok record -> record.aggregate_initializer_body
+              | Error _ -> None);
+        aggregate_initializer_records =
+          Option.bind progress (fun progress ->
+              match progress.progress_record with
+              | Ok record -> record.aggregate_initializer_records
               | Error _ -> None);
       }
 
@@ -1641,6 +2675,19 @@ let aggregate_value_header_source ~table ~scope metadata =
 
 let retain_aggregate_import = retain_aggregate_value_header
 
+let aggregate_value_header_base ~table ~scope metadata =
+  match aggregate_value_header_source ~table ~scope metadata with
+  | None -> None
+  | Some (definition, _) ->
+      Option.bind metadata.metadata_record.aggregate_base_snapshot (fun base ->
+          if base.table != table then None
+          else
+            Option.bind base.aggregate_owner (fun (_, publication, _) ->
+                Option.map
+                  (fun symbol -> (definition, symbol))
+                  (Declaration_collection.publication_aggregate_identity
+                     publication)))
+
 let aggregate_import_source ~table ~scope metadata =
   match aggregate_value_header_source ~table ~scope metadata with
   | None -> None
@@ -1697,7 +2744,74 @@ let rebind_primitive ~table ~symbol record =
 let sizeof_class_of_type type_ =
   if Type.pointer_depth type_ > 0 then Pointer_class else Declared_class type_
 
-let published_scalar ?(dimensions = []) ~table ~namespace publication =
+let select_global_aggregate ~table ~namespace ~publication ~selected_aggregate
+    (record : t) =
+  let* source =
+    match Declaration_collection.publication_source_global publication with
+    | Some source
+      when Parser.global_publication_is_current source
+           && Declaration_collection.namespace_owns_table namespace table
+           && Declaration_collection.namespace_owns_publication namespace
+                publication -> Ok source
+    | _ ->
+        Error "global class allocation requires its original live publication"
+  in
+  let* () =
+    Source_type_reference.validate_selected_aggregate ~table ~namespace
+      selected_aggregate
+  in
+  let* type_ =
+    Source_type_reference.selected_header_class selected_aggregate
+      source.global_header.type_specifier source.global_pointer_layers
+  in
+  if
+    Type.pointer_depth (Type_reference.resolved_type type_) <> 0
+    || Option.is_some source.global_function_pointer
+  then Error "global class allocation requires an object value"
+  else
+    match record.aggregate_owner with
+    | Some (owner, selected, _)
+      when owner == namespace && record.table == table
+           && record.symbol
+              == Declaration_collection.publication_symbol selected
+           && aggregate_snapshot_is_current record
+           && Declaration_collection.namespace_owns_publication namespace
+                selected
+           && Option.fold ~none:false ~some:(( == ) selected)
+                (Declaration_collection.current_aggregate_publication namespace
+                   selected)
+           && Option.fold ~none:false
+                ~some:
+                  (( == )
+                     (Source_type_reference.selected_base_symbol
+                        selected_aggregate))
+                (Declaration_collection.publication_aggregate_identity selected)
+           && Option.fold ~none:false
+                ~some:(fun original ->
+                  original.Parser.aggregate_entry == record.entry
+                  && original.aggregate_environment == source.global_environment)
+                (Declaration_collection.publication_source_aggregate selected)
+      ->
+        Ok
+          {
+            global_object_table = table;
+            global_object_namespace = namespace;
+            global_object_publication = publication;
+            global_object_source = source;
+            global_object_type = type_;
+            global_object_record = record;
+          }
+    | _ ->
+        Error "global class allocation lacks its exact selected class snapshot"
+
+let global_aggregate_record allocation = allocation.global_object_record
+let global_aggregate_size allocation = allocation.global_object_record.byte_size
+
+let global_aggregate_type allocation =
+  Type_reference.resolved_type allocation.global_object_type
+
+let published_scalar ?aggregate_allocation ?(dimensions = []) ~table ~namespace
+    publication =
   if
     (not (Declaration_collection.namespace_owns_table namespace table))
     || not
@@ -1712,15 +2826,29 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
           match source.global_function_pointer with
           | Some _ ->
               Ok (Int64.of_int Primitive_type.pointer_byte_size, Pointer_class)
-          | None ->
-              let* type_reference =
-                Source_type_reference.builtin
-                  source.global_header.type_specifier
-                  source.global_pointer_layers
-              in
-              let type_ = Type_reference.resolved_type type_reference in
-              let* byte_size = scalar_size type_ in
-              Ok (byte_size, sizeof_class_of_type type_)
+          | None -> (
+              match aggregate_allocation with
+              | Some allocation
+                when allocation.global_object_table == table
+                     && allocation.global_object_namespace == namespace
+                     && allocation.global_object_publication == publication
+                     && allocation.global_object_source == source ->
+                  Ok
+                    ( global_aggregate_size allocation,
+                      Declared_class (global_aggregate_type allocation) )
+              | Some _ ->
+                  Error
+                    "global allocation snapshot belongs to another original \
+                     object"
+              | None ->
+                  let* type_reference =
+                    Source_type_reference.builtin
+                      source.global_header.type_specifier
+                      source.global_pointer_layers
+                  in
+                  let type_ = Type_reference.resolved_type type_reference in
+                  let* byte_size = scalar_size type_ in
+                  Ok (byte_size, sizeof_class_of_type type_))
         in
         let* byte_size =
           declared_array_size ~table ~namespace
@@ -1738,20 +2866,34 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
             byte_size;
             internal = false;
             runtime_dimensions =
-              List.concat_map dimension_runtime_dependencies dimensions;
+              Option.fold ~none:[]
+                ~some:(fun allocation ->
+                  allocation.global_object_record.runtime_dimensions)
+                aggregate_allocation
+              @ List.concat_map dimension_runtime_dependencies dimensions;
             runtime_offsets =
-              List.concat_map dimension_offset_dependencies dimensions;
+              Option.fold ~none:[]
+                ~some:(fun allocation ->
+                  allocation.global_object_record.runtime_offsets)
+                aggregate_allocation
+              @ List.concat_map dimension_offset_dependencies dimensions;
             aggregate_owner = None;
             aggregate_stamp = None;
             aggregate_base_snapshot = None;
             aggregate_fields = None;
+            aggregate_initializer_backing = None;
+            aggregate_initializer_body = None;
+            aggregate_initializer_records = None;
           }
 
-let declare_global ?callback
+let declare_global ?aggregate_allocation ?callback
     ?(selected_aggregate : Function_type_resolution.selected_aggregate_resolver =
       fun _ -> None) ~dimensions ~table ~namespace ~predecessor ~previous_global
     publication =
-  let* _ = published_scalar ~dimensions ~table ~namespace publication in
+  let* _ =
+    published_scalar ?aggregate_allocation ~dimensions ~table ~namespace
+      publication
+  in
   let source =
     Option.get (Declaration_collection.publication_source_global publication)
   in
@@ -1792,9 +2934,12 @@ let declare_global ?callback
           Source_type_reference.callback_return ~table ~namespace
             ~selected_aggregate ~header source.global_header.type_specifier
             source.global_pointer_layers
-      | None ->
-          Source_type_reference.builtin source.global_header.type_specifier
-            source.global_pointer_layers
+      | None -> (
+          match aggregate_allocation with
+          | Some allocation -> Ok allocation.global_object_type
+          | None ->
+              Source_type_reference.builtin source.global_header.type_specifier
+                source.global_pointer_layers)
     in
     Ok
       {
@@ -1807,6 +2952,7 @@ let declare_global ?callback
         declared_type;
         declared_callback;
         declared_dimensions = dimensions;
+        declared_aggregate = aggregate_allocation;
         declared_completion = None;
       }
 
@@ -1815,6 +2961,7 @@ let declared_global_symbol declaration =
 
 let declared_global_source declaration = declaration.declared_source
 let declared_global_type declaration = declaration.declared_type
+let declared_global_aggregate declaration = declaration.declared_aggregate
 
 let declared_global_callback_pointer declaration =
   Option.map snd declaration.declared_callback
@@ -1834,14 +2981,20 @@ let declared_global_dimensions declaration =
 let declared_dimension_preparation dimension = dimension.prepared
 
 let declared_global_runtime_dependencies declaration =
-  List.concat_map
-    (fun dimension -> dimension.prepared.runtime_dependencies)
-    declaration.declared_dimensions
+  Option.fold ~none:[]
+    ~some:(fun allocation -> allocation.global_object_record.runtime_dimensions)
+    declaration.declared_aggregate
+  @ List.concat_map
+      (fun dimension -> dimension.prepared.runtime_dependencies)
+      declaration.declared_dimensions
 
 let declared_global_offset_dependencies declaration =
-  List.concat_map
-    (fun dimension -> dimension.prepared.offset_dependencies)
-    declaration.declared_dimensions
+  Option.fold ~none:[]
+    ~some:(fun allocation -> allocation.global_object_record.runtime_offsets)
+    declaration.declared_aggregate
+  @ List.concat_map
+      (fun dimension -> dimension.prepared.offset_dependencies)
+      declaration.declared_dimensions
 
 let declared_global_owns_table declaration table =
   declaration.declared_table == table
@@ -1944,6 +3097,9 @@ let bind_retained_scalar ~table ~entry global =
         aggregate_stamp = None;
         aggregate_base_snapshot = None;
         aggregate_fields = None;
+        aggregate_initializer_backing = None;
+        aggregate_initializer_body = None;
+        aggregate_initializer_records = None;
       }
 
 let return_class_size ~table ~namespace ~type_ ~(aggregate : t option) =
@@ -2601,6 +3757,21 @@ let aggregate_offset_is_current ~table ~namespace progress
   | Parser.Aggregate_offset_reached _ -> true
   | _ -> false
 
+let member_metadata_is_current ~table ~namespace progress
+    (phase : Parser.aggregate_phase) =
+  progress.progress_namespace == namespace
+  && Declaration_collection.namespace_owns_table namespace table
+  && (not progress.progress_finished)
+  && (not progress.progress_body_finished)
+  && phase.phase_aggregate == progress.progress_source
+  && Parser.aggregate_phase_is_current phase
+  && same_phase phase.phase_predecessor progress.progress_phase
+  && (not (same_phase (Some phase) progress.progress_metadata_attempt))
+  &&
+  match phase.phase_step with
+  | Parser.Aggregate_member_metadata_reached _ -> true
+  | _ -> false
+
 let resolve_position_reads progress phase =
   let rec collect rev = function
     | [] -> Ok (List.rev rev)
@@ -2654,6 +3825,106 @@ let aggregate_offset_dependencies ~table ~namespace ~queries progress phase =
     let* record = progress.progress_record in
     let* positions = resolve_position_reads progress phase in
     Ok (offset_input_dependencies record queries positions)
+
+let member_metadata_dependencies ~table ~namespace ~queries progress phase =
+  if not (member_metadata_is_current ~table ~namespace progress phase) then
+    Error "metadata dependencies require their original unconsumed member phase"
+  else
+    let* record = progress.progress_record in
+    let* positions = resolve_position_reads progress phase in
+    let* () =
+      match phase.phase_step with
+      | Parser.Aggregate_member_metadata_reached original -> (
+          match original.metadata.member_metadata_value with
+          | Ast.Member_metadata_expression expression ->
+              validate_query_manifest ~table ~expression queries
+          | Ast.Member_metadata_string _ when queries = [] -> Ok ()
+          | _ -> Error "string metadata has foreign query reads")
+      | _ -> assert false
+    in
+    Ok
+      ( offset_dimension_dependencies record queries positions,
+        offset_input_dependencies record queries positions )
+
+let member_metadata_positions ~table ~namespace progress phase =
+  if not (member_metadata_is_current ~table ~namespace progress phase) then
+    Error "metadata positions require their original unconsumed member phase"
+  else resolve_position_reads progress phase
+
+let begin_runtime_member_metadata ~table ~namespace ~queries progress phase =
+  let* dimensions, offsets =
+    member_metadata_dependencies ~table ~namespace ~queries progress phase
+  in
+  let* record = progress.progress_record in
+  match phase.Parser.phase_step with
+  | Parser.Aggregate_member_metadata_reached original ->
+      let* () =
+        match
+          (record.aggregate_fields, original.metadata.member_metadata_value)
+        with
+        | Some (field :: _), Ast.Member_metadata_expression _
+          when aggregate_field_name field == original.member_name -> Ok ()
+        | _ ->
+            Error
+              "runtime metadata requires its original placed member and \
+               expression"
+      in
+      let* () =
+        if
+          List.for_all
+            (fun query ->
+              query.receipt.query_root.query_command
+              == progress.progress_source.aggregate_header.declaration_command
+              && query.receipt.query_root.query_environment
+                 == progress.progress_source.aggregate_environment)
+            queries
+        then Ok ()
+        else Error "runtime metadata has foreign source query reads"
+      in
+      progress.progress_metadata_attempt <- Some phase;
+      Ok
+        {
+          runtime_metadata_progress = progress;
+          runtime_metadata_phase = phase;
+          runtime_metadata_table = table;
+          runtime_metadata_source = original.metadata;
+          runtime_metadata_finished = false;
+          runtime_metadata_dimensions = dimensions;
+          runtime_metadata_offsets = offsets;
+        }
+  | _ -> assert false
+
+let runtime_member_metadata_is_current value =
+  let progress = value.runtime_metadata_progress in
+  (not value.runtime_metadata_finished)
+  && (not progress.progress_finished)
+  && (not progress.progress_body_finished)
+  && Parser.aggregate_phase_is_current value.runtime_metadata_phase
+  && same_phase progress.progress_phase
+       value.runtime_metadata_phase.phase_predecessor
+  && same_phase progress.progress_metadata_attempt
+       (Some value.runtime_metadata_phase)
+
+let finish_runtime_member_metadata preparation ~value ~work =
+  if (not (runtime_member_metadata_is_current preparation)) || work < 0 then
+    Error
+      "runtime metadata completion is foreign, expired, repeated or has \
+       invalid work"
+  else (
+    preparation.runtime_metadata_finished <- true;
+    let progress = preparation.runtime_metadata_progress in
+    let metadata =
+      {
+        metadata_table = preparation.runtime_metadata_table;
+        metadata_namespace = progress.progress_namespace;
+        metadata_phase = preparation.runtime_metadata_phase;
+        metadata_source = preparation.runtime_metadata_source;
+        metadata_value = Metadata_word value;
+        metadata_work = work;
+      }
+    in
+    progress.progress_metadata <- metadata :: progress.progress_metadata;
+    Ok metadata)
 
 let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
   if not (aggregate_offset_is_current ~table ~namespace progress phase) then
@@ -2726,6 +3997,96 @@ let finish_runtime_aggregate_offset preparation ~value ~work =
     in
     progress.progress_offsets <- offset :: progress.progress_offsets;
     Ok offset)
+
+let prepare_aggregate_member_metadata ~table ~namespace ~max_work ~queries
+    progress (phase : Parser.aggregate_phase) =
+  let module Numeric = Closed_numeric_expression in
+  let work = ref 0 in
+  let result =
+    if
+      max_work < 0
+      || not (member_metadata_is_current ~table ~namespace progress phase)
+    then
+      Error
+        "member metadata preparation is foreign, expired, repeated or out of \
+         order"
+    else
+      match phase.phase_step with
+      | Parser.Aggregate_member_metadata_reached original ->
+          let* record = progress.progress_record in
+          let* () =
+            match record.aggregate_fields with
+            | Some (field :: _)
+              when aggregate_field_name field == original.member_name -> Ok ()
+            | _ -> Error "member metadata requires its original placed member"
+          in
+          progress.progress_metadata_attempt <- Some phase;
+          let* metadata_value =
+            match original.metadata.member_metadata_value with
+            | Ast.Member_metadata_string string ->
+                if queries = [] && phase.phase_position_reads = [] then
+                  Ok (Metadata_string string.member_metadata_string_value)
+                else Error "string metadata has foreign expression reads"
+            | Ast.Member_metadata_expression expression ->
+                let* () = validate_query_manifest ~table ~expression queries in
+                let* () =
+                  if
+                    List.for_all
+                      (fun query ->
+                        query.receipt.query_root.query_command
+                        == progress.progress_source.aggregate_header
+                             .declaration_command
+                        && query.receipt.query_root.query_environment
+                           == progress.progress_source.aggregate_environment)
+                      queries
+                  then Ok ()
+                  else
+                    Error
+                      "member metadata queries have another original command"
+                in
+                let* positions = resolve_position_reads progress phase in
+                let numeric =
+                  Numeric.of_ast ~allow_floating:true
+                    ~position_value:(fun source ->
+                      List.find_opt (fun (node, _) -> node == source) positions
+                      |> Option.map (fun (_, position) ->
+                          position.position_value))
+                    ~query_expression ~queries expression
+                in
+                let consume () =
+                  if !work >= max_work then
+                    Error
+                      (Numeric.make_error "HCIRVM0007"
+                         (Numeric.Invalid_input
+                            "member metadata preparation work limit")
+                         "the bounded member metadata preparation work limit \
+                          was exhausted")
+                  else (
+                    incr work;
+                    Ok ())
+                in
+                Numeric.evaluate_expression ~consume
+                  ~query_origin:(fun query -> query.origin)
+                  ~query_value:query_constant ~context:Numeric.Member_metadata
+                  ~current_position:record.byte_size numeric
+                |> Result.map (fun value -> Metadata_word value)
+                |> Result.map_error Numeric.error_to_string
+          in
+          let metadata =
+            {
+              metadata_table = table;
+              metadata_namespace = namespace;
+              metadata_phase = phase;
+              metadata_source = original.metadata;
+              metadata_value;
+              metadata_work = !work;
+            }
+          in
+          progress.progress_metadata <- metadata :: progress.progress_metadata;
+          Ok metadata
+      | _ -> Error "member metadata requires its original parser phase"
+  in
+  (result, !work)
 
 let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
     (phase : Parser.aggregate_phase) =
@@ -3271,6 +4632,9 @@ let bind_retained_global ~table ~entry ~record ~extent =
             aggregate_stamp = None;
             aggregate_base_snapshot = None;
             aggregate_fields = None;
+            aggregate_initializer_backing = None;
+            aggregate_initializer_body = None;
+            aggregate_initializer_records = None;
           }
 
 let record_callback_position positions ~parameters receipt =

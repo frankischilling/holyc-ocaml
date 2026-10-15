@@ -39,24 +39,39 @@ let lower ~context ~authority destination =
   let typed = Destination.typed destination in
   let records = Initializer_fragment_typing.records context in
   let* top_calls = classify ~context destination in
+  let scalar_evaluation =
+    Ir.Integer_initializer_layout.requires_settlement
+      (Destination.layout destination)
+  in
   let* lowered =
     Lower.lower_complete
       ~globals:(Destination.globals destination)
       ~records ~top_calls
       ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
       ~span
-      [ Lower.Initialize_fragment destination ]
+      [
+        (if scalar_evaluation then
+           Lower.Expression
+             (Typed.top_level_root_value (Destination.root destination))
+         else Lower.Initialize_fragment destination);
+      ]
   in
   let entry = Lower.graph lowered in
-  let* description =
-    match Lower.initializer_regions lowered with
-    | [ description ] -> Ok description
-    | _ ->
-        Error "initializer fragment lowering did not retain its unique region"
-        |> diagnose
-  in
   let* initialization =
-    Ir.Global_initialization.create_fragment ~destination ~entry description
+    if scalar_evaluation then
+      Ir.Global_initialization.create ~span
+        ~globals:(Destination.globals destination)
+        ~entry []
+    else
+      let* description =
+        match Lower.initializer_regions lowered with
+        | [ description ] -> Ok description
+        | _ ->
+            Error
+              "initializer fragment lowering did not retain its unique region"
+            |> diagnose
+      in
+      Ir.Global_initialization.create_fragment ~destination ~entry description
   in
   let* runtime_calls =
     Ir.Runtime_call_context.create ~records
@@ -65,8 +80,9 @@ let lower ~context ~authority destination =
       ~entry_calls:(Lower.runtime_calls lowered)
       ~functions:[]
   in
-  Ir.Initializer_fragment_program.create ~authority ~destination ~entry
-    ~initialization ~runtime_calls
+  Ir.Initializer_fragment_program.create
+    ?scalar_lowered:(if scalar_evaluation then Some lowered else None)
+    ~authority ~destination ~entry ~initialization ~runtime_calls ()
   |> diagnose
 
 let prepare ~context ~authority ~runtime destination =

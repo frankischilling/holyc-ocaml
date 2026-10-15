@@ -22,11 +22,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3 || Array.length Sys.argv = 4)
-    "expected compiler and example, optionally --native"
+    (Array.length Sys.argv = 4 || Array.length Sys.argv = 5)
+    "expected compiler and two examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 4 && Sys.argv.(3) = "--native"
+let native = Array.length Sys.argv = 5 && Sys.argv.(4) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -95,7 +95,11 @@ let error ?code output report =
     "expected rejected aggregate report";
   Option.iter
     (fun code ->
-      let first = report |> member "diagnostics" |> to_list |> List.hd in
+      let first =
+        report |> member "diagnostics" |> to_list
+        |> List.find (fun diagnostic ->
+            member "severity" diagnostic = `String "error")
+      in
       require
         (member "code" first = `String code)
         (Yojson.Safe.to_string report))
@@ -112,8 +116,24 @@ let () =
           List.iter
             (fun (_, source, word, output) ->
               value word output (invoke target mode source))
-            (Cases.values @ Cases.view_matrix);
+            (Cases.values @ Cases.view_matrix @ Cases.initializer_matrix);
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
+          value 42L "A" (invoke target mode (read Sys.argv.(3)));
+          value 42L "A"
+            (invoke target mode
+               (read
+                  (Filename.concat
+                     (Filename.dirname Sys.argv.(3))
+                     "original-automatic-layouts.hc")));
+          value 42L "A"
+            (invoke target mode
+               (read
+                  (Filename.concat
+                     (Filename.dirname Sys.argv.(3))
+                     "automatic-aggregate-initializers.hc")));
+          value 42L ""
+            (invoke ~options:[ "--frame-byte-limit=1" ] target mode
+               Cases.empty_quota_source);
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
@@ -146,10 +166,35 @@ let () =
             (invoke ~status:1
                ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
                target mode Cases.quota_source);
+          let initial = invoke target mode Cases.initializer_quota_source in
+          value 42L "" initial;
+          let initial_steps = initial |> member "executed_steps" |> to_int in
+          value 42L ""
+            (invoke
+               ~options:
+                 [
+                   "--frame-byte-limit=8";
+                   "--step-limit=" ^ string_of_int initial_steps;
+                 ]
+               target mode Cases.initializer_quota_source);
+          error ~code:"HCIRVM0011" ""
+            (invoke ~status:1 ~options:[ "--frame-byte-limit=7" ] target mode
+               Cases.initializer_quota_source);
+          error ~code:"HCIRVM0007" ""
+            (invoke ~status:1
+               ~options:[ "--step-limit=" ^ string_of_int (initial_steps - 1) ]
+               target mode Cases.initializer_quota_source);
           List.iter
             (fun (_, source) -> error "" (invoke ~status:1 target mode source))
             Cases.unsupported)
-        (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
+        (if native then [ "ir"; "host-jit" ] else [ "ir" ]);
+      List.iter
+        (fun target ->
+          List.iter
+            (fun (_, source, word, output) ->
+              value word output (invoke target mode source))
+            Cases.source_values)
+        (if native then [ "ir"; "host-jit-task" ] else [ "ir" ]))
     [ "jit"; "aot" ];
   if native then value 42L "" (invoke "host-jit-task" "jit" Cases.quota_source);
   Printf.printf "Automatic aggregate CLI checks passed (%d reports).\n" !reports

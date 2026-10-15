@@ -15,6 +15,8 @@ type slot = {
   source_slot : Globals.storage_slot;
   owner : Ir.Function_body.t option;
   static_source : Ir.Integer_static_allocation.t option;
+  static_load_entry :
+    (Driver.Native_global_initializers.t * Globals.static_slot) option;
   symbol : Symbol.t;
   type_ : Sema.Type.t;
   callback : Sema.Function_type_resolution.function_pointer option;
@@ -114,6 +116,27 @@ type static_copy = {
   copy_bytes : string;
 }
 
+type initializer_copy = {
+  initializer_copy_layout : task_layout;
+  initializer_copy_state : task_layout_state;
+  initializer_copy_request :
+    Driver.Integer_task.Native_dispatch.initializer_request;
+  initializer_copy_token : Ir.Integer_interpreter.native_initializer_copy;
+  initializer_copy_data : int;
+  initializer_copy_flag : int;
+  initializer_copy_bytes : string;
+}
+
+type static_initializer_copy = {
+  scalar_static_layout : task_layout;
+  scalar_static_state : task_layout_state;
+  scalar_static_request : Driver.Integer_task.Native_static_initializer.request;
+  scalar_static_token : Ir.Integer_interpreter.native_static_initializer_copy;
+  scalar_static_data : int;
+  scalar_static_flag : int;
+  scalar_static_bytes : string;
+}
+
 let hard_max_global_bytes = 16 * 1024 * 1024
 let hard_max_arena_bytes = 32 * 1024 * 1024
 let hard_max_task_layout_work = 1_000_000
@@ -179,9 +202,9 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
     else if Globals.has_initializers globals && Option.is_none initializers then
       unsupported "native globals do not admit declaration initializers"
     else if
-      Initialization.static_regions initialization <> []
-      || Initialization.regions initialization <> []
-         && Option.is_none initializers
+      (Initialization.static_regions initialization <> []
+      || Initialization.regions initialization <> [])
+      && Option.is_none initializers
       || (Initialization.publications initialization <> []
          || Option.is_some (Initialization.publication_evidence initialization)
          )
@@ -261,10 +284,13 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
     List.fold_left
       (fun checked (storage, _, _) ->
         let* total = checked in
-        if Globals.storage_dimensions storage = [] then Ok total
+        if
+          Globals.storage_dimensions storage = []
+          && not (Shape.is_aggregate (Globals.storage_shape storage))
+        then Ok total
         else
-          let elements = Globals.storage_element_count storage in
-          if elements <= 0 || elements > (hard_max_arena_bytes - total) / 8 then
+          let elements = Globals.storage_cell_count storage in
+          if elements < 0 || elements > (hard_max_arena_bytes - total) / 8 then
             resource
               (Printf.sprintf
                  "private global arena exceeds the hard allocation bound of %d \
@@ -280,7 +306,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         if Option.is_none (Globals.storage_callback_pointer storage) then
           Ok total
         else
-          let elements = Globals.storage_element_count storage in
+          let elements = Globals.storage_cell_count storage in
           if elements <= 0 || elements > (hard_max_arena_bytes - total) / 8 then
             resource
               "private callback ownership exceeds the arena allocation bound"
@@ -327,7 +353,8 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           match Arrays.prepared entry with
           | Some (payload, _) when root_materialized root ->
               Ok
-                ((Layout.cell_offset (Arrays.destination entry), payload)
+                (( Layout.cell_offset (Arrays.destination entry),
+                   Arrays.storage_payload entry payload )
                 :: reversed)
           | Some _ ->
               invalid ?span
@@ -354,7 +381,12 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         | None -> Ok []
         | Some arrays ->
             collect (Arrays.entries arrays)
-              (Globals.static_root_materialized slot) (fun _ -> false))
+              (Globals.static_root_materialized slot) (fun root ->
+                Option.fold ~none:false
+                  ~some:(fun proof ->
+                    Driver.Native_global_initializers.is_static_load_root proof
+                      slot root)
+                  initializers))
     | _ -> invalid ?span "native storage has an invalid initializer owner"
   in
   let rec collect ordinal cell_index byte_offset array_flag_cursor owner_cursor
@@ -389,7 +421,15 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let* shape_type = storage_shape_type ?span source_slot in
         let dimensions = Globals.storage_dimensions storage in
         let* shape =
-          match Shape.create ~type_:shape_type ~dimensions with
+          match
+            if
+              Shape.is_aggregate (Globals.storage_shape storage)
+              && Shape.matches
+                   (Globals.storage_shape storage)
+                   ~symbol ~type_ ~dimensions
+            then Ok (Globals.storage_shape storage)
+            else Shape.create ~type_:shape_type ~dimensions
+          with
           | Ok shape -> Ok shape
           | Error Shape.Unsupported_type ->
               unsupported ?span
@@ -400,14 +440,15 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let scalar = Shape.scalar shape in
         let width = Scalar.byte_size scalar in
         let strides = Shape.strides shape in
-        let element_count = Shape.element_count shape in
+        let element_count = Shape.cell_count shape in
         let extent_bytes = Shape.byte_size shape in
         let is_array = dimensions <> [] in
+        let byte_flags = is_array || Shape.is_aggregate shape in
         let* () =
           if
             dimensions <> Shape.dimensions shape
             || strides <> Globals.storage_strides storage
-            || element_count <> Globals.storage_element_count storage
+            || element_count <> Globals.storage_cell_count storage
           then
             invalid ?span
               "native storage shape disagrees with its sealed layout"
@@ -437,13 +478,6 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                 unsupported ?span
                   "native statics do not admit declaration initializers"
               else if
-                Sema.Compiler_option.is_enabled
-                  ~mask:(Globals.static_compiler_options slot)
-                  Sema.Compiler_option.Globals_on_data_heap
-              then
-                unsupported ?span
-                  "native statics do not admit data-heap options"
-              else if
                 let frame_dimensions =
                   Frame.location_dimensions location
                   |> List.map Frame.dimension_value
@@ -469,7 +503,8 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                    && not (Frame.location_source_dimensions_checked location)
                 || Frame.location_allocated_size location
                    <> Int64.of_int extent_bytes
-                || Frame.location_element_size location <> Int64.of_int width
+                || Frame.location_element_size location
+                   <> Int64.of_int (Shape.element_size shape)
                 || Frame.location_alignment location <> 8
                 || (match Frame.location_register_selection location with
                   | Sema.Register_request.Unspecified
@@ -513,7 +548,9 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           else Ok ()
         in
         let flag_offset, next_array_flag_cursor =
-          if is_array then
+          (* Empty aggregate roots retain the ordinal owner word, with no byte
+             flags to address before the arena's metadata prefix. *)
+          if byte_flags && element_count > 0 then
             ( array_flag_cursor + ((element_count - 1) * 8),
               array_flag_cursor + (element_count * 8) )
           else (declared_bytes + (ordinal * 8), array_flag_cursor)
@@ -542,7 +579,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                static
         in
         let* base_initialized =
-          if (not is_array) && has_initializer && Option.is_some initializers
+          if (not byte_flags) && has_initializer && Option.is_some initializers
           then
             if
               Option.fold ~none:false
@@ -550,6 +587,11 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                   Driver.Native_global_initializers.is_load_slot
                     (Option.get initializers) slot)
                 global
+              || Option.fold ~none:false
+                   ~some:(fun slot ->
+                     Driver.Native_global_initializers.is_static_load_slot
+                       (Option.get initializers) slot)
+                   static
             then (
               write_word image ~offset:byte_offset ~width 0L;
               Ok true)
@@ -586,7 +628,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
             mark_bytes index
           done;
         let* array_image =
-          if is_array then prepared_array_image ?span global static else Ok []
+          if byte_flags then prepared_array_image ?span global static else Ok []
         in
         let seen = Bytes.make element_count '\000' in
         let initialized_count =
@@ -620,7 +662,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
               | Arrays.Bytes bytes ->
                   let length = String.length bytes in
                   if
-                    width <> 1 || cell_offset < 0 || length <= 0
+                    width <> 1 || cell_offset < 0 || length < 0
                     || cell_offset > element_count - length
                   then
                     invalid ?span
@@ -654,6 +696,9 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
             source_slot;
             owner;
             static_source = None;
+            static_load_entry =
+              Option.bind initializers (fun proof ->
+                  Option.map (fun slot -> (proof, slot)) static);
             symbol;
             type_;
             callback;
@@ -851,7 +896,15 @@ let append_task_globals layout ~globals =
               let* shape_type = storage_shape_type ?span storage in
               let dimensions = Globals.storage_dimensions storage in
               let* shape =
-                match Shape.create ~type_:shape_type ~dimensions with
+                match
+                  if
+                    Shape.is_aggregate (Globals.storage_shape storage)
+                    && Shape.matches
+                         (Globals.storage_shape storage)
+                         ~symbol ~type_ ~dimensions
+                  then Ok (Globals.storage_shape storage)
+                  else Shape.create ~type_:shape_type ~dimensions
+                with
                 | Ok shape -> Ok shape
                 | Error Shape.Unsupported_type ->
                     unsupported ?span
@@ -864,13 +917,13 @@ let append_task_globals layout ~globals =
               let scalar = Shape.scalar shape in
               let width = Scalar.byte_size scalar in
               let strides = Shape.strides shape in
-              let element_count = Shape.element_count shape in
+              let element_count = Shape.cell_count shape in
               let extent_bytes = Shape.byte_size shape in
-              let is_array = dimensions <> [] in
+              let is_array = dimensions <> [] || Shape.is_aggregate shape in
               let* () =
                 if
                   strides <> Globals.storage_strides storage
-                  || element_count <> Globals.storage_element_count storage
+                  || element_count <> Globals.storage_cell_count storage
                 then
                   invalid ?span
                     "native task storage shape disagrees with its original \
@@ -895,12 +948,13 @@ let append_task_globals layout ~globals =
                       hard_max_arena_bytes - state.task_arena_bytes
                       - extent_bytes
                     in
-                    if element_count > remaining / 8 then
+                    let metadata_words = max 1 element_count in
+                    if metadata_words > remaining / 8 then
                       resource ?span
                         "native task data and initialization flags exceed the \
                          arena bound"
                     else
-                      let flag_bytes = element_count * 8 in
+                      let flag_bytes = metadata_words * 8 in
                       Ok
                         ( extent_bytes + flag_bytes,
                           state.task_arena_bytes + extent_bytes + flag_bytes - 8
@@ -933,6 +987,7 @@ let append_task_globals layout ~globals =
                   source_slot = storage;
                   owner = None;
                   static_source = None;
+                  static_load_entry = None;
                   symbol;
                   type_;
                   callback;
@@ -1000,10 +1055,7 @@ let create_task_snapshot ?(functions = []) layout ~initialization ~entry =
     else if
       List.exists
         (fun slot ->
-          Sema.Compiler_option.is_enabled
-            ~mask:(Globals.static_compiler_options slot)
-            Sema.Compiler_option.Globals_on_data_heap
-          || Option.is_none (Globals.static_source_allocation slot)
+          Option.is_none (Globals.static_source_allocation slot)
           || not
                (List.for_all
                   (Globals.static_root_executed slot)
@@ -1121,7 +1173,7 @@ let reserve_static layout request =
     | None ->
         let shape = Ir.Integer_static_allocation.shape allocation in
         let scalar = Shape.scalar shape in
-        let elements = Shape.element_count shape in
+        let elements = Shape.cell_count shape in
         let dimensions = Shape.dimensions shape in
         let* padded =
           match Shape.padded_byte_size shape with
@@ -1137,14 +1189,15 @@ let reserve_static layout request =
           else Ok ()
         in
         let flag_width = 8 in
+        let metadata_words = max 1 elements in
         let* arena_bytes =
           if
             padded > hard_max_arena_bytes - before.task_arena_bytes
-            || elements
+            || metadata_words
                > (hard_max_arena_bytes - before.task_arena_bytes - padded)
                  / flag_width
           then resource "native static data and flags exceed the arena bound"
-          else Ok (padded + (elements * flag_width))
+          else Ok (padded + (metadata_words * flag_width))
         in
         let callback =
           Ir.Integer_static_allocation.callback_pointer allocation
@@ -1165,6 +1218,7 @@ let reserve_static layout request =
             source_slot = Globals.declared_static_storage allocation;
             owner = None;
             static_source = Some allocation;
+            static_load_entry = None;
             symbol;
             type_ = Ir.Integer_static_allocation.type_ allocation;
             callback;
@@ -1176,7 +1230,8 @@ let reserve_static layout request =
             extent_bytes = Shape.byte_size shape;
             data_offset = before.task_arena_bytes;
             flag_offset =
-              before.task_arena_bytes + padded + ((elements - 1) * flag_width);
+              before.task_arena_bytes + padded
+              + ((metadata_words - 1) * flag_width);
             initially_initialized = false;
           }
         in
@@ -1258,8 +1313,9 @@ let prepare_static_copy layout request ~admitted_arena_bytes =
   let count = String.length bytes in
   if
     Scalar.byte_size slot.scalar <> 1
-    || slot.dimensions = [] || cell < 0 || byte <> cell || count <= 0
-    || cell > slot.element_count
+    || slot.dimensions = []
+       && not (Shape.is_aggregate (Globals.storage_shape slot.source_slot))
+    || cell < 0 || byte <> cell || count <= 0 || cell > slot.element_count
     || count > slot.element_count - cell
     || byte > slot.extent_bytes
     || count > slot.extent_bytes - byte
@@ -1289,6 +1345,133 @@ let static_copy_payload copy =
     copy.copy_data,
     copy.copy_flag,
     Bytes.to_string (Bytes.of_string copy.copy_bytes) )
+
+let prepare_initializer_copy layout request token ~admitted_arena_bytes =
+  let ( let* ) = Result.bind in
+  let module Request = Driver.Integer_task.Native_dispatch in
+  let module Destination = Ir.Initializer_fragment_destination in
+  let* () = Request.check_initializer_copy request token in
+  let destination =
+    Request.initializer_program request
+    |> Ir.Initializer_fragment_program.destination
+  in
+  let state = Atomic.get layout.task_state in
+  let storage = Destination.storage destination in
+  let symbol = Globals.storage_symbol storage in
+  let* slot =
+    match Symbol_map.find_opt (Symbol.id symbol) state.task_symbols with
+    | Some slot
+      when slot.symbol == symbol
+           && Globals.same_storage slot.source_slot storage -> Ok slot
+    | _ -> Error "native initializer copy replaced its original declared object"
+  in
+  let selected = Request.initializer_copy_layout token in
+  let bytes = Request.initializer_copy_bytes token in
+  let byte = Ir.Integer_initializer_layout.byte_offset selected in
+  let cell = Ir.Integer_initializer_layout.cell_offset selected in
+  let count = String.length bytes in
+  if
+    state.task_arena_bytes <> admitted_arena_bytes
+    || (not
+          (Option.fold ~none:false
+             ~some:(fun owner ->
+               Globals.same_task_storage owner (Destination.globals destination))
+             state.task_owner))
+    || Scalar.byte_size slot.scalar <> 1
+    || byte <> cell || byte < 0 || byte > slot.extent_bytes
+    || count > slot.extent_bytes - byte
+  then Error "native initializer copy leaves its original admitted byte extent"
+  else
+    Ok
+      {
+        initializer_copy_layout = layout;
+        initializer_copy_state = state;
+        initializer_copy_request = request;
+        initializer_copy_token = token;
+        initializer_copy_data = slot.data_offset + byte;
+        initializer_copy_flag = slot.flag_offset + 7 - cell;
+        initializer_copy_bytes = bytes;
+      }
+
+let check_initializer_copy copy ~layout ~request ~token =
+  if
+    copy.initializer_copy_layout != layout
+    || copy.initializer_copy_request != request
+    || copy.initializer_copy_token != token
+    || Atomic.get layout.task_state != copy.initializer_copy_state
+  then Error "native initializer copy has another original plan or arena"
+  else Driver.Integer_task.Native_dispatch.check_initializer_copy request token
+
+let initializer_copy_payload copy =
+  ( copy.initializer_copy_state.task_arena_bytes,
+    copy.initializer_copy_data,
+    copy.initializer_copy_flag,
+    Bytes.to_string (Bytes.of_string copy.initializer_copy_bytes) )
+
+let prepare_static_initializer_copy layout request token ~admitted_arena_bytes =
+  let ( let* ) = Result.bind in
+  let module Request = Driver.Integer_task.Native_static_initializer in
+  let module Destination = Ir.Static_initializer_destination in
+  let* () = Request.check_copy request token in
+  let destination =
+    Request.program request |> Ir.Static_initializer_program.destination
+  in
+  let allocation = Destination.allocation destination in
+  let state = Atomic.get layout.task_state in
+  let symbol = Ir.Integer_static_allocation.symbol allocation in
+  let* slot =
+    match Symbol_map.find_opt (Symbol.id symbol) state.task_symbols with
+    | Some slot
+      when slot.symbol == symbol
+           && Option.fold ~none:false ~some:(( == ) allocation)
+                slot.static_source
+           && Globals.same_storage slot.source_slot
+                (Destination.storage destination) -> Ok slot
+    | _ ->
+        Error
+          "native static scalar copy replaced its original private allocation"
+  in
+  let bytes = Request.copy_bytes token in
+  let byte = Destination.byte_offset destination in
+  let cell = Destination.cell_offset destination in
+  if
+    state.task_arena_bytes <> admitted_arena_bytes
+    || (not
+          (Option.fold ~none:false
+             ~some:(fun owner ->
+               Globals.same_task_storage owner (Destination.globals destination))
+             state.task_owner))
+    || Scalar.byte_size slot.scalar <> 1
+    || byte <> cell || byte < 0 || byte > slot.extent_bytes
+    || String.length bytes > slot.extent_bytes - byte
+  then
+    Error "native static scalar copy leaves its original admitted byte extent"
+  else
+    Ok
+      {
+        scalar_static_layout = layout;
+        scalar_static_state = state;
+        scalar_static_request = request;
+        scalar_static_token = token;
+        scalar_static_data = slot.data_offset + byte;
+        scalar_static_flag = slot.flag_offset + 7 - cell;
+        scalar_static_bytes = bytes;
+      }
+
+let check_static_initializer_copy plan ~layout ~request ~token =
+  if
+    plan.scalar_static_layout != layout
+    || plan.scalar_static_request != request
+    || plan.scalar_static_token != token
+    || Atomic.get layout.task_state != plan.scalar_static_state
+  then Error "native static scalar copy has another original plan or arena"
+  else Driver.Integer_task.Native_static_initializer.check_copy request token
+
+let static_initializer_copy_payload plan =
+  ( plan.scalar_static_state.task_arena_bytes,
+    plan.scalar_static_data,
+    plan.scalar_static_flag,
+    Bytes.to_string (Bytes.of_string plan.scalar_static_bytes) )
 
 let append_task_literals snapshot ~sources ~work =
   let ( let* ) = Result.bind in
@@ -1863,38 +2046,51 @@ let data_offset slot = slot.data_offset
 let flag_offset slot = slot.flag_offset
 let initially_initialized slot = slot.initially_initialized
 
-let owns_address ?source_globals slot runtime_owner =
-  match (slot.owner, slot.static_source, runtime_owner) with
-  | _, Some allocation, Ir.Runtime_call_context.Entry ->
-      Option.fold ~none:false
-        ~some:(fun globals ->
+let owns_address ?source_globals ?instruction slot runtime_owner =
+  match
+    (slot.static_load_entry, source_globals, instruction, runtime_owner)
+  with
+  | ( Some (proof, source),
+      Some globals,
+      Some instruction,
+      Ir.Runtime_call_context.Entry ) ->
+      Driver.Native_global_initializers.owns_static_load_address proof ~globals
+        ~slot:source ~instruction
+  | _ -> (
+      match (slot.owner, slot.static_source, runtime_owner) with
+      | _, Some allocation, Ir.Runtime_call_context.Entry ->
           Option.fold ~none:false
-            ~some:(fun fragment ->
-              let original = Ir.Integer_static_allocation.source allocation in
-              let receipt =
-                Sema.Compiler_record.static_allocation_receipt original
-              in
-              let destination =
-                (Sema.Static_initializer_fragment.receipt fragment)
-                  .static_allocation
-              in
-              destination.allocation_function == receipt.allocation_function
-              && (destination == receipt
-                 || List.exists
-                      (fun (_, selection) ->
-                        match Sema.Reference_selection.kind selection with
-                        | Sema.Reference_selection.Static_local reference ->
-                            Sema.Static_reference.allocation reference
-                            == original
-                        | _ -> false)
-                      (Sema.Static_initializer_fragment.references fragment)))
-            (Globals.static_fragment globals))
-        source_globals
-  | None, Some _, _ -> false
-  | None, None, _ -> true
-  | Some expected, _, Ir.Runtime_call_context.Function actual ->
-      expected == actual
-  | Some _, _, _ -> false
+            ~some:(fun globals ->
+              Option.fold ~none:false
+                ~some:(fun fragment ->
+                  let original =
+                    Ir.Integer_static_allocation.source allocation
+                  in
+                  let receipt =
+                    Sema.Compiler_record.static_allocation_receipt original
+                  in
+                  let destination =
+                    (Sema.Static_initializer_fragment.receipt fragment)
+                      .static_allocation
+                  in
+                  destination.allocation_function == receipt.allocation_function
+                  && (destination == receipt
+                     || List.exists
+                          (fun (_, selection) ->
+                            match Sema.Reference_selection.kind selection with
+                            | Sema.Reference_selection.Static_local reference ->
+                                Sema.Static_reference.allocation reference
+                                == original
+                            | _ -> false)
+                          (Sema.Static_initializer_fragment.references fragment)
+                     ))
+                (Globals.static_fragment globals))
+            source_globals
+      | None, Some _, _ -> false
+      | None, None, _ -> true
+      | Some expected, _, Ir.Runtime_call_context.Function actual ->
+          expected == actual
+      | Some _, _, _ -> false)
 
 let section_symbols layout =
   Symbol_map.bindings layout.slots

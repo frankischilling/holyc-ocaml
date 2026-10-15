@@ -562,6 +562,8 @@ type state = {
   initializers_rev : Sema.Function_call_resolution.initializer_input list;
   locals : Sema.Local_type_resolution.local list;
   visible_aggregates : Sema.Module_expression_binding.publication String_map.t;
+  body_aggregates :
+    (Frontend.Ast.item * Sema.Module_expression_binding.publication) list;
   typed_values : typed_environment;
   global_values : typed_environment;
   occurrences : Sema.Module_expression_binding.occurrence Int_map.t;
@@ -569,7 +571,8 @@ type state = {
 }
 
 let empty_state call_phases member_index before_item_index visible_aggregates
-    typed_values global_values occurrences defined_queries locals =
+    body_aggregates typed_values global_values occurrences defined_queries
+    locals =
   {
     call_phases;
     member_index;
@@ -593,6 +596,7 @@ let empty_state call_phases member_index before_item_index visible_aggregates
     initializers_rev = [];
     locals;
     visible_aggregates;
+    body_aggregates;
     typed_values;
     global_values;
     occurrences;
@@ -1852,6 +1856,24 @@ let record_switch_case state (case_ : Frontend.Ast.switch_case_label) =
                   }))
 
 let rec statement state = function
+  | Frontend.Ast.Aggregate_declaration_statement declaration -> (
+      match
+        List.find_opt
+          (fun (item, _) -> item == declaration.aggregate_statement_item)
+          state.body_aggregates
+      with
+      | None -> Error "body aggregate has no exact checked publication"
+      | Some (_, publication) ->
+          let symbol =
+            Sema.Module_expression_binding.publication_source_symbol publication
+          in
+          Ok
+            {
+              state with
+              visible_aggregates =
+                String_map.add (Sema.Symbol.name symbol) publication
+                  state.visible_aggregates;
+            })
   | Frontend.Ast.Block_statement block ->
       statements state block.block_statements
   | Frontend.Ast.Do_while_statement do_while -> (
@@ -1927,7 +1949,6 @@ let rec statement state = function
   | Frontend.Ast.Empty_statement _
   | Frontend.Ast.Goto_statement _
   | Frontend.Ast.Label_statement _
-  | Frontend.Ast.Aggregate_declaration_statement _
   | Frontend.Ast.No_warn_statement _ -> Ok state
 
 and statements state statements = fold_result statement state statements
@@ -1966,7 +1987,8 @@ let function_header = function
   | Definition definition -> (definition.name, definition.body)
 
 let function_input call_phases table member_index visible_aggregates
-    global_values defined_queries expected typed locals (item_index, ast) =
+    body_aggregates global_values defined_queries expected typed locals
+    (item_index, ast) =
   let symbol = Sema.Module_expression_binding.function_symbol expected in
   let scope = Sema.Module_expression_binding.function_scope expected in
   let expected_item =
@@ -1993,7 +2015,7 @@ let function_input call_phases table member_index visible_aggregates
         let collected =
           let state =
             empty_state call_phases member_index item_index visible_aggregates
-              typed_values global_values
+              body_aggregates typed_values global_values
               (occurrence_map expected_occurrences)
               defined_queries
               (Sema.Local_type_resolution.function_locals locals)
@@ -2046,6 +2068,24 @@ let publish_aggregates_before visible publications item_index =
 
 let function_inputs call_phases table member_index function_types local_types
     global_values expressions outer module_ =
+  let publications = Sema.Module_expression_binding.publications expressions in
+  let body_aggregates =
+    Frontend.Ast.declaration_items module_
+    |> List.filter_map (fun (index, item) ->
+        match item with
+        | Frontend.Ast.Aggregate_forward_declaration _
+        | Frontend.Ast.Aggregate_definition _ ->
+            List.find_opt
+              (fun publication ->
+                Sema.Module_expression_binding.publication_item_index
+                  publication
+                = index
+                && Sema.Module_expression_binding.publication_kind publication
+                   = Sema.Module_expression_binding.Aggregate)
+              publications
+            |> Option.map (fun publication -> (item, publication))
+        | _ -> None)
+  in
   let rec pair inputs_rev visible publications expected typed locals ast =
     match (expected, typed, locals, ast) with
     | [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -2086,7 +2126,8 @@ let function_inputs call_phases table member_index function_types local_types
         | Ok defined_queries -> (
             match
               function_input call_phases table member_index visible
-                global_values defined_queries expected typed locals ast
+                body_aggregates global_values defined_queries expected typed
+                locals ast
             with
             | Error _ as error -> error
             | Ok input ->
@@ -2103,8 +2144,8 @@ let function_inputs call_phases table member_index function_types local_types
     (ast_functions module_)
 
 let resolve ?(call_phases = fun _ -> Ok None) ~table ~declarations ?members
-    ~function_types ~local_types ~global_types ~functions ~expressions ?outer
-    module_ =
+    ?aggregate_visibility ~function_types ~local_types ~global_types ~functions
+    ~expressions ?outer module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -2139,7 +2180,8 @@ let resolve ?(call_phases = fun _ -> Ok None) ~table ~declarations ?members
               | Error _ as error -> error
               | Ok inputs ->
                   Sema.Function_call_resolution.resolve ~table ~parent ?members
-                    ~function_types ~functions ~expressions ?outer inputs
+                    ?aggregate_visibility ~function_types ~functions
+                    ~expressions ?outer inputs
                   |> Result.map_error
                        Sema.Function_call_resolution.error_to_string))
   in

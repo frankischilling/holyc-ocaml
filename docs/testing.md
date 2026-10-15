@@ -1,5 +1,73 @@
 # Testing holyc-ocaml
 
+Assignment observation cases retain the lvalue endpoint before operator
+lookahead, validate the endpoint reached afterward and preserve the original
+function's completion metadata. They cover all nine integer widths, direct and
+pointer members, zero strides, compound assignments, grouped register results,
+named forwarding, replacement and original byte extents. Task declarations run
+in both outer modes; isolated AOT controls keep their own class identities.
+Index cases preserve the class size reached after '[' lookahead, including
+completion before and during index values and separately reached sizes in
+multidimensional members. Zero strides preserve byte aliases within the original
+containing root. A later index can observe completion without resizing that root.
+Original-node, function, table, namespace, type and phase-replay checks verify
+the assignment and index observations without fabricating an allocation or an
+execution receipt.
+
+Aggregate lvalue cases reject ordinary classes and unions, backing chains ending
+in an ordinary class, inherited child classes, nested members, array elements,
+class-pointer dereferences and compound assignments. Replacement retains the
+original assignment endpoint. RHS output cases verify rejection before calls
+run. Default raw-word reads and prefix/postfix updates are initialized through
+fields or source-permitted internal storage casts; internal-backed assignment
+and the existing alias, bounds, lifetime, ABI and quota cases remain separate.
+
+Automatic aggregate scalar initializer cases share the IR, isolated native and
+CLI fixtures. They cover all integer backing widths, literals, calls, comma
+order, earlier initialized objects, named backing chains, inherited roots,
+replacement and repeated activations. Source-task cases also cover generated
+initializer declarations. Empty and undersized stores preserve earlier RHS
+output, while unwritten tail bytes remain unknown. Existing graph controls now
+substitute missing, foreign, other-function and changed-offset initializer
+backing proofs. The maintained automatic-aggregate-initializers.hc example
+prints A and returns 42. These are pinned-source expectations and hosted checks;
+they contain no new TempleOS runtime capture.
+
+Initializer scalar-phase tests use original parser declarations to check cached
+forward classes, reached widths, late backing and same-name replacements. They
+also check foreign records, domain ownership, repeated settlement and preparation
+before expression references. A failed source expires its preparation before the
+next source is parsed. These are source and metadata checks; dynamic initializer
+copy execution remains unfinished. See [class initializers](aggregate-initializers.md).
+
+Member metadata preparation tests retain original values, duplicate lookup order,
+raw floating bits, joined string bytes, source phases and class replacements.
+Source and native inherited-layout suites cover metadata on class, union,
+callback, nested and local members. Exact and one-below initializer allowances
+check preparation and promotion costs. Live integer metadata tests cover calls,
+updates, lookahead, reverse arguments, uncalled function parsing, callback
+selection, preserved output on failure and nested source quotas. The metadata
+authority test checks saved values, foreign owners, graph substitution, work
+counts and replay. Other runtime value families remain explicit errors.
+See [member metadata preparation](member-metadata.md).
+
+The shared aggregate suites exercise [class pointer views](class-pointer-views.md)
+through IR, both native image ABIs and the public CLI. Expected words cover all
+supported integer field types, packed offsets, aliasing, argument snapshots,
+target strides and local and retained redefinitions. Raw IR mutations remove or
+replace selected class proofs; unknown bytes and out-of-root field windows fail
+with the existing diagnostics. Casts also run through the aggregate frame,
+instruction, stack and image budget checks.
+
+[Aggregate value casts](aggregate-value-casts.md) add a backing/read-width
+matrix across the nine integer classes. Separate cases check selected storage
+reads, grouped and immediate register bits, cast destinations, parameter and
+return words, member views and retained nominal identities. Initialization,
+root bounds, exact limits, foreign class proofs and native graph seals remain
+checked across IR, native programs, native source tasks and the public CLI.
+These expected words derive from the pinned source; no new target runtime
+capture or machine-byte comparison is claimed.
+
 The independent BIN validator tests use literal wire builders without the
 writer's decoder. They check all twenty nonterminal IET types, malformed
 headers and payloads, exact budgets, one-below failures, two virtual bases,
@@ -181,13 +249,22 @@ Root-array mutation controls reject changed strides and foreign frames before
 IR execution. Pointee proofs also reject missing, foreign, changed and
 other-function layouts before execution; exact quotas cover scalar, array and
 pointer update fixtures.
-Owned integer and class pointer fields execute in IR, including member arrays,
+Owned integer and class pointer fields execute in IR and native code, including member arrays,
 pointer updates and retained selections. Combined fixtures check function-local
 field proofs and strides, builtin member sizes and type replacement. Faults
 cover expired callee locals, overlapping writes, numeric reconstruction and
-incompatible pointees. Native public and retained targets preserve the explicit
-pointer-field rejection. See [pointer fields](aggregate-pointer-fields.md).
-General aggregate copies, native pointer fields, persistent objects and partial
+incompatible pointees. Native public and retained targets preserve those
+ownership and activation checks. See [pointer fields](aggregate-pointer-fields.md).
+Callback fixtures also cover direct, inherited and nested fields, full array
+indexing, fixed defaults, variadic calls, callee capture and typed owner copies.
+Numeric updates, signature mismatches, byte overwrites, exact budgets and
+foreign projection proofs accompany those cases. See [callback fields](callback-fields.md).
+Reference-return fixtures cover caller and persistent roots, packed classes,
+arrays, views, callbacks and exact budgets. Expiration controls preserve output
+and argument effects at the reached lifetime check. The maintained
+[reference-return example](../examples/reference-returns.hc) runs through all
+three CLI targets in both modes.
+General aggregate copies and partial
 or out-of-compilation inherited bases remain unsupported. Retained JIT imports
 require the original completed class and command evidence.
 These hosted checks have no TempleOS runtime capture. See
@@ -201,20 +278,38 @@ differences and scale overflow. Metadata tests retain partial/forward/self
 bases and once-only declaration effects. Native tasks retain their original
 completed layout and command evidence. See [inherited aggregates](inherited-aggregates.md).
 
-Automatic aggregate storage has 23 IR and 23 native test groups. Shared source
+Automatic aggregate storage has 41 IR and 41 native test groups. Shared source
 fixtures cover packed and unaligned windows, named and anonymous unions,
 nested layouts, backing types, padding, source-selected identities, aliases,
 primitive parameters and all nine integer view spellings. Fault controls retain
 reached output while rejecting unknown bytes and accesses beyond the original
 object. Fresh activations have independent initialization state. Foreign frames
-fail before execution; incomplete or inherited layouts, persistent objects,
-aggregate pointer arrays, copies and numeric ownership remain rejected.
+fail before execution. Missing original allocation evidence, aggregate pointer
+arrays, copies and numeric ownership remain rejected.
 Runtime frame and instruction quotas have exact and one-below checks. Native
 image checks cover both ABIs, stack and encoded-byte quotas, and fresh host
-execution. CLI controls run 96 reports for IR and 193 with native execution.
-The fixture uses byte offsets derived from the source layout; it does not test
-direct member projection or add a TempleOS runtime oracle. See
+execution. CLI controls run 293 combined reports, including original forward
+extents, inherited field overlap, static reuse, canonical base replacement and
+partial-body lookahead through native source tasks. Four allocation-authority
+groups check original observation timing, copied occurrences and foreign tables
+and namespaces. These checks use pinned source expectations and hosted execution
+without a new TempleOS runtime capture. See
 [automatic aggregate byte views](automatic-aggregate-byte-views.md).
+
+The empty automatic aggregate example prints A and returns 42 in both modes and
+targets. Shared fixtures check zero frame bytes, coincident original addresses,
+multidimensional zero strides, index bounds, neighboring bytes, pointer calls,
+recursion and replacement. A one-byte frame allowance admits several empty roots
+because private ownership metadata does not increase source frame bytes. Native
+image checks compile both ABIs and verify exact/one-below physical stack and image
+limits for empty frames as well as nonempty storage.
+
+The original automatic layout example returns 42 with output A in both modes and
+targets. It independently checks a zero allocation before forward completion, a
+later two-byte allocation and a two-byte inherited array element. Completed base
+fields overlap earlier child fields without resizing that element. Copied or
+foreign observations cannot retrieve the original completed member records or
+metadata base identities; earlier observations cannot borrow later completion.
 
 Identifier operand cases check the original invalid-lval producer before the
 reference callback or another lexer read. Sixteen source fixtures cover
@@ -2224,3 +2319,186 @@ draft. The CLI harness runs
 ## Shared native sections
 
 `test/test_native_sections.ml` checks ordered code/data layout, sparse identities, forward references, independent rebases, deferred imports, signed field overflow, exact/one-below limits and immutable byte views. It compiles real source functions and globals in both source modes and compares a source assembly body with the independently captured original Cmp artifact. The existing assembler, BIN and native suites exercise the shared consumers. See [native sections](native-sections.md) for the source rules and evidence boundaries.
+
+## Persistent aggregate initializer checks
+
+[Aggregate initializers](aggregate-initializers.md) follow complete
+`Compiler/PrsVar.HC:1-246`, `Compiler/PrsVar.HC:405-742`,
+`Compiler/PrsVar.HC:285-371`,
+`Compiler/PrsStmt.HC:209-463`, `Compiler/OptLib.HC:9-15` and
+`Compiler/LexLib.HC:103-148`. `test/test_aggregate_initializer_layout.ml`
+checks independent byte-cursor destinations and rejects foreign headers,
+missing or extra leaves and union overflow. The shared persistent fixtures run
+through IR, native execution and native source tasks. Public CLI controls check
+exact global, preparation and execution limits. Native source task failures keep
+earlier output; isolated IR rejects an invalid complete layout before execution.
+The maintained example is
+[`aggregate-initializers.hc`](../examples/aggregate-initializers.hc).
+
+Callback leaf fixtures inspect independent byte values for all nine integer
+return types, F64, U0, a class and a data pointer return. Static objects, callback
+member arrays and additional indirection retain the same eight-byte word. Equal-looking
+foreign callback headers fail the leaf identity check, and a numeric initializer
+cannot authorize a stored field call.
+
+This evidence covers completed selected classes and supported integer leaves.
+Forward-selection fixtures complete original members before traversal, preserve
+fixed array counts and reject same-name retargeting. Shared cases cover all nine
+integer widths and static objects; JIT cases complete a member during initializer
+lookahead.
+
+`test/live_scalar_initializer/` checks actual IR and native source-task copies
+after callee completion and expression lookahead. Fixtures retain same-name
+class identities, full words after late U16/F64 backing, zero-byte leaves and
+fixed array counts while later elements select their reached member grammar.
+The saved-table example returns 42 in JIT and 7 in AOT with `A` preserved in both.
+Root overflow, copies wider than the register word, evaluation faults and
+exact/one-below execution and copy-work limits preserve earlier output.
+Nested class completion also executes live member metadata and shares its work
+with the suspended initializer and final copy.
+Native authority checks reject foreign images, program/work substitution,
+another domain or arena, replay, expired requests and missing copy completion.
+Copy receipts survive collection and use the existing deferred cleanup path.
+The native source progress records zero interpreted instructions.
+The maintained live scalar example also runs through public JSON CLI reports in
+both outer modes, with exact and one-below execution and preparation limits.
+
+Static fixtures use the same scalar selection and copy timing. They cover
+callee completion during an uncalled function's parsing, expression lookahead,
+array branch changes, full words after late backing, zero-width members and
+original bounds. Repeated function calls keep prior static mutations without
+rerunning initialization. Both saved-table outer modes retain their distinct
+cursor results. Native capture/copy authority rejects foreign programs, images,
+work counts, domains, arenas, replay and missing completion. Public JSON CLI
+checks run the maintained static example with exact and one-below limits.
+
+Static delimiter tests check exact predecessor chains, receipt identity,
+callback expiry and failed-source recovery. IR, native and public JSON CLI cases
+distinguish class completion before a nested opening brace from completion after
+it. The latter rejects before later directive output; prior successful leaf output
+survives. Native checks reject delimiter replay and cloned receipts without
+changing the original cursor. Existing array, string, saved-table and exact quota
+fixtures run through the same delimiter path.
+
+Backed-forward cases check primitive, intrinsic and named backing syntax,
+pointer layers, macro provenance and public JSON in JIT and AOT parsing. Metadata
+tests retain the absent backing before name lookahead and the installed backing
+after forward completion. Cached array targets survive later completion.
+IR, native and public CLI fixtures cover global/static arrays, lexer and callee
+effects, named-target replacement, nested strings and zero-width copies. Bounds
+failures preserve earlier output. The maintained backed-forward example verifies
+its original four copied bytes and exact/one-below execution limits.
+
+Ordinary body cases exercise class-name and following-token lookahead, reached
+partial direct members, global/static initialization, prior forwarding during
+completion, unbacked completion and named-target replacement. Parser/metadata
+tests verify body completion before the exact backing phase, retained nominal
+scalar width, callback expiry and rejected replay/clones. Public JSON CLI runs
+the maintained class-body example in both outer modes with exact/one-below
+execution limits. New forwarding cannot shorten an already captured nominal copy
+to bypass the original root bounds.
+
+Partial member cases exercise direct and inherited reads, signed fields, writes,
+array dimensions, explicit offsets, anonymous union aliases and owned static
+pointer targets. Original
+member-name observations distinguish completion during dot lookahead from
+completion after the name; unreached fields reject. Out-of-bounds projections
+retain the original byte root and earlier output. Public JSON CLI runs the
+maintained `class-body-member-reads.hc` example through both targets and modes
+with exact/one-below execution limits. Top-level cases execute reads and writes
+before the class body resumes, covering direct and inherited members, union
+aliases, explicit offsets, arrays, name lookahead and same-name replacement.
+The maintained `class-body-top-level-members.hc` example runs in both targets
+and modes with exact/one-below limits. Missing reached fields, later completion
+and original root overflow retain their errors and earlier output. Namespace
+tests reject source visibility from another table or module. Existing local
+aggregate tests continue to reject later and unreachable layouts, and fields
+found only in a replacement class.
+
+Partial callback cases cover direct and pointer access, original outer global
+metadata, inherited fields, same-name replacement, member arrays, saved defaults,
+named class pointer parameters, owned data pointer returns and integer variadic
+slots. Argument mutation checks callee capture before evaluation. Negative cases
+check signature mismatch, out-of-bounds indexing, overlapping byte writes,
+unreached fields and completion after the member name. The maintained
+`class-body-callback-fields.hc` example runs through both targets and modes with
+exact and one-below execution limits.
+
+Ordinary-source JIT cases start class and union initialization without a preceding
+directive. They check zero-byte forward members, fixed member arrays, the direct
+member cursor across inherited layouts, later completion, shared globals and
+once-only effects. A later malformed declaration retains earlier output; a
+faulting initializer stops first. The `source-aggregate-initializers.hc` example
+runs through IR and native source tasks with exact and one-below execution and
+initializer limits. Existing AOT cases retain their separate source table and
+preparation path.
+
+Isolated initializer cases cover original forward selections, completion before
+and after initialization, same-name replacement, direct and inherited member
+cursors, fixed member arrays, root arrays and static mutation across calls.
+Shared IR/native tests run the supported families in both modes. The public CLI
+checks both ordinary-source and retained-layout examples with exact and
+one-below limits. The native AOT work check includes closed class-offset
+preparation. Source-seal tests reject another table and copied ASTs; static
+snapshot tests reject replayed delimiters, leaves, completion and foreign frames.
+Metadata snapshots never replace successful copy or value execution evidence.
+
+Native AOT static-load cases check once-only effects before owner calls, zero-byte
+forward leaves, fixed member arrays, earlier statics in the same frame, global
+and static load order, original function selection and repeated mutations.
+Expression lookahead can complete the selected class without restarting its
+scalar branch; expired cursor reads reject. A one-star static callback keeps its
+original function address through replacement.
+The maintained static-load example runs through public IR and native CLI with
+exact and one-below execution and preparation limits. Runtime faults retain
+earlier output and matching work. Authority tests reject missing, duplicate,
+reordered, copied and foreign proofs, missing completions and foreign bundles.
+Static addresses reject another declaring frame and instructions outside the
+sealed load regions. Both native ABI encodings remain required.
+
+Nonconstant AOT statics with globals-on-data-heap, other leaf families and full
+aggregate parity remain open.
+
+Fragment member cases check reads and once-only updates of earlier aggregate
+statics, nested and root arrays, inherited offsets, global initializer reads and
+same-name replacement in both source modes. JIT cases also cover parameter
+defaults, runtime dimensions and member metadata effects. The maintained
+static-load example now runs in both modes through IR and native source tasks,
+with exact and one-below execution and preparation limits. Metadata tests retain
+the original U8 field after replacement by a U16 class and reject duplicated
+observations, copied names and foreign tables or namespaces. Fragment contexts
+reject foreign views before typing. Narrow-read and runtime ownership suites
+remain required.
+
+Empty-root cases check class and union globals and statics, fixed multidimensional
+arrays, zero-width direct members, unused functions, repeated calls and same-name
+replacement through IR and native source tasks in both modes. Layout cases keep
+each original leaf at byte offset zero. Native image checks retain dimensions
+`[2,3]`, six source elements, zero strides and cells, and a 16-byte metadata-only
+arena for two roots. Fault cases reject reads into adjacent storage and growth
+during the current leaf while retaining earlier output. The maintained empty-root
+example checks exact and one-below execution and preparation limits.
+Native storage and output bridges also execute metadata-only arenas directly;
+malformed code and inconsistent arena counts retain their rejection checks.
+
+Storage-option cases check JIT data-heap scalar updates, arrays, aggregate byte
+views and per-declarator changes. Both modes check constant statics, original
+allocation options, expression lookahead and per-leaf changes in member and root
+arrays. AOT failures retain `A` and stop before later `B` directives. Source
+metadata tests retain separate global, static allocation and expression masks;
+copied names, rebuilt modules, foreign tables, copied current allocations and
+expired expression observations reject. The maintained storage-option example
+checks both modes/targets and exact and one-below execution/preparation limits.
+
+Top-level aggregate assignment cases share the original endpoint and index
+observations with function bodies. The CLI matrix runs direct, pointer,
+compound and indexed stores, full register results, forwarding and replacement
+through IR and native source tasks in both outer modes. Fragment cases cover
+global and static initializers, named and callback defaults, dimensions, member
+offsets and metadata, switch endpoints and internal bindings. Faults retain
+earlier output and reject completion after the assignment gate or beyond the
+original root. The maintained top-level assignment example checks exact and
+one-below execution and initializer limits. Authority tests reject foreign
+tables and namespaces, copied expressions and replayed fragment completion.
+
+No TempleOS runtime or emitted-byte capture is included.

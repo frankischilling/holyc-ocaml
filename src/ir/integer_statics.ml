@@ -16,6 +16,8 @@ type slot = {
   location : Frame.location;
   shape : Shape.t;
   compiler_options : int64;
+  owner_compiler_options : int64;
+  option_source : Sema.Static_local_source.t option;
   opcode : Opcode.t;
   initial : Typed.initializer_result option;
   array_initializers : Typed.initializer_result Arrays.t option;
@@ -32,6 +34,7 @@ let symbol slot = Frame.location_symbol slot.location
 let type_ slot = Frame.location_storage_type slot.location |> Result.get_ok
 let callback_pointer slot = Frame.location_callback_pointer slot.location
 let compiler_options slot = slot.compiler_options
+let owner_compiler_options slot = slot.owner_compiler_options
 let opcode slot = slot.opcode
 let initial slot = slot.initial
 let array_initializers slot = slot.array_initializers
@@ -40,6 +43,16 @@ let initializers slot =
   match slot.array_initializers with
   | None -> Option.to_list slot.initial
   | Some arrays -> List.map Arrays.root (Arrays.entries arrays)
+
+let initializer_compiler_options slot root =
+  Option.value ~default:slot.compiler_options
+    (Option.bind slot.option_source (fun source ->
+         Option.bind
+           (Typed.initializer_source root |> Source.initializer_leaf)
+           (fun leaf ->
+             Sema.Compiler_record.static_initializer_compiler_options
+               (Sema.Static_local_source.allocation source)
+               (Sema.Initializer_source.leaf_expression_ast leaf))))
 
 let initial_bits slot = slot.initial_bits
 
@@ -59,6 +72,21 @@ let materialized slot =
   && not
        (Option.fold ~none:false ~some:Arrays.has_unprepared
           slot.array_initializers)
+
+let with_source_options ~source slot =
+  if
+    Sema.Static_local_source.frame source != slot.frame
+    || Sema.Static_local_source.location source != slot.location
+  then Error "static options require their exact original frame and location"
+  else
+    Ok
+      {
+        slot with
+        option_source = Some source;
+        compiler_options =
+          Sema.Static_local_source.allocation source
+          |> Sema.Compiler_record.static_allocation_compiler_options;
+      }
 
 let with_source_allocation ~allocation ~source slot =
   let ( let* ) = Result.bind in
@@ -88,11 +116,13 @@ let with_source_allocation ~allocation ~source slot =
                   Integer_initializer_layout.cell_offset destination,
                   Integer_initializer_layout.byte_offset destination )))
     in
-    Ok { slot with source_allocation = Some allocation }
+    with_source_options ~source
+      { slot with source_allocation = Some allocation }
 
 let ( let* ) = Result.bind
 
-let create ~span ~mode ~start ~frames ~functions ~records =
+let create ~initializer_snapshots ~allocations ~span ~mode ~start ~frames
+    ~functions ~records =
   let invalid ?(code = "HCIRL0004") ?(at = span) message =
     Error
       [
@@ -105,6 +135,32 @@ let create ~span ~mode ~start ~frames ~functions ~records =
     || mode <> Typed.compilation_mode functions
   then invalid "static storage has inconsistent compilation modes"
   else
+    let* () =
+      let rec check seen = function
+        | [] -> Ok ()
+        | snapshot :: rest ->
+            let receipt =
+              Integer_initializer_layout.static_snapshot_receipt snapshot
+            in
+            if
+              List.memq receipt seen
+              || not
+                   (List.exists
+                      (fun frame ->
+                        List.exists
+                          (fun location ->
+                            Integer_initializer_layout.static_snapshot_matches
+                              snapshot ~frame ~location)
+                          (Frame.function_locations frame))
+                      (Frame.functions frames))
+            then
+              invalid
+                "static initializer snapshot is duplicate or has no original \
+                 frame"
+            else check (receipt :: seen) rest
+      in
+      check [] initializer_snapshots
+    in
     let rec collect index reversed = function
       | [] -> Ok (List.rev reversed)
       | fn :: rest ->
@@ -209,7 +265,9 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     |> List.map Frame.dimension_value
                   in
                   let checked_shape =
-                    Shape.create ~type_:shape_type ~dimensions
+                    if Option.is_none callback then
+                      Shape.create_static ~frame ~location
+                    else Shape.create ~type_:shape_type ~dimensions
                   in
                   let* shape =
                     match checked_shape with
@@ -225,6 +283,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                   in
                   if
                     Option.is_none scalar_bytes
+                    && not (Shape.is_aggregate shape)
                     || dimensions <> []
                        && not
                             (Frame.location_source_dimensions_checked location)
@@ -236,7 +295,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     || Frame.location_allocated_size location
                        <> Int64.of_int (Shape.byte_size shape)
                     || Frame.location_element_size location
-                       <> Int64.of_int (Option.get scalar_bytes)
+                       <> Int64.of_int (Shape.element_size shape)
                     || Frame.location_alignment location <> 8
                     || Option.is_some (Frame.location_frame_slot location)
                   then
@@ -244,7 +303,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                       "static execution requires public nonzero integer \
                        objects without frame slots"
                   else if
-                    Shape.element_count shape > Sys.max_array_length - index
+                    Shape.cell_count shape > Sys.max_array_length - index
                     || Option.is_none (Shape.padded_byte_size shape)
                   then
                     invalid ~at ~code:"HCIRL0005"
@@ -271,8 +330,11 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                       List.fold_left
                         (fun checked root ->
                           let* () = checked in
-                          Frame_address_lowering.prepare_initializer ~frame root
-                          |> Result.map (fun _ -> ())
+                          (if Shape.is_aggregate shape then Ok ()
+                           else
+                             Frame_address_lowering.prepare_initializer ~frame
+                               root
+                             |> Result.map (fun _ -> ()))
                           |> Result.map_error
                                (List.map
                                   (fun (error : Instruction_sequence.error) ->
@@ -285,7 +347,8 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                         (Ok ()) owned
                     in
                     let* array_initializers =
-                      if dimensions = [] then Ok None
+                      if dimensions = [] && not (Shape.is_aggregate shape) then
+                        Ok None
                       else
                         match owned with
                         | [] -> Ok None
@@ -304,7 +367,33 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                                   "array initializer has no original source \
                                    manifest"
                             | Some source ->
-                                Arrays.create ~shape ~source ~roots:owned
+                                let create =
+                                  match
+                                    List.find_opt
+                                      (fun snapshot ->
+                                        Integer_initializer_layout
+                                        .static_snapshot_matches snapshot ~frame
+                                          ~location)
+                                      initializer_snapshots
+                                  with
+                                  | Some snapshot ->
+                                      Arrays.create_static_snapshot ~snapshot
+                                        ~frame ~location
+                                  | None -> (
+                                      match
+                                        List.find_opt
+                                          (fun allocation ->
+                                            Integer_static_allocation.symbol
+                                              allocation
+                                            == symbol)
+                                          allocations
+                                      with
+                                      | None -> Arrays.create
+                                      | Some allocation ->
+                                          Arrays.create_retained_static
+                                            ~allocation)
+                                in
+                                create ~shape ~source ~roots:owned
                                   ~source_leaf:(fun root ->
                                     root |> Typed.initializer_source
                                     |> Source.initializer_leaf)
@@ -318,7 +407,8 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                             end
                     in
                     let* initial =
-                      if dimensions <> [] then Ok None
+                      if dimensions <> [] || Shape.is_aggregate shape then
+                        Ok None
                       else
                         match owned with
                         | [] -> Ok None
@@ -349,7 +439,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                       | Resolution.Aot -> (Opcode.Ic_abs_addr, Some 0L)
                     in
                     locals
-                      (index + Shape.element_count shape)
+                      (index + Shape.cell_count shape)
                       ({
                          source_allocation = None;
                          index;
@@ -357,6 +447,8 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                          location;
                          shape;
                          compiler_options;
+                         owner_compiler_options = compiler_options;
+                         option_source = None;
                          opcode;
                          initial;
                          array_initializers;

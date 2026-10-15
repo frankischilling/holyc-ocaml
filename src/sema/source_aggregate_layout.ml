@@ -74,12 +74,16 @@ module Offsets = Hashtbl.Make (struct
 end)
 
 let layout ?(members = fun _ _ -> None) ?(callbacks = fun _ -> None)
+    ?(metadata =
+      fun (member : Ast.aggregate_member_declarator) ->
+        if member.member_metadata = [] then Ok ()
+        else
+          Error
+            "retained aggregate member metadata requires original preparation")
     ?initial_size ~offsets ~dimensions ~table ~namespace ~symbol
     (definition : Ast.aggregate_definition) =
   if Option.is_some definition.base <> Option.is_some initial_size then
     Error "retained aggregate bases require original selected layout metadata"
-  else if definition.attached_declarators <> [] then
-    Error "retained aggregate attached storage is not implemented"
   else
     let* () =
       match definition.backing with
@@ -108,45 +112,41 @@ let layout ?(members = fun _ _ -> None) ?(callbacks = fun _ -> None)
               map_result
                 (fun ( declarator_index,
                        (member : Ast.aggregate_member_declarator) ) ->
-                  if member.member_metadata <> [] then
-                    Error
-                      "retained aggregate member metadata requires original \
-                       preparation"
-                  else
-                    let* type_, selected_size =
-                      match member.member_function_pointer with
-                      | None -> (
-                          match
-                            selected_members declaration.member_type_specifier
-                              member
-                          with
-                          | Some (type_, size) -> Ok (type_, Some size)
-                          | None ->
-                              Result.map
-                                (fun type_ -> (type_, None))
-                                (Source_type_reference.builtin
-                                   declaration.member_type_specifier
-                                   member.member_pointer_layers))
-                      | Some source -> (
-                          match callbacks source with
-                          | Some header ->
-                              Result.map
-                                (fun type_ -> (type_, None))
-                                (Source_type_reference.callback_storage ~header
-                                   source)
-                          | None ->
-                              Error
-                                "retained callback layout lacks its original \
-                                 completed header")
-                    in
-                    let* fact =
-                      Member_collection.make_member
-                        ~name:member.member_name.spelling
-                        ~origin:(origin member.member_name.location)
-                        ~member_path:path ~declarator_index
-                    in
-                    let* counts = dimensions member in
-                    Ok (fact, type_, member, counts, selected_size))
+                  let* () = metadata member in
+                  let* type_, selected_size =
+                    match member.member_function_pointer with
+                    | None -> (
+                        match
+                          selected_members declaration.member_type_specifier
+                            member
+                        with
+                        | Some (type_, size) -> Ok (type_, Some size)
+                        | None ->
+                            Result.map
+                              (fun type_ -> (type_, None))
+                              (Source_type_reference.builtin
+                                 declaration.member_type_specifier
+                                 member.member_pointer_layers))
+                    | Some source -> (
+                        match callbacks source with
+                        | Some header ->
+                            Result.map
+                              (fun type_ -> (type_, None))
+                              (Source_type_reference.callback_storage ~header
+                                 source)
+                        | None ->
+                            Error
+                              "retained callback layout lacks its original \
+                               completed header")
+                  in
+                  let* fact =
+                    Member_collection.make_member
+                      ~name:member.member_name.spelling
+                      ~origin:(origin member.member_name.location)
+                      ~member_path:path ~declarator_index
+                  in
+                  let* counts = dimensions member in
+                  Ok (fact, type_, member, counts, selected_size))
                 (List.mapi (fun i m -> (i, m)) declaration.member_declarators)
           | Ast.Anonymous_union_member union ->
               facts path union.anonymous_union_members

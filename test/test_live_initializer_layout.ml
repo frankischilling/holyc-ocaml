@@ -8,8 +8,9 @@ module Source = Semantic_initializer_source
 let checked = Test_declaration_collection.checked
 let expect = Test_integer_program.checked
 
-let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false)
-    ?(on_leaf = fun _ _ _ -> Ok ()) text =
+let parse ?(phased = false) ?execute_stream
+    ?(skip_layout_delimiter = fun _ -> false) ?(on_leaf = fun _ _ _ -> Ok ())
+    text =
   let session, source, ledger = Test_source_promotion.inputs text in
   let task = ref None and layout = ref None and entries = ref [] in
   let fragments = ref [] in
@@ -36,6 +37,10 @@ let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false)
             (if skip_layout_delimiter receipt then Ok (Option.get !layout)
              else Layout.observe_live_delimiter (Option.get !layout) receipt)
             |> diagnose receipt.delimiter_initializer.initializer_equals.span
+            |> Result.map (fun state -> layout := Some state)
+        | Parser.Global_initializer_leaf_preparing receipt when phased ->
+            Layout.prepare_live_expression (Option.get !layout) receipt
+            |> diagnose receipt.preparation_first.span
             |> Result.map (fun state -> layout := Some state)
         | Parser.Global_initializer_leaf_completed receipt ->
             let typed =
@@ -97,8 +102,8 @@ let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false)
   in
   (parsed, List.rev !entries, List.rev !fragments)
 
-let expect_layout text offsets copies =
-  let parsed, entries, _ = parse text in
+let expect_layout ?(phased = false) text offsets copies =
+  let parsed, entries, _ = parse ~phased text in
   ignore (Test_parser.expect_ast parsed);
   Alcotest.(check (list int))
     "original leaf destinations" offsets
@@ -112,6 +117,14 @@ let expect_layout text offsets copies =
          | Layout.Copy_bytes bytes -> Some bytes)
        entries)
 
+let phased_cursors () =
+  expect_layout ~phased:true {|I64 A[2][2]={{1,2},{3,4}};|} [ 0; 1; 2; 3 ]
+    [ None; None; None; None ];
+  expect_layout ~phased:true {|U8 A[2][3]={"AB","CD"};|} [ 0; 3 ]
+    [ Some "AB\000"; Some "CD\000" ];
+  expect_layout ~phased:true {|class Box{U8 tag;U16 value;};Box object={7,42};|}
+    [ 0; 1 ] [ None; None ]
+
 let scalars () =
   expect_layout {|I64 N=42;|} [ 0 ] [ None ];
   expect_layout {|I64 A[2][2]={{1,2},{3,4}};|} [ 0; 1; 2; 3 ]
@@ -120,6 +133,15 @@ let scalars () =
     [ None; None; None; None ];
   expect_layout {|I64 A[2][2]=1,2,3,4;|} [ 0; 1; 2; 3 ]
     [ None; None; None; None ]
+
+let empty_roots () =
+  expect_layout ~phased:true {|class Empty{};Empty object=7;|} [ 0 ] [ None ];
+  expect_layout ~phased:true
+    {|class Empty{};Empty objects[2][2]={{1,2},{3,4}};|} [ 0; 0; 0; 0 ]
+    [ None; None; None; None ];
+  expect_layout ~phased:true
+    {|class Empty{U0 first;U0 rest[2];};Empty object={1,{2,3}};|} [ 0; 0; 0 ]
+    [ None; None; None ]
 
 let copies () =
   expect_layout {|U8 A[2][3]={"AB","CD"};|} [ 0; 3 ]
@@ -211,10 +233,183 @@ let ordering () =
   reject "AST-only leaf has no delimiter authority"
     (Layout.prepare_live initial reconstructed)
 
+let isolated_snapshots () =
+  let text =
+    "extern class Item;class Box{Item item;U8 tail;$$=8;};Box \
+     global={7,42};I64 F(){static Box object={7,42};return object.tail;}class \
+     Item{U16 value;};"
+  in
+  let session, source, ledger = Test_source_promotion.inputs text in
+  let delimiters = ref [] and leaves = ref [] and completions = ref [] in
+  let declaration event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Static_initializer_delimiter_completed receipt ->
+            delimiters := receipt :: !delimiters
+        | Parser.Static_initializer_preparing receipt ->
+            leaves := receipt :: !leaves
+        | Parser.Static_initializer_completed receipt ->
+            completions := receipt :: !completions
+        | _ -> ())
+      (D.observe ~isolated_initializers:true ledger event)
+  in
+  let parsed =
+    Test_source_promotion.parse ~mode:Preprocessor.Aot ~declaration session
+      source ledger
+  in
+  let ast = Test_parser.expect_ast parsed in
+  let command = D.seal_source ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let layouts = D.source_initializer_layouts ~table ~ast command |> expect in
+  let snapshots =
+    D.source_static_initializer_snapshots ~table ~ast command |> expect
+  in
+  Alcotest.(check int) "one original global cursor" 1 (List.length layouts);
+  Alcotest.(check int) "one original static cursor" 1 (List.length snapshots);
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  let foreign_table = Session.semantic_symbols (Session.create ()) in
+  reject "global layouts reject another table"
+    (D.source_initializer_layouts ~table:foreign_table ~ast command);
+  reject "static snapshots reject another table"
+    (D.source_static_initializer_snapshots ~table:foreign_table ~ast command);
+  let cloned_ast = Obj.obj (Obj.dup (Obj.repr ast)) in
+  reject "global layouts reject a copied source seal"
+    (D.source_initializer_layouts ~table ~ast:cloned_ast command);
+  reject "static snapshots reject a copied source seal"
+    (D.source_static_initializer_snapshots ~table ~ast:cloned_ast command);
+  let snapshot = List.hd snapshots in
+  List.iter
+    (fun receipt ->
+      reject "completed static cursor cannot replay a delimiter"
+        (Layout.observe_static_snapshot_delimiter snapshot receipt);
+      reject "copied delimiter cannot reopen a static cursor"
+        (Layout.observe_static_snapshot_delimiter snapshot
+           (Obj.obj (Obj.dup (Obj.repr receipt)))))
+    !delimiters;
+  List.iter
+    (fun receipt ->
+      reject "completed static cursor cannot replay a leaf"
+        (Layout.prepare_static_snapshot_leaf snapshot receipt);
+      reject "expired static cursor cannot supply a destination"
+        (Layout.static_snapshot_leaf_destination snapshot receipt))
+    !leaves;
+  List.iter
+    (fun receipt ->
+      reject "static cursor completion is once-only"
+        (Layout.complete_static_snapshot snapshot receipt))
+    !completions;
+  let foreign = Test_integer_globals.compile ~mode:Preprocessor.Aot text in
+  let globals = integer_program_globals foreign in
+  let slot = Ir_integer_globals.statics globals |> List.hd in
+  let frame = Ir_integer_globals.static_frame slot
+  and location = Ir_integer_globals.static_location slot in
+  Alcotest.(check bool)
+    "same-spelling foreign static has no snapshot" false
+    (Layout.static_snapshot_matches snapshot ~frame ~location)
+
+let fragment_member_visibility () =
+  let module Type = Holyc_lib__Sema.Type in
+  let module Symbol_table = Semantic_symbol_table in
+  let module Visibility = Holyc_lib__Sema.Function_aggregate_visibility in
+  let module Headers = Holyc_lib__Sema.Aggregate_header_resolution in
+  let module Members = Holyc_lib__Sema.Aggregate_member_index in
+  let module Record = Holyc_lib__Sema.Compiler_record in
+  let session, source, ledger =
+    Test_source_promotion.inputs
+      "class Box{U8 value;};Box object;object.value;class Box{U16 value;};"
+  in
+  let parsed =
+    Test_source_promotion.parse ~mode:Preprocessor.Aot session source ledger
+  in
+  let ast = Test_parser.expect_ast parsed in
+  let command = D.seal_source ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let parent = D.initializer_scope ledger in
+  let member =
+    Ast.declaration_items ast
+    |> List.find_map (function
+      | _, Ast.Top_level_statement (Ast.Expression_statement statement) -> (
+          match statement.expression_statement_expression with
+          | Ast.Member_expression member -> Some member
+          | _ -> None)
+      | _ -> None)
+    |> Option.get
+  in
+  let expression = Ast.Member_expression member in
+  let resolve =
+    D.source_aggregate_reference_resolver ~table ~ast command |> expect
+  in
+  let proof = resolve member.member_name |> Option.get in
+  let visibility =
+    D.aggregate_fragment_visibility ~span:ast.span ledger |> expect
+  in
+  Alcotest.(check bool)
+    "original member occurrence is retained" true
+    (Option.is_some (Visibility.member_reference visibility ~source:expression));
+  let headers =
+    D.aggregate_value_headers ~span:ast.span ledger |> expect |> Headers.headers
+  in
+  let original = Headers.header_symbol (List.hd headers)
+  and replacement = Headers.header_symbol (List.hd (List.rev headers)) in
+  let members = Members.build ~table ~parent [] |> Result.get_ok in
+  let lookup =
+    Members.lookup_reference members ~identifier:member.member_name
+      ~visibility:proof ~aggregate:original ~name:"value"
+    |> Result.get_ok |> Option.get
+  in
+  Alcotest.(check bool)
+    "original completed field keeps its U8 type" true
+    (Type.equal
+       (Members.member_type (Members.lookup_member lookup))
+       (Type.make_primitive ~form:Type.Public_spelling
+          ~primitive:Primitive_type.U8 ~pointer_depth:0
+       |> Result.get_ok));
+  Alcotest.(check bool)
+    "later replacement has no earlier member record" true
+    (Option.is_none
+       (Record.aggregate_reference_completed_record ~table ~parent
+          ~identifier:member.member_name ~symbol:replacement proof));
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  reject "duplicate original observations reject"
+    (Visibility.create_references ~table ~parent
+       [ (member.member_name, proof); (member.member_name, proof) ]);
+  let clone = Obj.obj (Obj.dup (Obj.repr member.member_name)) in
+  reject "copied name cannot borrow an original observation"
+    (Visibility.create_references ~table ~parent [ (clone, proof) ]);
+  let other = Session.semantic_symbols (Session.create ()) in
+  reject "foreign table cannot borrow member observations"
+    (Visibility.create_references ~table:other ~parent
+       [ (member.member_name, proof) ]);
+  let foreign_parent =
+    Symbol_table.create_scope table ~parent ~kind:Symbol_table.Block ()
+    |> checked
+  in
+  reject "another namespace cannot borrow member observations"
+    (Visibility.create_references ~table ~parent:foreign_parent
+       [ (member.member_name, proof) ]);
+  reject "fragment context rejects a foreign metadata namespace"
+    (Holyc_lib__Driver.Initializer_fragment_typing.create_context_selected
+       ~aggregate_visibility:visibility ~compilation_mode:Preprocessor.Jit
+       ~table ~parent:foreign_parent ());
+  reject "fragment context rejects another metadata table"
+    (Holyc_lib__Driver.Initializer_fragment_typing.create_context_selected
+       ~aggregate_visibility:visibility ~compilation_mode:Preprocessor.Jit
+       ~table:other ~parent:(Symbol_table.root other) ())
+
 let tests =
   [
     Alcotest.test_case "scalar and fixed row traversal" `Quick scalars;
+    Alcotest.test_case
+      "prepared branches retain scalar, string and member cursors" `Quick
+      phased_cursors;
     Alcotest.test_case "original copied-row decisions" `Quick copies;
+    Alcotest.test_case "empty roots retain every original zero-byte leaf" `Quick
+      empty_roots;
     Alcotest.test_case "early delimiter and source-bound failure" `Quick
       early_failure;
     Alcotest.test_case "ordered original leaves" `Quick ordering;
@@ -222,4 +417,8 @@ let tests =
       delimiter_timing;
     Alcotest.test_case "completion requires trailing delimiters" `Quick
       missing_trailing_delimiter;
+    Alcotest.test_case "isolated source cursors and foreign static frames"
+      `Quick isolated_snapshots;
+    Alcotest.test_case "original completed member metadata in fragments" `Quick
+      fragment_member_visibility;
   ]

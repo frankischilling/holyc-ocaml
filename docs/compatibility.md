@@ -1,5 +1,57 @@
 # holyc-ocaml compatibility status
 
+Whole-value assignment now applies the source lvalue rule to automatic,
+parameter, global and static class storage. A nonpointer backing chain must
+reach an internal type. Ordinary class endpoints reject simple and compound
+assignment before RHS calls execute. Inheritance does not supply that backing,
+and replacement cannot change the original endpoint. Default raw-word reads and
+prefix/postfix updates retain their separate source paths. Fields, explicit
+integer storage casts and internal-backed class assignments remain available.
+See [default class values](default-aggregate-values.md).
+
+Automatic aggregate scalar initializers use the original integer backing prefix
+through IR and native execution in both modes. Literals, calls, comma order, earlier object reads,
+named backing chains, inherited roots and later replacement retain the local's
+original allocation proof. Only the prefix becomes initialized. Empty or
+undersized roots evaluate the operand and then reject a store outside their
+extent. The backing chain must end in an internal integer type; unbacked classes
+and chains ending in ordinary classes are rejected. U0 and floating views, general object copies and inferred dimensions
+remain unfinished. See [automatic objects](automatic-aggregate-byte-views.md).
+
+[Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
+and union globals and statics their original byte roots in IR and native execution.
+Integer fields, arrays, scalar prefixes and member size queries retain the selected
+layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
+[Aggregate initializers](aggregate-initializers.md) cover completed selected class
+records, integer leaves, nested fixed arrays and byte strings. Original forward
+members can complete before traversal, including through JIT lookahead. Changes
+inside a source-task global or static scalar leaf also retain the cached class and copy
+its reached width after evaluation. Expression lookahead, callee completion,
+zero-byte leaves and late backing preserve the original byte cursor and root.
+Static copies run once before calls and retain their reached layout in the completed
+function frame. Static delimiter receipts select reached grammar before advancing
+the lexer; completion after a nested opening brace cannot restart that branch.
+Backed extern forwards retain their type and pointer provenance. Source-task
+initializers install their backing after class-name lookahead and cache forwarding
+at each array rank before opening-brace lookahead or callee effects.
+Ordinary definitions install new backing after their body and following-token
+lookahead. They preserve prior extern forwarding during the body and on unbacked
+completion; reached partial direct members can supply initializer grammar.
+Isolated incomplete-class preparation, other runtime class changes and the
+  remaining aggregate execution families stay open. Function-body reads and
+  writes and top-level execution can select reached direct and inherited fields from an unfinished
+  ordinary class at the original member-name observation. Later fields cannot
+  enlarge that snapshot or the original allocation. Same-name replacement
+  preserves the operand's original class and member placements. Partial callback calls
+  still require their signature index.
+
+[Class pointer views](class-pointer-views.md) retain owned bytes through casts
+between supported integer and class pointers. IR and native paths preserve
+original source selections, target strides and root bounds, including local
+class definitions and retained functions. [Aggregate value casts](aggregate-value-casts.md)
+preserve selected integer reads and grouped register bits. Numeric/null
+reference construction and wider aggregate storage remain open under #686.
+
 [Native sections](native-sections.md) now provide the common checked layout and patch model for own-encoder native objects, assembly linking and AOT BIN serialization. Native source compilation retains semantic function/global identities and resolves forward machine references through that model. Signed field overflow fails before output; explicit modulo fields retain their source behavior. Hosted objects retain their runtime ownership boundary.
 
 [Assembler operands](assembler.md) now use one ordered parser for HolyC blocks,
@@ -140,15 +192,16 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
-extents, member identities and pointer strides remain separate. General casts,
-class defaults, callback class parameters and persistent objects still need
-their own implementation.
+extents, member identities and pointer strides remain separate.
+[Aggregate value casts](aggregate-value-casts.md) retain that distinction for
+storage destinations and class register words. Floating casts and callback
+class parameters still need their own implementation.
 
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) support
 nonempty class and union objects from completed earlier layouts in isolated IR
 and native programs, in both modes. Explicit integer views retain overlap,
 padding, initialized bytes and the original extent. Partial inherited
-metadata, retained JIT imports, persistent objects, whole-value postfix casts,
+metadata, retained JIT imports,
 class defaults and callback parameters and general aggregate copies, pointer
 fields and pointer returns remain outside this slice of #686. [Owned aggregate
 members](aggregate-members.md) support direct and pointer integer fields,
@@ -820,7 +873,7 @@ when their named consumers exist.
 
 The broad parsing row describes the shared declaration, expression, and statement foundation. The narrower rows record later slices and their remaining boundaries.
 
-Direct function address typing is implemented under [issue #286](https://github.com/frankischilling/holyc-ocaml/issues/286) and [issue #288](https://github.com/frankischilling/holyc-ocaml/issues/288), with symbolic IR lowering under [issue #562](https://github.com/frankischilling/holyc-ocaml/issues/562). A checked `&Function` expression retains the newest source-visible function publication, its exact resolved declaration, and its canonical joined identity. The operand is a function value; the completed expression is an integer-class address with TempleOS's internal zero-depth `RT_PTR`/`RT_I64` type. JIT unresolved externs carry extern-slot intent, JIT resolved functions carry immediate intent, and AOT resolved functions carry absolute-address intent. The IR lowerer consumes those paths directly as `IC_IMM_I64` plus `IC_DEREF`, `IC_IMM_I64`, or `IC_ABS_ADDR`, with the canonical symbol, exact address-of operator span, consecutive identities, and final-producer flags. Ordinary AOT externs and imports fail with `HCSEMA0046` at `&`; `_extern` remains resolved, and `_intern` fails instead of receiving a false noninternal path. Local or global object shadowing and function-pointer variables keep their existing object or callback address behavior. Focused semantic, expression-lowering, and direct-call tests cover replacement and recursive publications, fixed and variadic positions, both result owners and compilation modes, include and definition provenance, declaration and canonical identity, path-specific dataflow, deterministic replay, unsupported boundaries, and exhaustion. The original symbolic lowering gate does not claim numeric addresses, extern-slot access, relocations, fixups, indirect calls or machine emission. Issue #801 now connects resolved JIT immediates and AOT absolute producers to original registered publications and prepared integer/U0 bodies in the IR runner. Those opaque values support equality with owned code or null, full-word casts and copies through ordinary word storage, scalar callback frame cells and explicit fixed parameters. An earlier JIT address retains its original body after a same-name publication. Matching names, numeric words and copied or foreign graph records cannot select that body. Scalar frame callbacks now invoke the captured original body, including an earlier JIT executable after replacement. Concrete address arithmetic, numeric address output, callback members, native owned-code/effectful initializers, owned-code defaults and live native task address linking remain unfinished. The bounded [native local callback consumer](native-local-callbacks.md) emits original owned addresses and invokes fixed integer/U0 signatures.
+Direct function address typing is implemented under [issue #286](https://github.com/frankischilling/holyc-ocaml/issues/286) and [issue #288](https://github.com/frankischilling/holyc-ocaml/issues/288), with symbolic IR lowering under [issue #562](https://github.com/frankischilling/holyc-ocaml/issues/562). A checked `&Function` expression retains the newest source-visible function publication, its exact resolved declaration, and its canonical joined identity. The operand is a function value; the completed expression is an integer-class address with TempleOS's internal zero-depth `RT_PTR`/`RT_I64` type. JIT unresolved externs carry extern-slot intent, JIT resolved functions carry immediate intent, and AOT resolved functions carry absolute-address intent. The IR lowerer consumes those paths directly as `IC_IMM_I64` plus `IC_DEREF`, `IC_IMM_I64`, or `IC_ABS_ADDR`, with the canonical symbol, exact address-of operator span, consecutive identities, and final-producer flags. Ordinary AOT externs and imports fail with `HCSEMA0046` at `&`; `_extern` remains resolved, and `_intern` fails instead of receiving a false noninternal path. Local or global object shadowing and function-pointer variables keep their existing object or callback address behavior. Focused semantic, expression-lowering, and direct-call tests cover replacement and recursive publications, fixed and variadic positions, both result owners and compilation modes, include and definition provenance, declaration and canonical identity, path-specific dataflow, deterministic replay, unsupported boundaries, and exhaustion. The original symbolic lowering gate does not claim numeric addresses, extern-slot access, relocations, fixups, indirect calls or machine emission. Issue #801 now connects resolved JIT immediates and AOT absolute producers to original registered publications and prepared integer/U0 bodies in the IR runner. Those opaque values support equality with owned code or null, full-word casts and copies through ordinary word storage, scalar callback frame cells and explicit fixed parameters. An earlier JIT address retains its original body after a same-name publication. Matching names, numeric words and copied or foreign graph records cannot select that body. Scalar frame callbacks now invoke the captured original body, including an earlier JIT executable after replacement. One-level [callback fields](callback-fields.md) now store and invoke owned code through IR and native execution. Concrete address arithmetic, numeric address output, native owned-code/effectful initializers, owned-code defaults and live native task address linking remain unfinished. The bounded [native local callback consumer](native-local-callbacks.md) emits original owned addresses and invokes fixed integer/U0 signatures.
 
 Fully indexed aggregate callback-member arrays are implemented under [issue #330](https://github.com/frankischilling/holyc-ocaml/issues/330) for checked function bodies and executable top-level expressions. Direct, pointer, inherited, multidimensional, and parenthesized callees retain one exact member lookup through every declared subscript. The stored recursive signature then supplies fixed slots, explicit holes, defaults, variadic values, and the return type. Partial and excessive indexing report `HCSEMA0039` or `HCSEMA0057`. One function expression-result case, two top-level cases, and strengthened negative and provenance cases cover JIT and AOT modes. This gate does not claim runtime address calculation, callback storage reads, bounds checks, default evaluation, IR, execution, or ABI placement.
 
@@ -828,7 +881,7 @@ Named-function callback parameters can materialize their original saved integer-
 
 Anonymous callback signatures now prepare and reuse their own original integer defaults through the ordinary IR compiler and interpreter. Each signature has a declaration scope with ordered parameter and default receipts; it creates no named-function symbol. A callback declared with `I64 n=40` uses that saved value even when its executable target declares `I64 n=41`. Closed expressions work in both IR source modes. JIT references, retained calls and effects run once during declaration, including signatures inside an unused function. Omitted fixed slots, narrow integer conversion, nested callback word defaults, word variadics and integer/U0 returns use the captured callback's original signature and cleanup. Saved callback words keep their physical `RT_PTR` class and grant no executable authority. Equal copied signatures and graph producers cannot adopt the original saved default. Reached target faults and declaration-time runtime faults retain prior output, and exact execution and preparation limits remain checked.
 
-Anonymous callback defaults inside class/union bodies now consume their original fixed-member position writes while `CCF_CLASS_DOL_OFFSET` is active. The first member reads zero and the second reads eight. Nested signatures leave their last write visible to the enclosing default; closing does not restore the enclosing position. Delimiters, skipped semicolons and the position before variadic hidden members preserve source order. JIT retained calls and effects consume these integers during declaration, and closed defaults work in AOT. Retained class layout uses the original completed callback header for eight-byte member storage. Ordinary function/local callback `$$` defaults retain instruction-address typing and remain unsupported without the original executable address owner. Calls through stored class callback members remain unfinished. AOT reference-bearing defaults, F64 expressions, owned-code defaults, constant-divisor defaults requiring unresolved optimizer behavior, and native callbacks beyond automatic local fixed signatures remain separate boundaries. Same-name executable replacement is covered in JIT; AOT repeated definitions still fail the existing definition-identity check. These limits remain under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801) and the compiler's open dependency work.
+Anonymous callback defaults inside class/union bodies now consume their original fixed-member position writes while `CCF_CLASS_DOL_OFFSET` is active. The first member reads zero and the second reads eight. Nested signatures leave their last write visible to the enclosing default; closing does not restore the enclosing position. Delimiters, skipped semicolons and the position before variadic hidden members preserve source order. JIT retained calls and effects consume these integers during declaration, and closed defaults work in AOT. Retained class layout uses the original completed callback header for eight-byte member storage. Ordinary function/local callback `$$` defaults retain instruction-address typing and remain unsupported without the original executable address owner. One-level [stored callback members](callback-fields.md) now invoke the captured executable owner with their original defaults. AOT reference-bearing defaults, F64 expressions, owned-code defaults, constant-divisor defaults requiring unresolved optimizer behavior, and native callbacks beyond automatic local fixed signatures remain separate boundaries. Same-name executable replacement is covered in JIT; AOT repeated definitions still fail the existing definition-identity check. These limits remain under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801) and the compiler's open dependency work.
 
 One-star [global callback cells and fully indexed arrays](global-callbacks.md) now execute integer/U0 calls inside checked functions in both IR source modes. Top-level assignments can install or copy addresses. The original global publication, anonymous header, declared return metadata and physical eight-byte element type remain distinct. Retained declaration completion reuses its allocation and outer reference. Calls use the selected header's saved defaults and original global calling flags, capture the callee before reverse arguments and preserve its earlier executable body after JIT replacement. Tests cover copying, parameter transfer, word tails, exact quotas, source ownership and reached fault effects. JIT unknown values fail during load; AOT zero and explicit null fail after arguments at invocation. Array bounds fail before arguments. Top-level indirect invocation and global initializer execution now use original checked roots. Members, native owned-code/effectful initializers, updates, owned-code defaults, uncanceled dereferences and multistar calls, live native task linking and broader native callback execution remain under issue #801; general F64, aggregate and mixed-value execution remains under issue #688. This gate adds hosted tests and no independent TempleOS capture.
 
@@ -880,9 +933,89 @@ host image, private arena and executable owners across activations, including
 reached writes on checked faults. Native JIT execution at original parser
 callbacks and persistent source-task publication/linking remain unfinished.
 
-[Owned data pointer fields in IR](aggregate-pointer-fields.md) execute integer
+[Owned data pointer fields](aggregate-pointer-fields.md) execute integer
 and class pointer members, member arrays and pointer updates in automatic
 objects. Typed stores retain the original target allocation and lifetime;
 overlapping scalar stores remove pointer ownership. Numeric bytes and word
-class parameters cannot recreate it. Native pointer fields remain gated until
-their descriptor storage and lifetime checks are implemented under issue #686.
+class parameters cannot recreate it. Native descriptors retain activation
+identities, and source-task arenas share their persistent field shadows.
+Expired locals fail before their old stack bytes are read.
+
+Reached partial class bodies now supply original callback field signatures to
+the checked function and top-level call paths. Direct and pointer access,
+fully indexed arrays, saved defaults, integer variadic slots, named class pointer
+arguments and supported owned pointer returns use the field's original header.
+Outer globals preserve the selected object's nominal type. Inherited fields and
+same-name replacement preserve the original class. The
+[class-body callback example](../examples/class-body-callback-fields.hc) checks
+callee capture before argument mutation in both IR and native source modes.
+Extra callback indirection, wider return domains and full aggregate parity
+remain open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686).
+
+Ordinary JIT class and union initializers now activate the original source task
+at their parser start. This supplies reached partial-class metadata and executes
+leaf effects before later declarations are checked. Zero-byte members inside
+nonempty roots still evaluate once, while their copies leave the byte cursor
+unchanged. Later functions share the reached globals and storage. The
+[ordinary-source example](../examples/source-aggregate-initializers.hc) runs
+through IR and native source tasks in both modes. Isolated global and static
+layout snapshots preserve the original forward selection and cursor through
+later completion or replacement. A completed static frame must match the
+original local, nominal type, dimensions and leaves. Snapshots supply metadata
+without computed values or execution receipts. Closed AOT class-offset work is
+included in the reported initializer allowance. Native AOT scalar static leaves
+with value or function references retain their original load-source receipt and
+execute through checked load-time regions. Static address access in entry is
+limited to those regions and their declaring frame. Closed leaves retain their
+prepared bytes; repeated calls retain mutations. Nonconstant AOT statics with
+globals-on-data-heap and other initializer value families remain
+open under #686 and #690.
+
+JIT source-task initializers can read and update earlier aggregate statics through
+their original allocation type and member observations. Nested arrays, inherited
+offsets and same-name replacement retain those selections. Global initializer
+member reads and JIT defaults, dimensions and metadata effects share the fragment
+context. The static-load example now runs through IR and native source tasks in
+both modes. Frozen views reject foreign tables, namespaces, copied names and
+duplicate observations, and supply no storage or execution authority.
+
+Empty class and union globals and statics retain zero-byte geometry while their
+initializer expressions execute once in source order. Fixed arrays retain each
+element's effect and zero stride. Native arenas can consist only of private owner
+metadata. Source-task checks cover both modes, later class replacement, unused
+functions, repeated calls, original bounds and exact resource limits. Inferred
+dimensions remain open. Automatic empty class and union roots retain zero source
+frame bytes, original checked locations, array dimensions and activation owners.
+Shared source displacements compare equal without transferring byte access from
+an adjacent root. Calls preserve the caller's empty extent; expired frames reject.
+Native private owner metadata remains subject to its physical stack limit.
+Forward and partial automatic classes now use their original allocation receipts,
+including zero extents. Inherited member snapshots retain canonical bases reached
+at the original member name. Completion can expose an overlapping field while
+the allocated child size stays fixed; replacement cannot change its base identity.
+Static initializer fragments retain those original base identities as metadata.
+Copied observations and foreign namespaces cannot authorize a member or frame.
+Automatic initialization expressions for zero-byte objects remain unfinished. See
+[automatic aggregate byte views](automatic-aggregate-byte-views.md).
+
+Source resolution uses original per-declaration compiler options. JIT data-heap
+globals retain scalar, array and aggregate storage under the existing ownership
+and bounds checks. Static allocation and expression options remain separate;
+expression lookahead selects AOT deferral. Constant statics support the data-heap
+option in both source modes and targets. AOT data-heap globals reject initializers
+before their effects. The separate compile-time phase for reference-bearing AOT
+statics and the AOT `IC_HEAP_GLBL`/loader path remain open.
+
+## Aggregate assignment observations
+
+Function-body and top-level integer aggregate assignments retain the endpoint selected before operator
+lookahead, the internal-storage check reached after lookahead and the original
+function or command's completion metadata. Initializers, static leaves, saved
+defaults, dimensions, member offsets and metadata, switch endpoints and internal
+bindings retain their own original expression-completion metadata. Scalar
+consumers read the checked value type while preserving the nominal destination.
+JIT forward completion can supply backing to the
+selected endpoint; later extern completion cannot retarget an already selected
+primitive endpoint. Root extents, member offsets and zero array strides remain
+separate. Isolated AOT declarations retain their original table while `#exe`
+uses the task's JIT table. See [backed values](backed-aggregate-values.md).

@@ -37,6 +37,10 @@
 #define HOLYC_NATIVE_PLATFORM 0
 #endif
 
+#if HOLYC_NATIVE_PLATFORM != 0
+#include "native_reference_shadow.h"
+#endif
+
 /* A custom finalizer can run while OCaml promotes a global root and holds its
    root-table lock. Root-owning finalizers must not remove roots there. They
    detach C owners with lock-free operations and retain the roots and mappings
@@ -768,6 +772,7 @@ struct native_task_arena {
   size_t committed;
   size_t page_size;
   struct native_task_code_owner **owners;
+  struct native_reference_state reference_shadows;
   size_t owner_capacity;
   atomic_int active;
   int closing;
@@ -778,6 +783,7 @@ static int native_task_arena_close(struct native_task_arena *arena)
 {
   arena->closing = 1;
   arena->close_error[0] = 0;
+  native_reference_state_clear(&arena->reference_shadows);
   if (arena->mapping == NULL) return 1;
 #if HOLYC_NATIVE_PLATFORM == 1
   if (!VirtualFree(arena->mapping, 0, MEM_RELEASE)) {
@@ -1470,11 +1476,16 @@ CAMLprim value holyc_native_execute_program_functions(value code, value function
      remaining physical native-stack bytes. The root's exact physical cost is
      charged before entry; generated CALL/return and checked-fault paths restore
      all three remaining quotas to these values. */
-  uint64_t context[9] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+  uint64_t context[35] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                          (uint64_t)frame_limit, (uint64_t)depth_limit,
                          remaining_stack};
+  struct native_reference_state reference_state = {0};
+  struct native_reference_scope reference_scope;
+  native_reference_context_init(context, &reference_scope, &reference_state);
   (void)native_execute_checked_program_image(code, functions, abi_code,
                                              (uintnat)entry_stack_bytes, context);
+  native_reference_scope_finish(&reference_scope);
+  native_reference_state_clear(&reference_state);
   if (context[2] != (uint64_t)step_limit)
     caml_failwith("native program status integrity failure: budget was modified");
   if (context[6] != (uint64_t)frame_limit)
@@ -1581,8 +1592,6 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
     caml_invalid_argument("native program logical literal bytes exceed their bound");
   if (metadata_bytes < 0 || (uintnat)metadata_bytes > HOLYC_NATIVE_MAX_ARENA_BYTES)
     caml_invalid_argument("native program private metadata bytes exceed their bound");
-  if (logical_global_bytes == 0 && logical_literal_bytes == 0)
-    caml_invalid_argument("native storage program has no persistent data");
   if ((uintnat)arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       (uintnat)arena_length != (uintnat)logical_global_bytes +
                                (uintnat)logical_literal_bytes + (uintnat)metadata_bytes)
@@ -1592,11 +1601,16 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   /* The tenth word is an immutable private arena pointer installed by the
      platform helper after fresh RW allocation. Generated code may only read it
      through the sealed R11 context and keeps R9 reserved as the arena base. */
-  uint64_t context[10] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+  uint64_t context[35] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                           (uint64_t)frame_limit, (uint64_t)depth_limit,
                           remaining_stack, 0};
+  struct native_reference_state reference_state = {0};
+  struct native_reference_scope reference_scope;
+  native_reference_context_init(context, &reference_scope, &reference_state);
   (void)native_execute_checked_program_storage_image(
     code, functions, abi_code, (uintnat)entry_stack_bytes, arena_image, context);
+  native_reference_scope_finish(&reference_scope);
+  native_reference_state_clear(&reference_state);
   if (context[2] != (uint64_t)step_limit)
     caml_failwith("native program status integrity failure: budget was modified");
   if (context[6] != (uint64_t)frame_limit)
@@ -2636,9 +2650,6 @@ static value native_execute_program_output(value code, value functions,
       (uintnat)arena_length != (uintnat)logical_global_bytes +
                                (uintnat)logical_literal_bytes + (uintnat)metadata_bytes)
     caml_invalid_argument("native output program arena image is inconsistent with data and metadata");
-  if (logical_global_bytes == 0 && logical_literal_bytes == 0 &&
-      metadata_bytes != 0 && !task_storage)
-    caml_invalid_argument("native output program private metadata has no persistent data");
 
   /* Validate the sealed code and unwind table before reserving the capture
      buffer. The checked execution helpers repeat these checks at entry. */
@@ -2689,7 +2700,7 @@ static value native_execute_program_output(value code, value functions,
   }
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
-    uint64_t context[24] = {
+    uint64_t context[35] = {
       0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
       output_address, remaining_output, remaining_work, 0,
@@ -2699,6 +2710,12 @@ static value native_execute_program_output(value code, value functions,
       (uint64_t)(uintptr_t)bridge,
       bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_option_callback
     };
+
+    struct native_reference_state reference_state = {0};
+    struct native_reference_scope reference_scope;
+    struct native_reference_state *reference_shared = task_storage ?
+      &native_task_arena_get(task_arena)->reference_shadows : &reference_state;
+    native_reference_context_init(context, &reference_scope, reference_shared);
 
     if (bridge != NULL) {
       bridge->handle = bridge_owner;
@@ -2725,6 +2742,11 @@ static value native_execute_program_output(value code, value functions,
         context);
     }
 
+    native_reference_scope_finish(&reference_scope);
+    native_reference_state_clear(&reference_state);
+    if (context[24] != (uint64_t)(uintptr_t)&native_reference_service ||
+        context[25] != (uint64_t)(uintptr_t)&reference_scope)
+      caml_failwith("native reference status integrity failure: owner was modified");
     if (context[21] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_source_callback) ||
         context[22] != (uint64_t)(uintptr_t)bridge ||
         context[23] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_option_callback))
@@ -2989,12 +3011,12 @@ static value native_retain_program_identity(value identity, int task_fragment)
   globals = Long_val(Field(storage, 0));
   literals = Long_val(Field(storage, 1));
   metadata = Long_val(Field(storage, 2));
+  /* Empty persistent roots can own a metadata-only arena. */
   if (globals < 0 || (uintnat)globals > HOLYC_NATIVE_MAX_GLOBAL_BYTES ||
       literals < 0 || (uintnat)literals > HOLYC_NATIVE_MAX_LITERAL_BYTES ||
       metadata < 0 || (uintnat)metadata > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
-      arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata ||
-      (globals == 0 && literals == 0 && metadata != 0 && Wosize_val(identity) < 6))
+      arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata)
     caml_invalid_argument("retained native arena image is inconsistent with data and metadata");
   if (Wosize_val(identity) < 6) {
     for (mlsize_t index = 0; index < Wosize_val(functions); ++index)
@@ -3002,9 +3024,7 @@ static value native_retain_program_identity(value identity, int task_fragment)
         caml_invalid_argument("native leaf entries require original task owner bindings");
   }
   if (Wosize_val(identity) >= 6) {
-    size_t maximum = native_validate_task_bindings(identity, arena_length);
-    if (globals == 0 && literals == 0 && metadata != 0 && maximum == 0)
-      caml_invalid_argument("retained task metadata has no original code owner");
+    native_validate_task_bindings(identity, arena_length);
   }
   if (closed_entry && arena_length != 0)
     caml_invalid_argument("retained native closed entry cannot own a data arena");
@@ -3196,6 +3216,8 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
   for (chunks = literal_chunks; chunks != Val_emptylist; chunks = Field(chunks, 1)) {
     value chunk = Field(chunks, 0);
     value payload = Field(chunk, 1);
+    native_reference_invalidate(&arena->reference_shadows,
+      (uintptr_t)((char *)arena->mapping + Long_val(Field(chunk, 0))), caml_string_length(payload));
     memcpy((char *)arena->mapping + Long_val(Field(chunk, 0)),
            String_val(payload), caml_string_length(payload));
   }
@@ -3435,12 +3457,112 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor, val
       caml_invalid_argument("native static byte copy has a malformed initialization flag");
     }
   }
+  native_reference_invalidate(&arena->reference_shadows, (uintptr_t)(mapping + data), count);
   memcpy(mapping + data, String_val(payload), count);
   for (i = 0; i < count; ++i) mapping[(size_t)flag - i] = 1;
   if (!borrowed_arena) atomic_store(&arena->active, 0);
   CAMLreturn(Val_long((intnat)count));
 #endif
   CAMLreturn(Val_unit);
+}
+
+struct initializer_copy_receipt {
+  struct native_deferred_cleanup cleanup;
+  value token;
+  value arena;
+  intnat count;
+  _Atomic int consumed;
+};
+
+static void initializer_copy_dispose(struct native_deferred_cleanup *cleanup)
+{
+  struct initializer_copy_receipt *copy = (struct initializer_copy_receipt *)cleanup;
+  caml_remove_generational_global_root(&copy->token);
+  caml_remove_generational_global_root(&copy->arena);
+  free(copy);
+}
+
+static void initializer_copy_finalize(value receipt)
+{
+  struct initializer_copy_receipt *copy = *(struct initializer_copy_receipt **)Data_custom_val(receipt);
+  if (copy == NULL) return;
+  *(struct initializer_copy_receipt **)Data_custom_val(receipt) = NULL;
+  native_defer_cleanup(&copy->cleanup, initializer_copy_dispose);
+}
+
+static struct custom_operations initializer_copy_operations = {
+  "holyc.native.initializer-copy", initializer_copy_finalize,
+  custom_compare_default, custom_hash_default, custom_serialize_default,
+  custom_deserialize_default, custom_compare_ext_default, custom_fixed_length_default
+};
+
+CAMLprim value holyc_native_task_initializer_copy(value handle, value descriptor,
+                                                  value scope_option, value token)
+{
+  CAMLparam4(handle, descriptor, scope_option, token);
+  CAMLlocal2(receipt, copied);
+  native_collect_deferred();
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native initializer copy requires Windows or Linux x86-64");
+#else
+  if (!Is_block(descriptor) || Tag_val(descriptor) != 0 || Wosize_val(descriptor) != 4
+      || !Is_long(Field(descriptor, 0)) || !Is_long(Field(descriptor, 1))
+      || !Is_long(Field(descriptor, 2))
+      || !Is_block(Field(descriptor, 3)) || Tag_val(Field(descriptor, 3)) != String_tag)
+    caml_invalid_argument("native initializer copy descriptor is malformed");
+  if (caml_string_length(Field(descriptor, 3)) == 0) {
+    struct native_task_arena *arena = native_task_arena_get(handle);
+    if (!Is_long(Field(descriptor, 0)) || Long_val(Field(descriptor, 0)) < 0
+        || (size_t)Long_val(Field(descriptor, 0)) != arena->used
+        || arena->closing || arena->mapping == NULL)
+      caml_invalid_argument("empty initializer copy has another original arena");
+    int borrowed_arena = native_source_borrows_arena(scope_option, handle);
+    int expected = 0;
+    if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
+      caml_invalid_argument("native task arena is already active");
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
+    copied = Val_long(0);
+  } else {
+    copied = holyc_native_task_static_copy(handle, descriptor, scope_option);
+  }
+  receipt = caml_alloc_custom(&initializer_copy_operations,
+      sizeof(struct initializer_copy_receipt *), sizeof(struct initializer_copy_receipt), 1024 * 1024);
+  *(struct initializer_copy_receipt **)Data_custom_val(receipt) = NULL;
+  struct initializer_copy_receipt *copy = calloc(1, sizeof(*copy));
+  if (copy == NULL) caml_raise_out_of_memory();
+  copy->token = token;
+  copy->arena = handle;
+  caml_register_generational_global_root(&copy->token);
+  caml_register_generational_global_root(&copy->arena);
+  copy->count = Long_val(copied);
+  atomic_init(&copy->consumed, 0);
+  *(struct initializer_copy_receipt **)Data_custom_val(receipt) = copy;
+  CAMLreturn(receipt);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_consume_initializer_copy(value receipt, value expected)
+{
+  CAMLparam2(receipt, expected);
+  native_collect_deferred();
+  if (!Is_block(receipt) || Tag_val(receipt) != Custom_tag
+      || Custom_ops_val(receipt) != &initializer_copy_operations)
+    caml_invalid_argument("foreign native initializer copy receipt");
+  struct initializer_copy_receipt *copy = *(struct initializer_copy_receipt **)Data_custom_val(receipt);
+  if (copy == NULL || atomic_load(&copy->consumed) || !Is_block(expected) || Tag_val(expected) != 0
+      || Wosize_val(expected) != 2 || !Is_long(Field(expected, 1))
+      || copy->token != Field(expected, 0) || copy->count != Long_val(Field(expected, 1)))
+    caml_invalid_argument("native initializer copy is expired, repeated or substituted");
+#if HOLYC_NATIVE_PLATFORM != 0
+  struct native_task_arena *arena = native_task_arena_get(copy->arena);
+  if (arena->closing || arena->mapping == NULL)
+    caml_invalid_argument("native initializer copy arena has been released");
+#endif
+  int unused = 0;
+  if (!atomic_compare_exchange_strong(&copy->consumed, &unused, 1))
+    caml_invalid_argument("native initializer copy has already been consumed");
+  CAMLreturn(Val_true);
 }
 
 CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor, value scope_option)

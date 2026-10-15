@@ -53,7 +53,7 @@ let values =
       42L,
       "" );
     ( "default return from owned local object",
-      {|class Box{U64 word;};Box F(){Box o;o=42;return o;}F();|},
+      {|class Box{U64 word;};Box F(){Box o;o.word=42;return o;}F();|},
       42L,
       "" );
     ( "backed return from owned local object",

@@ -15,6 +15,7 @@ type root_role =
   | Dimension_fragment of Dimension_fragment.t
   | Switch_case_fragment of Switch_case_fragment.t
   | Offset_fragment of Offset_fragment.t
+  | Member_metadata_fragment of Member_metadata_fragment.t
   | Implicit_output_fixed of {
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
@@ -66,6 +67,7 @@ type root = {
   dimension_fragment_ : Dimension_fragment.t option;
   switch_case_fragment_ : Switch_case_fragment.t option;
   offset_fragment_ : Offset_fragment.t option;
+  member_metadata_fragment_ : Member_metadata_fragment.t option;
   initializer_calls_ : Function_call_resolution.call list;
   initializer_call_trees_ :
     (Function_call_resolution.call
@@ -159,6 +161,11 @@ let switch_case_pattern_name = function
   | Ranged_case_pattern _ -> "ranged"
 
 let root_role_name = function
+  | Member_metadata_fragment fragment ->
+      Printf.sprintf "aggregate:%s:member-metadata"
+        (Member_metadata_fragment.receipt fragment).phase_aggregate
+          .aggregate_name
+          .spelling
   | Offset_fragment fragment ->
       Printf.sprintf "aggregate:%s:offset"
         (Offset_fragment.receipt fragment).phase_aggregate.aggregate_name
@@ -244,7 +251,8 @@ let role_is_valid = function
   | Internal_binding_fragment _
   | Dimension_fragment _
   | Switch_case_fragment _
-  | Offset_fragment _ -> true
+  | Offset_fragment _
+  | Member_metadata_fragment _ -> true
   | Initializer_fragment _ -> true
   | Global_initializer global ->
       Option.is_some
@@ -290,6 +298,7 @@ let make_root ~index ~role ~expression ~origin =
         dimension_fragment_ = None;
         switch_case_fragment_ = None;
         offset_fragment_ = None;
+        member_metadata_fragment_ = None;
         initializer_calls_ = [];
         initializer_call_trees_ = [];
       }
@@ -599,6 +608,38 @@ let make_offset_root ~index ~fragment ~expression ~calls =
       initializer_call_trees_ = trees;
     }
 
+let make_member_metadata_root ~index ~fragment ~expression ~calls =
+  let ( let* ) = Result.bind in
+  let source_calls = List.map (fun (call : call) -> call.source) calls in
+  let trees =
+    List.map
+      (fun (call : call) ->
+        (call.source, call.callee_expression, call.result_expression))
+      calls
+  in
+  let* () =
+    Function_call_resolution.validate_source_expression
+      ~source:(Member_metadata_fragment.expression fragment)
+      ~metadata_fragment:fragment ~expression ~calls:source_calls
+      ~callee_expressions:
+        (List.map (fun (source, callee, _) -> (source, callee)) trees)
+      ~call_expressions:
+        (List.map (fun (source, _, result) -> (source, result)) trees)
+      ()
+    |> Result.map_error invalid_input
+  in
+  let* root =
+    make_root ~index ~role:(Member_metadata_fragment fragment) ~expression
+      ~origin:(Member_metadata_fragment.origin fragment)
+  in
+  Ok
+    {
+      root with
+      member_metadata_fragment_ = Some fragment;
+      initializer_calls_ = source_calls;
+      initializer_call_trees_ = trees;
+    }
+
 let make_switch_case ~index ~keyword_origin ~pattern ~origin =
   if index < 0 then
     Error (invalid_input "top-level switch case index cannot be negative")
@@ -791,10 +832,23 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
               let scalar_shape =
                 match Initializer_source.tree manifest with
                 | Initializer_source.Scalar _ -> true
-                | Initializer_source.Braced _ | Initializer_source.Unbraced _ ->
-                    owner |> Global_initializer_binding.global_record
-                    |> Global_resolution.global_record_global
-                    |> Global_type_resolution.global_array_dimensions <> []
+                | Initializer_source.Braced _ | Initializer_source.Unbraced _
+                  -> (
+                    let global =
+                      owner |> Global_initializer_binding.global_record
+                      |> Global_resolution.global_record_global
+                    in
+                    Global_type_resolution.global_array_dimensions global <> []
+                    ||
+                    let type_ =
+                      Global_type_resolution.global_type_reference global
+                      |> Type_reference.resolved_type
+                    in
+                    Type.pointer_depth type_ = 0
+                    &&
+                    match Type.base type_ with
+                    | Type.Aggregate _ -> true
+                    | _ -> false)
               in
               scalar_shape && switch_cases = []
               && List.for_all
@@ -849,8 +903,41 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
           source |> Top_level_outer_expression_binding.statement_source
           |> Top_level_expression_binding.statement_internal_binding
         in
-        match (internal_binding, static) with
-        | Some internal_binding, None -> (
+        let metadata =
+          source |> Top_level_outer_expression_binding.statement_source
+          |> Top_level_expression_binding.statement_member_metadata
+        in
+        match (internal_binding, static, metadata) with
+        | None, None, Some metadata -> (
+            match (owner, roots) with
+            | ( None,
+                [
+                  ({
+                     role = Member_metadata_fragment selected;
+                     member_metadata_fragment_ = Some proof;
+                     _;
+                   } as root);
+                ] ) ->
+                Option.is_none offset && Option.is_none dimension
+                && Option.is_none default && Option.is_none fragment
+                && selected == metadata && proof == metadata
+                && root.origin = Member_metadata_fragment.origin metadata
+                && Function_call_resolution.argument_expression_origin
+                     root.expression
+                   = root.origin
+                && switch_cases = []
+                && List.length calls = List.length root.initializer_call_trees_
+                && List.for_all2
+                     (fun (call : call) (source_call, callee, result) ->
+                       call.source == source_call
+                       && call.callee_expression == callee
+                       && call.result_expression == result
+                       && List.exists (( == ) call.callee)
+                            (Top_level_outer_expression_binding
+                             .statement_occurrences source))
+                     calls root.initializer_call_trees_
+            | _ -> false)
+        | Some internal_binding, None, None -> (
             match (owner, roots) with
             | ( None,
                 [
@@ -882,8 +969,9 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
                              .statement_occurrences source))
                      calls root.initializer_call_trees_
             | _ -> false)
-        | Some _, Some _ -> false
-        | None, Some static -> (
+        | _, _, Some _ -> false
+        | Some _, Some _, None -> false
+        | None, Some static, None -> (
             Option.is_none offset && Option.is_none dimension
             && Option.is_none default && Option.is_none fragment
             && Option.is_none owner && switch_cases = []
@@ -914,7 +1002,7 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
                              .statement_occurrences source))
                      calls root.initializer_call_trees_
             | _ -> false)
-        | None, None -> (
+        | None, None, None -> (
             match (offset, dimension, default, fragment) with
             | Some offset, None, None, None -> (
                 match (owner, roots) with
@@ -1048,7 +1136,8 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
                                | Internal_binding_fragment _
                                | Dimension_fragment _
                                | Switch_case_fragment _
-                               | Offset_fragment _ -> true
+                               | Offset_fragment _
+                               | Member_metadata_fragment _ -> true
                                | _ -> false)
                              roots)
                     | Some owner, _ when retained_matches owner -> true

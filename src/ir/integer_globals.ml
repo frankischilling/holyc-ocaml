@@ -17,6 +17,7 @@ type declared_slot = {
   declared_shape : Shape.t;
   mutable initialized_leaves : Sema.Initializer_source.leaf list;
   mutable initializer_status : initializer_status;
+  mutable completed_layout : Integer_initializer_layout.t option;
 }
 
 type slot = {
@@ -80,6 +81,7 @@ type fragment_kind =
   | Dimension_context
   | Switch_case_context
   | Offset_context
+  | Member_metadata_context
   | Static_allocation_context of Integer_static_allocation.t
   | Static_initializer_context of Sema.Static_initializer_fragment.t
 
@@ -237,6 +239,30 @@ let offset_context view fragment =
       }
 
 let is_offset_fragment globals = globals.fragment_kind_ = Some Offset_context
+
+let member_metadata_context view fragment =
+  if view.environment != Sema.Member_metadata_fragment.environment fragment then
+    Error "member metadata fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Member_metadata_context;
+        source_callback_defaults = [];
+        source_defaults = [];
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let is_member_metadata_fragment globals =
+  globals.fragment_kind_ = Some Member_metadata_context
 
 let is_initializer_fragment globals =
   globals.fragment_kind_ = Some Initializer_context
@@ -435,6 +461,11 @@ let static_root_materialized slot root =
         (static_initializer slot)
 
 let static_compiler_options = Integer_statics.compiler_options
+let static_owner_compiler_options = Integer_statics.owner_compiler_options
+
+let static_initializer_compiler_options =
+  Integer_statics.initializer_compiler_options
+
 let static_storage slot = Static slot
 let static_source_allocation = Integer_statics.source_allocation
 let global_storage slot = Global slot
@@ -449,10 +480,19 @@ let begin_declared_initializer slot =
     slot.initializer_status <- Active;
     Ok ())
 
-let complete_declared_initializer slot =
+let complete_declared_initializer ?layout slot =
   if slot.initializer_status <> Active then
     Error "declared initializer has no active completion"
+  else if
+    Option.fold ~none:false
+      ~some:(fun layout ->
+        not
+          (Integer_initializer_layout.belongs_to_declared_shape layout
+             slot.declaration slot.declared_shape))
+      layout
+  then Error "declared initializer completion has another original layout"
   else (
+    slot.completed_layout <- layout;
     slot.initializer_status <- Complete;
     Ok ())
 
@@ -514,17 +554,17 @@ let storage_shape = function
   | Static slot -> Integer_statics.shape slot
 
 let storage_element_count slot = Shape.element_count (storage_shape slot)
+let storage_cell_count slot = Shape.cell_count (storage_shape slot)
 let storage_strides slot = Shape.strides (storage_shape slot)
 let storage_dimensions slot = Shape.dimensions (storage_shape slot)
 
 let cell_count globals =
   (match globals.fragment_kind_ with
     | Some (Static_allocation_context allocation) ->
-        Shape.element_count (Integer_static_allocation.shape allocation)
+        Shape.cell_count (Integer_static_allocation.shape allocation)
     | _ -> globals.global_cell_count_)
   + List.fold_left
-      (fun total slot ->
-        total + Shape.element_count (Integer_statics.shape slot))
+      (fun total slot -> total + Shape.cell_count (Integer_statics.shape slot))
       0 globals.statics_
 
 let storage_index = function
@@ -647,7 +687,8 @@ let find_static globals symbol =
     (fun slot -> Integer_statics.symbol slot == symbol)
     globals.statics_
 
-let with_statics ~span ~frames ~functions ~records globals =
+let with_statics ?(source_allocations = []) ?(initializer_snapshots = []) ~span
+    ~frames ~functions ~records globals =
   let ( let* ) = Result.bind in
   let mode =
     match globals.mode with
@@ -655,8 +696,9 @@ let with_statics ~span ~frames ~functions ~records globals =
     | Resolution.Aot -> Sema.Function_resolution.Aot
   in
   let* statics_ =
-    Integer_statics.create ~span ~mode ~start:globals.global_cell_count_ ~frames
-      ~functions ~records
+    Integer_statics.create ~initializer_snapshots
+      ~allocations:source_allocations ~span ~mode
+      ~start:globals.global_cell_count_ ~frames ~functions ~records
   in
   if
     List.exists
@@ -742,7 +784,8 @@ let find_allocated_storage globals symbol =
     (fun slot -> storage_symbol slot == symbol)
     (allocated_storage_slots globals)
 
-let create_impl ?layout ?initializers ~span:unit_span records =
+let create_impl ?task_view ?headers ?members ?layout ?initializers
+    ?(initializer_layouts = []) ~span:unit_span records =
   let ( let* ) = Result.bind in
   let invalid message =
     Error
@@ -778,6 +821,59 @@ let create_impl ?layout ?initializers ~span:unit_span records =
         | Some _ ->
             invalid "global initializer roots have foreign declaration owners")
       (Ok Symbols.empty) roots
+  in
+  let* () =
+    let rec check seen = function
+      | [] -> Ok ()
+      | (declaration, source_layout) :: rest -> (
+          let symbol =
+            Sema.Compiler_record.declared_global_symbol declaration
+          in
+          if
+            List.memq symbol seen
+            || Option.is_none
+                 (Sema.Compiler_record.declared_global_completion declaration)
+            || not (Symbols.mem (Symbol.id symbol) roots)
+          then invalid "initializer layout is duplicate, incomplete or unowned"
+          else
+            match
+              List.find_opt
+                (fun record ->
+                  record |> Records.classified_record_source
+                  |> Resolution.global_record_symbol
+                  |> fun original -> original == symbol)
+                (Records.records records)
+            with
+            | None ->
+                invalid
+                  "initializer layout belongs to another global declaration"
+            | Some record ->
+                let* () =
+                  Sema.Compiler_record.validate_declared_global_type declaration
+                    (record |> Records.classified_record_source
+                   |> Resolution.global_record_global)
+                  |> Result.map_error (fun message ->
+                      [
+                        Common.Diagnostic.make ~code:"HCIRL0004"
+                          ~severity:Common.Diagnostic.Error ~message
+                          ~primary:unit_span ();
+                      ])
+                in
+                let shape = Shape.create_declared_global declaration in
+                if
+                  not
+                    (Result.fold
+                       ~error:(fun _ -> false)
+                       ~ok:
+                         (Integer_initializer_layout.belongs_to_declared_shape
+                            source_layout declaration)
+                       shape)
+                then
+                  invalid
+                    "initializer layout changed its original declared shape"
+                else check (symbol :: seen) rest)
+    in
+    check [] initializer_layouts
   in
   let rec collect index byte_size symbols reversed roots = function
     | [] ->
@@ -852,6 +948,12 @@ let create_impl ?layout ?initializers ~span:unit_span records =
             |> Result.get_ok
           else type_
         in
+        let original_initializer =
+          List.find_opt
+            (fun (declaration, _) ->
+              Sema.Compiler_record.declared_global_symbol declaration == symbol)
+            initializer_layouts
+        in
         if symbol != Global.global_symbol global || Option.is_none span then
           fail "HCIRL0004"
             "global storage has inconsistent symbol or source evidence"
@@ -861,12 +963,16 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           Resolution.global_record_kind source <> Resolution.Definition
           || Resolution.global_record_state source <> Resolution.Defined
           || Resolution.global_record_storage source <> Resolution.Code_heap
+             && not
+                  (Records.compilation_mode records = Resolution.Jit
+                  && Resolution.global_record_storage source
+                     = Resolution.Data_heap)
           || Option.is_some (Resolution.global_record_alias_target source)
           || Records.cleanup record <> Records.Free_data_address
         then
           fail "HCRUN0001"
-            "global execution requires ordinary non-aliased code-heap \
-             definitions"
+            "global execution requires ordinary non-aliased code-heap or JIT \
+             data-heap definitions"
         else if
           Option.is_some (Global.global_initializer global)
           && Option.is_none initializers
@@ -875,6 +981,13 @@ let create_impl ?layout ?initializers ~span:unit_span records =
             "global declaration initializer execution is not implemented"
         else if
           Option.is_none (Scalar.public_byte_size shape_type)
+          && not
+               (Option.is_some members
+               && Type.pointer_depth shape_type = 0
+               &&
+               match Type.base shape_type with
+               | Type.Aggregate _ -> true
+               | _ -> false)
           || Global.global_declarator_kind global <> Global.Object
              && Option.is_none callback
         then
@@ -906,7 +1019,24 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                        extents")
           in
           let* shape =
-            match Shape.create ~type_:shape_type ~dimensions with
+            match
+              match original_initializer with
+              | Some (declaration, _)
+                when Type.equal
+                       (Sema.Compiler_record.declared_global_type declaration
+                       |> Sema.Type_reference.resolved_type)
+                       declared_type
+                     && Sema.Compiler_record.declared_global_dimensions
+                          declaration
+                        = dimensions -> Shape.create_declared_global declaration
+              | Some _ -> Error Shape.Unsupported_type
+              | None -> (
+                  match members with
+                  | Some members when Option.is_none callback ->
+                      Shape.create_global ?headers ~members ~global ~dimensions
+                        ()
+                  | _ -> Shape.create ~type_:shape_type ~dimensions)
+            with
             | Ok shape -> Ok shape
             | Error Shape.Overflow ->
                 fail "HCIRL0005"
@@ -917,7 +1047,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           in
           let* () =
             if
-              Shape.element_count shape > Sys.max_array_length - index
+              Shape.cell_count shape > Sys.max_array_length - index
               || Shape.byte_size shape > Int.max_int - byte_size
             then
               fail "HCIRL0005"
@@ -930,7 +1060,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
               (Symbols.find_opt (Symbol.id symbol) roots)
           in
           let* array_initializers =
-            if dimensions = [] then Ok None
+            if dimensions = [] && not (Shape.is_aggregate shape) then Ok None
             else
               match (Global.global_initializer global, owned) with
               | None, None -> Ok None
@@ -951,7 +1081,33 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                         fail "HCIRL0004"
                           "array initializer has no original source manifest"
                     | Some source ->
-                        Arrays.create ~shape ~source ~roots:owned_roots
+                        let retained_layout =
+                          match original_initializer with
+                          | Some _ as original -> original
+                          | None ->
+                              Option.bind task_view (fun view ->
+                                  List.find_map
+                                    (fun (_, reference, storage) ->
+                                      match storage with
+                                      | Declared prior
+                                        when Retained_global.symbol reference
+                                             == symbol
+                                             && prior.initializer_status
+                                                = Complete ->
+                                          Option.map
+                                            (fun layout ->
+                                              (prior.declaration, layout))
+                                            prior.completed_layout
+                                      | _ -> None)
+                                    view.entries)
+                        in
+                        let create =
+                          match retained_layout with
+                          | None -> Arrays.create
+                          | Some (declaration, layout) ->
+                              Arrays.create_retained ~declaration ~layout
+                        in
+                        create ~shape ~source ~roots:owned_roots
                           ~source_leaf:(fun root ->
                             root |> Typed.top_level_root_source
                             |> Sema.Top_level_expression_tree
@@ -970,7 +1126,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                     "array declaration and initializer roots disagree"
           in
           let* initializer_root =
-            if dimensions <> [] then Ok None
+            if dimensions <> [] || Shape.is_aggregate shape then Ok None
             else
               match (Global.global_initializer global, owned) with
               | None, None -> Ok None
@@ -1005,7 +1161,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                               && Typed.result_is_callback_storage value
                           | _ -> false))
                     || not
-                         (match Typed.result_type value with
+                         (match Typed.result_value_type value with
                          | Some type_ ->
                              Option.is_some
                                (Integer_scalar_storage.of_type type_)
@@ -1056,7 +1212,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                 }
               in
               collect
-                (index + Shape.element_count shape)
+                (index + Shape.cell_count shape)
                 (byte_size + Shape.byte_size shape)
                 (Symbols.add (Symbol.id symbol) slot symbols)
                 (slot :: reversed)
@@ -1065,10 +1221,13 @@ let create_impl ?layout ?initializers ~span:unit_span records =
   in
   collect 0 0 Symbols.empty [] roots (Records.records records)
 
-let create ?initializers ~span records = create_impl ?initializers ~span records
+let create ?headers ?members ?initializers ~span records =
+  create_impl ?headers ?members ?initializers ~span records
 
-let create_with_layout ~layout ?initializers ~span records =
-  create_impl ~layout ?initializers ~span records
+let create_with_layout ?task_view ?headers ?members ~layout ?initializers
+    ?initializer_layouts ~span records =
+  create_impl ?task_view ~layout ?headers ?members ?initializers
+    ?initializer_layouts ~span records
 
 let create_task_catalog ~table =
   {
@@ -1245,6 +1404,10 @@ let check_internal_binding_source ?require_admitted catalog receipt =
 
 let check_offset_source catalog receipt =
   Sema.Task_command_order.check_offset catalog.source_order
+    ~admitted:catalog.admitted_commands receipt
+
+let check_member_metadata_source catalog receipt =
+  Sema.Task_command_order.check_member_metadata catalog.source_order
     ~admitted:catalog.admitted_commands receipt
 
 let with_source_command ?(aggregate_imports = []) view ~ast command =
@@ -1537,6 +1700,28 @@ let private_static_bindings globals =
 
 let join_static_allocations ~sources globals =
   let ( let* ) = Result.bind in
+  let* statics_ =
+    List.fold_left
+      (fun checked slot ->
+        let* slots = checked in
+        let source =
+          List.find_opt
+            (fun source ->
+              Sema.Static_local_source.frame source
+              == Integer_statics.frame slot
+              && Sema.Static_local_source.location source
+                 == Integer_statics.location slot)
+            sources
+        in
+        let* slot =
+          match source with
+          | None -> Ok slot
+          | Some source -> Integer_statics.with_source_options ~source slot
+        in
+        Ok (slot :: slots))
+      (Ok []) globals.statics_
+  in
+  let globals = { globals with statics_ = List.rev statics_ } in
   match globals.task_view with
   | None -> Ok globals
   | Some view ->
@@ -1717,8 +1902,11 @@ let prepare_declared catalog declaration =
     in
     let* declared_shape =
       match
-        Shape.create ~type_
-          ~dimensions:(Declared.declared_global_dimensions declaration)
+        if Option.is_some (Declared.declared_global_aggregate declaration) then
+          Shape.create_declared_global declaration
+        else
+          Shape.create ~type_
+            ~dimensions:(Declared.declared_global_dimensions declaration)
       with
       | Ok shape -> Ok shape
       | Error Shape.Overflow ->
@@ -1733,6 +1921,7 @@ let prepare_declared catalog declaration =
         declared_shape;
         initialized_leaves = [];
         initializer_status = Unstarted;
+        completed_layout = None;
       }
     in
     let bytes = Shape.byte_size declared_shape in
@@ -1747,7 +1936,7 @@ let prepare_declared catalog declaration =
           statics_ = [];
           mode = Resolution.Jit;
           global_byte_size_ = bytes;
-          global_cell_count_ = Shape.element_count declared_shape;
+          global_cell_count_ = Shape.cell_count declared_shape;
           byte_size_ = bytes;
           task_view = None;
           function_publications_ = [];
@@ -1799,7 +1988,7 @@ let join_declared view globals =
         match prior with
         | None ->
             collect
-              (index + Shape.element_count slot.shape)
+              (index + Shape.cell_count slot.shape)
               (bytes + Shape.byte_size slot.shape)
               ({ slot with index } :: rev)
               rest
@@ -2437,7 +2626,7 @@ let storage_array_image slot =
               (fun (payload, _) ->
                 ( Integer_initializer_layout.cell_offset
                     (Arrays.destination entry),
-                  payload ))
+                  Arrays.storage_payload entry payload ))
               (Arrays.prepared entry))
   in
   match slot with
@@ -2559,8 +2748,7 @@ let array_human globals =
               (Symbol.name symbol) (storage_index slot)
               (numbers (Shape.dimensions shape))
               (numbers (Shape.strides shape))
-              (Shape.element_count shape)
-              (Shape.byte_size shape)
+              (Shape.cell_count shape) (Shape.byte_size shape)
               (storage_preparation_steps slot)
             ^ values)
         |> String.concat "")

@@ -156,6 +156,7 @@ val analyze_top_level :
   members:Aggregate_member_index.t ->
   policies:Function_call_conversion_policy.t ->
   identifiers:Top_level_identifier_resolution.t ->
+  ?aggregate_visibility:Function_aggregate_visibility.t ->
   Top_level_expression_tree.t ->
   (top_level_t, error) result
 (** Type scalar roots, aggregate object members, aggregate offset paths, direct
@@ -305,6 +306,12 @@ val initializer_source :
 
 val initializer_value : initializer_result -> expression_result
 val initializer_target_type : initializer_result -> Type.t
+
+val initializer_backing_storage :
+  initializer_result -> Aggregate_backing_storage.t option
+(** Original checked aggregate word view for the initializer destination. The
+    nominal target type and allocation extent remain separate. *)
+
 val initializer_conversion : initializer_result -> intrinsic_conversion
 val return_source : return_result -> Function_call_resolution.return_input
 val return_declared_type : return_result -> Type.t
@@ -556,6 +563,18 @@ val result_binary_operands :
 (** Return the exact checked left and right children of a binary result in
     source order. Other expression forms return [None]. *)
 
+val result_index_element_size : expression_result -> int64 option
+(** Checked original class size at opening-bracket lookahead. This numeric view
+    grants no object allocation, stride dimensions or byte extent. *)
+
+val result_index_layout :
+  expression_result ->
+  pointer_type:Type.t ->
+  stride:int64 ->
+  Aggregate_pointee_layout.t option
+(** Original index observation authenticated for the checked scaled stride.
+    Memory access remains bounded by the original containing root. *)
+
 val result_index_operands :
   expression_result -> (expression_result * expression_result) option
 (** Exact checked base and index value for an index expression. The index keeps
@@ -566,8 +585,9 @@ val result_type : expression_result -> Type.t option
 val result_value_type : expression_result -> Type.t option
 
 val result_aggregate_return_value_type : expression_result -> Type.t option
-(** Scalar view retained by an original direct class call and transparent
-    grouping. This value grants no addressable aggregate storage. *)
+(** Scalar view retained by an original direct class call or register-value
+    cast, and transparent grouping. This value grants no addressable aggregate
+    storage. *)
 
 val result_aggregate_backing_storage :
   expression_result -> Aggregate_backing_storage.t option

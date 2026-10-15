@@ -1,0 +1,628 @@
+let headers = "extern U0 Print(U8 *fmt,...);"
+
+let source_zero_member =
+  {|I64 calls=0;extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){calls++;Print("A");return 7;}Box object={Next(),42};I64 F(){if(calls!=1)return -1;return object.tail;}F();|}
+
+let current_leaf =
+  {|#exe {
+extern class Item;class Box{Item item;$$=8;};
+I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}
+Box object={Complete()};StreamPrint("%d;",object.item.value);
+}|}
+
+let nested_metadata =
+  {|#exe {
+extern class Item;class Box{Item item;$$=8;};
+I64 Complete(){Print("A");StreamExePrint("I64 Next(){return 42;}class Item{U16 value data Next();};");return 42;}
+Box object={Complete()};StreamPrint("%d;",object.item.value);
+}|}
+
+let saved_tables =
+  {|#exe {
+extern class Item;class Box{Item item;U8 tail;$$=8;};
+I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}
+Box object={Complete(),7};StreamPrint("%d;",object.tail);
+}|}
+
+let backing raw =
+  Printf.sprintf
+    {|#exe {
+extern class Item;class Box{Item item;$$=8;};
+I64 Complete(){Print("A");StreamExePrint("%s class Item{I64 value;};");return -1;}
+Box object={Complete()};
+I64 Check(){U8 *p=(&object)(U8*);I64 i;for(i=0;i<8;i++)if(p[i]!=255)return -1;return 42;}
+StreamPrint("%%d;",Check());
+}|}
+    raw
+
+let ordinary_source_values =
+  [
+    ( "ordinary source activates before a zero-byte member initializer",
+      {|extern class Item;class Box{Item item;U8 tail;$$=8;};Box object={7,42};I64 F(){return object.tail;}F();|},
+      "" );
+    ( "ordinary source evaluates zero-byte members exactly once",
+      source_zero_member,
+      "A" );
+    ( "ordinary source zero-byte member arrays keep each leaf",
+      {|I64 calls=0;extern class Item;class Box{Item items[2];U8 tail;$$=8;};I64 Next(I64 n){calls++;if(n==40)Print("A");return n;}Box object={{Next(40),Next(2)},42};I64 F(){if(calls!=2)return -1;return object.tail;}F();|},
+      "A" );
+    ( "ordinary source zero-byte leaves follow the direct member cursor",
+      {|extern class Item;class Base{U8 base;};class Box:Base{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};I64 F(){return object.base;}F();|},
+      "A" );
+    ( "ordinary source later completion preserves the earlier copy",
+      {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};class Item{U16 value;};I64 F(){return object.tail;}F();|},
+      "A" );
+    ( "ordinary source shares reached globals with later functions",
+      {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 saved=0;I64 Next(){saved=40;Print("A");return 7;}Box object={Next(),42};I64 F(){if(saved!=40)return -1;object.tail+=2;return object.tail;}I64 Check(){F();return F()-4;}Check();|},
+      "A" );
+    ( "ordinary source zero-byte union members evaluate once",
+      {|extern class Item;union Box{Item item;U8 value;};I64 Next(){Print("A");return 7;}Box object={Next(),42};I64 F(){return object.value;}F();|},
+      "A" );
+    ( "ordinary source aggregate arrays retain each initializer effect",
+      {|I64 calls=0;extern class Item;class Box{Item item;U8 tail[2];$$=8;};I64 Next(I64 n){calls++;if(n==40)Print("A");return n;}Box objects[2]={{Next(40),{40,2}},{Next(2),{1,1}}};I64 F(){if(calls!=2)return -1;return objects[0].tail[0]+objects[0].tail[1];}F();|},
+      "A" );
+  ]
+
+let jit_values =
+  [
+    ("callee completes the cached scalar class", current_leaf, "A");
+    ("callee completion includes child runtime metadata", nested_metadata, "A");
+    ( "lookahead completes the cached scalar class",
+      {|extern class Item;class Box{Item item;$$=8;};Box object={42#exe{class Item{U16 value;};}};I64 F(){return object.item.value;}F();|},
+      "" );
+    ( "completed class changes the next array element branch",
+      {|#exe {
+extern class Item;class Box{Item items[2];U8 tail;$$=8;};
+I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}
+Box object={{Complete(),{40}},7};
+I64 Check(){U8 *p=(&object)(U8*);if(p[2]!=40||p[4]!=7)return -1;return p[0];}
+StreamPrint("%d;",Check());
+}|},
+      "A" );
+    ( "same-name replacement keeps the original copy width",
+      {|#exe {
+extern class Item;class Box{Item item;$$=8;};
+I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};class Item{U8 value;};");return 0x12a;}
+Box object={Complete()};StreamPrint("%d;",object.item.value-256);
+}|},
+      "A" );
+    ( "late U16 backing keeps the entire cached register word",
+      backing "U16",
+      "A" );
+    ( "late F64 backing keeps the entire cached register word",
+      backing "F64",
+      "A" );
+  ]
+
+let backed_array_lexer static =
+  let object_ =
+    {|Box object={{#exe{Print("A");U8 class Item{U8 value;};}0x12a,7}};|}
+  in
+  let check =
+    {|U8 *p=(&object)(U8*);if(p[0]!=42||p[1]!=1||p[2]!=7||p[3]!=0)return -1;return 42;|}
+  in
+  "#exe{extern U16 class Item;class Box{Item items[2];$$=8;};"
+  ^ (if static then "I64 F(){static " ^ object_ ^ check ^ "}"
+     else object_ ^ "I64 F(){" ^ check ^ "}")
+  ^ "StreamPrint(\"%d;\",F());}"
+
+let backed_array_callee static =
+  let object_ = "Box object={{Complete(),7}};" in
+  let check =
+    {|U8 *p=(&object)(U8*);if(p[0]!=42||p[1]!=1||p[2]!=7||p[3]!=0)return -1;return 42;|}
+  in
+  "#exe{extern U16 class Item;class Box{Item items[2];$$=8;};"
+  ^ {|I64 Complete(){Print("A");StreamExePrint("U8 class Item{U8 value;};");return 0x12a;}|}
+  ^ (if static then "I64 F(){static " ^ object_ ^ check ^ "}"
+     else object_ ^ "I64 F(){" ^ check ^ "}")
+  ^ "StreamPrint(\"%d;\",F());}"
+
+let backed_forward_timing =
+  {|#exe{extern U16 class Item #exe{Print("A");class Box{Item item;U8 tail;$$=8;};Box object={9,42};};StreamPrint("%d;",object.tail);}|}
+
+let backed_strings =
+  {|#exe{extern U8 class Item;class Box{Item items[2][2];$$=8;};I64 F(){static Box object={{#exe{Print("A");U16 class Item{U16 value;};}"A","B"}};U8 *p=(&object)(U8*);if(p[0]!=65||p[1]!=0||p[2]!=66||p[3]!=0)return -1;return 42;}StreamPrint("%d;",F());}|}
+
+let named_backed_array =
+  {|#exe{U16 class Base{U8 value;};extern Base class Item;class Box{Item items[2];$$=8;};Box object={{#exe{Print("A");U8 class Base{U8 value;};U8 class Item{U8 value;};}0x12a,7}};I64 F(){U8 *p=(&object)(U8*);if(p[1]!=1||p[2]!=7||p[3]!=0)return -1;return 42;}StreamPrint("%d;",F());}|}
+
+let backed_values =
+  [
+    ( "callback member lookahead completes the selected forward",
+      {|#exe{extern class Item;I64 F(Item *p){return p->#exe{Print("A");class Item{I64 (*callback)(I64 n);};}callback(40);}I64 Next(I64 n){return n+2;}Item object;object.callback=&Next;StreamPrint("%d;",F(&object));}|},
+      "A" );
+    ( "partial pointer member callbacks keep original storage",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 Read(Item *p){return p->callback(40);}I64 F(){static Box object;object.item.callback=&Next;return Read(&object.item);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback member calls retain the original signature",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback(40);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial global callback fields retain original outer metadata",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};Box object;I64 Next(I64 n){return n+2;}I64 F(){object.item.callback=&Next;return object.item.callback(40);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback calls retain original named parameter types",
+      {|#exe{class Value{I64 value;};class Item{I64 (*callback)(Value *p);#exe{Print("A");class Box{Item item;};I64 Next(Value *p){return p->value+2;}I64 F(){static Value value={40};static Box object;object.item.callback=&Next;return object.item.callback(&value);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback returns retain owned data pointers",
+      {|#exe{class Item{U8 *(*callback)(U8 *p);#exe{Print("A");class Box{Item item;};U8 *Next(U8 *p){return p;}I64 F(){static U8 values[1]={42};static Box object;object.item.callback=&Next;U8 *p=object.item.callback(values);return p[0];}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callbacks retain variadic argument slots",
+      {|#exe{class Item{I64 (*callback)(I64 base,...);#exe{Print("A");class Box{Item item;};I64 Next(I64 base,...){return base+argv[argc-1];}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback(40,2);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback callee is captured before argument mutation",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};Box object;I64 Old(I64 n){return 40+n;}I64 New(I64 n){return 100+n;}I64 Change(){object.item.callback=&New;return 2;}I64 F(){object.item.callback=&Old;return object.item.callback(Change());}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "top-level partial callback calls run before the body resumes",
+      {|#exe{I64 answer;class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};Box object;I64 Next(I64 n){return n+2;}object.item.callback=&Next;answer=object.item.callback(40);}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "partial callback arrays retain original dimensions",
+      {|#exe{class Item{I64 (*callbacks)(I64 n)[2];#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callbacks[1]=&Next;return object.item.callbacks[1](40);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback calls retain saved defaults",
+      {|#exe{class Item{I64 (*callback)(I64 n=40);#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback();}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial inherited callback calls retain the original base",
+      {|#exe{class Base{I64 (*callback)(I64 n);};class Item:Base{#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback(40);}}U8 tail;};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial callback signatures survive same-name replacement",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};class Item{U8 replacement;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback(40);}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "top-level partial member reads use the reached direct fields",
+      {|#exe{I64 answer;class Item{U8 value;#exe{Print("A");class Box{Item item;};Box object={{42}};answer=object.item.value;}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "top-level partial writes retain inherited and anonymous union fields",
+      {|#exe{I64 answer;class Base{U8 value;};class Item:Base{union{U16 word;U8 bytes[2];};#exe{Print("A");class Box{Item item;};Box object;object.item.value=40;object.item.word=0x12a;answer=object.item.bytes[0]+object.item.value-40;}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "top-level partial arrays retain explicit member offsets",
+      {|#exe{I64 answer;class Item{U8 tag;$$=3;U16 values[2];#exe{Print("A");class Box{Item item;};Box object;object.item.values[1]=40;answer=object.item.values[1]+2;}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "top-level partial reads retain the old class after same-name replacement",
+      {|#exe{I64 answer;class Item{U8 value;#exe{Print("A");class Box{Item item;};Box object={{42}};class Item{U8 replacement;};answer=object.item.value;}};StreamPrint("%d;",answer);}|},
+      "A" );
+    ( "top-level completed members retain the object's original class",
+      {|#exe{class Item{U8 value;};Item object={42};class Item{U8 replacement;};Print("A");StreamPrint("%d;",object.value);}|},
+      "A" );
+    ( "top-level member lookahead can complete the selected forward",
+      {|#exe{extern class Item;class Box{Item item;U8 bytes[8];};Box object={0,{42,0,0,0,0,0,0,0}};StreamPrint("%d;",object.item.#exe{Print("A");class Item{U8 value;};}value);}|},
+      "A" );
+    ( "ordinary backing retains its original named target through body effects",
+      {|#exe{U16 class Base{U8 value;};Base class Item{#exe{Print("A");U8 class Base{U8 value;};}U8 value;};class Box{Item item;$$=8;};Box actual={0x12a};I64 F(){U8 *p=(&actual)(U8*);return p[1]+41;}StreamPrint("%d;",F());}|},
+      "A" );
+    ( "ordinary backing waits for class-name lookahead",
+      {|#exe{U16 class Item #exe{Print("A");class Box{Item item;U8 tail;$$=8;};Box object={9,42};}{U8 value;};StreamPrint("%d;",object.tail);}|},
+      "A" );
+    ( "ordinary backing waits for following-token lookahead",
+      {|#exe{U16 class Item{U8 value;}#exe{Print("A");class Box{Item item;$$=8;};Box object={{42}};};StreamPrint("%d;",object.item.value);}|},
+      "A" );
+    ( "partial ordinary body exposes its reached direct members",
+      {|#exe{U16 class Item{U8 value;#exe{Print("A");class Box{Item item;$$=8;};Box object={{42}};}};StreamPrint("%d;",object.item.value);}|},
+      "A" );
+    ( "static preparation uses reached partial direct members",
+      {|#exe{U16 class Item{U8 value;#exe{Print("A");class Box{Item item;$$=8;};I64 F(){static Box object={{42}};return object.item.value;}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial member reads retain explicit offsets and array dimensions",
+      {|#exe{class Item{U8 tag;$$=3;U16 values[2];#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{1,{7,40}}};object.item.values[1]=40;U8 *p=(&object)(U8*);if(p[5]!=40)return -1;return object.item.values[1]+2;}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial signed member reads preserve original scalar storage",
+      {|#exe{class Item{I8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{-1}};return object.item.value+43;}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial member writes keep their original placement",
+      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{40}};object.item.value+=2;return object.item.value;}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial inherited member reads keep the selected base snapshot",
+      {|#exe{class Base{U8 value;};class Item:Base{#exe{Print("A");class Box{Item item;};I64 F(){static Box object;object.item.value=40;return object.item.value+2;}}U8 tail;};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial anonymous union fields retain their shared original offset",
+      {|#exe{class Item{U8 tag;union{U16 value;U8 bytes[2];};#exe{Print("A");class Box{Item item;};I64 F(){static Box object;object.item.value=0x12a;return object.item.bytes[0];}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "partial pointer fields retain owned static targets",
+      {|#exe{class Item{U8 *value;#exe{Print("A");class Box{Item item;};I64 F(){static U8 target[1]={42};static Box object;object.item.value=target;return object.item.value[0];}}};StreamPrint("%d;",F());}|},
+      "A" );
+    ( "member lookahead observes class completion after the base identifier",
+      {|#exe{extern class Item;class Box{Item item;$$=8;};I64 F(){static Box object;U8 *p=(&object)(U8*);p[0]=42;return object.item.#exe{Print("A");class Item{U8 value;};}value;}StreamPrint("%d;",F());}|},
+      "A" );
+    ( "pointer member lookahead observes completion after the base read",
+      {|#exe{extern class Item;I64 F(Item *p){return p#exe{Print("A");class Item{I64 value;};}->value;}Item object={42};StreamPrint("%d;",F(&object));}|},
+      "A" );
+    ( "completion retains old forwarding until the new body finishes",
+      {|#exe{extern U16 class Item;U8 class Item #exe{Print("A");class Box{Item item;$$=8;};Box object={0x12a};}{U8 value;};I64 F(){U8 *p=(&object)(U8*);return p[1]+41;}StreamPrint("%d;",F());}|},
+      "A" );
+    ( "unbacked completion retains prior extern forwarding",
+      {|#exe{extern U16 class Item;class Item{U8 value;};class Box{Item item;$$=8;};Box object={0x12a};I64 F(){U8 *p=(&object)(U8*);return p[1]+41;}Print("A");StreamPrint("%d;",F());}|},
+      "A" );
+    ( "cached zero-width forwarding still evaluates its leaf",
+      {|#exe{extern U0 class Item;class Box{Item items[2];U8 tail;$$=8;};I64 Side(){Print("A");StreamExePrint("U8 class Item{U8 value;};");return 7;}Box object={{Side(),9},42};StreamPrint("%d;",object.tail);}|},
+      "A" );
+    ( "global array caches forwarding before lexer completion",
+      backed_array_lexer false,
+      "A" );
+    ( "static array caches forwarding before lexer completion",
+      backed_array_lexer true,
+      "A" );
+    ( "global array retains forwarding across callee completion",
+      backed_array_callee false,
+      "A" );
+    ( "static array retains forwarding across callee completion",
+      backed_array_callee true,
+      "A" );
+    ( "forward backing is installed after class-name lookahead",
+      backed_forward_timing,
+      "A" );
+    ("cached byte forwarding retains nested string copies", backed_strings, "A");
+    ( "named backing preserves original targets through replacement",
+      named_backed_array,
+      "A" );
+  ]
+
+let fragment_member_faults =
+  [
+    ( "empty root cannot read the following nonempty allocation",
+      {|I64 Next(){Print("A");return 7;}class Empty{};Empty object=Next();U8 guard=42;I64 F(){U8 *p=(&object)(U8*);return *p;}F();|},
+      "HCIRVM0019" );
+    ( "completion cannot enlarge an original empty root",
+      {|extern class Item;Item object=42#exe{Print("A");class Item{U8 value;};};42;|},
+      "HCRUN0006" );
+    ( "earlier aggregate static still checks initialized bytes",
+      {|I64 Side(){Print("A");return 40;}class Box{U8 value;};I64 F(){static I64 marker=Side();static Box object;static U8 n=object.value;return marker+n;}F();|},
+      "HCIRVM0012" );
+    ( "earlier static aggregate array retains original bounds",
+      {|I64 Side(){Print("A");return 40;}class Box{U8 value;};I64 F(){static Box objects[2]={{Side()},{2}};static U8 n=objects[2].value;return n;}F();|},
+      "HCIRVM0019" );
+    ( "missing static member cannot gain later layout metadata",
+      {|I64 Side(){Print("A");return 40;}class Box{U8 value;};I64 F(){static Box object={Side()};static U8 n=object.missing;return n;}F();|},
+      "HCSEMA0046" );
+  ]
+
+let fragment_member_values =
+  [
+    ( "nested static member arrays retain original projections",
+      {|I64 Next(){Print("A");return 40;}class Leaf{U8 values[2];};class Box{Leaf nested;};I64 F(){static Box object={{{Next(),2}}};static U8 n=object.nested.values[0]+object.nested.values[1];return n;}F();|},
+      "A" );
+    ( "fragment member reads retain the class before replacement",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 value;};Box object={Next()};class Box{U16 value;};I64 n=object.value+2;n;|},
+      "A" );
+    ( "later static initializer reads an earlier aggregate member",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 value;};I64 F(){static Box object={Next()};static U8 n=object.value+2;return n;}F();|},
+      "A" );
+    ( "later static initializer updates an earlier aggregate once",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 value;};I64 F(){static Box object={Next()};static U8 n=++object.value;return object.value+n-40;}I64 Check(){F();return F();}Check();|},
+      "A" );
+    ( "static aggregate arrays preserve original element strides",
+      {|I64 Next(I64 n){if(n==40)Print("A");return n;}class Box{U8 value;};I64 F(){static Box objects[2]={{Next(40)},{2}};static U8 n=objects[0].value+objects[1].value;return n;}F();|},
+      "A" );
+    ( "static inherited fields retain their original offsets",
+      {|I64 Next(){Print("A");return 0;}class Base{U8 pad;};class Box:Base{U8 head;U8 tail;$$=8;};I64 F(){static Box object={Next(),0};static I64 seed=(object.head=40)+(object.tail=2);static U8 n=object.head+object.tail;return n+seed-42;}F();|},
+      "A" );
+    ( "global initializer reads an original aggregate member",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 value;};Box object={Next()};I64 n=object.value+2;n;|},
+      "A" );
+  ]
+
+let fragment_member_jit_values =
+  [
+    ( "parameter default reads an original aggregate member",
+      {|I64 Next(){Print("A");return 41;}class Box{U8 value;};Box object={Next()};I64 F(I64 n=object.value){return n+1;}F();|},
+      "A" );
+    ( "runtime dimension reads an original aggregate member",
+      {|I64 Next(){Print("A");return 2;}class Box{U8 value;};Box object={Next()};I64 a[object.value];I64 F(){return sizeof(a)+26;}F();|},
+      "A" );
+    ( "member metadata updates an original aggregate once",
+      {|I64 Next(){Print("A");return 41;}class Box{U8 value;};Box object={Next()};class Tagged{U8 field tag ++object.value;};I64 F(){return object.value;}F();|},
+      "A" );
+  ]
+
+let static_load_values =
+  [
+    ( "static callback load retains the original function address",
+      {|I64 Add(I64 n){Print("A");return n+1;}I64 F(){static I64 (*P)(I64 n)=&Add;return P(41);}I64 Add(I64 n){return n+2;}F();|},
+      "A" );
+    ( "static load keeps its scalar branch through expression lookahead",
+      {|I64 Next(I64 n){Print("A");return n;}extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={Next(
+#exe { StreamExePrint("class Item{U16 value;};"); }
+7),42};U8 *p=(&object)(U8*);return p[2];}F();|},
+      "A" );
+    ( "static load evaluates a zero-byte leaf before later completion",
+      {|I64 calls=0;I64 Next(){Print("A");return ++calls;}extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={Next(),42};return object.tail;}class Item{U16 value;};I64 Check(){if(calls!=1)return -1;F();return F();}Check();|},
+      "A" );
+    ( "static scalar load runs once before calls to its owner",
+      {|I64 calls=0;I64 Next(){Print("A");return ++calls;}I64 F(){static I64 n=Next();return ++n;}I64 Check(){if(calls!=1)return -1;F();return F()+39;}Check();|},
+      "A" );
+    ( "static member array load retains ordered leaf effects",
+      {|I64 calls=0;I64 Next(I64 n){calls++;if(n==40)Print("A");return n;}class Box{U8 tail[2];};I64 F(){static Box object={{Next(40),Next(2)}};return object.tail[0]+object.tail[1];}I64 Check(){if(calls!=2)return -1;return F();}Check();|},
+      "A" );
+    ( "static load can read an earlier static in its original frame",
+      {|I64 Next(){Print("A");return 40;}I64 F(){static U8 base=Next();static U8 tail=base+2;return tail;}F();|},
+      "A" );
+    ( "global and static loads preserve source order",
+      {|I64 calls=0;I64 Next(I64 n){calls++;if(n==40)Print("A");return n;}I64 before=Next(40);class Box{U8 tail;};I64 F(){static Box object={Next(2)};return before+object.tail;}I64 Check(){if(calls!=2)return -1;return F();}Check();|},
+      "A" );
+    ( "static load retains a function selected before replacement",
+      {|I64 Next(){Print("A");return 40;}class Box{U8 head;U8 tail;};I64 F(){static Box object={Next(),2};return object.head+object.tail;}I64 Next(){return 99;}F();|},
+      "A" );
+  ]
+
+let empty_root_values =
+  [
+    ( "closed empty initializer leaves retain zero-byte images",
+      {|class Empty{};Empty objects[2]={40,2};I64 F(){static Empty saved=7;static Empty saved_array[2]={8,9};return sizeof(objects)+sizeof(saved)+sizeof(saved_array)+42;}F();|},
+      "" );
+    ( "empty global retains its scalar initializer effect",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}class Empty{};Empty object=Next();I64 F(){return sizeof(object)+calls+41;}F();|},
+      "A" );
+    ( "empty static initializes before an unused function is published",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}class Empty{};I64 Unused(){static Empty object=Next();return sizeof(object);}I64 F(){return calls+41;}F();|},
+      "A" );
+    ( "empty static is not initialized again on invocation",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}class Empty{};I64 F(){static Empty object=Next();return sizeof(object)+calls+41;}I64 Check(){F();return F();}Check();|},
+      "A" );
+    ( "empty global arrays evaluate every original leaf",
+      {|I64 calls=0;I64 Next(){if(!calls)Print("A");return ++calls;}class Empty{};Empty objects[2][2]={{Next(),Next()},{Next(),Next()}};I64 F(){return sizeof(objects)+calls+38;}F();|},
+      "A" );
+    ( "empty static arrays retain each source effect",
+      {|I64 calls=0;I64 Next(){if(!calls)Print("A");return ++calls;}class Empty{};I64 F(){static Empty objects[2][2]={{Next(),Next()},{Next(),Next()}};return sizeof(objects)+calls+38;}I64 Check(){F();return F();}Check();|},
+      "A" );
+    ( "zero-width direct members still traverse their source leaves",
+      {|I64 calls=0;I64 Next(){if(!calls)Print("A");return ++calls;}class Empty{U0 first;U0 rest[2];};Empty object={Next(),{Next(),Next()}};I64 F(){return sizeof(object)+calls+39;}F();|},
+      "A" );
+    ( "empty unions preserve zero-width member effects",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}union Empty{U0 value;};Empty object={Next()};I64 F(){return sizeof(object)+calls+41;}F();|},
+      "A" );
+    ( "empty inherited roots retain their original scalar branch",
+      {|I64 calls=0;I64 Next(){calls++;Print("A");return 7;}class Base{};class Empty:Base{};Empty object=Next();I64 F(){return sizeof(object)+calls+41;}F();|},
+      "A" );
+    ( "replacement cannot enlarge an earlier empty root",
+      {|I64 Next(){Print("A");return 7;}class Empty{};Empty object=Next();class Empty{U16 value;};I64 F(){return sizeof(object)+42;}F();|},
+      "A" );
+    ( "uninitialized empty globals and statics retain zero geometry",
+      {|class Empty{};Empty object;I64 F(){static Empty saved[2];return sizeof(object)+sizeof(saved)+42;}F();|},
+      "" );
+  ]
+
+let option_both_values =
+  [
+    ( "data-heap option does not move constant statics off the code heap",
+      {|#exe{Option(35,1);}I64 F(){static I64 n=40;static U8 tail=2;return n+tail;}F();|},
+      "" );
+    ( "static allocation options survive later body changes",
+      {|I64 Seed(){Print("A");return 42;}I64 F(){static I64 n=Seed();#exe{Option(35,1);}return n;}F();|},
+      "A" );
+    ( "static expression lookahead selects its own deferral options",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 42;}I64 F(){static I64 n=Seed()#exe{Option(35,0);};return n;}F();|},
+      "A" );
+    ( "static member leaves retain separate expression option snapshots",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}class Box{U8 first;U8 tail;};I64 F(){static Box object={Seed()#exe{Option(35,0);},2#exe{Option(35,1);}};return object.first+object.tail;}F();|},
+      "A" );
+    ( "fixed static arrays retain per-leaf option changes",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}I64 F(){static U8 values[2]={Seed()#exe{Option(35,0);},2#exe{Option(35,1);}};return values[0]+values[1];}F();|},
+      "A" );
+  ]
+
+let option_jit_values =
+  [
+    ( "JIT data-heap globals preserve scalar updates",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}U8 value=Seed();I64 F(){value+=2;return value;}F();|},
+      "A" );
+    ( "JIT data-heap arrays preserve each initializer effect",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}U8 values[2]={Seed(),2};I64 F(){return values[0]+values[1];}F();|},
+      "A" );
+    ( "JIT data-heap aggregates retain their owned byte views",
+      {|#exe{Option(35,1);}I64 Seed(){Print("A");return 40;}class Box{U8 first;U8 tail;};Box object={Seed(),2};I64 F(){U8 *p=(&object)(U8*);return p[0]+p[1];}F();|},
+      "A" );
+    ( "global declarators retain separate allocation options",
+      {|I64 Seed(){Print("A");return 40;}U8 first=Seed()#exe{Option(35,1);},tail=2#exe{Option(35,0);};I64 F(){return first+tail;}F();|},
+      "A" );
+  ]
+
+let option_aot_faults =
+  [
+    ( "AOT data-heap globals reject before initializer directives",
+      {|#exe{Print("A");Option(35,1);}I64 value=#exe{Print("B");}42;value;|},
+      "HCEVAL0003" );
+    ( "AOT comma declarator observes its reached data-heap option",
+      {|I64 first=40#exe{Print("A");Option(35,1);},tail=#exe{Print("B");}2;first+tail;|},
+      "HCEVAL0003" );
+    ( "AOT static compile phase stops before later body effects",
+      {|#exe{Print("A");}I64 Seed(){return 42;}I64 F(){static I64 value=Seed()#exe{Option(35,1);};#exe{Print("B");}return value;}F();|},
+      "HCRUN0006" );
+  ]
+
+let both_values =
+  ordinary_source_values @ backed_values @ static_load_values
+  @ fragment_member_values @ empty_root_values @ option_both_values
+  @ [
+      ( "global initialization retains the forward through same-name replacement",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Next(){Print("A");return 7;}Box object={Next(),42};class Item{U16 value;};class Item{U8 replacement;};I64 F(){return object.tail;}F();|},
+        "A" );
+      ( "global initialization sees completion before its original start",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};class Item{U16 value;};I64 Next(){Print("A");return 7;}Box object={{Next()},42};I64 F(){U8 *p=(&object)(U8*);return p[2];}F();|},
+        "A" );
+      ( "static initialization keeps the earlier scalar branch after completion",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={7,42};return object.tail;}class Item{U16 value;};#exe{Print("A");}F();|},
+        "A" );
+      ( "static initialization survives same-name class replacement",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={7,42};return object.tail;}class Item{U16 value;};class Item{U8 replacement;};#exe{Print("A");}F();|},
+        "A" );
+      ( "static initialization remains once-only across later calls",
+        {|extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={7,40};return ++object.tail;}class Item{U16 value;};#exe{Print("A");}I64 Check(){F();F();return F()-1;}Check();|},
+        "A" );
+      ( "static member arrays retain their original zero-byte cursor",
+        {|extern class Item;class Box{Item items[2];U8 tail;$$=8;};I64 F(){static Box object={{7,9},42};return object.tail;}class Item{U16 value;};#exe{Print("A");}F();|},
+        "A" );
+      ( "uncompleted scalar consumes zero bytes before the next leaf",
+        {|#exe {extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Side(){Print("A");return 7;}Box object={Side(),42};StreamPrint("%d;",object.tail);}|},
+        "A" );
+    ]
+
+let source_activation_faults =
+  [
+    ( "ordinary source initializer output precedes later malformed input",
+      {|class Box{I64 value;};I64 Next(){Print("A");return 42;}Box object={Next()};I64 Broken(garbage|},
+      "HCPARSE0009" );
+    ( "ordinary source initializer faults precede later malformed input",
+      {|class Box{I64 value;};I64 Next(I64 divisor){Print("A");return 1/divisor;}Box object={Next(0)};I64 Broken(garbage|},
+      "HCIRVM0009" );
+  ]
+
+let faults =
+  source_activation_faults
+  @ [
+      ( "new ordinary forwarding cannot shrink a captured nominal copy",
+        {|#exe{extern class Item;class Box{Item item;$$=8;};I64 Complete(){Print("A");StreamExePrint("U16 class Item{U8 value[9];};");return 42;}Box object={Complete()};}|},
+        "HCRUN0006" );
+      ( "cached global array backing cannot shrink around original bounds",
+        {|#exe{extern U64 class Item;class Box{Item items[2];$$=1;};Box object={{#exe{Print("A");U8 class Item{U8 value;};}42,7}};}|},
+        "HCRUN0006" );
+      ( "cached static array backing cannot shrink around original bounds",
+        {|#exe{extern U64 class Item;class Box{Item items[2];$$=1;};I64 F(){static Box object={{#exe{Print("A");U8 class Item{U8 value;};}42,7}};return 42;}}|},
+        "HCRUN0006" );
+      ( "completion cannot enlarge the original root",
+        {|#exe {extern class Item;class Box{Item item;$$=1;};I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}Box object={Complete()};StreamPrint("42;");}|},
+        "HCRUN0006" );
+      ( "scalar copy cannot read beyond the computed register word",
+        {|#exe {extern class Item;class Box{Item item;$$=16;};I64 Complete(){Print("A");StreamExePrint("class Item{U8 value[9];};");return 42;}Box object={Complete()};StreamPrint("42;");}|},
+        "HCRUN0006" );
+      ( "failed evaluation preserves its earlier output",
+        {|#exe {extern class Item;class Box{Item item;$$=8;};I64 Z=0;I64 Bad(){Print("A");return 1/Z;}Box object={Bad()};StreamPrint("42;");}|},
+        "HCIRVM0009" );
+    ]
+
+let static_current_leaf =
+  {|#exe {
+extern class Item;class Box{Item item;$$=8;};
+I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}
+I64 F(){static Box object={Complete()};return ++object.item.value;}
+F();StreamPrint("%d;",F()-2);
+}|}
+
+let static_saved_tables =
+  {|#exe {
+extern class Item;class Box{Item item;U8 tail;$$=8;};
+I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}
+I64 F(){static Box object={Complete(),7};return object.tail;}
+StreamPrint("%d;",F());
+}|}
+
+let static_nested_metadata =
+  {|#exe {extern class Item;class Box{Item item;$$=8;};I64 Complete(){Print("A");StreamExePrint("I64 Next(){return 42;}class Item{U16 value data Next();};");return 42;}I64 F(){static Box object={Complete()};return object.item.value;}StreamPrint("%d;",F());}|}
+
+let static_backing raw =
+  Printf.sprintf
+    {|#exe {
+extern class Item;class Box{Item item;$$=8;};
+I64 Complete(){Print("A");StreamExePrint("%s class Item{I64 value;};");return -1;}
+I64 F(){static Box object={Complete()};U8 *p=(&object)(U8*);I64 i;for(i=0;i<8;i++)if(p[i]!=255)return -1;return 42;}
+StreamPrint("%%d;",F());
+}|}
+    raw
+
+let static_before_nested_brace =
+  {|extern class Item;class Box{Item item;U8 tail;$$=8;};
+I64 Next(){return 42;}
+I64 F(){static Box object={#exe{Print("A");class Item{U16 value;};}{Next()},7};U8 *p=(&object)(U8*);if(p[2]!=7)return -1;return object.item.value;}F();|}
+
+let static_before_nested_brace_task =
+  "#exe{" ^ static_before_nested_brace ^ "StreamPrint(\"%d;\",F());}"
+
+let grammar_faults =
+  [
+    ( "static nested branch is selected before opening-brace lookahead",
+      {|extern class Item;class Box{Item item;$$=8;};I64 F(){static Box object={{#exe{Print("L");class Item{U16 value;};}42}};return object.item.value;}F();|},
+      "" );
+    ( "global nested branch is selected before opening-brace lookahead",
+      {|extern class Item;class Box{Item item;$$=8;};Box object={{#exe{Print("L");class Item{U16 value;};}42}};I64 F(){return object.item.value;}F();|},
+      "" );
+    ( "static grammar failure retains the earlier successful leaf",
+      {|extern class Item;class Box{U16 first;Item item;$$=8;};I64 First(){Print("A");return 7;}I64 F(){static Box object={First(),{#exe{Print("L");class Item{U16 value;};}42}};return object.item.value;}F();|},
+      "A" );
+  ]
+
+let static_jit_values =
+  [
+    ( "completion before nested opening brace selects direct members",
+      static_before_nested_brace,
+      "A" );
+    ( "active task retains grammar selected before nested braces",
+      static_before_nested_brace_task,
+      "A" );
+    ( "static completion shares the child metadata allowance",
+      static_nested_metadata,
+      "A" );
+    ( "static callee completion copies once before repeated calls",
+      static_current_leaf,
+      "A" );
+    ( "static lookahead retains its original scalar branch",
+      {|#exe {extern class Item;class Box{Item item;$$=8;};I64 F(){static Box object={42#exe{class Item{U16 value;};}};return object.item.value;}StreamPrint("%d;",F());}|},
+      "" );
+    ( "static array changes the next element branch",
+      {|#exe {extern class Item;class Box{Item items[2];U8 tail;$$=8;};I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}I64 F(){static Box object={{Complete(),{40}},7};U8 *p=(&object)(U8*);if(p[2]!=40||p[4]!=7)return -1;return p[0];}StreamPrint("%d;",F());}|},
+      "A" );
+    ( "static completion retains its selected class after replacement",
+      {|#exe {extern class Item;class Box{Item item;$$=8;};I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};class Item{U8 value;};");return 0x12a;}I64 F(){static Box object={Complete()};return object.item.value-256;}StreamPrint("%d;",F());}|},
+      "A" );
+    ( "static late U16 backing preserves the cached register word",
+      static_backing "U16",
+      "A" );
+    ( "static late F64 backing preserves the cached register word",
+      static_backing "F64",
+      "A" );
+  ]
+
+let static_both_values =
+  [
+    ( "static incomplete member consumes zero bytes",
+      {|#exe {extern class Item;class Box{Item item;U8 tail;$$=8;};I64 Side(){Print("A");return 7;}I64 F(){static Box object={Side(),42};return object.tail;}StreamPrint("%d;",F());}|},
+      "A" );
+  ]
+
+let partial_member_faults =
+  [
+    ( "callback completion after the member name cannot authorize selection",
+      {|#exe{extern class Item;I64 F(Item *p){return p->callback#exe{Print("A");class Item{I64 (*callback)(I64 n);};}(40);}StreamPrint("%d;",42);}|},
+      "HCSEMA0039" );
+    ( "partial callback ownership rejects an overlapping byte write",
+      {|#exe{class Item{I64 (*callback)(I64 n);#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;U8 *p=(&object)(U8*);p[3]=p[3];return object.item.callback(40);}}};StreamPrint("%d;",F());}|},
+      "HCIRVM0024" );
+    ( "partial callback calls require their selected signature",
+      {|#exe{class Item{I64 (*callback)();#exe{Print("A");class Box{Item item;};I64 Next(I64 n){return n+2;}I64 F(){static Box object;object.item.callback=&Next;return object.item.callback();}}};StreamPrint("%d;",F());}|},
+      "HCIRVM0014" );
+    ( "partial callback arrays retain their original root bounds",
+      {|#exe{class Item{I64 (*callbacks)(I64 n)[2];#exe{Print("A");class Box{Item item;};I64 F(){static Box object;return object.item.callbacks[2](40);}}};StreamPrint("%d;",F());}|},
+      "HCIRVM0019" );
+    ( "partial callback lookup cannot borrow an unreached member",
+      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object;return object.item.callback(40);}}I64 (*callback)(I64 n);};StreamPrint("%d;",F());}|},
+      "HCSEMA0039" );
+    ( "unreached partial member cannot borrow later body completion",
+      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{42}};return object.item.later;}}U8 later;};StreamPrint("%d;",F());}|},
+      "HCSEMA0046" );
+    ( "completion after member selection cannot authorize the earlier read",
+      {|#exe{extern class Item;class Box{Item item;$$=8;};Print("A");I64 F(){static Box object;return object.item.value#exe{class Item{U8 value;};};}StreamPrint("%d;",F());}|},
+      "HCSEMA0046" );
+    ( "partial member projection retains the original root bounds",
+      {|#exe{class Item{U16 values[2];#exe{Print("A");class Box{Item item;};I64 F(){static Box object={{{40,42}}};return object.item.values[2];}}};StreamPrint("%d;",F());}|},
+      "HCIRVM0019" );
+    ( "top-level partial reads cannot borrow an unreached field",
+      {|#exe{class Item{U8 value;#exe{Print("A");class Box{Item item;};Box object={{42}};StreamPrint("%d;",object.item.later);}U8 later;};}|},
+      "HCSEMA0046" );
+    ( "top-level completion after member selection cannot authorize the read",
+      {|#exe{extern class Item;class Box{Item item;$$=8;};Box object;Print("A");StreamPrint("%d;",object.item.value#exe{class Item{U8 value;};});}|},
+      "HCSEMA0046" );
+    ( "top-level partial projections retain original root bounds",
+      {|#exe{class Item{U16 values[2];#exe{Print("A");class Box{Item item;};Box object={{{40,42}}};StreamPrint("%d;",object.item.values[2]);}};}|},
+      "HCIRVM0019" );
+    ( "top-level replacement members cannot retarget the original object",
+      {|#exe{class Item{U8 value;};Item object={42};class Item{U8 replacement;};Print("A");StreamPrint("%d;",object.replacement);}|},
+      "HCSEMA0046" );
+  ]
+
+let static_faults =
+  [
+    ( "static completion cannot extend its original allocation",
+      {|#exe {extern class Item;class Box{Item item;$$=1;};I64 Complete(){Print("A");StreamExePrint("class Item{U16 value;};");return 42;}I64 F(){static Box object={Complete()};return 42;}StreamPrint("%d;",F());}|},
+      "HCRUN0006" );
+    ( "static copy cannot read beyond its computed word",
+      {|#exe {extern class Item;class Box{Item item;$$=16;};I64 Complete(){Print("A");StreamExePrint("class Item{U8 value[9];};");return 42;}I64 F(){static Box object={Complete()};return 42;}StreamPrint("%d;",F());}|},
+      "HCRUN0006" );
+    ( "static evaluation fault retains prior output",
+      {|#exe {extern class Item;class Box{Item item;$$=8;};I64 Z=0;I64 Bad(){Print("A");return 1/Z;}I64 F(){static Box object={Bad()};return 42;}StreamPrint("%d;",F());}|},
+      "HCIRVM0009" );
+  ]

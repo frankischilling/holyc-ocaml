@@ -14,6 +14,15 @@ val begin_parser :
 val observe_parser_leaf :
   pending -> Frontend.Parser.completed_initializer_leaf -> (leaf, string) result
 
+val observe_parser_preparation :
+  pending ->
+  Frontend.Parser.initializer_leaf_preparation ->
+  (unit, string) result
+(** Retain the original callback before expression parsing. A recorded
+    preparation must match the later completed leaf; another preparation or
+    delimiter cannot replace it. Observing a completed leaf alone remains
+    available to consumers that do not read pre-expression metadata. *)
+
 val observe_parser_delimiter :
   pending ->
   Frontend.Parser.completed_initializer_delimiter ->
@@ -49,6 +58,9 @@ val leaf_expression_ast : leaf -> Frontend.Ast.expression
 
 val leaf_parser_receipt :
   leaf -> Frontend.Parser.completed_initializer_leaf option
+
+val leaf_parser_preparation :
+  leaf -> Frontend.Parser.initializer_leaf_preparation option
 
 val leaf_identifiers : leaf -> (string * Symbol.origin) list
 val leaf_identifier_nodes : leaf -> Frontend.Ast.identifier list

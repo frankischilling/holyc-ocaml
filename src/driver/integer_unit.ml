@@ -211,8 +211,19 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               ast
           in
           let typed = Integer_source.top_level prepared in
+          let* initializer_layouts =
+            match source_command with
+            | None -> Ok []
+            | Some command ->
+                Task_declarations.source_initializer_layouts
+                  ~table:(Session.semantic_symbols session)
+                  ~ast command
+          in
           let* globals_ =
-            Ir.Integer_globals.create_with_layout
+            Ir.Integer_globals.create_with_layout ?task_view
+              ~initializer_layouts
+              ~members:(Integer_source.aggregate_members prepared)
+              ~headers:(Integer_source.aggregate_headers prepared)
               ~layout:(Integer_source.global_layouts prepared)
               ~initializers:typed ~span:ast.span
               (Integer_source.global_records prepared)
@@ -303,8 +314,20 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     ]))
               task_view
           in
+          let* initializer_snapshots =
+            match source_command with
+            | None -> Ok []
+            | Some command ->
+                Task_declarations.source_static_initializer_snapshots
+                  ~table:(Session.semantic_symbols session)
+                  ~ast command
+          in
           let* globals_ =
             Ir.Integer_globals.with_statics ~span:ast.span
+              ~initializer_snapshots
+              ?source_allocations:
+                (Option.map Ir.Integer_globals.private_static_allocations
+                   task_view)
               ~frames:(Integer_source.frames prepared)
               ~functions:(Integer_source.functions prepared)
               ~records:(Integer_source.records prepared)
@@ -1378,6 +1401,16 @@ let compile_source_in_task_budget ~task ~source_command session ~config parsed =
     VM.settle_isolated_aggregate_offsets task
       ~table:(Session.semantic_symbols session)
       (Task_declarations.source_offsets source_command)
+    |> Result.map_error (fun message ->
+        [
+          Integer_source.message_diagnostic
+            ~span:(Option.get parsed.Frontend.Parser.ast).span message;
+        ])
+  in
+  let* () =
+    VM.settle_isolated_member_metadata task
+      ~table:(Session.semantic_symbols session)
+      (Task_declarations.source_member_metadata source_command)
     |> Result.map_error (fun message ->
         [
           Integer_source.message_diagnostic

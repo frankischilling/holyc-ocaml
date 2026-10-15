@@ -191,6 +191,8 @@ let direct_calls_emit_complete_sequences () =
                 | Sequence.Member_projection _
                 | Sequence.Backing_projection _
                 | Sequence.Pointee_stride _
+                | Sequence.Class_pointer_view _
+                | Sequence.Empty_frame_root _
                 | Sequence.Block_targets _ )
             | None -> Alcotest.fail "unexpected call payload")
       in
@@ -419,6 +421,8 @@ let direct_function_address_argument_composes_with_call () =
         | Sequence.Member_projection _
         | Sequence.Backing_projection _
         | Sequence.Pointee_stride _
+        | Sequence.Class_pointer_view _
+        | Sequence.Empty_frame_root _
         | Sequence.Block_targets _ )
     | None -> false);
   Alcotest.(check (list int))
@@ -483,6 +487,8 @@ let direct_function_address_argument_composes_with_call () =
         | Sequence.Member_projection _
         | Sequence.Backing_projection _
         | Sequence.Pointee_stride _
+        | Sequence.Class_pointer_view _
+        | Sequence.Empty_frame_root _
         | Sequence.Block_targets _ )
     | None -> None);
   Alcotest.(check int)
@@ -884,6 +890,8 @@ let extern_and_import_calls_select_checked_opcodes () =
                 | Sequence.Member_projection _
                 | Sequence.Backing_projection _
                 | Sequence.Pointee_stride _
+                | Sequence.Class_pointer_view _
+                | Sequence.Empty_frame_root _
                 | Sequence.Block_targets _ )
             | None -> None)
       in

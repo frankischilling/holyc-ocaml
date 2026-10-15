@@ -79,7 +79,12 @@ val switch_case_admission :
   t option -> Frontend.Parser.switch_case_preparation -> bool
 
 val aggregate_offset_phases : t -> Frontend.Parser.aggregate_phase list
+val member_metadata_phases : t -> Frontend.Parser.aggregate_phase list
+val trailing_member_metadata : t -> Frontend.Parser.aggregate_phase option
 val offset_admission : t option -> Frontend.Parser.aggregate_phase -> bool
+
+val member_metadata_admission :
+  t option -> Frontend.Parser.aggregate_phase -> bool
 
 val aggregate_offset_preparing :
   t option -> Frontend.Parser.aggregate_phase -> bool
@@ -110,6 +115,9 @@ val initializer_start :
 val initializer_leaf :
   t option -> Frontend.Parser.completed_initializer_leaf -> bool
 
+val initializer_preparation :
+  t option -> Frontend.Parser.initializer_leaf_preparation -> bool
+
 val initializer_delimiter :
   t option -> Frontend.Parser.completed_initializer_delimiter -> bool
 
@@ -120,6 +128,12 @@ val declaration : t option -> Frontend.Parser.declaration_event -> bool
 
 val static_allocation :
   t option -> Frontend.Parser.function_local_allocation -> bool
+
+val static_expression_preparation :
+  t option -> Frontend.Parser.static_leaf_preparation -> bool
+
+val static_initializer_delimiter :
+  t option -> Frontend.Parser.completed_static_initializer_delimiter -> bool
 
 val static_initializer :
   t option -> Frontend.Parser.static_initializer_preparation -> bool

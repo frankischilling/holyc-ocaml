@@ -5343,8 +5343,12 @@
  (modules
   automatic_aggregate_cases
   aggregate_member_cases
+  callback_field_cases
+  reference_return_cases
   aggregate_array_cases
   aggregate_pointer_cases
+  aggregate_cast_cases
+  persistent_aggregate_cases
   inherited_aggregate_cases
   backed_aggregate_cases
   default_aggregate_cases
@@ -5382,7 +5386,12 @@
   ../examples/class-value-returns.hc
   ../examples/class-default-words.hc
   ../examples/retained-nested-members.hc
-  ../examples/aggregate-pointer-fields.hc)
+  ../examples/aggregate-pointer-fields.hc
+  ../examples/persistent-aggregates.hc
+  ../examples/aggregate-initializers.hc
+  ../examples/aggregate-value-casts.hc
+  ../examples/reference-returns.hc
+  ../examples/top-level-aggregate-assignments.hc)
  (action
   (run
    %{test}
@@ -5397,23 +5406,37 @@
    %{dep:../examples/class-value-returns.hc}
    %{dep:../examples/class-default-words.hc}
    %{dep:../examples/retained-nested-members.hc}
-   %{dep:../examples/aggregate-pointer-fields.hc})))
+   %{dep:../examples/aggregate-pointer-fields.hc}
+   %{dep:../examples/persistent-aggregates.hc}
+   %{dep:../examples/aggregate-initializers.hc}
+   %{dep:../examples/aggregate-value-casts.hc}
+   %{dep:../examples/reference-returns.hc}
+   %{dep:../examples/top-level-aggregate-assignments.hc})))
 
 (test
  (name test_automatic_aggregate_storage)
  (modules test_automatic_aggregate_storage)
- (libraries holyc_lib automatic_aggregate_fixture alcotest))
+ (libraries
+  holyc_lib
+  automatic_aggregate_fixture
+  aggregate_member_support
+  alcotest))
 
 (test
  (name test_automatic_aggregates_cli)
  (modules test_automatic_aggregates_cli)
  (libraries unix yojson automatic_aggregate_fixture)
- (deps ../examples/automatic-aggregate-byte-views.hc)
+ (deps
+  ../examples/automatic-aggregate-byte-views.hc
+  ../examples/empty-automatic-aggregates.hc
+  ../examples/automatic-aggregate-initializers.hc
+  ../examples/original-automatic-layouts.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
-   %{dep:../examples/automatic-aggregate-byte-views.hc})))
+   %{dep:../examples/automatic-aggregate-byte-views.hc}
+   %{dep:../examples/empty-automatic-aggregates.hc})))
 
 (test
  (name test_source_inherited_layouts)
@@ -5516,3 +5539,8 @@
    %{dep:../examples/native-stream-generation.hc}
    %{dep:../examples/native-stream-declarations.hc}
    %{dep:../examples/native-compiler-options.hc})))
+
+(test
+ (name test_aggregate_initializer_layout)
+ (modules test_aggregate_initializer_layout)
+ (libraries holyc_lib alcotest))

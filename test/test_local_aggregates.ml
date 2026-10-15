@@ -319,7 +319,7 @@ let existing_limits () =
         (fun (code, text) -> failure code (run mode text))
         Cases.object_failures)
     modes;
-  failure "HCSEMA0046" (run Preprocessor.Jit Cases.suffix_completion_boundary);
+  failure "HCIRVM0012" (run Preprocessor.Jit Cases.suffix_completion_boundary);
   failure "HCPARSE0048" (run Preprocessor.Aot Cases.child_backed_type);
   failure "HCSEMA0046" (run Preprocessor.Aot Cases.completed_during_lookahead);
   value ~expected:44L (run Preprocessor.Aot Cases.replaced_during_dimension)

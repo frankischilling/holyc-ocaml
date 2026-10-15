@@ -100,7 +100,8 @@ let argument_kind_tag = function
 
 let provider_scratch_slots = fixed_scratch_slots
 
-let emit_internal ?provider emitter (call : t) =
+let emit_internal ?provider ?(reference_guard = fun _ -> ()) emitter (call : t)
+    =
   let count = Array.length call.argument_kinds in
   let scratch_count = scratch_slots count in
   if
@@ -195,6 +196,7 @@ let emit_internal ?provider emitter (call : t) =
     out (E.Cmp_imm8 (E.Rax, 3));
     jump Equal pointer_fault;
     load E.Rdx current_pointer;
+    reference_guard E.Rdx;
     out (E.Load_indirect (E.Rax, E.Rdx, 16));
     out (E.Test E.Rax);
     jump Less bounds_fault;
@@ -1552,15 +1554,16 @@ let emit_internal ?provider emitter (call : t) =
     out (E.Binary (E.Add, E.Rcx, E.Rax));
     out (E.Store_context (written, E.Rcx)))
 
-let emit emitter call = emit_internal emitter call
+let emit ?reference_guard emitter call =
+  emit_internal ?reference_guard emitter call
 
-let emit_provider emitter (input : provider_input) =
+let emit_provider ?reference_guard emitter (input : provider_input) =
   if
     input.format_stage < 0 || input.count_stage < 0 || input.arguments_stage < 0
     || input.kinds_stage < 0 || input.scratch_stage < 0
     || input.scratch_stage > max_int - provider_scratch_slots
   then invalid_arg "native Print provider has invalid private input storage";
-  emit_internal ~provider:input emitter
+  emit_internal ~provider:input ?reference_guard emitter
     {
       target = input.target;
       format_stage = input.format_stage;

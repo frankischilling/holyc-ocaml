@@ -1,13 +1,67 @@
 # Compiler status and implementation notes
 
+[Aggregate assignment observations](backed-aggregate-values.md) retain the
+original lvalue endpoint, lookahead gate and reached index stride in function
+bodies and top-level source tasks. Initializers, statics, saved defaults,
+dimensions, offsets, metadata, switch endpoints and internal bindings retain
+their own completed expression metadata. The
+[top-level example](../examples/top-level-aggregate-assignments.hc) prints `A`
+and returns 42 through IR and native source tasks in both outer modes.
+Other value families and the remaining #686 acceptance stay open.
+
+[Member metadata preparation](member-metadata.md) now retains strings and closed
+numeric words at original member phases in IR and native source tasks. Duplicate
+names resolve to the last source entry. Live integer metadata now executes calls,
+updates and captured queries in original JIT tasks through IR and native source
+execution. Data/code addresses, live floating expressions, ordinary AOT live
+metadata and runtime compiler reflection remain part of #686.
+
+[Data pointer fields](aggregate-pointer-fields.md) execute through IR, native
+programs and native source tasks in both modes. Separate ownership shadows and
+activation identities preserve caller storage, retained pointer types and
+invalid-memory checks. The remaining
+aggregate requirements under #686 remain open.
+
+[Owned reference returns](reference-returns.md) preserve integer and class
+pointer descriptors through named calls and callbacks in IR and both native
+targets. Caller/global/static storage stays usable; callee-local targets expire
+on return. Native calls snapshot the private return buffer before another call
+can replace it. The [example](../examples/reference-returns.hc) prints `AB`
+and returns 42 in both source modes.
+
+[Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
+and union globals and statics their original byte roots in IR and native execution.
+Integer fields, arrays, scalar prefixes and member size queries retain the selected
+layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
+[Aggregate initializers](aggregate-initializers.md) cover completed selected class
+records, integer leaves, nested fixed arrays and byte strings. Original forward
+members can complete before traversal, including through JIT lookahead. Changes
+during a leaf and the remaining aggregate execution families stay open.
+
+[Class pointer views](class-pointer-views.md) cast owned integer and class
+references to complete earlier layouts in IR and native execution. The
+[example](../examples/class-pointer-views.hc) prints `AB` and returns 42 while
+checking a primitive round trip and the selected class stride. Local and retained
+casts preserve their original source selections; numeric references remain
+unfinished. [Aggregate value casts](aggregate-value-casts.md) distinguish
+original storage reads from grouped register values across the nine integer
+raw classes. Cast destinations preserve root bounds and update only the
+selected bytes; register class values supply no addressable object.
+
 Native emission, assembly linking and BIN output share the checked [section and relocation model](native-sections.md). Native branches and calls resolve through ordered, address-independent objects. Reports retain function/global source identities and source maps; private hosted storage remains tied to its original runtime owner.
 
-Owned data pointer fields execute in IR with their original member types,
+Owned data pointer fields execute in IR and native code with their original member types,
 array strides and target lifetimes. Function-local classes, nested and inherited
 fields, pointer updates and retained functions share the checked storage path.
 The [pointer field example](../examples/aggregate-pointer-fields.hc) prints `AB`
 and returns 42. See [pointer fields](aggregate-pointer-fields.md) for the
 native execution boundary and overlap rules.
+
+[Callback fields](callback-fields.md) now retain their original signature and
+executable owner through IR and both native targets. Typed stores, member arrays,
+fixed defaults, variadic and U0 calls preserve the captured callee and argument
+effects. Overlapping numeric stores invalidate ownership; restored bits cannot
+authorize a call.
 
 Builtin integer-union member `sizeof` queries use their original field types
 and counts. Nested queries, scalar globals and static locals retain the class
@@ -267,7 +321,7 @@ pointer storage remain unsupported by this native increment.
 `holyc run --target=host-jit examples/native-scalar-pointers.hc` executes checked
 one-level scalar pointer aliases in both JIT and AOT source modes. Local and
 fixed-parameter references preserve object width, initialization and ownership;
-pointer returns and persistent pointer storage remain outside native admission.
+persistent standalone pointer storage remains outside native admission; owned reference returns use their separate checked path.
 See [native pointers](native-pointers.md).
 
 `holyc run --target=host-jit examples/integer-arrays.hc` returns 42 using
@@ -603,7 +657,7 @@ under issue #686. [Owned data pointer fields in IR](aggregate-pointer-fields.md)
 support integer and class pointers, pointer member arrays and updates while
 preserving bounds and invocation lifetimes. `examples/aggregate-pointer-fields.hc`
 prints `AB` and returns 42 with `--target=ir` in JIT and AOT mode. Native pointer
-fields, general aggregate copies and pointer returns still need implementation.
+fields now have native ownership checks, and owned reference returns preserve their original descriptors. General aggregate copies remain unfinished.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,
@@ -802,7 +856,7 @@ Semantic analysis still lacks general duplicate-declaration legality, complete t
 
 The bounded integer program path does type, lower and execute supported expressions, global/static initializers, local storage, direct calls, returns, loop breaks and conditions. Pointer aliases and automatic array elements retain checked object identity and invocation lifetimes. Integer switches now execute with either header delimiter, implicit and ranged cases, repeated defaults, and checked `start:`/`end:` regions through IR and native code. JIT/current-task scalar case expressions prepare at their original source callbacks; ordinary AOT nonconstant endpoints still fail with `HCRUN0006`. Bracketed dispatch outside its prepared table reports `HCSW0005`. Broader execution still needs full `Print` formatting and variadic promotion, assembly operand resolution and output-address validation, unused-label warnings, general floating switch selectors, exception unwinding, `SysTry`/`SysUntry`, and unsupported expression and storage forms. Source publication boundaries and explicit diagnostics remain part of each implemented slice.
 
-Definition backings and bases resolve to semantic header types or aggregate identities. Fixed-call target policy follows a backing chain for the narrow `PrsFunCall` raw-type comparison, but general backing collapse, whole-value conversion, and subinteger access are not implemented. A closed base contributes its size at offset zero, and the member index follows the resolved base chain; cycle handling outside closed layout and call-target policy remains incomplete. Member metadata expressions are not evaluated, indexed, or exposed through `MemberMetaData` and `MemberMetaFind`. A top-level aggregate definition may declare pointer, array, function-pointer, or comma-separated globals after its closing brace, and globals retain scalar or recursive braced initializer syntax. Callback globals and members have resolved recursive signatures. Parameter, local, global, and checked aggregate-member callback values participate in semantic indirect calls. Callback members also carry `MLF_FUN`, have pointer-sized layout, and retain their exact header in lookup entries. Member-call selection, slot binding, and return typing are implemented; default evaluation, storage reads, lowering, and execution remain unavailable. No aggregate declaration has runtime allocation, lowering, or execution. Aggregate initializer trees remain unevaluated; global callback initializer execution is covered by its [bounded consumer](global-callback-initializers.md); supported scalar declaration initializers execute through the integer program path. Closed aggregate-offset directives do affect layout, while symbol-dependent offset expressions remain explicit semantic failures. Nested named definitions, direct local callback initializers, automatic local braced initializers, and many other corpus declaration forms remain unavailable and fail with explicit diagnostics. Machine-code exception semantics and complete corpus parsing remain unfinished. Standalone instruction and directive byte output is implemented. General assembly label/import fixups and branch layout remain under #714, with live compiler expressions and source assembly loading and execution under #715.
+Definition backings and bases resolve to semantic header types or aggregate identities. Fixed-call target policy follows a backing chain for the narrow `PrsFunCall` raw-type comparison, but general backing collapse, whole-value conversion, and subinteger access are not implemented. A closed base contributes its size at offset zero, and the member index follows the resolved base chain; cycle handling outside closed layout and call-target policy remains incomplete. Member metadata expressions are not evaluated, indexed, or exposed through `MemberMetaData` and `MemberMetaFind`. A top-level aggregate definition may declare pointer, array, function-pointer, or comma-separated globals after its closing brace, and globals retain scalar or recursive braced initializer syntax. Callback globals and members have resolved recursive signatures. Parameter, local, global, and checked aggregate-member callback values participate in semantic indirect calls. Callback members also carry `MLF_FUN`, have pointer-sized layout, and retain their exact header in lookup entries. One-level member calls retain their selected header, fixed defaults and executable owner through IR and native execution; broader callback signatures remain bounded. Supported aggregate declarations allocate owned byte storage, and integer initializer trees follow their original cursor rules; global callback initializer execution is covered by its [bounded consumer](global-callback-initializers.md); supported scalar declaration initializers execute through the integer program path. Closed aggregate-offset directives do affect layout, while symbol-dependent offset expressions remain explicit semantic failures. Nested named definitions, direct local callback initializers, automatic local braced initializers, and many other corpus declaration forms remain unavailable and fail with explicit diagnostics. Machine-code exception semantics and complete corpus parsing remain unfinished. Standalone instruction and directive byte output is implemented. General assembly label/import fixups and branch layout remain under #714, with live compiler expressions and source assembly loading and execution under #715.
 
 The [checked lock path](lock-operations.md) retains lexical regions and executes
 supported integer memory updates atomically. It also preserves ordinary

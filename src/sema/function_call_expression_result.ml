@@ -46,6 +46,9 @@ type expression_result = {
   operand_result : expression_result option;
   binary_operands : (expression_result * expression_result) option;
   index_operands : (expression_result * expression_result) option;
+  index_element_size : int64 option;
+  index_visibility : Function_aggregate_visibility.function_ option;
+  top_level_index_visibility : Function_aggregate_visibility.t option;
   member_base_result : expression_result option;
   aggregate_pointee_layout : Aggregate_pointee_layout.t option;
   aggregate_backing_storage : Aggregate_backing_storage.t option;
@@ -296,6 +299,7 @@ and initializer_result = {
   initializer_source : Function_call_resolution.initializer_input;
   initializer_value : expression_result;
   initializer_target_type : Type.t;
+  initializer_backing_storage : Aggregate_backing_storage.t option;
   initializer_conversion : intrinsic_conversion;
 }
 
@@ -514,6 +518,9 @@ let initializer_value (initial : initializer_result) = initial.initializer_value
 
 let initializer_target_type (initial : initializer_result) =
   initial.initializer_target_type
+
+let initializer_backing_storage (initial : initializer_result) =
+  initial.initializer_backing_storage
 
 let initializer_conversion (initial : initializer_result) =
   initial.initializer_conversion
@@ -804,6 +811,23 @@ let result_aggregate_pointee_layout (result : expression_result) =
 
 let result_aggregate_backing_storage (result : expression_result) =
   result.aggregate_backing_storage
+
+let result_index_element_size (result : expression_result) =
+  result.index_element_size
+
+let result_index_layout result ~pointer_type ~stride =
+  match
+    ( result.index_visibility,
+      Function_call_resolution.argument_expression_source result.source )
+  with
+  | Some visibility, Some source ->
+      Aggregate_pointee_layout.create_index ~visibility ~source ~pointer_type
+        ~stride
+  | None, Some source ->
+      Option.bind result.top_level_index_visibility (fun visibility ->
+          Aggregate_pointee_layout.create_top_level_index ~visibility ~source
+            ~pointer_type ~stride)
+  | _ -> None
 
 let result_aggregate_return_value_type (result : expression_result) =
   result.aggregate_return_value_type
@@ -1714,6 +1738,18 @@ let make_result ?aggregate_return_value_type ?operand_result ?binary_operands
             | Function_call_resolution.Parenthesized_expression _ ->
                 Option.bind operand_result (fun operand ->
                     operand.aggregate_return_value_type)
+            | Function_call_resolution.Postfix_cast_expression _ ->
+                Option.bind source_type (fun source_type ->
+                    Option.bind state.backing_context
+                      (fun (table, members, policies, before_item_index) ->
+                        if
+                          Option.fold ~none:false
+                            ~some:(fun operand -> operand.category = Lvalue)
+                            operand_result
+                        then None
+                        else
+                          Aggregate_backing_storage.integer_value_type ~table
+                            ~members ~policies ~before_item_index ~source_type))
             | Function_call_resolution.Prefix_expression prefix
               when Function_call_resolution.prefix_operator prefix
                    = Function_call_resolution.Unary_plus ->
@@ -1729,6 +1765,9 @@ let make_result ?aggregate_return_value_type ?operand_result ?binary_operands
       operand_result;
       binary_operands;
       index_operands;
+      index_element_size = None;
+      index_visibility = None;
+      top_level_index_visibility = None;
       member_base_result;
       aggregate_pointee_layout;
       aggregate_backing_storage = None;
@@ -1833,6 +1872,11 @@ let set_intrinsic_conversion state result intrinsic_conversion =
     match replace_result state replacement with
     | Error _ as error -> error
     | Ok state -> Ok (replacement, state)
+
+let revise_result state replacement =
+  Result.map
+    (fun state -> (replacement, state))
+    (replace_result state replacement)
 
 let select_known_binary_type left right result_class =
   match result_class with
@@ -2559,6 +2603,31 @@ let rec type_expression table members policies ~before_item_index ~context
         Result.map
           (fun () ->
             make_result ?operand_result ~array_rank ?array_address
+              ?aggregate_pointee_layout:
+                (Option.bind source_type (fun source_type ->
+                     let pointer_type =
+                       if
+                         Option.fold ~none:false
+                           ~some:(fun operand -> operand.category = Lvalue)
+                           operand_result
+                         &&
+                         match
+                           Function_call_resolution.argument_expression_kind
+                             source
+                         with
+                         | Function_call_resolution.Postfix_cast_expression _ ->
+                             true
+                         | _ -> false
+                       then Type.pointer_to source_type |> Result.to_option
+                       else Some source_type
+                     in
+                     Option.bind pointer_type (fun pointer_type ->
+                         match Type.base pointer_type with
+                         | Type.Aggregate _
+                           when Type.pointer_depth pointer_type = 1 ->
+                             pointee_layout state ~members ~before_item_index
+                               ~source ~pointer_type
+                         | _ -> None)))
               ?member_lookup ?callback_pointer ?aggregate_offset_path
               ?outer_occurrence ?top_level_outer_occurrence ?outer_binding
               ?call_resolution ?function_declaration ?function_address_path
@@ -2610,7 +2679,15 @@ let rec type_expression table members policies ~before_item_index ~context
                 ?top_level_outer_occurrence:
                   grouped_result.top_level_outer_occurrence
                 ?outer_binding:grouped_result.outer_binding
-                grouped_result.category grouped_result.result_class state)
+                grouped_result.category grouped_result.result_class state
+              |> fun finished ->
+              Result.bind finished (fun (result, state) ->
+                  revise_result state
+                    {
+                      result with
+                      aggregate_backing_storage =
+                        grouped_result.aggregate_backing_storage;
+                    }))
       | Function_call_resolution.Prefix_expression prefix ->
           type_prefix table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source prefix
@@ -2627,17 +2704,45 @@ let rec type_expression table members policies ~before_item_index ~context
           type_member table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source member
       | Function_call_resolution.Postfix_cast_expression (operand, target) -> (
-          match
-            type_expression table members policies ~before_item_index
-              ~context:Value_context state operand
-          with
+          match known_type table (Type_reference.resolved_type target) with
           | Error _ as error -> error
-          | Ok (operand_result, state) -> (
-              match known_type table (Type_reference.resolved_type target) with
+          | Ok target_type -> (
+              let operand_context =
+                if
+                  Type.pointer_depth target_type = 0
+                  && forwarded_class policies ~before_item_index target_type
+                     = Integer_result
+                  &&
+                  match
+                    Function_call_resolution.argument_expression_kind operand
+                  with
+                  | Function_call_resolution.Parenthesized_expression _ -> false
+                  | _ -> true
+                then Lvalue_context
+                else Value_context
+              in
+              match
+                type_expression table members policies ~before_item_index
+                  ~context:operand_context state operand
+              with
               | Error _ as error -> error
-              | Ok target_type ->
+              | Ok (operand_result, state) ->
                   let category =
                     if Type.pointer_depth target_type > 0 then Address_value
+                    else if
+                      operand_result.category = Lvalue
+                      &&
+                      match
+                        Function_call_resolution.argument_expression_kind
+                          operand
+                      with
+                      | Function_call_resolution.Parenthesized_expression _ ->
+                          false
+                      | _ -> true
+                    then
+                      match context with
+                      | Value_context -> Object_value
+                      | Lvalue_context -> Lvalue
                     else Object_value
                   in
                   finish ~operand_result ~source_type:(Some target_type)
@@ -3030,7 +3135,8 @@ let rec type_expression table members policies ~before_item_index ~context
               finish ~source_type:rip_address_type Address_value Integer_result
                 state
           | Function_call_resolution.Default_position_expression _
-          | Function_call_resolution.Aggregate_position_expression _ ->
+          | Function_call_resolution.Aggregate_position_expression _
+          | Function_call_resolution.Metadata_position_expression _ ->
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Offset_expression ->
               finish ~source_type:integer_type Object_value Integer_result state
@@ -3161,12 +3267,20 @@ let rec type_expression table members policies ~before_item_index ~context
                      (Function_call_resolution.Indirect_call indirect as call))
                 -> (
                   let selected =
-                    Option.bind state.outer_function (fun function_ ->
-                        Outer_expression_binding.function_occurrences function_
-                        |> List.find_opt (fun selected ->
-                            Outer_expression_binding.occurrence_source selected
-                            == Function_call_resolution.indirect_occurrence
-                                 indirect))
+                    if
+                      Option.is_some
+                        (Function_call_resolution.indirect_member_lookup
+                           indirect)
+                    then None
+                    else
+                      Option.bind state.outer_function (fun function_ ->
+                          Outer_expression_binding.function_occurrences
+                            function_
+                          |> List.find_opt (fun selected ->
+                              Outer_expression_binding.occurrence_source
+                                selected
+                              == Function_call_resolution.indirect_occurrence
+                                   indirect))
                   in
                   match
                     Option.bind selected (fun occurrence ->
@@ -3431,16 +3545,42 @@ and type_index table members policies ~before_item_index ~context
         with
         | Error _ as error -> error
         | Ok (index_value, state) ->
-            Ok
-              (make_result ~index_operands:(base, index_value)
-                 ?aggregate_pointee_layout:
-                   (Option.bind (result_storage_type base) (fun pointer_type ->
-                        pointee_layout state ~members ~before_item_index ~source
-                          ~pointer_type))
-                 ?callback_pointer:base.callback_pointer
-                 ~array_address:(base.array_address && array_rank > 0)
-                 ~array_rank ?member_lookup ~intrinsic_conversion state ~id
-                 ~source ~source_type ~category ~result_class)
+            let result, state =
+              make_result ~index_operands:(base, index_value)
+                ?aggregate_pointee_layout:
+                  (Option.bind (result_storage_type base) (fun pointer_type ->
+                       pointee_layout state ~members ~before_item_index ~source
+                         ~pointer_type))
+                ?callback_pointer:base.callback_pointer
+                ~array_address:(base.array_address && array_rank > 0)
+                ~array_rank ?member_lookup ~intrinsic_conversion state ~id
+                ~source ~source_type ~category ~result_class
+            in
+            let index_element_size =
+              match
+                ( state.function_visibility,
+                  Function_call_resolution.argument_expression_source source,
+                  source_type )
+              with
+              | Some visibility, Some observed, Some element_type ->
+                  Function_aggregate_visibility.index_element_size visibility
+                    ~source:observed ~element_type
+              | None, Some observed, Some element_type ->
+                  Option.bind state.aggregate_visibility (fun visibility ->
+                      Function_aggregate_visibility.top_level_index_element_size
+                        visibility ~source:observed ~element_type)
+              | _ -> None
+            in
+            revise_result state
+              {
+                result with
+                index_element_size;
+                index_visibility = state.function_visibility;
+                top_level_index_visibility =
+                  (if Option.is_none state.function_visibility then
+                     state.aggregate_visibility
+                   else None);
+              }
       in
       match (base.source_type, base.category) with
       | None, _ ->
@@ -3523,9 +3663,26 @@ and type_member table members policies ~before_item_index ~context
         | Type.Primitive _ ->
             invalid_operator "member access base is not an aggregate"
         | Type.Aggregate aggregate_symbol ->
+            let module_reference =
+              match
+                ( state.function_visibility,
+                  state.aggregate_visibility,
+                  Function_call_resolution.argument_expression_source source )
+              with
+              | None, Some visibility, Some source ->
+                  Function_aggregate_visibility.member_reference visibility
+                    ~source
+              | _ -> None
+            in
             let layout_visible =
               match state.function_visibility with
-              | None -> true
+              | None ->
+                  Option.fold ~none:true
+                    ~some:(fun (identifier, visibility) ->
+                      Compiler_record.aggregate_reference_allows ~table
+                        ~parent:(Aggregate_member_index.parent_scope members)
+                        ~identifier ~symbol:aggregate_symbol visibility)
+                    module_reference
               | Some visibility ->
                   Option.fold ~none:false
                     ~some:(fun source ->
@@ -3540,10 +3697,36 @@ and type_member table members policies ~before_item_index ~context
                            aggregate_symbol))
                     (Function_call_resolution.argument_expression_source source)
             in
-            resolve_member_lookup ~layout_visible members ~before_item_index
-              ~aggregate_symbol
-              ~member_name:(Function_call_resolution.member_name member)
-              ~member_origin
+            let partial =
+              match
+                ( state.function_visibility,
+                  Function_call_resolution.argument_expression_source source )
+              with
+              | Some visibility, Some source ->
+                  Aggregate_member_index.lookup_partial members ~visibility
+                    ~source ~aggregate:aggregate_symbol
+                    ~name:(Function_call_resolution.member_name member)
+                  |> Result.map_error (fun error ->
+                      invalid_input ~origin:member_origin
+                        (Aggregate_member_index.error_message error))
+              | _ -> (
+                  match module_reference with
+                  | None -> Ok None
+                  | Some (identifier, visibility) ->
+                      Aggregate_member_index.lookup_reference members
+                        ~identifier ~visibility ~aggregate:aggregate_symbol
+                        ~name:(Function_call_resolution.member_name member)
+                      |> Result.map_error (fun error ->
+                          invalid_input ~origin:member_origin
+                            (Aggregate_member_index.error_message error)))
+            in
+            Result.bind partial (function
+              | Some lookup -> Ok lookup
+              | None ->
+                  resolve_member_lookup ~layout_visible members
+                    ~before_item_index ~aggregate_symbol
+                    ~member_name:(Function_call_resolution.member_name member)
+                    ~member_origin)
       in
       let resolve_aggregate source_type =
         match access_kind with
@@ -3687,6 +3870,7 @@ and type_postfix table members policies ~before_item_index ~intrinsic_conversion
 
 and type_assignment table members policies ~before_item_index
     ~intrinsic_conversion state id source binary assignment_kind =
+  let ( let* ) = Result.bind in
   let operator_origin =
     Function_call_resolution.binary_operator_origin binary
   in
@@ -3701,9 +3885,48 @@ and type_assignment table members policies ~before_item_index
   | Error _ as error -> error
   | Ok (left, state) -> (
       let destination_type = result_storage_type left in
+      let* left, state =
+        match
+          ( state.function_visibility,
+            Function_call_resolution.argument_expression_source source,
+            destination_type )
+        with
+        | Some visibility, Some observed, Some source_type
+          when match Type.base source_type with
+               | Type.Aggregate _ -> Type.pointer_depth source_type = 0
+               | _ -> false -> (
+            match
+              Aggregate_backing_storage.create_assignment ~visibility
+                ~source:observed ~table ~members ~policies ~source_type
+            with
+            | None -> Ok (left, state)
+            | Some aggregate_backing_storage ->
+                revise_result state { left with aggregate_backing_storage })
+        | None, Some observed, Some source_type
+          when Type.pointer_depth source_type = 0
+               &&
+               match Type.base source_type with
+               | Type.Aggregate _ -> true
+               | _ -> false -> (
+            match state.aggregate_visibility with
+            | None -> Ok (left, state)
+            | Some visibility -> (
+                match
+                  Aggregate_backing_storage.create_top_level_assignment
+                    ~visibility ~source:observed ~table ~members ~policies
+                    ~before_item_index ~source_type
+                with
+                | None -> Ok (left, state)
+                | Some aggregate_backing_storage ->
+                    revise_result state { left with aggregate_backing_storage })
+            )
+        | _ -> Ok (left, state)
+      in
       let valid_storage_type =
         is_writable_storage_type destination_type
-        || Option.is_some left.aggregate_backing_storage
+        || Option.fold ~none:false
+             ~some:Aggregate_backing_storage.assignment_permitted
+             left.aggregate_backing_storage
       in
       let category =
         if result_is_callback_storage left then Lvalue else left.category
@@ -3718,7 +3941,10 @@ and type_assignment table members policies ~before_item_index
           | Error _ as error -> error
           | Ok (right, state) -> (
               let destination_class =
-                forwarded_class policies ~before_item_index destination_type
+                forwarded_class policies ~before_item_index
+                  (match left.aggregate_backing_storage with
+                  | Some storage -> Aggregate_backing_storage.value_type storage
+                  | None -> destination_type)
               in
               let right_conversion, execution_class =
                 match assignment_kind with
@@ -3758,14 +3984,20 @@ and type_assignment table members policies ~before_item_index
               match set_intrinsic_conversion state right right_conversion with
               | Error _ as error -> error
               | Ok (right, state) ->
-                  Ok
-                    (make_result ~binary_operands:(left, right) ~execution_class
-                       ?aggregate_pointee_layout:
-                         (pointee_layout state ~members ~source
-                            ~before_item_index ~pointer_type:destination_type)
-                       ~intrinsic_conversion state ~id ~source
-                       ~source_type:(Some destination_type)
-                       ~category:Object_value ~result_class:destination_class)))
+                  let result, state =
+                    make_result ~binary_operands:(left, right) ~execution_class
+                      ?aggregate_pointee_layout:
+                        (pointee_layout state ~members ~source
+                           ~before_item_index ~pointer_type:destination_type)
+                      ~intrinsic_conversion state ~id ~source
+                      ~source_type:(Some destination_type)
+                      ~category:Object_value ~result_class:destination_class
+                  in
+                  revise_result state
+                    {
+                      result with
+                      aggregate_backing_storage = left.aggregate_backing_storage;
+                    }))
       | Unavailable, _, _ ->
           invalid_destination "assignment destination is unavailable"
       | Lvalue, None, _ ->
@@ -4161,12 +4393,21 @@ and type_top_level_call table members policies ~before_item_index
                         ~before_item_index ~intrinsic_conversion state id source
                         call callee binding
                   | _, Outer_environment.Object_global ->
-                      Ok
-                        (make_result ~intrinsic_conversion state ~id ~source
-                           ~source_type:None ~category:Unavailable
-                           ~top_level_outer_occurrence:callee
-                           ~outer_binding:binding
-                           ~result_class:Unresolved_actual_class)))))
+                      if
+                        Function_call_resolution.call_callee_form
+                          (Top_level_expression_tree.call_source call)
+                        = Function_call_resolution.Member_callee
+                      then
+                        type_top_level_outer_callback_call table members
+                          policies ~before_item_index ~intrinsic_conversion
+                          state id source call callee binding
+                      else
+                        Ok
+                          (make_result ~intrinsic_conversion state ~id ~source
+                             ~source_type:None ~category:Unavailable
+                             ~top_level_outer_occurrence:callee
+                             ~outer_binding:binding
+                             ~result_class:Unresolved_actual_class)))))
 
 and type_top_level_direct_call table members policies ~before_item_index
     ~intrinsic_conversion state id source call outer_binding declaration =
@@ -4439,7 +4680,43 @@ and type_top_level_outer_callback_metadata table members policies =
   let invalid message = Error (invalid_top_level_input ~origin message) in
   match Outer_environment.global_declarator_kind metadata with
   | Outer_environment.Object_global ->
-      invalid "top-level outer global has no function-pointer signature"
+      let ( let* ) = Result.bind in
+      let callee_expression =
+        Top_level_expression_tree.call_callee_expression call
+      in
+      let* base_expression =
+        Function_call_resolution.member_callable_base_expression
+          callee_expression
+        |> Result.map_error (fun error ->
+            invalid_top_level_input
+              ?origin:(Function_call_resolution.error_origin error)
+              (Function_call_resolution.error_message error))
+      in
+      let* base_result, _ =
+        type_expression table members policies ~before_item_index
+          ~context:Value_context state base_expression
+      in
+      let* lookup =
+        match base_result.member_lookup with
+        | Some lookup -> Ok lookup
+        | None ->
+            invalid "retained member callback lacks its exact selected lookup"
+      in
+      let* callable =
+        Function_call_resolution.validate_member_callable callee_expression
+          lookup
+        |> Result.map_error (fun error ->
+            invalid_top_level_input
+              ?origin:(Function_call_resolution.error_origin error)
+              (Function_call_resolution.error_message error))
+      in
+      let* callee_result, state =
+        type_expression table members policies ~before_item_index
+          ~context:Value_context state callee_expression
+      in
+      type_top_level_outer_callback_arguments table members policies
+        ~before_item_index ~intrinsic_conversion state id source call occurrence
+        binding source_call origin callable ~callee_result:(Some callee_result)
   | Outer_environment.Function_pointer_global function_pointer ->
       let callable =
         Function_call_resolution.make_callable
@@ -5328,6 +5605,15 @@ let type_initializer table members policies ~before_item_index state source =
   with
   | Error _ as error -> error
   | Ok initializer_target_type -> (
+      let initializer_backing_storage =
+        match state.function_visibility with
+        | None ->
+            Aggregate_backing_storage.create ~table ~members ~policies
+              ~before_item_index ~source_type:initializer_target_type
+        | Some visibility ->
+            Aggregate_backing_storage.create_local ~visibility ~local ~table
+              ~members ~policies
+      in
       match
         type_expression table members policies ~before_item_index
           ~context:Value_context state
@@ -5349,6 +5635,7 @@ let type_initializer table members policies ~before_item_index state source =
                     initializer_source = source;
                     initializer_value;
                     initializer_target_type;
+                    initializer_backing_storage;
                     initializer_conversion;
                   },
                   state )))
@@ -5643,6 +5930,7 @@ let type_top_level_root table members policies ~before_item_index state source =
           | Top_level_expression_tree.Dimension_fragment _
           | Top_level_expression_tree.Switch_case_fragment _
           | Top_level_expression_tree.Offset_fragment _
+          | Top_level_expression_tree.Member_metadata_fragment _
           | Top_level_expression_tree.Static_initializer_fragment _
           | Top_level_expression_tree.Default_fragment _
           | Top_level_expression_tree.Implicit_output_argument _
@@ -5689,7 +5977,8 @@ let function_mode_of_outer_mode = function
   | Outer_environment.Jit -> Function_resolution.Jit
   | Outer_environment.Aot -> Function_resolution.Aot
 
-let analyze_top_level ~table ~members ~policies ~identifiers source =
+let analyze_top_level ~table ~members ~policies ~identifiers
+    ?aggregate_visibility source =
   let module_parent =
     source |> Top_level_expression_tree.source
     |> Top_level_outer_expression_binding.source
@@ -5726,6 +6015,17 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
     Error
       (invalid_top_level_input "aggregate member index describes another module")
   else if
+    Option.fold ~none:false
+      ~some:(fun visibility ->
+        not
+          (Function_aggregate_visibility.owns visibility ~table
+             ~parent:module_parent))
+      aggregate_visibility
+  then
+    Error
+      (invalid_top_level_input
+         "aggregate visibility describes another source namespace")
+  else if
     not (Function_call_conversion_policy.owns_parent policies module_parent)
   then
     Error
@@ -5745,7 +6045,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
            (type_top_level_statement table members policies)
            {
              next_id = 0;
-             aggregate_visibility = None;
+             aggregate_visibility;
              function_visibility = None;
              backing_context = None;
              results_rev = [];

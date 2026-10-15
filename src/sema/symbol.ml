@@ -49,11 +49,22 @@ type origin =
 
 type t = {
   id : Id.t;
+  execution_identity : int;
   scope_id : Scope_id.t;
   name : string;
   kind : kind;
   origin : origin;
 }
+
+let next_execution_identity = Atomic.make 1
+
+let rec allocate_execution_identity () =
+  let identity = Atomic.get next_execution_identity in
+  if identity > max_int - 65536 then
+    invalid_arg "semantic execution identity space exhausted";
+  if Atomic.compare_and_set next_execution_identity identity (identity + 1) then
+    identity
+  else allocate_execution_identity ()
 
 let create ~id ~scope_id ~name ~kind ~origin =
   if String.equal name "" then
@@ -68,9 +79,11 @@ let create ~id ~scope_id ~name ~kind ~origin =
   | Synthesized description ->
       if String.equal description "" then
         invalid_arg "synthesized semantic symbol origin cannot be empty");
-  { id; scope_id; name; kind; origin }
+  let execution_identity = allocate_execution_identity () in
+  { id; execution_identity; scope_id; name; kind; origin }
 
 let id symbol = symbol.id
+let execution_identity symbol = symbol.execution_identity
 let scope_id symbol = symbol.scope_id
 let name symbol = symbol.name
 let kind symbol = symbol.kind

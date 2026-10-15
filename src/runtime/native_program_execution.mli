@@ -355,5 +355,48 @@ val finish_task_offset :
   task_arena ->
   Backend.X86_64_program.t ->
   (Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t, string) result
-(** Take this original image's actual scalar capture once while its arena lives.
-*)
+
+val finish_task_member_metadata :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  ( Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t,
+    string )
+  result
+
+val finish_task_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Initializer_fragment_program.t Ir.Native_scalar_capture.t, string) result
+(** Take the original image's actual scalar capture once in its execution domain
+    while the retained arena lives. *)
+
+val finish_task_static_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Static_initializer_program.t Ir.Native_scalar_capture.t, string) result
+
+val copy_task_static_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Driver.Integer_task.Native_static_initializer.request ->
+  Ir.Integer_interpreter.native_static_initializer_copy ->
+  ( Ir.Integer_interpreter.native_static_initializer_copy
+    Ir.Native_initializer_copy_receipt.t,
+    string )
+  result
+
+val copy_task_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Driver.Integer_task.Native_dispatch.initializer_request ->
+  Ir.Integer_interpreter.native_initializer_copy ->
+  ( Ir.Integer_interpreter.native_initializer_copy
+    Ir.Native_initializer_copy_receipt.t,
+    string )
+  result
+(** Enter the original admitted byte copy once and return its private native
+    completion receipt. The request, copy token, arena and checked plan retain
+    their original source attempt. Completion consumes this exact receipt. *)

@@ -232,8 +232,12 @@ let function_source_error (definition : Ast.function_definition) =
       | Ast.Named_type_specifier _ -> true
       | _ -> false)
   then reject "native functions require a scalar integer or U0 return type"
-  else if definition.return_pointer_layers <> [] then
-    reject "native functions do not admit pointer returns"
+  else if
+    List.length definition.return_pointer_layers > 1
+    || definition.return_pointer_layers <> []
+       && void_return_type definition.return_type
+  then
+    reject "native functions admit one-level integer or class pointer returns"
   else if
     List.exists
       (fun (modifier : Ast.declaration_modifier) ->
@@ -291,15 +295,13 @@ let local_source_error (declaration : Ast.local_declaration) =
     Some (source_error declaration.local_declaration_location.span message)
   in
   let is_static = declaration.local_storage = Ast.Static_local in
-  let automatic_aggregate =
-    (not is_static)
-    && (match declaration.local_type_specifier with
+  let aggregate_object =
+    (match declaration.local_type_specifier with
       | Ast.Named_type_specifier _ -> true
       | _ -> false)
     && List.for_all
          (fun local ->
            (local.Ast.local_pointer_layers = []
-            && Option.is_none local.local_initializer
            || named_pointer declaration.local_type_specifier
                 local.local_pointer_layers)
            && (local.local_array_dimensions = []
@@ -310,7 +312,7 @@ let local_source_error (declaration : Ast.local_declaration) =
   if
     not
       (scalar_word_type declaration.local_type_specifier
-      || automatic_aggregate
+      || aggregate_object
       || List.for_all
            (fun local -> Option.is_some local.Ast.local_function_pointer)
            declaration.local_declarators)
@@ -348,7 +350,10 @@ let local_source_error (declaration : Ast.local_declaration) =
           | None -> None
           | Some { local_initializer_value = Ast.Scalar_initializer _; _ } ->
               None
-          | Some _ when is_static && local.local_array_dimensions <> [] -> None
+          | Some _
+            when is_static
+                 && (local.local_array_dimensions <> [] || aggregate_object) ->
+              None
           | Some _ -> reject "native locals require scalar initializers")
       declaration.local_declarators
 
@@ -370,7 +375,13 @@ let global_source_error ~span ~modifiers ~binding ~type_specifier
       "native globals require ordinary integer or callback declarations \
        without aliases or unsupported calling modifiers"
   else if
-    not (scalar_word_type type_specifier || Option.is_some function_pointer)
+    not
+      (scalar_word_type type_specifier
+      || Option.is_some function_pointer
+      ||
+      match type_specifier with
+      | Ast.Named_type_specifier _ -> true
+      | _ -> false)
   then reject "native globals require nonzero scalar integer types"
   else if
     match function_pointer with
@@ -411,8 +422,19 @@ let ast_errors (ast : Ast.module_) =
                || print_provider_prototype prototype
                || internal_prototype prototype -> ()
         | Gate_item (Ast.Aggregate_forward_declaration _) -> ()
-        | Gate_item (Ast.Aggregate_definition definition)
-          when definition.attached_declarators = [] -> ()
+        | Gate_item (Ast.Aggregate_definition definition) ->
+            List.find_map
+              (fun (variable : Ast.global_declarator) ->
+                global_source_error ~span:variable.location.span
+                  ~modifiers:definition.modifiers ~binding:None
+                  ~type_specifier:(Ast.Named_type_specifier definition.name)
+                  ~pointer_layers:variable.pointer_layers
+                  ~function_pointer:variable.function_pointer
+                  ~array_dimensions:variable.array_dimensions
+                  ~has_initializer:
+                    (Option.is_some variable.global_initial_value))
+              definition.attached_declarators
+            |> Option.iter reject
         | Gate_item (Ast.Global_variable variable) ->
             Option.iter reject
               (global_source_error ~span:variable.location.span
@@ -484,6 +506,7 @@ let ast_errors (ast : Ast.module_) =
                 match call.call_callee with
                 | Ast.Identifier_expression _
                 | Ast.Index_expression _
+                | Ast.Member_expression _
                 | Ast.Parenthesized_expression _ ->
                     work :=
                       Gate_expression (in_function, call.call_callee)
@@ -648,14 +671,6 @@ let ast_errors (ast : Ast.module_) =
   done;
   Option.to_list !first_error
 
-let program_storage_errors compiled span =
-  let errors = ref [] in
-  let add message = errors := source_error span message :: !errors in
-  let initialization = Integer_unit.initialization compiled in
-  if Ir.Global_initialization.static_regions initialization <> [] then
-    add "native programs require an entry with no runtime initialization";
-  List.rev !errors
-
 let entry_contains_opcode entry opcode =
   Ir.X87_stack.graph entry |> Ir.Block_graph.blocks
   |> List.exists (fun block ->
@@ -817,7 +832,37 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                         ]
                   | _ -> Ok ()
                 in
-                let* () = Task_declarations.observe ledger event in
+                let before = Task_declarations.offset_work ledger in
+                let observed =
+                  Task_declarations.observe ~isolated_initializers:true
+                    ~metadata_work_limit:
+                      (Native_default_preparation.remaining_work preparation)
+                    ledger event
+                in
+                let* () =
+                  match event with
+                  | Frontend.Parser.Aggregate_advanced
+                      {
+                        phase_step =
+                          ( Frontend.Parser.Aggregate_member_metadata_reached _
+                          | Frontend.Parser.Aggregate_offset_reached _ );
+                        phase_location;
+                        _;
+                      } ->
+                      Native_default_preparation.synchronize_work preparation
+                        ~work:
+                          (Native_default_preparation.work preparation
+                          + Task_declarations.offset_work ledger
+                          - before)
+                        ~bytes:(Native_default_preparation.bytes preparation)
+                      |> Result.map_error (fun message ->
+                          [
+                            diagnostic ~span:phase_location.span "HCIRVM0007"
+                              message;
+                          ])
+                  | _ -> Ok ()
+                in
+                let* () = observed in
                 match event with
                 | Frontend.Parser.Parameter_default_completed receipt ->
                     Native_default_preparation.prepare preparation ~session
@@ -903,91 +948,77 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
               { parsed with diagnostics = [] }
           with
           | Error errors -> Error (parsed.diagnostics @ errors)
-          | Ok checked -> (
+          | Ok checked ->
               let diagnostics = parsed.diagnostics @ checked.diagnostics in
-              match program_storage_errors checked.value span with
-              | _ :: _ as errors -> Error (diagnostics @ errors)
-              | [] ->
-                  (match Integer_unit.functions checked.value with
-                    | []
-                      when Ir.Integer_globals.byte_size
-                             (Integer_unit.globals checked.value)
-                           = 0
-                           && (not
-                                 (entry_contains_opcode
-                                    (Integer_unit.entry checked.value)
-                                    Ir.Opcode.Ic_str_const))
-                           && not
-                                (entry_contains_opcode
-                                   (Integer_unit.entry checked.value)
-                                   Ir.Opcode.Ic_call_start) ->
-                        Image.compile ?status_abi ~max_stack_bytes ~max_blocks
-                          ~max_ir_instructions ~max_code_bytes
-                          (Integer_unit.entry checked.value)
-                    | functions ->
-                        let* parameter_defaults =
-                          Native_parameter_defaults.create
-                            ~globals:(Integer_unit.globals checked.value)
-                            ~runtime_calls:
-                              (Integer_unit.runtime_calls checked.value)
-                            ~initialization:
-                              (Integer_unit.initialization checked.value)
-                            ~entry:(Integer_unit.entry checked.value)
-                            ~functions ~prepared:prepared_defaults
-                            ~prepared_callbacks
-                            ~completions:
-                              (Native_default_preparation.completions
-                                 preparation)
-                          |> Result.map_error (fun message ->
-                              [
-                                Backend.X86_64_program.
-                                  {
-                                    code = "HCBACK0002";
-                                    message;
-                                    span = Some span;
-                                  };
-                              ])
-                        in
-                        let* global_initializers =
-                          Native_global_initializers.create ~span
-                            ~static_completions:
-                              (Native_default_preparation.static_completions
-                                 preparation)
-                            ~completions:
-                              (Native_default_preparation
-                               .initializer_completions preparation)
-                            ~preparation:
-                              (Integer_unit.initializer_preparation
-                                 checked.value)
-                            ~runtime_calls:
-                              (Integer_unit.runtime_calls checked.value)
-                            ~initialization:
-                              (Integer_unit.initialization checked.value)
-                            ~entry:(Integer_unit.entry checked.value)
-                            ~functions
-                          |> Result.map_error (fun message ->
-                              [
-                                Backend.X86_64_program.
-                                  {
-                                    code = "HCBACK0003";
-                                    message;
-                                    span = Some span;
-                                  };
-                              ])
-                        in
-                        Image.compile_callable ~parameter_defaults
-                          ~global_initializers ?status_abi ~max_stack_bytes
-                          ~max_blocks ~max_ir_instructions ~max_code_bytes
-                          ~max_global_bytes ~max_literal_bytes
-                          ~runtime_calls:
-                            (Integer_unit.runtime_calls checked.value)
-                          ~initialization:
-                            (Integer_unit.initialization checked.value)
-                          ~entry:(Integer_unit.entry checked.value)
-                          ~functions ())
-                  |> Result.map (fun image -> { value = image; diagnostics })
-                  |> Result.map_error (fun errors ->
-                      diagnostics @ image_errors ~fallback:span errors))))
+              (match Integer_unit.functions checked.value with
+                | []
+                  when Ir.Integer_globals.byte_size
+                         (Integer_unit.globals checked.value)
+                       = 0
+                       && (not
+                             (entry_contains_opcode
+                                (Integer_unit.entry checked.value)
+                                Ir.Opcode.Ic_str_const))
+                       && not
+                            (entry_contains_opcode
+                               (Integer_unit.entry checked.value)
+                               Ir.Opcode.Ic_call_start) ->
+                    Image.compile ?status_abi ~max_stack_bytes ~max_blocks
+                      ~max_ir_instructions ~max_code_bytes
+                      (Integer_unit.entry checked.value)
+                | functions ->
+                    let* parameter_defaults =
+                      Native_parameter_defaults.create
+                        ~globals:(Integer_unit.globals checked.value)
+                        ~runtime_calls:
+                          (Integer_unit.runtime_calls checked.value)
+                        ~initialization:
+                          (Integer_unit.initialization checked.value)
+                        ~entry:(Integer_unit.entry checked.value)
+                        ~functions ~prepared:prepared_defaults
+                        ~prepared_callbacks
+                        ~completions:
+                          (Native_default_preparation.completions preparation)
+                      |> Result.map_error (fun message ->
+                          [
+                            Backend.X86_64_program.
+                              { code = "HCBACK0002"; message; span = Some span };
+                          ])
+                    in
+                    let* global_initializers =
+                      Native_global_initializers.create ~span
+                        ~static_completions:
+                          (Native_default_preparation.static_completions
+                             preparation)
+                        ~completions:
+                          (Native_default_preparation.initializer_completions
+                             preparation)
+                        ~preparation:
+                          (Integer_unit.initializer_preparation checked.value)
+                        ~runtime_calls:
+                          (Integer_unit.runtime_calls checked.value)
+                        ~initialization:
+                          (Integer_unit.initialization checked.value)
+                        ~entry:(Integer_unit.entry checked.value)
+                        ~functions
+                      |> Result.map_error (fun message ->
+                          [
+                            Backend.X86_64_program.
+                              { code = "HCBACK0003"; message; span = Some span };
+                          ])
+                    in
+                    Image.compile_callable ~parameter_defaults
+                      ~global_initializers ?status_abi ~max_stack_bytes
+                      ~max_blocks ~max_ir_instructions ~max_code_bytes
+                      ~max_global_bytes ~max_literal_bytes
+                      ~runtime_calls:(Integer_unit.runtime_calls checked.value)
+                      ~initialization:
+                        (Integer_unit.initialization checked.value)
+                      ~entry:(Integer_unit.entry checked.value)
+                      ~functions ())
+              |> Result.map (fun image -> { value = image; diagnostics })
+              |> Result.map_error (fun errors ->
+                  diagnostics @ image_errors ~fallback:span errors)))
 
 let compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     ?max_initializer_steps ?max_switch_work ?max_dimension_work
@@ -1062,6 +1093,12 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ("HCIRVM0018", "native Print requires a live byte pointer")
     | Image.Output_invalid_byte ->
         ("HCIRVM0008", "native Print byte cell has an invalid runtime value")
+    | Image.Pointer_ownership_unavailable ->
+        ("HCIRVM0018", "pointer reference has no live owned storage")
+    | Image.Reference_shadow_limit_exceeded ->
+        ( "HCIRVM0016",
+          "native pointer ownership metadata exceeds its host allocation limit"
+        )
     | Image.Pointer_object_mismatch ->
         ("HCIRVM0018", "pointer ordering requires the same live object extent")
     | Image.Callback_unowned_address ->

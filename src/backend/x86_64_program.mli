@@ -33,6 +33,8 @@ type fault_kind =
   | Output_invalid_pointer
   | Output_invalid_byte
   | Pointer_object_mismatch
+  | Pointer_ownership_unavailable
+  | Reference_shadow_limit_exceeded
   | Pointer_difference_object_mismatch
   | Callback_unowned_address
   | Callback_signature_mismatch
@@ -228,6 +230,16 @@ val compile_task_offset :
   Driver.Integer_task.Native_offset.request ->
   (t, error list) result
 
+val compile_task_member_metadata :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_member_metadata.request ->
+  (t, error list) result
+
 val compile_task_command :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
@@ -289,6 +301,10 @@ val function_count : t -> int
 (** Number of emitted named source functions. Closed native programs return 0.
 *)
 
+val is_callable : t -> bool
+(** Whether the compiler emitted the callable convention and its private runtime
+    context, including images with no named source functions. *)
+
 val has_output : t -> bool
 (** Whether the image contains an authenticated PutChars provider call and
     requires the native capture context. Unreachable calls still count. *)
@@ -344,11 +360,17 @@ type scalar_program =
   | Dimension of Ir.Dimension_fragment_program.t
   | Switch_case of Ir.Switch_case_fragment_program.t
   | Offset of Ir.Offset_fragment_program.t
+  | Member_metadata of Ir.Member_metadata_fragment_program.t
+  | Initializer of Ir.Initializer_fragment_program.t
+  | Static_initializer of Ir.Static_initializer_program.t
 
 val scalar_program : t -> scalar_program option
 val dimension : t -> Ir.Dimension_fragment_program.t option
 val switch_case : t -> Ir.Switch_case_fragment_program.t option
 val offset : t -> Ir.Offset_fragment_program.t option
+val member_metadata : t -> Ir.Member_metadata_fragment_program.t option
+val scalar_initializer : t -> Ir.Initializer_fragment_program.t option
+val scalar_static_initializer : t -> Ir.Static_initializer_program.t option
 val generation : t -> Ir.Integer_interpreter.native_generation option
 val source_callback : t -> Driver.Integer_task.native_source_callback option
 

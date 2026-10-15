@@ -520,6 +520,7 @@ let global_publication_timing () =
     declaration_sink (fun event ->
         (match event with
         | Parser.Global_initializer_started _
+        | Parser.Global_initializer_leaf_preparing _
         | Parser.Global_initializer_delimiter_completed _
         | Parser.Global_initializer_leaf_completed _ -> ()
         | _ -> events := event :: !events);

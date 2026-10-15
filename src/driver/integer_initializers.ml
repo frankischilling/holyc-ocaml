@@ -13,6 +13,7 @@ module Internal_binding = Ir.Internal_binding_fragment_destination
 module Dimension = Ir.Dimension_fragment_destination
 module Switch_case = Ir.Switch_case_fragment_destination
 module Offset = Ir.Offset_fragment_destination
+module Metadata = Ir.Member_metadata_fragment_destination
 module Runtime = Ir.Runtime_call_context
 
 let initializer_value_type declaration =
@@ -53,6 +54,7 @@ type native_destination = {
   cell_offset : int;
   byte_offset : int;
   operation : Layout.operation;
+  scalar : Sema.Initializer_type.scalar option;
 }
 
 type native_source =
@@ -67,9 +69,13 @@ type native_preparation = {
   native_steps : int;
 }
 
+type native_static_source =
+  | Static_closed of Sema.Static_initializer_fragment.t
+  | Static_load of Sema.Static_initializer_fragment.load
+
 type native_static_preparation = {
-  static_fragment : Sema.Static_initializer_fragment.t;
-  static_payload : Arrays.payload;
+  static_source : native_static_source;
+  static_payload : Arrays.payload option;
   static_destination : native_destination;
   static_steps : int;
 }
@@ -91,6 +97,7 @@ type owner =
   | Dimension of Dimension.t
   | Switch_case of Switch_case.t
   | Offset of Offset.t
+  | Member_metadata of Metadata.t
 
 type t = {
   globals_ : Globals.t;
@@ -103,6 +110,7 @@ type t = {
   dimension_items_ : Dimension.t prepared_item list;
   switch_case_items_ : Switch_case.t prepared_item list;
   offset_items_ : Offset.t prepared_item list;
+  metadata_items_ : Metadata.t prepared_item list;
   native_items_ : owner prepared_item list;
   native_evidence_ : native_preparation list;
   static_evidence_ : native_static_preparation list;
@@ -138,9 +146,9 @@ let value_instructions graph =
       | _ -> true)
 
 let prepare_internal ?fragment ?default ?default_execution ?internal_binding
-    ?dimension ?switch_case ?offset ?native_global ?native_static
-    ?(already_prepared = []) ?(statics_prepared = []) ?(function_calls = [])
-    ?(callback_calls = []) ?(top_callback_calls = [])
+    ?dimension ?switch_case ?offset ?member_metadata ?native_global
+    ?native_static ?(already_prepared = []) ?(statics_prepared = [])
+    ?(function_calls = []) ?(callback_calls = []) ?(top_callback_calls = [])
     ?(allow_zero_budget = false) ?(check_only = false)
     ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
     ~max_steps ~span ~globals ~top_calls ~functions () =
@@ -155,78 +163,98 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
     invalid "HCIRVM0001" "max_initializer_steps must be greater than zero"
   else
     let work =
-      match (native_global, native_static) with
-      | Some (fragment, root, destination), None ->
-          [ Native_global (fragment, root, destination) ]
-      | None, Some (fragment, root, destination) ->
-          [ Native_static (fragment, root, destination) ]
-      | Some _, Some _ -> invalid_arg "conflicting native preparation owners"
-      | None, None when Option.is_some switch_case -> (
-          match (fragment, default, internal_binding, dimension, offset) with
-          | None, None, None, None, None ->
-              [ Switch_case (Option.get switch_case) ]
-          | _ -> invalid_arg "conflicting switch case preparation owners")
-      | None, None -> (
-          match offset with
-          | Some destination
-            when Option.is_none internal_binding
-                 && Option.is_none dimension && Option.is_none fragment
-                 && Option.is_none default -> [ Offset destination ]
-          | Some _ -> invalid_arg "conflicting offset preparation owners"
-          | None -> (
-              match (internal_binding, dimension, fragment, default) with
-              | Some destination, None, None, None ->
-                  [ Internal_binding destination ]
-              | Some _, _, _, _ ->
-                  invalid_arg "conflicting internal binding preparation owners"
-              | None, Some destination, None, None -> [ Dimension destination ]
-              | None, Some _, _, _ ->
-                  invalid_arg "conflicting dimension preparation owners"
-              | None, None, Some destination, None -> [ Fragment destination ]
-              | None, None, None, Some destination -> [ Default destination ]
-              | None, None, Some _, Some _ ->
-                  invalid_arg "conflicting fragment preparation owners"
-              | None, None, None, None ->
-                  (Globals.slots globals
-                  |> List.concat_map (fun slot ->
-                      List.map
-                        (fun root -> Global (slot, root))
-                        (Globals.slot_initializers slot
-                        |> List.filter (fun root ->
-                            (not (Globals.slot_root_executed slot root))
-                            && not (List.exists (( == ) root) already_prepared))
-                        )))
-                  @ (Globals.statics globals
-                    |> List.concat_map (fun slot ->
-                        List.map
-                          (fun root -> Static (slot, root))
-                          (Globals.static_initializers slot
-                          |> List.filter (fun root ->
-                              (not (Globals.static_root_executed slot root))
-                              && not
-                                   (List.exists (( == ) root) statics_prepared))
-                          )))
-                  |> List.stable_sort (fun left right ->
-                      let index = function
-                        | Native_static _
-                        | Native_global _
-                        | Fragment _
-                        | Default _
-                        | Internal_binding _
-                        | Dimension _
-                        | Switch_case _
-                        | Offset _ -> 0
-                        | Global (slot, _) ->
-                            Globals.slot_record slot
-                            |> Sema.Global_record_classification
-                               .classified_record_source
-                            |> Sema.Global_resolution.global_record_global
-                            |> Sema.Global_type_resolution.global_item_index
-                        | Static (slot, _) ->
-                            Globals.static_frame slot
-                            |> Sema.Function_frame_layout.function_item_index
-                      in
-                      Int.compare (index left) (index right))))
+      match member_metadata with
+      | Some destination
+        when Option.is_none native_global
+             && Option.is_none native_static
+             && Option.is_none switch_case && Option.is_none offset
+             && Option.is_none fragment && Option.is_none default
+             && Option.is_none internal_binding
+             && Option.is_none dimension -> [ Member_metadata destination ]
+      | Some _ -> invalid_arg "conflicting member metadata preparation owners"
+      | None -> (
+          match (native_global, native_static) with
+          | Some (fragment, root, destination), None ->
+              [ Native_global (fragment, root, destination) ]
+          | None, Some (fragment, root, destination) ->
+              [ Native_static (fragment, root, destination) ]
+          | Some _, Some _ ->
+              invalid_arg "conflicting native preparation owners"
+          | None, None when Option.is_some switch_case -> (
+              match
+                (fragment, default, internal_binding, dimension, offset)
+              with
+              | None, None, None, None, None ->
+                  [ Switch_case (Option.get switch_case) ]
+              | _ -> invalid_arg "conflicting switch case preparation owners")
+          | None, None -> (
+              match offset with
+              | Some destination
+                when Option.is_none internal_binding
+                     && Option.is_none dimension && Option.is_none fragment
+                     && Option.is_none default -> [ Offset destination ]
+              | Some _ -> invalid_arg "conflicting offset preparation owners"
+              | None -> (
+                  match (internal_binding, dimension, fragment, default) with
+                  | Some destination, None, None, None ->
+                      [ Internal_binding destination ]
+                  | Some _, _, _, _ ->
+                      invalid_arg
+                        "conflicting internal binding preparation owners"
+                  | None, Some destination, None, None ->
+                      [ Dimension destination ]
+                  | None, Some _, _, _ ->
+                      invalid_arg "conflicting dimension preparation owners"
+                  | None, None, Some destination, None ->
+                      [ Fragment destination ]
+                  | None, None, None, Some destination ->
+                      [ Default destination ]
+                  | None, None, Some _, Some _ ->
+                      invalid_arg "conflicting fragment preparation owners"
+                  | None, None, None, None ->
+                      (Globals.slots globals
+                      |> List.concat_map (fun slot ->
+                          List.map
+                            (fun root -> Global (slot, root))
+                            (Globals.slot_initializers slot
+                            |> List.filter (fun root ->
+                                (not (Globals.slot_root_executed slot root))
+                                && not
+                                     (List.exists (( == ) root) already_prepared))
+                            )))
+                      @ (Globals.statics globals
+                        |> List.concat_map (fun slot ->
+                            List.map
+                              (fun root -> Static (slot, root))
+                              (Globals.static_initializers slot
+                              |> List.filter (fun root ->
+                                  (not (Globals.static_root_executed slot root))
+                                  && not
+                                       (List.exists (( == ) root)
+                                          statics_prepared)))))
+                      |> List.stable_sort (fun left right ->
+                          let index = function
+                            | Native_static _
+                            | Native_global _
+                            | Fragment _
+                            | Default _
+                            | Internal_binding _
+                            | Dimension _
+                            | Switch_case _
+                            | Member_metadata _
+                            | Offset _ -> 0
+                            | Global (slot, _) ->
+                                Globals.slot_record slot
+                                |> Sema.Global_record_classification
+                                   .classified_record_source
+                                |> Sema.Global_resolution.global_record_global
+                                |> Sema.Global_type_resolution.global_item_index
+                            | Static (slot, _) ->
+                                Globals.static_frame slot
+                                |> Sema.Function_frame_layout
+                                   .function_item_index
+                          in
+                          Int.compare (index left) (index right)))))
     in
     let rec collect total updates reversed work =
       on_progress total;
@@ -255,6 +283,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
               || Option.is_some internal_binding
               || Option.is_some dimension || Option.is_some switch_case
               || Option.is_some offset
+              || Option.is_some member_metadata
               || Option.is_some native_global
               || Option.is_some native_static
             then Ok globals
@@ -286,6 +315,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
               || Option.is_some internal_binding
               || Option.is_some dimension || Option.is_some switch_case
               || Option.is_some offset
+              || Option.is_some member_metadata
               || Option.is_some native_global
               || Option.is_some native_static
             then Ok globals_
@@ -307,6 +337,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Internal_binding _
                 | Dimension _
                 | Switch_case _
+                | Member_metadata _
                 | Offset _ -> None)
               prepared
           in
@@ -331,6 +362,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Internal_binding _
                 | Dimension _
                 | Switch_case _
+                | Member_metadata _
                 | Offset _ -> None)
               prepared
           in
@@ -371,6 +403,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   (fun item ->
                     match item.root_ with
                     | Offset root_ -> Some { item with root_ }
+                    | _ -> None)
+                  prepared;
+              metadata_items_ =
+                List.filter_map
+                  (fun item ->
+                    match item.root_ with
+                    | Member_metadata root_ -> Some { item with root_ }
                     | _ -> None)
                   prepared;
               dimension_items_ =
@@ -418,6 +457,10 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 ( None,
                   Typed.top_level_root_value (Offset.root destination),
                   None )
+            | Member_metadata destination ->
+                ( None,
+                  Typed.top_level_root_value (Metadata.root destination),
+                  None )
             | Dimension destination ->
                 ( None,
                   Typed.top_level_root_value (Dimension.root destination),
@@ -457,7 +500,9 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
           let notes =
             match symbol with
             | None ->
-                if Option.is_some offset then
+                if Option.is_some member_metadata then
+                  [ "member-metadata=runtime-expression" ]
+                else if Option.is_some offset then
                   [ "aggregate-offset=runtime-expression" ]
                 else if Option.is_some internal_binding then
                   [ "internal-binding=runtime-expression" ]
@@ -479,6 +524,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
             | Internal_binding _
             | Dimension _
             | Switch_case _
+            | Member_metadata _
             | Offset _ -> None
             | Fragment destination ->
                 Some (Layout.operation (Destination.layout destination))
@@ -527,6 +573,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                     | Internal_binding _
                     | Dimension _
                     | Switch_case _
+                    | Member_metadata _
                     | Offset _ -> errors
                     | Static _ ->
                         List.map
@@ -575,7 +622,9 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   | [] -> Ok ()
                   | (item : Seq.description) :: rest ->
                       let* () =
-                        if Option.is_some offset || Option.is_some switch_case
+                        if
+                          Option.is_some offset || Option.is_some switch_case
+                          || Option.is_some member_metadata
                         then
                           match item.opcode with
                           | Ir.Opcode.Ic_rip ->
@@ -668,11 +717,21 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
               in
               let* destination_type, compiler_options =
                 match root_ with
-                | Native_static (fragment, _, _) ->
-                    Ok (Sema.Static_initializer_fragment.type_ fragment, 0L)
-                | Native_global (fragment, _, _) ->
-                    initializer_value_type
-                      (Sema.Initializer_fragment.declaration fragment)
+                | Native_static (fragment, _, destination) ->
+                    Ok
+                      ( Option.fold
+                          ~none:
+                            (Sema.Static_initializer_fragment.type_ fragment)
+                          ~some:Sema.Initializer_type.scalar_value_type
+                          destination.scalar,
+                        0L )
+                | Native_global (fragment, _, destination) ->
+                    (match destination.scalar with
+                      | Some scalar ->
+                          Ok (Sema.Initializer_type.scalar_value_type scalar)
+                      | None ->
+                          initializer_value_type
+                            (Sema.Initializer_fragment.declaration fragment))
                     |> Result.map (fun type_ -> (type_, 0L))
                     |> Result.map_error (fun message ->
                         [
@@ -680,6 +739,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                             ("HCRUN0006: " ^ message);
                         ])
                 | Offset destination -> Ok (Offset.type_ destination, 0L)
+                | Member_metadata destination ->
+                    Ok (Metadata.type_ destination, 0L)
                 | Internal_binding destination ->
                     Ok (Internal_binding.type_ destination, 0L)
                 | Dimension destination -> Ok (Dimension.type_ destination, 0L)
@@ -691,10 +752,29 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                       ( Globals.storage_type (Destination.storage destination),
                         0L )
                 | Global (slot, _) -> Ok (Globals.slot_type slot, 0L)
-                | Static (slot, _) ->
+                | Static (slot, root) ->
                     Ok
                       ( Globals.static_storage slot |> Globals.storage_type,
-                        Globals.static_compiler_options slot )
+                        Globals.static_initializer_compiler_options slot root )
+              in
+              let destination_type =
+                let destination =
+                  match root_ with
+                  | Global (slot, root) ->
+                      Option.bind (Globals.slot_array_initializers slot)
+                        (fun arrays -> Arrays.find arrays root)
+                      |> Option.map Arrays.destination
+                  | Static (slot, root) ->
+                      Option.bind (Globals.static_array_initializers slot)
+                        (fun arrays -> Arrays.find arrays root)
+                      |> Option.map Arrays.destination
+                  | Fragment destination ->
+                      Some (Destination.layout destination)
+                  | _ -> None
+                in
+                Option.bind destination Layout.scalar
+                |> Option.fold ~none:destination_type
+                     ~some:Sema.Initializer_type.scalar_value_type
               in
               let* terminal =
                 instructions (Ir.X87_stack.graph value_graph_)
@@ -772,6 +852,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                       | Internal_binding _
                       | Dimension _
                       | Switch_case _
+                      | Member_metadata _
                       | Offset _ -> None
                     in
                     let find source_globals source_functions =
@@ -936,11 +1017,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 (not constant)
                 &&
                 match root_ with
-                | Static (slot, _) ->
+                | Static (slot, root) ->
                     Globals.storage_opcode (Globals.static_storage slot)
                     = Ir.Opcode.Ic_abs_addr
                     && Sema.Compiler_option.is_enabled
-                         ~mask:(Globals.static_compiler_options slot)
+                         ~mask:
+                           (Globals.static_initializer_compiler_options slot
+                              root)
                          Sema.Compiler_option.Globals_on_data_heap
                 | Native_static _
                 | Native_global _
@@ -950,6 +1033,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Internal_binding _
                 | Dimension _
                 | Switch_case _
+                | Member_metadata _
                 | Offset _ -> false
               then
                 invalid ~at ~notes "HCRUN0006"
@@ -1048,6 +1132,7 @@ let check_static_fragment ?retained_function_source ~top_calls
           cell_offset = D.cell_offset destination;
           byte_offset = D.byte_offset destination;
           operation = D.operation destination;
+          scalar = D.scalar destination;
         } )
     ~check_only:true ?retained_function_source ~top_callback_calls ~max_steps:1
     ~span:(D.span destination) ~globals:(D.globals destination) ~top_calls
@@ -1076,9 +1161,11 @@ let same_destination destination entry =
   destination.cell_offset = Layout.cell_offset entry
   && destination.byte_offset = Layout.byte_offset entry
   && destination.operation = Layout.operation entry
+  && Option.equal Sema.Initializer_type.scalar_equal destination.scalar
+       (Layout.scalar entry)
 
-let prepare_native_load ~declaration ~leaf ~cell_offset ~byte_offset ~operation
-    =
+let prepare_native_load ~scalar ~declaration ~leaf ~cell_offset ~byte_offset
+    ~operation =
   let module P = Frontend.Parser in
   let source = Sema.Compiler_record.declared_global_source declaration in
   let invalid message =
@@ -1103,17 +1190,19 @@ let prepare_native_load ~declaration ~leaf ~cell_offset ~byte_offset ~operation
         {
           native_source = Native_load (declaration, leaf);
           native_payload = None;
-          native_destination = { cell_offset; byte_offset; operation };
+          native_destination = { cell_offset; byte_offset; operation; scalar };
           native_steps = 0;
         }
   | _ ->
       invalid "native load initializer requires its current original AOT leaf"
 
-let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
-    ~on_progress ~max_steps =
+let prepare_native ~scalar:destination_scalar ~authority ~typed ~cell_offset
+    ~byte_offset ~operation ~on_progress ~max_steps =
   let fragment = Sema.Initializer_fragment.authorized_fragment authority in
   let leaf = Sema.Initializer_fragment.leaf fragment in
-  let destination = { cell_offset; byte_offset; operation } in
+  let destination =
+    { cell_offset; byte_offset; operation; scalar = destination_scalar }
+  in
   let span =
     (Frontend.Ast.expression_location
        (Sema.Initializer_source.leaf_expression_ast leaf))
@@ -1152,7 +1241,11 @@ let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
   let value = Typed.top_level_root_value root in
   let scalar type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_) in
   let* value_type =
-    initializer_value_type (Sema.Initializer_fragment.declaration fragment)
+    (match destination_scalar with
+      | Some scalar -> Ok (Sema.Initializer_type.scalar_value_type scalar)
+      | None ->
+          initializer_value_type
+            (Sema.Initializer_fragment.declaration fragment))
     |> Result.map_error (fun message ->
         [
           Common.Diagnostic.make ~code:"HCRUN0006"
@@ -1222,13 +1315,49 @@ let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
 let native_static_evidence value = value.static_evidence_
 
 let native_static_receipt value =
-  Sema.Static_initializer_fragment.receipt value.static_fragment
+  match value.static_source with
+  | Static_closed fragment -> Sema.Static_initializer_fragment.receipt fragment
+  | Static_load source -> Sema.Static_initializer_fragment.load_receipt source
 
-let prepare_native_static ~fragment ~typed ~cell_offset ~byte_offset ~operation
-    ~on_progress ~max_steps =
+let native_static_is_load value =
+  match value.static_source with
+  | Static_load _ -> true
+  | Static_closed _ -> false
+
+let prepare_native_static_load ~source ~scalar ~cell_offset ~byte_offset
+    ~operation =
+  let module Fragment = Sema.Static_initializer_fragment in
+  let receipt = Fragment.load_receipt source in
+  if
+    Frontend.Parser.static_initializer_is_current receipt
+    && operation = Layout.Scalar_store
+    && cell_offset >= 0 && byte_offset >= 0
+  then
+    Ok
+      {
+        static_source = Static_load source;
+        static_payload = None;
+        static_destination = { cell_offset; byte_offset; operation; scalar };
+        static_steps = 0;
+      }
+  else
+    Error
+      [
+        Common.Diagnostic.make ~code:"HCRUN0006"
+          ~severity:Common.Diagnostic.Error
+          ~message:
+            "native static load requires its current original scalar leaf"
+          ~primary:
+            (Frontend.Parser.static_initializer_leaf_location receipt).span ();
+      ]
+
+let prepare_native_static ~scalar:destination_scalar ~fragment ~typed
+    ~cell_offset ~byte_offset ~operation ~on_progress ~max_steps =
   let module Fragment = Sema.Static_initializer_fragment in
   let expression = Fragment.expression fragment in
-  let destination = { cell_offset; byte_offset; operation } in
+  let destination =
+    { cell_offset; byte_offset; operation; scalar = destination_scalar }
+  in
   let span = (Frontend.Ast.expression_location expression).span in
   let invalid message =
     Error
@@ -1266,7 +1395,10 @@ let prepare_native_static ~fragment ~typed ~cell_offset ~byte_offset ~operation
       match operation with
       | Layout.Scalar_store ->
           if
-            (scalar (Fragment.type_ fragment)
+            (scalar
+               (Option.fold ~none:(Fragment.type_ fragment)
+                  ~some:Sema.Initializer_type.scalar_value_type
+                  destination_scalar)
             || Option.is_some (Fragment.callback_source fragment))
             && Typed.result_array_rank value = 0
             && Option.fold ~none:false ~some:scalar (Typed.result_type value)
@@ -1303,8 +1435,8 @@ let prepare_native_static ~fragment ~typed ~cell_offset ~byte_offset ~operation
       [] ) ->
       Ok
         {
-          static_fragment = fragment;
-          static_payload = Arrays.Word static_bits;
+          static_source = Static_closed fragment;
+          static_payload = Some (Arrays.Word static_bits);
           static_destination = destination;
           static_steps;
         }
@@ -1312,8 +1444,8 @@ let prepare_native_static ~fragment ~typed ~cell_offset ~byte_offset ~operation
     when original == fragment && source_root == root && saved = destination ->
       Ok
         {
-          static_fragment = fragment;
-          static_payload = Arrays.Bytes bytes;
+          static_source = Static_closed fragment;
+          static_payload = Some (Arrays.Bytes bytes);
           static_destination = destination;
           static_steps;
         }
@@ -1345,8 +1477,18 @@ let native_static_values ~span globals evidence =
     | [], [] ->
         Ok (List.rev roots, List.rev scalar_values, List.rev array_values)
     | (slot, root) :: rest, proof :: tail -> (
-        let fragment = proof.static_fragment in
-        let receipt = Fragment.receipt fragment in
+        let receipt = native_static_receipt proof in
+        let publication, type_, expression =
+          match proof.static_source with
+          | Static_closed fragment ->
+              ( Fragment.publication fragment,
+                Fragment.type_ fragment,
+                Fragment.expression fragment )
+          | Static_load source ->
+              ( Fragment.load_publication source,
+                Fragment.load_type source,
+                Fragment.load_expression source )
+        in
         let source = Typed.initializer_source root in
         let leaf = Sema.Function_call_resolution.initializer_leaf source in
         let storage = Globals.static_storage slot in
@@ -1366,17 +1508,13 @@ let native_static_values ~span globals evidence =
                 completed))
           || Globals.static_frame slot
              |> Sema.Function_frame_layout.function_symbol
-             != Sema.Declaration_collection.publication_symbol
-                  (Fragment.publication fragment)
-          || (not
-                (Sema.Type.equal
-                   (Globals.storage_type storage)
-                   (Fragment.type_ fragment)))
+             != Sema.Declaration_collection.publication_symbol publication
+          || (not (Sema.Type.equal (Globals.storage_type storage) type_))
           || not
                (Option.fold ~none:false
                   ~some:(fun leaf ->
                     Sema.Initializer_source.leaf_expression_ast leaf
-                    == Fragment.expression fragment
+                    == expression
                     && Sema.Initializer_source.leaf_path leaf
                        = receipt.static_leaf_path)
                   leaf)
@@ -1384,6 +1522,27 @@ let native_static_values ~span globals evidence =
           invalid
             "native static evidence is incomplete, foreign, substituted or out \
              of order"
+        else if native_static_is_load proof then
+          let destination_matches =
+            match Globals.static_array_initializers slot with
+            | Some arrays ->
+                Option.fold ~none:false
+                  ~some:(fun entry ->
+                    same_destination proof.static_destination
+                      (Arrays.destination entry))
+                  (Arrays.find arrays root)
+            | None ->
+                proof.static_destination.cell_offset = 0
+                && proof.static_destination.byte_offset = 0
+          in
+          if
+            Globals.compilation_mode globals = Sema.Global_resolution.Aot
+            && proof.static_payload = None
+            && proof.static_steps = 0
+            && proof.static_destination.operation = Layout.Scalar_store
+            && destination_matches
+          then collect roots scalar_values array_values rest tail
+          else invalid "native static load has another phase or destination"
         else
           match Globals.static_array_initializers slot with
           | Some arrays -> (
@@ -1392,7 +1551,7 @@ let native_static_values ~span globals evidence =
                 when same_destination proof.static_destination
                        (Arrays.destination entry) ->
                   collect (root :: roots) scalar_values
-                    ((root, proof.static_payload, proof.static_steps)
+                    ((root, Option.get proof.static_payload, proof.static_steps)
                     :: array_values)
                     rest tail
               | None | Some _ ->
@@ -1403,7 +1562,7 @@ let native_static_values ~span globals evidence =
               match
                 (proof.static_payload, proof.static_destination.operation)
               with
-              | Arrays.Word bits, Layout.Scalar_store
+              | Some (Arrays.Word bits), Layout.Scalar_store
                 when proof.static_destination.cell_offset = 0
                      && proof.static_destination.byte_offset = 0 ->
                   collect (root :: roots)
@@ -1622,6 +1781,32 @@ let native_load_roots prepared =
       else None)
     prepared.items_
 
+let native_static_load_roots prepared =
+  List.filter_map
+    (fun item ->
+      let slot, root = item.root_ in
+      let leaf =
+        Typed.initializer_source root
+        |> Sema.Function_call_resolution.initializer_leaf
+      in
+      if
+        item.classification_ = Scheduled
+        && List.exists
+             (fun proof ->
+               native_static_is_load proof
+               && Option.fold ~none:false
+                    ~some:(fun leaf ->
+                      Sema.Initializer_source.leaf_expression_ast leaf
+                      == Sema.Static_initializer_fragment.load_expression
+                           (match proof.static_source with
+                           | Static_load source -> source
+                           | Static_closed _ -> assert false))
+                    leaf)
+             prepared.static_evidence_
+      then Some (slot, root)
+      else None)
+    prepared.static_items_
+
 let prepare ?native_preparations ?native_static_preparations ?function_calls
     ?callback_calls ?top_callback_calls ?allow_zero_budget
     ?retained_function_source ?on_progress ~max_steps ~span ~globals ~top_calls
@@ -1807,6 +1992,20 @@ let prepare_offset ?top_callback_calls ?retained_function_source ?on_progress
       Ok (item.classification_, prepared.steps)
   | _ -> invalid_arg "offset preparation lost its original work item"
 
+let prepare_member_metadata ?top_callback_calls ?retained_function_source
+    ?on_progress ~max_steps ~top_calls destination =
+  let* prepared =
+    prepare_internal ~member_metadata:destination ~allow_zero_budget:true
+      ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
+      ~span:(Metadata.span destination)
+      ~globals:(Metadata.globals destination)
+      ~top_calls ~functions:[] ()
+  in
+  match prepared.metadata_items_ with
+  | [ item ] when item.root_ == destination ->
+      Ok (item.classification_, prepared.steps)
+  | _ -> invalid_arg "member metadata preparation lost its original work item"
+
 let global_human prepared =
   match prepared.items_ with
   | [] -> ""
@@ -1879,6 +2078,7 @@ let human prepared =
                  | Internal_binding _
                  | Dimension _
                  | Switch_case _
+                 | Member_metadata _
                  | Offset _ -> invalid_arg "dimension cannot own copied bytes"
                  | Default destination -> Default.symbol destination
                  | Fragment destination ->

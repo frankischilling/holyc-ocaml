@@ -113,7 +113,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
     ?native_dispatch ?native_static_allocation ?native_static_initializer
     ?native_static_copy ?native_default ?native_dimension ?native_switch_case
-    ?native_offset ?native_internal_binding session ~config ~source =
+    ?native_offset ?native_member_metadata ?native_internal_binding session
+    ~config ~source =
   let limits =
     {
       steps = max_steps;
@@ -213,8 +214,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       ?native_dispatch ?native_static_allocation
                       ?native_static_initializer ?native_static_copy
                       ?native_default ?native_dimension ?native_switch_case
-                      ?native_offset ?native_internal_binding session ~source
-                      ~ledger
+                      ?native_offset ?native_member_metadata
+                      ?native_internal_binding session ~source ~ledger
             in
             let* retained =
               create ()
@@ -346,6 +347,15 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       in
                       let* _ = ensure_task receipt.phase_location.span in
                       Ok true
+                  | true, None, Parser.Aggregate_advanced receipt
+                    when Task_declarations.member_metadata_requires_runtime
+                           receipt ->
+                      let* () =
+                        Task_declarations.defer_source_runtime_member_metadata
+                          ledger ~phase:receipt event
+                      in
+                      let* _ = ensure_task receipt.phase_location.span in
+                      Ok true
                   | _ -> Ok false
                 in
                 if deferred_dimension then Ok ()
@@ -358,9 +368,28 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                            as phase) ) ->
                         let* task = ensure_task phase.phase_location.span in
                         Task.observe_source_offset task ledger event
-                    | _ -> Task_declarations.observe ledger event
+                    | _ ->
+                        Task_declarations.observe
+                          ~isolated_initializers:(not is_jit) ledger event
                   in
                   match (is_jit, !task, event) with
+                  | true, None, Parser.Global_initializer_started start
+                    when Option.is_some
+                           start.initializer_owner.global_header
+                             .declaration_type_selection
+                         && start.initializer_owner.global_pointer_layers = []
+                         && Option.is_none
+                              start.initializer_owner.global_function_pointer ->
+                      ensure_task start.initializer_equals.span
+                      |> Result.map ignore
+                  | true, None, Parser.Aggregate_declared receipt
+                    when Option.is_some receipt.aggregate_backing
+                         && Option.fold ~none:false
+                              ~some:(fun binding ->
+                                binding.Frontend.Ast.kind = Frontend.Ast.Extern)
+                              receipt.aggregate_header.binding ->
+                      ensure_task receipt.aggregate_name.location.span
+                      |> Result.map ignore
                   | true, None, Parser.Function_parameter_declared receipt
                     when Option.is_some receipt.parameter_default_equals ->
                       ensure_task
@@ -378,8 +407,13 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                          && Option.is_some receipt.allocation_initializer_equals
                          &&
                          match receipt.allocation_local.local_source with
-                         | Parser.Local_variable source ->
+                         | Parser.Local_variable source -> (
                              Option.is_some source.local_function_pointer
+                             || source.local_pointer_layers = []
+                                &&
+                                match source.local_type_specifier with
+                                | Frontend.Ast.Named_type_specifier _ -> true
+                                | _ -> false)
                          | _ -> false ->
                       ensure_task
                         receipt.allocation_function.function_name.location.span
@@ -493,14 +527,16 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     ?max_output_bytes ?max_output_work ?native_dispatch
     ?native_static_allocation ?native_static_initializer ?native_static_copy
     ?native_default ?native_dimension ?native_switch_case ?native_offset
-    ?native_internal_binding session ~config ~source ~max_steps =
+    ?native_member_metadata ?native_internal_binding session ~config ~source
+    ~max_steps =
   let compilation =
     compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
       ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
       ?max_output_bytes ?max_output_work ?native_dispatch
       ?native_static_allocation ?native_static_initializer ?native_static_copy
       ?native_default ?native_dimension ?native_switch_case ?native_offset
-      ?native_internal_binding ~max_steps session ~config ~source
+      ?native_member_metadata ?native_internal_binding ~max_steps session
+      ~config ~source
   in
   let span = Integer_source.source_span source in
   let program_ =

@@ -91,6 +91,16 @@ let trailing_dimension_preparation t =
       Some preparation
   | _ -> None
 
+let member_metadata_phases t =
+  List.filter_map
+    (function
+      | Declaration
+          (Parser.Aggregate_advanced
+             ({ phase_step = Parser.Aggregate_member_metadata_reached _; _ } as
+              phase)) -> Some phase
+      | _ -> None)
+    t.events
+
 let trailing_switch_case_preparation t =
   match List.rev t.events with
   | Declaration (Parser.Switch_case_preparing preparation) :: _ ->
@@ -102,6 +112,15 @@ let trailing_aggregate_offset t =
   | Declaration
       (Parser.Aggregate_advanced
          ({ phase_step = Parser.Aggregate_offset_reached _; _ } as phase))
+    :: _ -> Some phase
+  | _ -> None
+
+let trailing_member_metadata t =
+  match List.rev t.events with
+  | Declaration
+      (Parser.Aggregate_advanced
+         ({ phase_step = Parser.Aggregate_member_metadata_reached _; _ } as
+          phase))
     :: _ -> Some phase
   | _ -> None
 
@@ -158,6 +177,9 @@ let event_context = function
   | Declaration event ->
       let start =
         match event with
+        | Parser.Index_operand_selected p -> Parser.index_command p
+        | Parser.Assignment_operand_preparing p
+        | Parser.Assignment_operand_selected p -> Parser.assignment_command p
         | Parser.Internal_binding_preparing p -> p.binding_command
         | Parser.Aggregate_declared p -> p.aggregate_header.declaration_command
         | Parser.Aggregate_advanced p ->
@@ -176,6 +198,9 @@ let event_context = function
             p.global_header.declaration_command
         | Parser.Global_initializer_started p ->
             p.initializer_owner.global_header.declaration_command
+        | Parser.Global_initializer_leaf_preparing p ->
+            p.preparation_initializer.initializer_owner.global_header
+              .declaration_command
         | Parser.Global_initializer_leaf_completed p ->
             p.leaf_initializer.initializer_owner.global_header
               .declaration_command
@@ -185,6 +210,15 @@ let event_context = function
         | Parser.Function_declared p -> p.function_header.declaration_command
         | Parser.Function_position_written p ->
             p.position_function.function_header.declaration_command
+        | Parser.Static_initializer_expression_preparing p ->
+            p.static_expression_start.static_start_allocation
+              .allocation_function
+              .function_header
+              .declaration_command
+        | Parser.Static_initializer_delimiter_completed p ->
+            p.static_delimiter_start.static_start_allocation.allocation_function
+              .function_header
+              .declaration_command
         | Parser.Static_initializer_preparing p ->
             p.static_allocation.allocation_function.function_header
               .declaration_command
@@ -476,6 +510,12 @@ let initializer_leaf activation receipt =
         original == receipt
     | _ -> false)
 
+let initializer_preparation activation receipt =
+  allows activation (function
+    | Declaration (Parser.Global_initializer_leaf_preparing original) ->
+        original == receipt
+    | _ -> false)
+
 let initializer_delimiter activation receipt =
   allows activation (function
     | Declaration (Parser.Global_initializer_delimiter_completed original) ->
@@ -502,6 +542,18 @@ let declaration activation receipt =
 let static_allocation activation receipt =
   allows activation (function
     | Declaration (Parser.Function_local_allocated original) ->
+        original == receipt
+    | _ -> false)
+
+let static_expression_preparation activation receipt =
+  allows activation (function
+    | Declaration (Parser.Static_initializer_expression_preparing original) ->
+        original == receipt
+    | _ -> false)
+
+let static_initializer_delimiter activation receipt =
+  allows activation (function
+    | Declaration (Parser.Static_initializer_delimiter_completed original) ->
         original == receipt
     | _ -> false)
 
@@ -590,6 +642,14 @@ let internal_binding_admission activation preparation =
 let offset_admission activation phase =
   admission activation (function
     | Declaration (Parser.Aggregate_advanced original) -> original == phase
+    | _ -> false)
+
+let member_metadata_admission activation phase =
+  admission activation (function
+    | Declaration
+        (Parser.Aggregate_advanced
+           ({ phase_step = Parser.Aggregate_member_metadata_reached _; _ } as
+            original)) -> original == phase
     | _ -> false)
 
 let function_phase_admission activation event =

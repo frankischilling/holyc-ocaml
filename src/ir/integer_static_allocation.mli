@@ -10,10 +10,10 @@ val create :
   header:Sema.Function_collection.collected_function ->
   Sema.Compiler_record.static_allocation ->
   (t, string) result
-(** Retain the original live allocation, checked integer or one-star callback
-    shape, anonymous header and exact symbol already inserted in the declaring
-    partial header. This contains no initial values, interpreter cells, native
-    address or execution permission. *)
+(** Retain the original live allocation, checked integer, aggregate or one-star
+    callback shape, original class layout or anonymous header, and exact symbol
+    already inserted in the declaring partial header. This contains no initial
+    values, interpreter cells, native address or execution permission. *)
 
 val source : t -> Sema.Compiler_record.static_allocation
 val symbol : t -> Sema.Symbol.t
@@ -31,7 +31,36 @@ val callback_pointer :
   t -> Sema.Function_type_resolution.function_pointer option
 
 val shape : t -> Integer_storage_shape.t
+
+val runtime_dependencies :
+  t -> Sema.Compiler_record.runtime_dimension_proposal list
+
+val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list
 val cursor : t -> Integer_initializer_layout.stream
+
+val observe_delimiter :
+  ?activation:Sema.Source_activation.t ->
+  t ->
+  Frontend.Parser.completed_static_initializer_delimiter ->
+  (unit, string) result
+
+val prepare_expression :
+  ?activation:Sema.Source_activation.t ->
+  t ->
+  Frontend.Parser.static_leaf_preparation ->
+  (unit, string) result
+
+val prepare_leaf :
+  t ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( Integer_initializer_layout.stream_preparation option
+    * (Integer_initializer_layout.stream
+      * (int
+        * int
+        * Integer_initializer_layout.operation
+        * Sema.Initializer_type.scalar option)),
+    string )
+  result
 
 val record_native_leaf :
   ?activation:Sema.Source_activation.t ->
@@ -40,6 +69,7 @@ val record_native_leaf :
   cell_offset:int ->
   byte_offset:int ->
   operation:Integer_initializer_layout.operation ->
+  scalar:Sema.Initializer_type.scalar option ->
   (unit, string) result
 (** Record the successful original live leaf and its checked destination in the
     initializer stream. The receipt retains no computed value or native address.
@@ -55,6 +85,12 @@ val check_native_layout :
   (unit, string) result
 
 val owns_table : t -> Sema.Symbol_table.t -> bool
+
+val retained_layout :
+  t ->
+  shape:Integer_storage_shape.t ->
+  Sema.Initializer_source.t ->
+  (Integer_initializer_layout.t, string) result
 
 val check_completed : t -> Sema.Static_local_source.t -> (unit, string) result
 (** Join only the original allocation and symbol to their checked completed

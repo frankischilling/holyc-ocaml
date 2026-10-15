@@ -11,6 +11,7 @@ type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
   | Aggregate_position_expression of Offset_fragment.position
+  | Metadata_position_expression of Member_metadata_fragment.position
   | Default_position_expression of Default_fragment.position
   | Offset_expression
   | Postfix_cast_expression
@@ -152,13 +153,17 @@ val make_argument_expression :
   kind:argument_expression_kind -> origin:Symbol.origin -> argument_expression
 
 val retain_source_expression :
+  ?offset_fragment:Offset_fragment.t ->
+  ?metadata_fragment:Member_metadata_fragment.t ->
+  ?default_fragment:Default_fragment.t ->
   source:Frontend.Ast.expression ->
   argument_expression ->
   (argument_expression, string) result
 (** Retain the original parser occurrence for later checked source consumers.
     Origin, payload, operators and exact ordered child occurrences must match.
     Calls still require their separate checked call receipts. This association
-    grants no execution or layout authority on its own. *)
+    grants no execution or layout authority on its own. Original offset,
+    metadata and default fragments validate their special position nodes. *)
 
 val argument_expression_source :
   argument_expression -> Frontend.Ast.expression option
@@ -396,6 +401,7 @@ val validate_source_expression :
   expression:argument_expression ->
   calls:call list ->
   ?offset_fragment:Offset_fragment.t ->
+  ?metadata_fragment:Member_metadata_fragment.t ->
   ?default_fragment:Default_fragment.t ->
   ?callee_expressions:(call * argument_expression) list ->
   ?call_expressions:(call * argument_expression) list ->
@@ -560,6 +566,7 @@ val resolve :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   ?members:Aggregate_member_index.t ->
+  ?aggregate_visibility:Function_aggregate_visibility.t ->
   function_types:Function_type_resolution.t ->
   functions:Function_resolution.t ->
   expressions:Module_expression_binding.t ->
@@ -569,9 +576,10 @@ val resolve :
 (** Resolve function-body calls. A module function receives the source header
     visible to the caller and its canonical joined identity. A supplied member
     index also resolves direct and pointer callbacks through their exact lookup
-    and stored signature. Named aggregate types must carry the identity visible
-    before the caller. Other computed callee categories remain explicit deferred
-    calls. *)
+    and stored signature. Named aggregate casts retain the identity at their
+    original expression when [aggregate_visibility] is supplied, including body
+    declarations. Otherwise they use the identity before the caller. Other
+    computed callee categories remain explicit deferred calls. *)
 
 val bind_direct_arguments :
   call ->
@@ -590,6 +598,8 @@ val bind_indirect_arguments :
     function bodies and executable top-level statements. *)
 
 val resolve_member_callable :
+  ?aggregate_visibility:Function_aggregate_visibility.t ->
+  ?outer:Outer_expression_binding.t ->
   Aggregate_member_index.t ->
   before_item_index:int ->
   argument_expression ->

@@ -15,7 +15,25 @@ val create_visible :
   pointer_type:Type.t ->
   t option
 
+val create_index :
+  visibility:Function_aggregate_visibility.function_ ->
+  source:Frontend.Ast.expression ->
+  pointer_type:Type.t ->
+  stride:int64 ->
+  t option
+(** Authenticate the original index's reached class size independently of its
+    earlier object allocation. This grants no additional byte extent. *)
+
 val byte_size : t -> int64
+
+val create_top_level_index :
+  visibility:Function_aggregate_visibility.t ->
+  source:Frontend.Ast.expression ->
+  pointer_type:Type.t ->
+  stride:int64 ->
+  t option
+
+val matches_top_level : t -> pointer_type:Type.t -> stride:int64 -> bool
 val aggregate_symbol : t -> Symbol.t
 
 val matches :

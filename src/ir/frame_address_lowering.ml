@@ -18,6 +18,7 @@ type lowering_result = Lowered of t | Unsupported_location
 
 type checked_location = {
   slot : Frame.frame_slot;
+  location : Frame.location;
   address_type : Type.t;
   span : Common.Span.t;
 }
@@ -162,7 +163,8 @@ let checked_non_static_location ~span result identifier location =
                   | Ok address_type -> (
                       match complete_result_span result with
                       | Error _ as error -> error
-                      | Ok span -> Ok (Some { slot; address_type; span })))))
+                      | Ok span ->
+                          Ok (Some { slot; location; address_type; span })))))
 
 let checked_local_location frame result identifier occurrence binding =
   let span = result_span result in
@@ -358,7 +360,14 @@ let lower_supported ~instruction_id ~value_id checked =
           description ~instruction_id:add_id ~opcode:Opcode.Ic_add
             ~operands:[ rbp_value; immediate_value ]
             ~result_value:address_value ~target_type:checked.address_type
-            ~payload:None ~span:checked.span;
+            ~payload:
+              (if
+                 Frame.location_allocated_size checked.location = 0L
+                 && Option.is_some
+                      (Automatic_aggregate_storage.of_location checked.location)
+               then Some (Sequence.Empty_frame_root checked.location)
+               else None)
+            ~span:checked.span;
         ]
       in
       match Sequence.create descriptions with
@@ -433,8 +442,12 @@ let prepare_initializer ~frame initial =
               Sema.Symbol.origin symbol,
               Type.pointer_to (Frame.location_checked_type location) )
           with
-          | Some slot, Sema.Symbol.Source_location location, Ok address_type ->
-              Ok (Some { slot; address_type; span = location.span })
+          | ( Some slot,
+              Sema.Symbol.Source_location source_location,
+              Ok address_type ) ->
+              Ok
+                (Some
+                   { slot; location; address_type; span = source_location.span })
           | _ ->
               invalid
                 "initializer frame location has no complete slot, source or \

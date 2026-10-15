@@ -76,6 +76,7 @@ end) : sig
     | Array_dimension
     | Aggregate_offset
     | Switch_case
+    | Member_metadata
 
   type dimension = {
     dimension_expression : expression option;
@@ -188,6 +189,16 @@ end) : sig
     element_size:int64 ->
     counts:int64 list ->
     (int64, error) result
+
+  val placed_member_layout :
+    symbol:Symbol.t ->
+    origin:Symbol.origin ->
+    offset:int64 ->
+    element_size:int64 ->
+    dimensions:int64 list ->
+    signedness:signedness ->
+    (member_layout, error) result
+  (** Pure member extent metadata for a retained original placement. *)
 
   val finish_size :
     origin:Symbol.origin ->

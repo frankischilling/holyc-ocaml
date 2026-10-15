@@ -1,6 +1,13 @@
 type slot
 
+val with_source_options :
+  source:Sema.Static_local_source.t -> slot -> (slot, string) result
+(** Join original allocation options to an exact frame/location without granting
+    runtime allocation, initializer execution or copy authority. *)
+
 val create :
+  initializer_snapshots:Integer_initializer_layout.static_snapshot list ->
+  allocations:Integer_static_allocation.t list ->
   span:Common.Span.t ->
   mode:Sema.Function_resolution.compilation_mode ->
   start:int ->
@@ -37,6 +44,16 @@ val callback_pointer :
   slot -> Sema.Function_type_resolution.function_pointer option
 
 val compiler_options : slot -> int64
+
+val owner_compiler_options : slot -> int64
+(** Declaring function's immutable option snapshot used to authenticate its
+    checked body independently of allocation and expression options. *)
+
+val initializer_compiler_options :
+  slot -> Sema.Function_call_expression_result.initializer_result -> int64
+(** Original expression-boundary options for a retained source leaf, or the
+    declaring allocation/batch mask when no source leaf is available. *)
+
 val opcode : slot -> Opcode.t
 
 val initial :
