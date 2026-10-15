@@ -202,10 +202,36 @@ let prepare_unit ?environment:task_environment ?declaration_command
     | None, None -> Ok None
     | Some _, Some _ -> assert false
   in
+  let* assignment_resolver =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.aggregate_assignment_resolver ~table ~ast:source_ast
+          command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_aggregate_assignment_resolver ~table
+          ~ast:source_ast command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
   let* aggregate_visibility =
+    let* index_resolver =
+      match (declaration_command, source_command) with
+      | Some command, None ->
+          Task_declarations.aggregate_index_resolver ~table ~ast:source_ast
+            command
+          |> Result.map Option.some
+      | None, Some command ->
+          Task_declarations.source_aggregate_index_resolver ~table
+            ~ast:source_ast command
+          |> Result.map Option.some
+      | None, None -> Ok None
+      | Some _, Some _ -> assert false
+    in
     Sema.Function_aggregate_visibility.create ~table ~declarations ~bodies
       ?aggregate_references ?automatic_aggregates:automatic_aggregate_resolver
-      ast
+      ?assignments:assignment_resolver ?indices:index_resolver ast
     |> checked
   in
   let* aggregates =

@@ -297,6 +297,7 @@ let field_proofs () =
       Aggregate_member_fixture.local_contents;
       Aggregate_member_fixture.local_pointer_contents;
       Aggregate_member_fixture.local_backing_contents;
+      Aggregate_member_fixture.index_contents;
       Automatic_aggregate_cases.initializer_proof_source;
       Arrays.proof_source;
       Pointers.proof_source;
@@ -660,9 +661,10 @@ let task_values =
   @ Cases.nested_values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
   @ Pointers.values @ Pointers.view_matrix @ Inherited.values
   @ Inherited.view_matrix @ Inherited.retained_values
-  @ Pointers.retained_view_values @ Backed.values @ Default.values
-  @ Parameters.values @ Parameters.view_matrix @ Returns.values
-  @ Returns.view_matrix @ Returns.warning_values @ Defaults.native_values
+  @ Pointers.retained_view_values @ Backed.values @ Backed.source_values
+  @ Backed.assignment_values @ Default.values @ Parameters.values
+  @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
+  @ Returns.warning_values @ Defaults.native_values
   @ [ List.hd Defaults.prototype_values ]
   @ Defaults.jit_values @ Cases.retained_nested_values @ Persistent.values
   @ Persistent.retained_values @ Casts.values @ Casts.retained_values
@@ -709,6 +711,12 @@ let () =
           task_values );
       ( "retained limits",
         [
+          Alcotest.test_case "assignment observations preserve original bounds"
+            `Quick (fun () ->
+              List.iter
+                (fun (_, source, code, _) ->
+                  task_failure code (run_task source))
+                Backed.source_faults);
           Alcotest.test_case "exact original class code, work and saved words"
             `Quick task_limits;
           Alcotest.test_case "exact nested class layout and preparation limits"

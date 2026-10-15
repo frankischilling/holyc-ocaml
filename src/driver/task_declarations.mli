@@ -429,6 +429,24 @@ val automatic_aggregate_resolver :
     statics, inline backed-class locals and missing layout proof return [None].
     The resolver grants no frame layout or runtime storage authority. *)
 
+val aggregate_index_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.expression ->
+    Sema.Compiler_record.aggregate_index_visibility option,
+    Common.Diagnostic.t list )
+  result
+
+val aggregate_assignment_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.expression ->
+    Sema.Compiler_record.aggregate_assignment_visibility option,
+    Common.Diagnostic.t list )
+  result
+
 val aggregate_reference_resolver :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -502,6 +520,24 @@ val source_automatic_aggregate_resolver :
   source_command ->
   ( Frontend.Ast.identifier ->
     Sema.Compiler_record.automatic_aggregate_allocation option,
+    Common.Diagnostic.t list )
+  result
+
+val source_aggregate_index_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Frontend.Ast.expression ->
+    Sema.Compiler_record.aggregate_index_visibility option,
+    Common.Diagnostic.t list )
+  result
+
+val source_aggregate_assignment_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Frontend.Ast.expression ->
+    Sema.Compiler_record.aggregate_assignment_visibility option,
     Common.Diagnostic.t list )
   result
 

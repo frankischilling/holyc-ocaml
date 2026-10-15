@@ -2128,6 +2128,62 @@ let rec prepare_index_address ?frame ?globals result =
                       | Some (_, []) ->
                           invalid "index base has no checked remaining stride"
                       | Some (address, stride :: remaining) ->
+                          let declared_stride = stride in
+                          let* stride =
+                            match
+                              Semantic_result.result_index_element_size result
+                            with
+                            | None -> Ok stride
+                            | Some size
+                              when Semantic_result.result_array_rank base = 0 ->
+                                Ok size
+                            | Some size -> (
+                                match
+                                  Semantic_result.result_member_lookup base
+                                with
+                                | None -> Ok stride
+                                | Some lookup ->
+                                    let dimensions =
+                                      (Sema.Aggregate_member_index.lookup_member
+                                         lookup
+                                      |> Sema.Aggregate_member_index
+                                         .member_layout)
+                                        .dimensions
+                                    in
+                                    let count = List.length remaining in
+                                    let rec drop n values =
+                                      if n <= 0 then values
+                                      else
+                                        match values with
+                                        | [] -> []
+                                        | _ :: rest -> drop (n - 1) rest
+                                    in
+                                    let dimensions =
+                                      drop
+                                        (List.length dimensions - count)
+                                        dimensions
+                                    in
+                                    if List.length dimensions <> count then
+                                      invalid
+                                        "index observation disagrees with \
+                                         original dimensions"
+                                    else
+                                      List.fold_left
+                                        (fun state dimension ->
+                                          let* bytes = state in
+                                          if
+                                            dimension < 0L || bytes < 0L
+                                            || dimension > 0L
+                                               && bytes
+                                                  > Int64.div Int64.max_int
+                                                      dimension
+                                          then
+                                            invalid
+                                              "observed class stride exceeds \
+                                               the hosted address range"
+                                          else Ok (Int64.mul bytes dimension))
+                                        (Ok size) dimensions)
+                          in
                           let base_type =
                             Option.get
                               (Semantic_result.result_storage_type base)
@@ -2201,12 +2257,24 @@ let rec prepare_index_address ?frame ?globals result =
                                        index;
                                        stride;
                                        pointee_layout =
-                                         (if array_storage_address base then
-                                            None
-                                          else
-                                            Semantic_result
-                                            .result_aggregate_pointee_layout
-                                              result);
+                                         (match
+                                            if
+                                              array_storage_address base
+                                              && stride = declared_stride
+                                            then None
+                                            else
+                                              Semantic_result
+                                              .result_index_layout result
+                                                ~pointer_type ~stride
+                                          with
+                                         | Some _ as observed -> observed
+                                         | None ->
+                                             if array_storage_address base then
+                                               None
+                                             else
+                                               Semantic_result
+                                               .result_aggregate_pointee_layout
+                                                 result);
                                        pointer_type;
                                        span;
                                      },

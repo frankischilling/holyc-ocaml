@@ -177,6 +177,9 @@ let event_context = function
   | Declaration event ->
       let start =
         match event with
+        | Parser.Index_operand_selected p -> Parser.index_command p
+        | Parser.Assignment_operand_preparing p
+        | Parser.Assignment_operand_selected p -> Parser.assignment_command p
         | Parser.Internal_binding_preparing p -> p.binding_command
         | Parser.Aggregate_declared p -> p.aggregate_header.declaration_command
         | Parser.Aggregate_advanced p ->

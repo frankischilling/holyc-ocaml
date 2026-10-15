@@ -1652,7 +1652,56 @@ let aggregate_phase_is_current phase =
   && phase.phase_aggregate.aggregate_header.declaration_command.command_context
        .context_active
 
+type index_selection = {
+  index_command : command_start;
+  index_environment : Symbol_visibility.Environment.t;
+  index_function : function_publication option;
+  index_opening : Ast.location;
+  mutable index_source : Ast.expression option;
+  mutable index_active : bool;
+}
+
+let index_command selection = selection.index_command
+let index_environment selection = selection.index_environment
+let index_function selection = selection.index_function
+let index_opening selection = selection.index_opening
+let index_source selection = selection.index_source
+
+let index_selection_is_current selection =
+  selection.index_active
+  && selection.index_command.command_context.context_active
+
+type assignment_selection = {
+  assignment_left : Ast.expression;
+  assignment_operator : Ast.location;
+  assignment_environment : Symbol_visibility.Environment.t;
+  assignment_command : command_start;
+  assignment_function : function_publication option;
+  mutable assignment_source : Ast.expression option;
+  mutable assignment_active : bool;
+  mutable assignment_preparing : bool;
+}
+
+let assignment_left selection = selection.assignment_left
+let assignment_operator selection = selection.assignment_operator
+let assignment_environment selection = selection.assignment_environment
+let assignment_command selection = selection.assignment_command
+let assignment_function selection = selection.assignment_function
+let assignment_source selection = selection.assignment_source
+
+let assignment_selection_is_current selection =
+  selection.assignment_active
+  && (not selection.assignment_preparing)
+  && selection.assignment_command.command_context.context_active
+
+let assignment_preparation_is_current selection =
+  selection.assignment_active && selection.assignment_preparing
+  && selection.assignment_command.command_context.context_active
+
 type declaration_event =
+  | Index_operand_selected of index_selection
+  | Assignment_operand_preparing of assignment_selection
+  | Assignment_operand_selected of assignment_selection
   | Internal_binding_preparing of internal_binding_preparation
   | Aggregate_declared of aggregate_publication
   | Aggregate_advanced of aggregate_phase
@@ -5110,6 +5159,28 @@ and parse_postfix_cast_suffix cursor ~context (operand : parsed_expression)
 and parse_index_suffix cursor ~context ~depth (base : parsed_expression) :
     parsed_expression option =
   let opening = take cursor in
+  let following = peek cursor in
+  let selection =
+    Option.map
+      (fun command ->
+        let selection =
+          {
+            index_command = command;
+            index_environment = cursor.symbols;
+            index_function = cursor.local_function;
+            index_opening = token_location opening.token;
+            index_source = None;
+            index_active = true;
+          }
+        in
+        Fun.protect
+          ~finally:(fun () -> selection.index_active <- false)
+          (fun () ->
+            publish_declaration cursor following
+              (Index_operand_selected selection));
+        selection)
+      cursor.current_command
+  in
   match
     parse_expression cursor ~context:Index_expression ~depth:(depth + 1)
       ~minimum_binding_power:0
@@ -5137,6 +5208,9 @@ and parse_index_suffix cursor ~context ~depth (base : parsed_expression) :
                ~closing_bracket:(token_location closing.token)
                ~location:(location_from_expression_tokens tokens))
         in
+        Option.iter
+          (fun selection -> selection.index_source <- Some node)
+          selection;
         Some { node; tokens }
 
 and parse_member_suffix cursor ~context (base : parsed_expression) access_kind :
@@ -5401,10 +5475,45 @@ and parse_expression_binary_tail cursor ~parenthesis_phase ~context ~depth
   match binary_operator item.token with
   | Some operator_spec
     when binary_binding_power operator_spec >= minimum_binding_power -> (
+      let assignment =
+        if
+          operator_spec.Operator.precedence_name = "PREC_ASSIGN"
+          && Option.is_some cursor.current_command
+        then (
+          let selection =
+            {
+              assignment_left = left.node;
+              assignment_operator = token_location item.token;
+              assignment_environment = cursor.symbols;
+              assignment_command = Option.get cursor.current_command;
+              assignment_function = cursor.local_function;
+              assignment_source = None;
+              assignment_active = true;
+              assignment_preparing = true;
+            }
+          in
+          Fun.protect
+            ~finally:(fun () -> selection.assignment_active <- false)
+            (fun () ->
+              publish_declaration cursor item
+                (Assignment_operand_preparing selection));
+          Some selection)
+        else None
+      in
       let operator_item = take cursor in
       let following = peek cursor in
       if operator_spec.Operator.precedence_name = "PREC_ASSIGN" then
         unaudit_expression cursor;
+      Option.iter
+        (fun selection ->
+          selection.assignment_active <- true;
+          selection.assignment_preparing <- false;
+          Fun.protect
+            ~finally:(fun () -> selection.assignment_active <- false)
+            (fun () ->
+              publish_declaration cursor operator_item
+                (Assignment_operand_selected selection)))
+        assignment;
       consume_parenthesis_binary cursor parenthesis_phase operator_spec
         following;
       let binding_power = binary_binding_power operator_spec in
@@ -5423,6 +5532,9 @@ and parse_expression_binary_tail cursor ~parenthesis_phase ~context ~depth
             combine_binary_expression left.node operator_item operator_spec
               right.node
           in
+          Option.iter
+            (fun selection -> selection.assignment_source <- Some node)
+            assignment;
           let left : parsed_expression =
             {
               node;

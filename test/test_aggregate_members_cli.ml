@@ -274,7 +274,13 @@ let () =
            @ Inherited.view_matrix @ Backed.values @ Default.values
            @ Parameters.values @ Parameters.view_matrix @ Returns.values
            @ Returns.view_matrix @ Returns.warning_values @ Persistent.values
-           @ Casts.values);
+           @ Casts.values
+            @ if target = "ir" then Backed.source_values else []);
+          if target = "ir" && mode = "aot" then (
+            error ~code:"HCSEMA0046" ""
+              (invoke ~status:1 target mode Backed.isolated_assignment_source);
+            value 43L ""
+              (invoke target mode Backed.isolated_assignment_value_source));
           value 42L "AB" (invoke target mode (read Sys.argv.(13)));
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "AB" (invoke target mode (read Sys.argv.(3)));
@@ -339,14 +345,15 @@ let () =
               (Defaults.jit_values @ Inherited.retained_values
              @ Pointers.retained_view_values @ Cases.retained_nested_values
              @ Cases.pointer_retained_values @ Persistent.retained_values
-             @ Casts.retained_values));
+             @ Casts.retained_values @ Backed.assignment_values));
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
             (Refs.faults @ Callbacks.faults @ Cases.faults @ Arrays.faults
            @ Pointers.faults @ Inherited.faults @ Backed.faults @ Default.faults
            @ Parameters.faults @ Returns.faults @ Casts.faults
-           @ Persistent.faults
+            @ (if target = "ir" then Backed.source_faults else [])
+            @ Persistent.faults
             @ if mode = "jit" then Persistent.jit_faults else []);
           List.iter
             (fun (definition, bytes) ->
@@ -498,9 +505,10 @@ let () =
       @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix @ Pointers.values
       @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
       @ Inherited.retained_values @ Pointers.retained_view_values
-      @ Backed.values @ Default.values @ Parameters.values
-      @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
-      @ Returns.warning_values @ Defaults.native_values @ Defaults.jit_values
+      @ Backed.values @ Backed.source_values @ Backed.assignment_values
+      @ Default.values @ Parameters.values @ Parameters.view_matrix
+      @ Returns.values @ Returns.view_matrix @ Returns.warning_values
+      @ Defaults.native_values @ Defaults.jit_values
       @ Cases.retained_nested_values @ Persistent.values
       @ Persistent.retained_values @ Casts.values @ Casts.retained_values
     in
@@ -512,6 +520,18 @@ let () =
             (List.exists (fun (n, _, _, _) -> n = name) Returns.warning_values)
           expected output (invoke_task source))
       task_values;
+    List.iter
+      (fun (_, source, expected, output) ->
+        value expected output (invoke_task ~mode:"aot" source))
+      Backed.source_values;
+    error ~code:"HCSEMA0046" ""
+      (invoke_task ~mode:"aot" ~status:1 Backed.isolated_assignment_source);
+    value 43L ""
+      (invoke_task ~mode:"aot" Backed.isolated_assignment_value_source);
+    List.iter
+      (fun (_, source, code, output) ->
+        error ~code output (invoke_task ~status:1 source))
+      Backed.source_faults;
     value 42L ""
       (invoke_task
          ~options:[ "--global-byte-limit=14" ]

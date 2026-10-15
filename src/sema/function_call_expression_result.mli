@@ -563,6 +563,18 @@ val result_binary_operands :
 (** Return the exact checked left and right children of a binary result in
     source order. Other expression forms return [None]. *)
 
+val result_index_element_size : expression_result -> int64 option
+(** Checked original class size at '[' lookahead. This numeric view grants no
+    object allocation, stride dimensions or byte extent. *)
+
+val result_index_layout :
+  expression_result ->
+  pointer_type:Type.t ->
+  stride:int64 ->
+  Aggregate_pointee_layout.t option
+(** Original index observation authenticated for the checked scaled stride.
+    Memory access remains bounded by the original containing root. *)
+
 val result_index_operands :
   expression_result -> (expression_result * expression_result) option
 (** Exact checked base and index value for an index expression. The index keeps

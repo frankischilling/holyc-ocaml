@@ -2,6 +2,20 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-AGGREGATE-ASSIGNMENT-OBSERVATIONS"
+description = "Function-body integer aggregate assignments and member indices retain their original endpoint, lookahead and completion observations."
+sources = ["Compiler/PrsExp.HC:65-263 complete PrsExpression2", "Compiler/PrsExp.HC:200-208 original internal lvalue gate", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier and index strides", "Compiler/PrsLib.HC:79-97 complete ICAdd", "Compiler/OptPass3.HC:1-621 complete OptPass3", "Compiler/OptLib.HC:9-15,508-533 complete forwarding and raw-type helpers", "Compiler/BackC.HC:159-204 complete ICAssign", "Compiler/PrsStmt.HC:805-840 complete PrsStreamBlk"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/function_aggregate_visibility.ml", "src/sema/aggregate_backing_storage.ml", "src/sema/aggregate_pointee_layout.ml", "src/sema/function_call_expression_result.ml", "src/driver/task_declarations.ml", "src/driver/integer_source.ml", "src/ir/aggregate_member_projection.ml", "src/ir/expression_lowering.ml"]
+tests = ["test/backed_aggregate_cases.ml", "test/test_local_aggregate_allocation.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/assignment-backing-observations.hc"]
+documentation = ["docs/backed-aggregate-values.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+source_identity = "Private original preparation and selection receipts retain the exact binary source, function publication, table, namespace and class identities. A primitive endpoint already selected for dereference is not retargeted by completion of its earlier extern spelling."
+execution = "Lookahead can complete an original ordinary forward endpoint before the assignment gate. Later completion cannot authorize an earlier invalid endpoint. Each member index retains its reached class size after opening-bracket lookahead and before its index value; earlier zero strides and later completed sizes coexist with original dimension multipliers. Member arithmetic remains bounded by the original containing byte root. Grouped assignment results preserve their full register word. Isolated AOT classes remain separate from the task JIT table."
+verification = "Public source/API/CLI cases exercise integer widths, direct/pointer/indexed destinations, compound assignment, register results, named forwarding, replacement, completion timing, mode separation and bounds. Authority cases reject copied nodes, other functions, foreign tables/namespaces, changed pointer types and repeated or expired phases."
+verification_boundary = "Pinned source and hosted execution provide this evidence without a TempleOS runtime or emitted-byte capture. Classic native directive processing retains HCPP0008. Full parser Invalid-lval exception timing, other backing families, broader dynamic class behavior and whole-compiler acceptance remain open under issue 686 and the release tracker."
+
+[[feature]]
 id = "HC-AGGREGATE-ASSIGNMENT-LVALUE-GATE"
 description = "Aggregate assignments use the original backing endpoint and the pinned internal-storage lvalue rule."
 sources = ["Compiler/PrsExp.HC:65-263 complete PrsExpression2 and IST_ASSIGN lvalue check", "Compiler/PrsExp.HC:200-208 OptClassFwd and Cf_INTERNAL_TYPE", "Compiler/PrsLib.HC:40-60 complete PrsClassNew and default raw type", "Compiler/PrsVar.HC:285-371 complete PrsType backing selection", "Compiler/OptLib.HC:9-15 complete OptClassFwd", "Compiler/BackC.HC:159-204 complete ICAssign"]
@@ -13,7 +27,7 @@ issue = 686
 source_identity = "The checked original backing proof distinguishes internal storage from an ordinary class endpoint. Neither raw RT_PTR nor inheritance grants assignment permission, and replacement cannot retarget that proof."
 execution = "Simple and compound assignment to ordinary class endpoints reject during semantic checking before RHS calls. Field stores, explicit internal storage casts and internal-backed whole assignments retain their original roots and bounds. Raw default-word reads and prefix/postfix updates retain their separate source producer rules."
 verification = "Shared API and CLI fixtures cover ordinary class and union locals, pointer dereferences, arrays, nested members, inherited classes, ordinary backing endpoints, compound assignment, replacement and RHS effects. Existing value, ownership, lifetime, exact quota and native ABI cases preserve their intended coverage through source-permitted setup stores."
-verification_boundary = "Pinned source and hosted execution provide this evidence without a new TempleOS runtime or machine-byte capture. Other value/backing families, general copies, original dynamic assignment observation and wider compiler acceptance remain open under issue 686."
+verification_boundary = "Pinned source and hosted execution provide this evidence without a new TempleOS runtime or machine-byte capture. Other value/backing families, general copies, top-level dynamic assignment and wider compiler acceptance remain open under issue 686."
 
 [[feature]]
 id = "HC-AUTOMATIC-AGGREGATE-SCALAR-INITIALIZERS"

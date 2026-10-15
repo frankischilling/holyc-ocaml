@@ -3078,6 +3078,9 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
     let open Frontend.Parser in
     let start =
       match event with
+      | Index_operand_selected p -> Frontend.Parser.index_command p
+      | Assignment_operand_preparing p | Assignment_operand_selected p ->
+          Frontend.Parser.assignment_command p
       | Internal_binding_preparing p -> p.binding_command
       | Aggregate_declared p -> p.aggregate_header.declaration_command
       | Aggregate_advanced p ->

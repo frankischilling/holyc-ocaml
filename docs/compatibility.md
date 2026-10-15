@@ -1005,3 +1005,13 @@ expression lookahead selects AOT deferral. Constant statics support the data-hea
 option in both source modes and targets. AOT data-heap globals reject initializers
 before their effects. The separate compile-time phase for reference-bearing AOT
 statics and the AOT `IC_HEAP_GLBL`/loader path remain open.
+
+## Aggregate assignment observations
+
+Function-body integer aggregate assignments retain the endpoint selected before operator
+lookahead, the internal-storage check reached after lookahead and the original
+function's completion metadata. JIT forward completion can supply backing to the
+selected endpoint; later extern completion cannot retarget an already selected
+primitive endpoint. Root extents, member offsets and zero array strides remain
+separate. Isolated AOT declarations retain their original table while `#exe`
+uses the task's JIT table. See [backed values](backed-aggregate-values.md).

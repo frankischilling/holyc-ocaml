@@ -46,6 +46,8 @@ type expression_result = {
   operand_result : expression_result option;
   binary_operands : (expression_result * expression_result) option;
   index_operands : (expression_result * expression_result) option;
+  index_element_size : int64 option;
+  index_visibility : Function_aggregate_visibility.function_ option;
   member_base_result : expression_result option;
   aggregate_pointee_layout : Aggregate_pointee_layout.t option;
   aggregate_backing_storage : Aggregate_backing_storage.t option;
@@ -808,6 +810,19 @@ let result_aggregate_pointee_layout (result : expression_result) =
 
 let result_aggregate_backing_storage (result : expression_result) =
   result.aggregate_backing_storage
+
+let result_index_element_size (result : expression_result) =
+  result.index_element_size
+
+let result_index_layout result ~pointer_type ~stride =
+  match
+    ( result.index_visibility,
+      Function_call_resolution.argument_expression_source result.source )
+  with
+  | Some visibility, Some source ->
+      Aggregate_pointee_layout.create_index ~visibility ~source ~pointer_type
+        ~stride
+  | _ -> None
 
 let result_aggregate_return_value_type (result : expression_result) =
   result.aggregate_return_value_type
@@ -1745,6 +1760,8 @@ let make_result ?aggregate_return_value_type ?operand_result ?binary_operands
       operand_result;
       binary_operands;
       index_operands;
+      index_element_size = None;
+      index_visibility = None;
       member_base_result;
       aggregate_pointee_layout;
       aggregate_backing_storage = None;
@@ -1849,6 +1866,11 @@ let set_intrinsic_conversion state result intrinsic_conversion =
     match replace_result state replacement with
     | Error _ as error -> error
     | Ok state -> Ok (replacement, state)
+
+let revise_result state replacement =
+  Result.map
+    (fun state -> (replacement, state))
+    (replace_result state replacement)
 
 let select_known_binary_type left right result_class =
   match result_class with
@@ -2651,7 +2673,15 @@ let rec type_expression table members policies ~before_item_index ~context
                 ?top_level_outer_occurrence:
                   grouped_result.top_level_outer_occurrence
                 ?outer_binding:grouped_result.outer_binding
-                grouped_result.category grouped_result.result_class state)
+                grouped_result.category grouped_result.result_class state
+              |> fun finished ->
+              Result.bind finished (fun (result, state) ->
+                  revise_result state
+                    {
+                      result with
+                      aggregate_backing_storage =
+                        grouped_result.aggregate_backing_storage;
+                    }))
       | Function_call_resolution.Prefix_expression prefix ->
           type_prefix table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source prefix
@@ -3509,16 +3539,34 @@ and type_index table members policies ~before_item_index ~context
         with
         | Error _ as error -> error
         | Ok (index_value, state) ->
-            Ok
-              (make_result ~index_operands:(base, index_value)
-                 ?aggregate_pointee_layout:
-                   (Option.bind (result_storage_type base) (fun pointer_type ->
-                        pointee_layout state ~members ~before_item_index ~source
-                          ~pointer_type))
-                 ?callback_pointer:base.callback_pointer
-                 ~array_address:(base.array_address && array_rank > 0)
-                 ~array_rank ?member_lookup ~intrinsic_conversion state ~id
-                 ~source ~source_type ~category ~result_class)
+            let result, state =
+              make_result ~index_operands:(base, index_value)
+                ?aggregate_pointee_layout:
+                  (Option.bind (result_storage_type base) (fun pointer_type ->
+                       pointee_layout state ~members ~before_item_index ~source
+                         ~pointer_type))
+                ?callback_pointer:base.callback_pointer
+                ~array_address:(base.array_address && array_rank > 0)
+                ~array_rank ?member_lookup ~intrinsic_conversion state ~id
+                ~source ~source_type ~category ~result_class
+            in
+            let index_element_size =
+              match
+                ( state.function_visibility,
+                  Function_call_resolution.argument_expression_source source,
+                  source_type )
+              with
+              | Some visibility, Some observed, Some element_type ->
+                  Function_aggregate_visibility.index_element_size visibility
+                    ~source:observed ~element_type
+              | _ -> None
+            in
+            revise_result state
+              {
+                result with
+                index_element_size;
+                index_visibility = state.function_visibility;
+              }
       in
       match (base.source_type, base.category) with
       | None, _ ->
@@ -3808,6 +3856,7 @@ and type_postfix table members policies ~before_item_index ~intrinsic_conversion
 
 and type_assignment table members policies ~before_item_index
     ~intrinsic_conversion state id source binary assignment_kind =
+  let ( let* ) = Result.bind in
   let operator_origin =
     Function_call_resolution.binary_operator_origin binary
   in
@@ -3822,6 +3871,25 @@ and type_assignment table members policies ~before_item_index
   | Error _ as error -> error
   | Ok (left, state) -> (
       let destination_type = result_storage_type left in
+      let* left, state =
+        match
+          ( state.function_visibility,
+            Function_call_resolution.argument_expression_source source,
+            destination_type )
+        with
+        | Some visibility, Some observed, Some source_type
+          when match Type.base source_type with
+               | Type.Aggregate _ -> Type.pointer_depth source_type = 0
+               | _ -> false -> (
+            match
+              Aggregate_backing_storage.create_assignment ~visibility
+                ~source:observed ~table ~members ~policies ~source_type
+            with
+            | None -> Ok (left, state)
+            | Some aggregate_backing_storage ->
+                revise_result state { left with aggregate_backing_storage })
+        | _ -> Ok (left, state)
+      in
       let valid_storage_type =
         is_writable_storage_type destination_type
         || Option.fold ~none:false
@@ -3881,14 +3949,20 @@ and type_assignment table members policies ~before_item_index
               match set_intrinsic_conversion state right right_conversion with
               | Error _ as error -> error
               | Ok (right, state) ->
-                  Ok
-                    (make_result ~binary_operands:(left, right) ~execution_class
-                       ?aggregate_pointee_layout:
-                         (pointee_layout state ~members ~source
-                            ~before_item_index ~pointer_type:destination_type)
-                       ~intrinsic_conversion state ~id ~source
-                       ~source_type:(Some destination_type)
-                       ~category:Object_value ~result_class:destination_class)))
+                  let result, state =
+                    make_result ~binary_operands:(left, right) ~execution_class
+                      ?aggregate_pointee_layout:
+                        (pointee_layout state ~members ~source
+                           ~before_item_index ~pointer_type:destination_type)
+                      ~intrinsic_conversion state ~id ~source
+                      ~source_type:(Some destination_type)
+                      ~category:Object_value ~result_class:destination_class
+                  in
+                  revise_result state
+                    {
+                      result with
+                      aggregate_backing_storage = left.aggregate_backing_storage;
+                    }))
       | Unavailable, _, _ ->
           invalid_destination "assignment destination is unavailable"
       | Lvalue, None, _ ->

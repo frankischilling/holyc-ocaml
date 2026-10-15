@@ -169,6 +169,61 @@ type compiler_positions
 type static_allocation
 type automatic_aggregate_allocation
 type aggregate_reference_visibility
+type aggregate_assignment_visibility
+type aggregate_assignment_preparation
+type aggregate_index_visibility
+
+val capture_aggregate_index_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Frontend.Parser.index_selection ->
+  t list ->
+  (aggregate_index_visibility, string) result
+
+val aggregate_index_element_size :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  function_source:Frontend.Parser.function_publication ->
+  source:Frontend.Ast.expression ->
+  element_type:Type.t ->
+  aggregate_index_visibility ->
+  int64 option
+
+val prepare_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Frontend.Parser.assignment_selection ->
+  t list ->
+  (aggregate_assignment_preparation, string) result
+
+val capture_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  ?preparation:aggregate_assignment_preparation ->
+  Frontend.Parser.assignment_selection ->
+  t list ->
+  (aggregate_assignment_visibility, string) result
+
+val complete_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  header:Frontend.Parser.completed_function_header ->
+  body:Frontend.Ast.function_definition ->
+  t list ->
+  aggregate_assignment_visibility ->
+  (unit, string) result
+
+val aggregate_assignment_value_type :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  function_source:Frontend.Parser.function_publication ->
+  source:Frontend.Ast.expression ->
+  source_type:Type.t ->
+  aggregate_assignment_visibility ->
+  Type.t option
+(** Assignment permission follows the original lookahead endpoint; integer
+    storage width follows the original function-completion observation. Later
+    backing cannot authorize an earlier ordinary endpoint. *)
 
 val create_compiler_positions :
   sources:Common.Source_manager.t -> compiler_positions

@@ -377,7 +377,18 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                           Ir.Aggregate_member_projection.strides proof,
                           Memory )
                   | _ -> Unknown_address)
-              | Ic_add, [ base; offset ], None -> (
+              | Ic_add, [ base; offset ], (None | Some (Seq.Pointee_stride _))
+                -> (
+                  let selected_stride stride =
+                    match (item.payload, frame) with
+                    | None, _ -> false
+                    | Some (Seq.Pointee_stride layout), Some frame ->
+                        Sema.Aggregate_pointee_layout.matches layout
+                          ~function_symbol:(Frame.function_symbol frame)
+                          ~before_item_index:(Frame.function_item_index frame)
+                          ~pointer_type:type_ ~stride
+                    | _ -> false
+                  in
                   match (address base, address offset) with
                   | Base expected, Offset (offset_type, bits)
                     when T.equal expected type_ && T.equal offset_type type_ ->
@@ -387,7 +398,8 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                     when T.equal expected type_ && T.equal offset_type type_
                     -> (
                       match dimensions with
-                      | head :: tail when head = stride ->
+                      | head :: tail
+                        when head = stride || selected_stride stride ->
                           Reference (type_, tail, memory)
                       | [] -> Reference (type_, [], memory)
                       | _ -> Unknown_address)

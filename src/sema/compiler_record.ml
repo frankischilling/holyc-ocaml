@@ -212,6 +212,30 @@ type aggregate_reference_visibility = {
   reference_partial_records : (Symbol.t * t) list;
 }
 
+type aggregate_assignment_preparation = {
+  preparation_table : Symbol_table.t;
+  preparation_namespace : Declaration_collection.namespace;
+  preparation_source : Parser.assignment_selection;
+  preparation_records : (Symbol.t * t) list;
+  mutable preparation_consumed : bool;
+}
+
+type aggregate_index_visibility = {
+  index_table : Symbol_table.t;
+  index_namespace : Declaration_collection.namespace;
+  index_source : Parser.index_selection;
+  index_records : (Symbol.t * t) list;
+}
+
+type aggregate_assignment_visibility = {
+  assignment_table : Symbol_table.t;
+  assignment_namespace : Declaration_collection.namespace;
+  assignment_source : Parser.assignment_selection;
+  assignment_initial_records : (Symbol.t * t) list;
+  assignment_records : (Symbol.t * t) list;
+  mutable assignment_final_records : (Symbol.t * t) list option;
+}
+
 type inherited_base = {
   inherited_phase : Parser.aggregate_phase;
   inherited_namespace : Declaration_collection.namespace;
@@ -1117,130 +1141,315 @@ let validate_automatic_aggregate ~table ~parent ~function_symbol ~local_symbol
   then Error "automatic class allocation changed its selected original type"
   else Ok ()
 
+let capture_aggregate_visibility_records ~table ~namespace ~environment
+    ~retain_hidden ?(allow_forward = false) records =
+  let rec completed symbols partial captured = function
+    | [] ->
+        let reached records =
+          if not retain_hidden then records
+          else
+            let available = captured @ partial in
+            let rec retain visited record =
+              let identity =
+                Option.bind record.aggregate_owner (fun (_, publication, _) ->
+                    Declaration_collection.publication_aggregate_identity
+                      publication)
+              in
+              match identity with
+              | None -> record
+              | Some symbol when List.memq symbol visited -> record
+              | Some symbol ->
+                  let base =
+                    Option.map
+                      (fun original ->
+                        let current =
+                          Option.bind original.aggregate_owner
+                            (fun (_, publication, _) ->
+                              Option.bind
+                                (Declaration_collection
+                                 .publication_aggregate_identity publication)
+                                (fun identity ->
+                                  List.find_map
+                                    (fun (selected, record) ->
+                                      if selected == identity then Some record
+                                      else None)
+                                    available))
+                          |> Option.value ~default:original
+                        in
+                        retain (symbol :: visited) current)
+                      record.aggregate_base_snapshot
+                  in
+                  { record with aggregate_base_snapshot = base }
+            in
+            List.map
+              (fun (symbol, record) -> (symbol, retain [] record))
+              records
+        in
+        Ok (symbols, reached captured, reached partial)
+    | (record : t) :: rest -> (
+        match record.aggregate_owner with
+        | Some (owner, publication, Some source)
+          when record.table == table && owner == namespace
+               && (match source.aggregate_item with
+                 | Ast.Aggregate_definition _ -> true
+                 | Ast.Aggregate_forward_declaration _ -> allow_forward
+                 | _ -> false)
+               && Declaration_collection.namespace_owns_publication namespace
+                    publication
+               && record.symbol
+                  == Declaration_collection.publication_symbol publication
+               && aggregate_snapshot_is_current record
+               && source.aggregate_publication.aggregate_environment
+                  == environment
+               && source.aggregate_publication.aggregate_entry == record.entry
+               && Option.fold ~none:false
+                    ~some:(( == ) source.aggregate_publication)
+                    (Declaration_collection.publication_source_aggregate
+                       publication)
+               && (retain_hidden
+                  || Option.fold ~none:false ~some:(( == ) publication)
+                       (Declaration_collection.current_aggregate_publication
+                          namespace publication)) -> (
+            match
+              Declaration_collection.publication_aggregate_identity publication
+            with
+            | Some symbol ->
+                completed (symbol :: symbols) partial
+                  ((symbol, record) :: captured)
+                  rest
+            | None ->
+                Error "completed reference class lacks its canonical identity")
+        | Some (owner, publication, None)
+          when record.table == table && owner == namespace
+               && Declaration_collection.namespace_owns_publication namespace
+                    publication
+               && record.symbol
+                  == Declaration_collection.publication_symbol publication
+               && aggregate_snapshot_is_current record -> (
+            match
+              ( Declaration_collection.publication_source_aggregate publication,
+                Declaration_collection.publication_aggregate_identity
+                  publication,
+                Declaration_collection.current_aggregate_publication namespace
+                  publication )
+            with
+            | Some source, Some symbol, current
+              when (retain_hidden
+                   || Option.fold ~none:false ~some:(( == ) publication) current
+                   )
+                   && (allow_forward
+                      || Option.is_none source.aggregate_header.binding)
+                   && source.aggregate_environment == environment
+                   && source.aggregate_entry == record.entry ->
+                completed symbols ((symbol, record) :: partial) captured rest
+            | _ -> Error "partial member visibility has another original class")
+        | _ ->
+            Error
+              "aggregate reference visibility requires current completed \
+               original class records")
+  in
+  completed [] [] [] records
+
 let capture_aggregate_reference_visibility ~table ~namespace reference records =
   if
     (not (Parser.reference_selection_is_current reference))
     || not (Declaration_collection.namespace_owns_table namespace table)
   then Error "aggregate visibility requires its original live reference"
   else
-    let rec completed symbols partial captured = function
-      | [] ->
-          let reached records =
-            if not (Parser.selected_member_reference reference) then records
-            else
-              let available = captured @ partial in
-              let rec retain visited record =
-                let identity =
-                  Option.bind record.aggregate_owner (fun (_, publication, _) ->
-                      Declaration_collection.publication_aggregate_identity
-                        publication)
-                in
-                match identity with
-                | None -> record
-                | Some symbol when List.memq symbol visited -> record
-                | Some symbol ->
-                    let base =
-                      Option.map
-                        (fun original ->
-                          let current =
-                            Option.bind original.aggregate_owner
-                              (fun (_, publication, _) ->
-                                Option.bind
-                                  (Declaration_collection
-                                   .publication_aggregate_identity publication)
-                                  (fun identity ->
-                                    List.find_map
-                                      (fun (selected, record) ->
-                                        if selected == identity then Some record
-                                        else None)
-                                      available))
-                            |> Option.value ~default:original
-                          in
-                          retain (symbol :: visited) current)
-                        record.aggregate_base_snapshot
-                    in
-                    { record with aggregate_base_snapshot = base }
-              in
-              List.map
-                (fun (symbol, record) -> (symbol, retain [] record))
-                records
-          in
-          Ok
+    Result.map
+      (fun (symbols, completed, partial) ->
+        {
+          reference_table = table;
+          reference_namespace = namespace;
+          reference_source = reference;
+          reference_completed_symbols = symbols;
+          reference_completed_records = completed;
+          reference_partial_records = partial;
+        })
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:(Parser.selected_environment reference)
+         ~retain_hidden:(Parser.selected_member_reference reference)
+         records)
+
+let capture_aggregate_index_visibility ~table ~namespace source records =
+  if
+    (not (Parser.index_selection_is_current source))
+    || not (Declaration_collection.namespace_owns_table namespace table)
+  then Error "index stride requires its original live operand observation"
+  else
+    Result.map
+      (fun (_, completed, partial) ->
+        {
+          index_table = table;
+          index_namespace = namespace;
+          index_source = source;
+          index_records = completed @ partial;
+        })
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:(Parser.index_environment source)
+         ~retain_hidden:true ~allow_forward:true records)
+
+let aggregate_index_element_size ~table ~parent ~function_source ~source
+    ~element_type visibility =
+  if
+    visibility.index_table != table
+    || Declaration_collection.namespace_scope visibility.index_namespace
+       != parent
+    || (not
+          (Declaration_collection.namespace_owns_table
+             visibility.index_namespace table))
+    || (not
+          (Option.equal ( == )
+             (Parser.index_function visibility.index_source)
+             (Some function_source)))
+    || not
+         (Option.equal ( == )
+            (Parser.index_source visibility.index_source)
+            (Some source))
+  then None
+  else
+    match Type.base element_type with
+    | Type.Aggregate selected
+      when Type.pointer_depth element_type = 0
+           && Symbol_table.owns_symbol table selected ->
+        List.find_map
+          (fun (symbol, record) ->
+            if symbol == selected && record.byte_size >= 0L then
+              Some record.byte_size
+            else None)
+          visibility.index_records
+    | _ -> None
+
+let prepare_aggregate_assignment_visibility ~table ~namespace source records =
+  if
+    (not (Parser.assignment_preparation_is_current source))
+    || not (Declaration_collection.namespace_owns_table namespace table)
+  then Error "assignment preparation requires its original live operand"
+  else
+    Result.map
+      (fun (_, completed, partial) ->
+        {
+          preparation_table = table;
+          preparation_namespace = namespace;
+          preparation_source = source;
+          preparation_records = completed @ partial;
+          preparation_consumed = false;
+        })
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:(Parser.assignment_environment source)
+         ~retain_hidden:true ~allow_forward:true records)
+
+let capture_aggregate_assignment_visibility ~table ~namespace ?preparation
+    source records =
+  if
+    (not (Parser.assignment_selection_is_current source))
+    || not (Declaration_collection.namespace_owns_table namespace table)
+  then Error "assignment backing requires its original live operand observation"
+  else
+    match preparation with
+    | None ->
+        Error "assignment observation lacks its original operand preparation"
+    | Some preparation
+      when preparation.preparation_table != table
+           || preparation.preparation_namespace != namespace
+           || preparation.preparation_source != source
+           || preparation.preparation_consumed ->
+        Error "assignment operand preparation is foreign or already consumed"
+    | Some preparation ->
+        Result.map
+          (fun (_, completed, partial) ->
+            preparation.preparation_consumed <- true;
             {
-              reference_table = table;
-              reference_namespace = namespace;
-              reference_source = reference;
-              reference_completed_symbols = symbols;
-              reference_completed_records = reached captured;
-              reference_partial_records = reached partial;
-            }
-      | (record : t) :: rest -> (
-          match record.aggregate_owner with
-          | Some
-              ( owner,
-                publication,
-                Some
-                  ({ aggregate_item = Ast.Aggregate_definition _; _ } as source)
-              )
-            when record.table == table && owner == namespace
-                 && Declaration_collection.namespace_owns_publication namespace
-                      publication
-                 && record.symbol
-                    == Declaration_collection.publication_symbol publication
-                 && aggregate_snapshot_is_current record
-                 && source.aggregate_publication.aggregate_environment
-                    == Parser.selected_environment reference
-                 && source.aggregate_publication.aggregate_entry == record.entry
-                 && Option.fold ~none:false
-                      ~some:(( == ) source.aggregate_publication)
-                      (Declaration_collection.publication_source_aggregate
-                         publication)
-                 && (Parser.selected_member_reference reference
-                    || Option.fold ~none:false ~some:(( == ) publication)
-                         (Declaration_collection.current_aggregate_publication
-                            namespace publication)) -> (
-              match
-                Declaration_collection.publication_aggregate_identity
-                  publication
-              with
-              | Some symbol ->
-                  completed (symbol :: symbols) partial
-                    ((symbol, record) :: captured)
-                    rest
-              | None ->
-                  Error "completed reference class lacks its canonical identity"
-              )
-          | Some (owner, publication, None)
-            when record.table == table && owner == namespace
-                 && Declaration_collection.namespace_owns_publication namespace
-                      publication
-                 && record.symbol
-                    == Declaration_collection.publication_symbol publication
-                 && aggregate_snapshot_is_current record -> (
-              match
-                ( Declaration_collection.publication_source_aggregate publication,
-                  Declaration_collection.publication_aggregate_identity
-                    publication,
-                  Declaration_collection.current_aggregate_publication namespace
-                    publication )
-              with
-              | Some source, Some symbol, current
-                when (Parser.selected_member_reference reference
-                     || Option.fold ~none:false ~some:(( == ) publication)
-                          current)
-                     && Option.is_none source.aggregate_header.binding
-                     && source.aggregate_environment
-                        == Parser.selected_environment reference
-                     && source.aggregate_entry == record.entry ->
-                  completed symbols ((symbol, record) :: partial) captured rest
-              | _ ->
-                  Error "partial member visibility has another original class")
-          | _ ->
-              Error
-                "aggregate reference visibility requires current completed \
-                 original class records")
+              assignment_table = table;
+              assignment_namespace = namespace;
+              assignment_source = source;
+              assignment_initial_records = preparation.preparation_records;
+              assignment_records = completed @ partial;
+              assignment_final_records = None;
+            })
+          (capture_aggregate_visibility_records ~table ~namespace
+             ~environment:(Parser.assignment_environment source)
+             ~retain_hidden:true ~allow_forward:true records)
+
+let complete_aggregate_assignment_visibility ~table ~namespace ~header ~body
+    records visibility =
+  if
+    visibility.assignment_table != table
+    || visibility.assignment_namespace != namespace
+    || (not (Parser.function_body_completion_is_current header body))
+    || (not
+          (Option.equal ( == )
+             (Parser.assignment_function visibility.assignment_source)
+             (Some header.Parser.function_publication)))
+    || Option.is_some visibility.assignment_final_records
+  then Error "assignment storage requires its original function completion"
+  else
+    Result.map
+      (fun (_, completed, partial) ->
+        visibility.assignment_final_records <- Some (completed @ partial))
+      (capture_aggregate_visibility_records ~table ~namespace
+         ~environment:
+           (Parser.assignment_environment visibility.assignment_source)
+         ~retain_hidden:true ~allow_forward:true records)
+
+let aggregate_assignment_value_type ~table ~parent ~function_source ~source
+    ~source_type visibility =
+  if
+    visibility.assignment_table != table
+    || Declaration_collection.namespace_scope visibility.assignment_namespace
+       != parent
+    || (not
+          (Declaration_collection.namespace_owns_table
+             visibility.assignment_namespace table))
+    || (not
+          (Option.equal ( == )
+             (Parser.assignment_function visibility.assignment_source)
+             (Some function_source)))
+    || not
+         (Option.equal ( == )
+            (Parser.assignment_source visibility.assignment_source)
+            (Some source))
+  then None
+  else
+    let rec endpoint records visited type_ =
+      if Type.pointer_depth type_ <> 0 then None
+      else
+        match Type.base type_ with
+        | Type.Primitive _ -> Some type_
+        | Type.Aggregate symbol
+          when Symbol_table.owns_symbol table symbol
+               && not (List.memq symbol visited) ->
+            Option.bind
+              (List.find_map
+                 (fun (selected, record) ->
+                   if selected == symbol then Some record else None)
+                 records)
+              (fun record ->
+                Option.bind record.aggregate_initializer_backing (function
+                  | None -> Some type_
+                  | Some (backing, _) ->
+                      endpoint records (symbol :: visited)
+                        (Type_reference.resolved_type backing)))
+        | _ -> None
     in
-    completed [] [] [] records
+    let forward records type_ =
+      Option.bind (endpoint records [] type_) (fun type_ ->
+          match Type.base type_ with
+          | Type.Primitive (_, primitive)
+            when Option.is_some (Primitive_type.integer_storage_info primitive)
+            -> Some type_
+          | _ -> None)
+    in
+    match Type.base source_type with
+    | Type.Aggregate _ when Type.pointer_depth source_type = 0 ->
+        Option.bind
+          (endpoint visibility.assignment_initial_records [] source_type)
+          (fun original ->
+            Option.bind (forward visibility.assignment_records original)
+              (fun _ ->
+                Option.bind visibility.assignment_final_records (fun records ->
+                    forward records original)))
+    | _ -> None
 
 let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
   visibility.reference_table == table

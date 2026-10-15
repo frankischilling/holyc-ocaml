@@ -564,11 +564,204 @@ let completed_base_observation_authority () =
               header)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let assignment_observation_authority () =
+  List.iter
+    (fun mode ->
+      let session = Session.create () in
+      let table = Session.semantic_symbols session in
+      let source =
+        Session.add_source session ~path:"assignment-observation-authority.hc"
+          ~contents:
+            "U16 class C{U16 value;};I64 F(){C \
+             object,items[2];items[0].value=1;object=42;return \
+             object.value;}I64 G(){C \
+             object,items[2];items[1].value=1;object=42;return object.value;}"
+      in
+      let ledger = D.create_source session ~source |> checked in
+      let selections = ref []
+      and indices = ref []
+      and class_entry = ref None
+      and bodies = ref [] in
+      let declaration event =
+        D.observe ledger event |> observed;
+        (match event with
+        | Parser.Aggregate_completed original ->
+            class_entry := Some original.aggregate_publication.aggregate_entry
+        | Parser.Index_operand_selected selection ->
+            indices := selection :: !indices;
+            reject "a live index observation cannot be consumed twice"
+              (D.observe ledger event)
+        | Parser.Assignment_operand_preparing _ ->
+            reject "a live lvalue preparation cannot be consumed twice"
+              (D.observe ledger event)
+        | Parser.Assignment_operand_selected selection ->
+            selections := selection :: !selections;
+            reject "a live assignment observation cannot be consumed twice"
+              (D.observe ledger event)
+        | Parser.Function_body_completed (header, body) ->
+            bodies := (header, body) :: !bodies
+        | _ -> ());
+        Ok ()
+      in
+      let commands =
+        {
+          (sink declaration) with
+          checkpoint = Some (D.observe_command ledger);
+          reference = Some (D.observe_reference ledger);
+          query = Some (D.observe_query ledger);
+          dimension_count = Some (D.grammar_dimension_count ledger);
+        }
+      in
+      let ast = parse session mode source commands in
+      let command = D.seal ledger ast |> observed in
+      let resolve =
+        D.aggregate_assignment_resolver ~table ~ast command |> observed
+      in
+      let namespace, _ =
+        D.selected_type_resolver ~table ~ast command |> observed
+      in
+      let parent = C.namespace_scope namespace in
+      let type_ =
+        Type.make_aggregate
+          ~symbol:(D.symbol_for ledger (Option.get !class_entry) |> Option.get)
+          ~pointer_depth:0
+        |> checked
+      in
+      let index_resolve =
+        D.aggregate_index_resolver ~table ~ast command |> observed
+      in
+      let index_selection = List.hd !indices in
+      let index_source = Parser.index_source index_selection |> Option.get in
+      let index_proof = index_resolve index_source |> Option.get in
+      let index_function =
+        Parser.index_function index_selection |> Option.get
+      in
+      let index_query ~table ~parent ~function_source ~source ~element_type =
+        Record.aggregate_index_element_size ~table ~parent ~function_source
+          ~source ~element_type index_proof
+      in
+      Alcotest.(check (option int64))
+        "original index observes the class size" (Some 2L)
+        (index_query ~table ~parent ~function_source:index_function
+           ~source:index_source ~element_type:type_);
+      let copied_index =
+        match index_source with
+        | Ast.Index_expression value ->
+            Ast.Index_expression
+              (Ast.make_index_expression ~base:value.index_base
+                 ~opening_bracket:value.index_opening_bracket
+                 ~index:value.index_value
+                 ~closing_bracket:value.index_closing_bracket
+                 ~location:value.index_location)
+        | _ -> Alcotest.fail "expected an original index"
+      in
+      let index_absent label value =
+        Alcotest.(check bool) label true (Option.is_none value)
+      in
+      index_absent "copied index cannot resolve source metadata"
+        (index_resolve copied_index);
+      index_absent "copied index cannot consume its original size"
+        (index_query ~table ~parent ~function_source:index_function
+           ~source:copied_index ~element_type:type_);
+      index_absent "another function cannot consume index metadata"
+        (index_query ~table ~parent ~source:index_source ~element_type:type_
+           ~function_source:
+             (Parser.index_function (List.nth !indices 1) |> Option.get));
+      index_absent "another table cannot consume index metadata"
+        (index_query
+           ~table:(Session.semantic_symbols (Session.create ()))
+           ~parent ~function_source:index_function ~source:index_source
+           ~element_type:type_);
+      index_absent "another namespace cannot consume index metadata"
+        (index_query ~table
+           ~parent:(C.create_namespace ~table () |> checked |> C.namespace_scope)
+           ~function_source:index_function ~source:index_source
+           ~element_type:type_);
+      index_absent "a pointer storage slot is not a class element"
+        (index_query ~table ~parent ~function_source:index_function
+           ~source:index_source
+           ~element_type:(Type.pointer_to type_ |> checked));
+      reject "expired index cannot mint another size observation"
+        (Record.capture_aggregate_index_visibility ~table ~namespace
+           index_selection []);
+      let selection = List.hd !selections in
+      let original = Parser.assignment_source selection |> Option.get in
+      let proof = resolve original |> Option.get in
+      let function_source =
+        Parser.assignment_function selection |> Option.get
+      in
+      let query ~table ~parent ~function_source ~source ~source_type =
+        Record.aggregate_assignment_value_type ~table ~parent ~function_source
+          ~source ~source_type proof
+      in
+      let selected =
+        query ~table ~parent ~function_source ~source:original
+          ~source_type:type_
+        |> Option.get
+      in
+      Alcotest.(check bool)
+        "original assignment keeps its U16 storage" true
+        (match Type.base selected with
+        | Type.Primitive (_, Primitive_type.U16) -> true
+        | _ -> false);
+      let copied =
+        match original with
+        | Ast.Binary_expression value ->
+            Ast.Binary_expression
+              (Ast.make_binary_expression ~left:value.binary_left
+                 ~operator:value.binary_operator
+                 ~operator_spec:value.binary_operator_spec
+                 ~right:value.binary_right ~location:value.binary_location)
+        | _ -> Alcotest.fail "expected an original assignment"
+      in
+      let absent label result =
+        Alcotest.(check bool) label true (Option.is_none result)
+      in
+      absent "same coordinates cannot copy assignment backing" (resolve copied);
+      absent "copied binary cannot borrow the original observation"
+        (query ~table ~parent ~function_source ~source:copied ~source_type:type_);
+      absent "another function cannot consume assignment backing"
+        (query ~table ~parent
+           ~function_source:
+             (List.find_map
+                (fun selection ->
+                  match Parser.assignment_function selection with
+                  | Some original when original != function_source ->
+                      Some original
+                  | _ -> None)
+                !selections
+             |> Option.get)
+           ~source:original ~source_type:type_);
+      absent "another table cannot consume assignment backing"
+        (query
+           ~table:(Session.semantic_symbols (Session.create ()))
+           ~parent ~function_source ~source:original ~source_type:type_);
+      absent "another namespace cannot consume assignment backing"
+        (query ~table
+           ~parent:(C.create_namespace ~table () |> checked |> C.namespace_scope)
+           ~function_source ~source:original ~source_type:type_);
+      absent "a pointer type cannot consume a scalar assignment observation"
+        (query ~table ~parent ~function_source ~source:original
+           ~source_type:(Type.pointer_to type_ |> checked));
+      reject "expired lookahead cannot mint another backing observation"
+        (Record.capture_aggregate_assignment_visibility ~table ~namespace
+           selection []);
+      reject "expired lvalue cannot mint another endpoint preparation"
+        (Record.prepare_aggregate_assignment_visibility ~table ~namespace
+           selection []);
+      let header, body = List.hd !bodies in
+      reject "function completion cannot be replayed for another storage view"
+        (Record.complete_aggregate_assignment_visibility ~table ~namespace
+           ~header ~body [] proof))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Original local aggregate allocation"
     [
       ( "provenance",
         [
+          Alcotest.test_case "assignment lookahead, completion and wrong owners"
+            `Quick assignment_observation_authority;
           Alcotest.test_case "live allocation, wrong owners and replay" `Quick
             original_allocation_authority;
           Alcotest.test_case

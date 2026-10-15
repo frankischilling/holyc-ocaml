@@ -1,5 +1,18 @@
 # Reference source map
 
+Assignment observations follow complete `PrsExpression2`
+(`Compiler/PrsExp.HC:65-263`), including dereference-class selection before the
+operator and the internal lvalue gate after its lookahead. `ICAdd`
+(`Compiler/PrsLib.HC:79-97`) retains that selected class. Complete `OptPass3`
+(`Compiler/OptPass3.HC:1-621`) uses the assignment result's raw class for storage.
+`CmpMinTypePointed` (`Compiler/OptLib.HC:528-533`) writes the existing field back
+to itself in this reference. The implementation preserves that behavior.
+Complete `PrsStreamBlk` (`Compiler/PrsStmt.HC:805-840`) supplies the separate
+JIT task table for `#exe`, including inside an AOT compiler context.
+Complete `PrsUnaryModifier` (`Compiler/PrsExp.HC:960-1115`) selects the reached
+class after '[' lookahead and emits its array stride before parsing the index.
+Each bracket retains its own observation and original dimension multiplier.
+
 Complete `PrsExpression2` at `Compiler/PrsExp.HC:65-263` applies the same lvalue
 check to every `IST_ASSIGN` binary operation. After operator lookahead it follows
 the destination with `OptClassFwd` and requires `IST_DEREF` plus a pointer or

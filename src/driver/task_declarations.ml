@@ -228,6 +228,13 @@ type command = {
   ast : Ast.module_;
   declarations : Collection.t;
   references : selected_reference Names.t;
+  assignment_observations :
+    (Parser.assignment_selection
+    * Sema.Compiler_record.aggregate_assignment_visibility)
+    list;
+  index_observations :
+    (Parser.index_selection * Sema.Compiler_record.aggregate_index_visibility)
+    list;
   queries : query Query_expressions.t;
   dimensions : Parser.completed_array_dimension Dimensions.t;
   checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
@@ -373,6 +380,17 @@ type t = {
   runtime_records : (Sema.Compiler_record.t, string) result Entries.t;
   mutable admissions : VM.task_admission list;
   references : selected_reference Names.t;
+  mutable assignment_observations :
+    (Parser.assignment_selection
+    * Sema.Compiler_record.aggregate_assignment_visibility)
+    list;
+  mutable index_observations :
+    (Parser.index_selection * Sema.Compiler_record.aggregate_index_visibility)
+    list;
+  mutable assignment_preparations :
+    (Parser.assignment_selection
+    * Sema.Compiler_record.aggregate_assignment_preparation)
+    list;
   query_roots : reading_query Query_roots.t;
   queries : query Query_expressions.t;
   dimension_owners : reading_dimensions Names.t;
@@ -534,6 +552,9 @@ let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
                   runtime_records = Entries.create 32;
                   admissions = [];
                   references = Names.create 32;
+                  assignment_observations = [];
+                  index_observations = [];
+                  assignment_preparations = [];
                   implicit_outputs = [];
                   query_roots = Query_roots.create 16;
                   queries = Query_expressions.create 16;
@@ -2854,6 +2875,104 @@ let observe ?offset_runtime ?metadata_work_limit
     ?(isolated_initializers = false) ledger event =
   protect (fun () ->
       match event with
+      | Parser.Index_operand_selected selection ->
+          let at = Parser.index_opening selection in
+          let start = Parser.index_command selection in
+          let sequence = active_sequence ledger start.command_context in
+          if
+            (not (Parser.index_selection_is_current selection))
+            || Parser.index_environment selection != ledger.symbols
+            || List.exists
+                 (fun (original, _) -> original == selection)
+                 ledger.index_observations
+          then fail at.span "index stride observation is foreign or repeated";
+          (match sequence.phase with
+          | Reading saved when saved == start -> ()
+          | _ -> fail at.span "index belongs to another parser command");
+          let records =
+            Entries.fold
+              (fun _ assigned records ->
+                match assigned.source with
+                | Aggregate { record = Some (Ok record); _ }
+                  when Option.fold ~none:false
+                         ~some:(( == ) assigned.publication)
+                         (Collection.current_aggregate_publication
+                            ledger.namespace assigned.publication) ->
+                    record :: records
+                | _ -> records)
+              ledger.entries []
+          in
+          let proof =
+            Sema.Compiler_record.capture_aggregate_index_visibility
+              ~table:ledger.table ~namespace:ledger.namespace selection records
+            |> checked at.span
+          in
+          ledger.index_observations <-
+            (selection, proof) :: ledger.index_observations
+      | Parser.Assignment_operand_preparing selection
+      | Parser.Assignment_operand_selected selection ->
+          let preparing =
+            match event with
+            | Parser.Assignment_operand_preparing _ -> true
+            | _ -> false
+          in
+          let at = Parser.assignment_operator selection in
+          let start = Parser.assignment_command selection in
+          let sequence = active_sequence ledger start.command_context in
+          if
+            (not
+               (if preparing then
+                  Parser.assignment_preparation_is_current selection
+                else Parser.assignment_selection_is_current selection))
+            || Parser.assignment_environment selection != ledger.symbols
+            || List.exists
+                 (fun (original, _) -> original == selection)
+                 ledger.assignment_observations
+            || preparing
+               && List.exists
+                    (fun (original, _) -> original == selection)
+                    ledger.assignment_preparations
+          then fail at.span "assignment observation is foreign or repeated";
+          (match sequence.phase with
+          | Reading saved when saved == start -> ()
+          | _ -> fail at.span "assignment belongs to another parser command");
+          let records =
+            Entries.fold
+              (fun _ assigned records ->
+                match assigned.source with
+                | Aggregate { record = Some (Ok record); _ }
+                  when Option.fold ~none:false
+                         ~some:(( == ) assigned.publication)
+                         (Collection.current_aggregate_publication
+                            ledger.namespace assigned.publication) ->
+                    record :: records
+                | _ -> records)
+              ledger.entries []
+          in
+          if preparing then
+            let proof =
+              Sema.Compiler_record.prepare_aggregate_assignment_visibility
+                ~table:ledger.table ~namespace:ledger.namespace selection
+                records
+              |> checked at.span
+            in
+            ledger.assignment_preparations <-
+              (selection, proof) :: ledger.assignment_preparations
+          else
+            let preparation =
+              List.find_map
+                (fun (original, proof) ->
+                  if original == selection then Some proof else None)
+                ledger.assignment_preparations
+            in
+            let proof =
+              Sema.Compiler_record.capture_aggregate_assignment_visibility
+                ~table:ledger.table ~namespace:ledger.namespace ?preparation
+                selection records
+              |> checked at.span
+            in
+            ledger.assignment_observations <-
+              (selection, proof) :: ledger.assignment_observations
       | Parser.Callback_position_written receipt ->
           let owner = receipt.callback_position_signature in
           let span = owner.callback_opening.span in
@@ -4127,6 +4246,32 @@ let observe ?offset_runtime ?metadata_work_limit
                 Some
                   (Parser.function_body_compiler_options header body
                   |> checked body.location.span);
+              let records =
+                Entries.fold
+                  (fun _ assigned records ->
+                    match assigned.source with
+                    | Aggregate { record = Some (Ok record); _ }
+                      when Option.fold ~none:false
+                             ~some:(( == ) assigned.publication)
+                             (Collection.current_aggregate_publication
+                                ledger.namespace assigned.publication) ->
+                        record :: records
+                    | _ -> records)
+                  ledger.entries []
+              in
+              List.iter
+                (fun (selection, proof) ->
+                  if
+                    Option.equal ( == )
+                      (Parser.assignment_function selection)
+                      (Some publication)
+                  then
+                    Sema.Compiler_record
+                    .complete_aggregate_assignment_visibility
+                      ~table:ledger.table ~namespace:ledger.namespace ~header
+                      ~body records proof
+                    |> checked body.location.span)
+                ledger.assignment_observations;
               state.body <- Some body
           | _ ->
               fail publication.function_name.location.span
@@ -5163,6 +5308,24 @@ let seal ledger (ast : Ast.module_) =
                     (ledger_runtime ledger);
                 declarations;
                 references;
+                assignment_observations =
+                  List.filter
+                    (fun (selection, _) ->
+                      List.exists
+                        (fun original ->
+                          original.receipt.command_start
+                          == Parser.assignment_command selection)
+                        original_commands)
+                    ledger.assignment_observations;
+                index_observations =
+                  List.filter
+                    (fun (selection, _) ->
+                      List.exists
+                        (fun original ->
+                          original.receipt.command_start
+                          == Parser.index_command selection)
+                        original_commands)
+                    ledger.index_observations;
                 queries;
                 dimensions;
                 initializers =
@@ -6386,6 +6549,46 @@ let aggregate_reference_resolver ~table ~ast (command : command) =
 
 let source_aggregate_reference_resolver ~table ~ast (Source_command command) =
   aggregate_reference_resolver ~table ~ast command
+
+let aggregate_assignment_resolver ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "assignment backing belongs to another source command";
+      let observations = Query_expressions.create 32 in
+      List.iter
+        (fun (selection, proof) ->
+          match Parser.assignment_source selection with
+          | None -> ()
+          | Some source ->
+              if Query_expressions.mem observations source then
+                fail (Parser.assignment_operator selection).span
+                  "assignment source has duplicate original observations";
+              Query_expressions.add observations source proof)
+        command.assignment_observations;
+      Query_expressions.find_opt observations)
+
+let source_aggregate_assignment_resolver ~table ~ast (Source_command command) =
+  aggregate_assignment_resolver ~table ~ast command
+
+let aggregate_index_resolver ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "index strides belong to another source command";
+      let observations = Query_expressions.create 32 in
+      List.iter
+        (fun (selection, proof) ->
+          match Parser.index_source selection with
+          | None -> ()
+          | Some source ->
+              if Query_expressions.mem observations source then
+                fail (Parser.index_opening selection).span
+                  "duplicate original index observation";
+              Query_expressions.add observations source proof)
+        command.index_observations;
+      Query_expressions.find_opt observations)
+
+let source_aggregate_index_resolver ~table ~ast (Source_command command) =
+  aggregate_index_resolver ~table ~ast command
 
 let selected_type_resolver ~table ~ast (command : command) =
   protect (fun () ->

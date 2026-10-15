@@ -7258,9 +7258,9 @@ let indexed_address frame types (description : Sequence.description) =
       in
       match (strides, Value_map.find_opt offset types) with
       | Some (stride :: remaining), Some (Index_offset (expected, actual, _))
-        when stride = actual
+        when (stride = actual || selected_stride pointer = Some actual)
              && Type.equal expected pointer
-             && valid_payload pointer stride -> (
+             && valid_payload pointer actual -> (
           match callback_root with
           | Some (root, header) ->
               Callback_array_address (root, header, pointer, remaining)

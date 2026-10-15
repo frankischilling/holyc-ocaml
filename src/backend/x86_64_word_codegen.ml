@@ -9009,7 +9009,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       let remaining =
                         match strides with
                         | stride :: remaining
-                          when Int64.equal stride scaled.index_stride ->
+                          when Int64.equal stride scaled.index_stride
+                               || selected_stride = Some scaled.index_stride ->
                             remaining
                         | _ ->
                             malformed description

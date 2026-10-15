@@ -95,8 +95,9 @@ let faults () =
           failure code output report)
         (Refs.faults @ Callbacks.faults @ Cases.faults @ Cases.pointer_faults
        @ Arrays.faults @ Pointers.faults @ Inherited.faults @ Backed.faults
-       @ Default.faults @ Parameters.faults @ Returns.faults @ Persistent.faults
-       @ Persistent.pointer_faults @ Casts.faults);
+       @ Backed.source_faults @ Default.faults @ Parameters.faults
+       @ Returns.faults @ Persistent.faults @ Persistent.pointer_faults
+       @ Casts.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -284,6 +285,8 @@ let field_proofs () =
       Aggregate_member_fixture.local_contents;
       Aggregate_member_fixture.local_pointer_contents;
       Aggregate_member_fixture.local_backing_contents;
+      Aggregate_member_fixture.index_contents;
+      Aggregate_member_fixture.dynamic_index_contents;
       Automatic_aggregate_cases.initializer_proof_source;
       Arrays.proof_source;
       Pointers.proof_source;
@@ -540,7 +543,17 @@ let () =
           (Defaults.jit_values @ Inherited.retained_values
          @ Pointers.retained_view_values @ Cases.retained_nested_values
          @ Cases.pointer_retained_values @ Persistent.retained_values
-         @ Casts.retained_values) );
+         @ Casts.retained_values @ Backed.assignment_values) );
+      ( "assignment source domains",
+        [
+          Alcotest.test_case "AOT task completion retains the outer class"
+            `Quick (fun () ->
+              failure "HCSEMA0046" ""
+                (run Preprocessor.Aot Backed.isolated_assignment_source);
+              ignore
+                (value 43L ""
+                   (run Preprocessor.Aot Backed.isolated_assignment_value_source)));
+        ] );
       ( "values",
         List.map
           (fun (name, source, expected, output) ->
@@ -553,9 +566,9 @@ let () =
          @ Cases.pointer_width_matrix @ Cases.nested_values @ Cases.view_matrix
          @ Arrays.values @ Arrays.view_matrix @ Pointers.values
          @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
-         @ Backed.values @ Default.values @ Parameters.values
-         @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
-         @ Returns.warning_values @ Persistent.values
+         @ Backed.values @ Backed.source_values @ Default.values
+         @ Parameters.values @ Parameters.view_matrix @ Returns.values
+         @ Returns.view_matrix @ Returns.warning_values @ Persistent.values
          @ Persistent.pointer_values @ Casts.values) );
       ( "storage",
         [

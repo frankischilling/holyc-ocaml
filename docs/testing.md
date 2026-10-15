@@ -1,5 +1,19 @@
 # Testing holyc-ocaml
 
+Assignment observation cases retain the lvalue endpoint before operator
+lookahead, validate the endpoint reached afterward and preserve the original
+function's completion metadata. They cover all nine integer widths, direct and
+pointer members, zero strides, compound assignments, grouped register results,
+named forwarding, replacement and original byte extents. Task declarations run
+in both outer modes; isolated AOT controls keep their own class identities.
+Index cases preserve the class size reached after '[' lookahead, including
+completion before and during index values and separately reached sizes in
+multidimensional members. Zero strides preserve byte aliases within the original
+containing root. A later index can observe completion without resizing that root.
+Original-node, function, table, namespace, type and phase-replay checks verify
+the assignment and index observations without fabricating an allocation or an
+execution receipt.
+
 Aggregate lvalue cases reject ordinary classes and unions, backing chains ending
 in an ordinary class, inherited child classes, nested members, array elements,
 class-pointer dereferences and compound assignments. Replacement retains the

@@ -84,7 +84,7 @@ let create ~lookup ~base_pointer ~pointer_type =
         (fun state dimension ->
           Result.bind state (fun (bytes, strides) ->
               if
-                bytes <= 0L || dimension < 0L
+                bytes < 0L || dimension < 0L
                 || (dimension > 0L && bytes > Int64.div Int64.max_int dimension)
               then Error "member array strides exceed the hosted address range"
               else Ok (Int64.mul bytes dimension, bytes :: strides)))

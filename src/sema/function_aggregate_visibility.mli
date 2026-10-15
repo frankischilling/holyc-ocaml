@@ -14,6 +14,12 @@ val create :
   ?automatic_aggregates:
     (Frontend.Ast.identifier ->
     Compiler_record.automatic_aggregate_allocation option) ->
+  ?assignments:
+    (Frontend.Ast.expression ->
+    Compiler_record.aggregate_assignment_visibility option) ->
+  ?indices:
+    (Frontend.Ast.expression ->
+    Compiler_record.aggregate_index_visibility option) ->
   Frontend.Ast.module_ ->
   (t, string) result
 (** Immutable lexical layout positions for the exact declaration tree. This is
@@ -60,6 +66,20 @@ val before_local : function_ -> Frontend.Ast.identifier -> int option
 (** The layout frontier at one original body occurrence. Ambiguous or foreign
     nodes have no frontier. The function's own declaration index is unchanged.
 *)
+
+val assignment_value_type :
+  function_ ->
+  source:Frontend.Ast.expression ->
+  source_type:Type.t ->
+  Type.t option option
+(** [None] means that no original assignment observation exists. [Some None]
+    retains an observed endpoint without supported internal integer backing. *)
+
+val index_element_size :
+  function_ ->
+  source:Frontend.Ast.expression ->
+  element_type:Type.t ->
+  int64 option
 
 val local_type_frontier :
   function_ -> local:Local_type_resolution.local -> int option

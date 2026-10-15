@@ -1104,7 +1104,42 @@ type completed_aggregate = private {
 val aggregate_publication_is_current : aggregate_publication -> bool
 val aggregate_completion_is_current : completed_aggregate -> bool
 
+type index_selection
+
+val index_command : index_selection -> command_start
+val index_environment : index_selection -> Symbol_visibility.Environment.t
+val index_function : index_selection -> function_publication option
+val index_opening : index_selection -> Ast.location
+val index_source : index_selection -> Ast.expression option
+
+val index_selection_is_current : index_selection -> bool
+(** Original stride observation after '[' lookahead and before its index value.
+    Completion retains the exact original index expression. *)
+
+type assignment_selection
+
+val assignment_left : assignment_selection -> Ast.expression
+val assignment_operator : assignment_selection -> Ast.location
+
+val assignment_environment :
+  assignment_selection -> Symbol_visibility.Environment.t
+
+val assignment_command : assignment_selection -> command_start
+val assignment_function : assignment_selection -> function_publication option
+val assignment_source : assignment_selection -> Ast.expression option
+val assignment_selection_is_current : assignment_selection -> bool
+
+val assignment_preparation_is_current : assignment_selection -> bool
+(** Preparation observes the original lvalue before assignment-operator
+    lookahead; selection follows that lookahead before parsing the right
+    operand. Each query is current only during its own callback. Completion
+    retains the exact binary source node. These receipts grant no storage, type
+    or execution authority. *)
+
 type declaration_event = private
+  | Index_operand_selected of index_selection
+  | Assignment_operand_preparing of assignment_selection
+  | Assignment_operand_selected of assignment_selection
   | Internal_binding_preparing of internal_binding_preparation
   | Aggregate_declared of aggregate_publication
   | Aggregate_advanced of aggregate_phase

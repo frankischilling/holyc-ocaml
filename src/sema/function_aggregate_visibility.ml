@@ -30,6 +30,12 @@ type function_ = {
   parent : Symbol_table.scope;
   symbol : Symbol.t;
   item_index : int;
+  source_function : Frontend.Parser.function_publication;
+  assignments :
+    (Ast.expression -> Compiler_record.aggregate_assignment_visibility option)
+    option;
+  indices :
+    (Ast.expression -> Compiler_record.aggregate_index_visibility option) option;
   occurrences : occurrence option Expressions.t;
   locals : (Ast.identifier * int) list;
   automatic_aggregates :
@@ -119,6 +125,25 @@ let before_local value wanted =
     (fun (source, index) -> if source == wanted then Some index else None)
     value.locals
 
+let assignment_value_type value ~source ~source_type =
+  if not (Expressions.mem value.occurrences source) then None
+  else
+    Option.bind value.assignments (fun resolve ->
+        Option.map
+          (Compiler_record.aggregate_assignment_value_type ~table:value.table
+             ~parent:value.parent ~function_source:value.source_function ~source
+             ~source_type)
+          (resolve source))
+
+let index_element_size value ~source ~element_type =
+  if not (Expressions.mem value.occurrences source) then None
+  else
+    Option.bind value.indices (fun resolve ->
+        Option.bind (resolve source)
+          (Compiler_record.aggregate_index_element_size ~table:value.table
+             ~parent:value.parent ~function_source:value.source_function ~source
+             ~element_type))
+
 let local_type_frontier (value : function_) ~local =
   let symbol = Local_type_resolution.local_symbol local in
   if not (Symbol_table.owns_symbol value.table symbol) then None
@@ -200,7 +225,7 @@ let completed_aggregate (value : function_) ~source ~symbol =
                    ~table:value.table ~parent:value.parent ~identifier ~symbol))))
 
 let create ~table ~declarations ~bodies ?aggregate_references
-    ?automatic_aggregates module_ =
+    ?automatic_aggregates ?assignments ?indices module_ =
   let parent = Declaration_collection.scope declarations in
   let items = Ast.declaration_items module_ in
   let entries = Declaration_collection.entries declarations in
@@ -402,6 +427,12 @@ let create ~table ~declarations ~bodies ?aggregate_references
                      parent;
                      symbol;
                      item_index;
+                     source_function =
+                       (List.find (fun (_, body) -> body == definition) bodies
+                       |> fst)
+                         .Frontend.Parser.function_publication;
+                     assignments;
+                     indices;
                      occurrences;
                      locals = !locals;
                      automatic_aggregates;

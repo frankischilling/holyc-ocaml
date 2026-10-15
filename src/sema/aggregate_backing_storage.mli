@@ -42,6 +42,17 @@ val create_local :
     allocation receipt, independently of identifiers in its initializer operand.
 *)
 
+val create_assignment :
+  visibility:Function_aggregate_visibility.function_ ->
+  source:Frontend.Ast.expression ->
+  table:Symbol_table.t ->
+  members:Aggregate_member_index.t ->
+  policies:Function_call_conversion_policy.t ->
+  source_type:Type.t ->
+  t option option
+(** Retain the exact backing endpoint observed after assignment lookahead. No
+    original observation leaves the existing lexical path unchanged. *)
+
 val source_type : t -> Type.t
 val value_type : t -> Type.t
 
