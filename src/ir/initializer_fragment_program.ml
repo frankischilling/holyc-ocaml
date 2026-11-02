@@ -17,8 +17,7 @@ let is_scalar_evaluation value = Option.is_some value.scalar_lowered_
 let create ?scalar_lowered ~authority ~destination ~entry ~initialization
     ~runtime_calls () =
   let scalar =
-    Integer_initializer_layout.requires_settlement
-      (Initializer_fragment_destination.layout destination)
+    Initializer_fragment_destination.requires_evaluation destination
   in
   if
     scalar <> Option.is_some scalar_lowered

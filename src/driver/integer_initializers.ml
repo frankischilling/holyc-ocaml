@@ -1124,20 +1124,22 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
 let check_static_fragment ?retained_function_source ~top_calls
     ~top_callback_calls destination =
   let module D = Ir.Static_initializer_destination in
-  prepare_internal
-    ~native_static:
-      ( D.fragment destination,
-        D.root destination,
-        {
-          cell_offset = D.cell_offset destination;
-          byte_offset = D.byte_offset destination;
-          operation = D.operation destination;
-          scalar = D.scalar destination;
-        } )
-    ~check_only:true ?retained_function_source ~top_callback_calls ~max_steps:1
-    ~span:(D.span destination) ~globals:(D.globals destination) ~top_calls
-    ~functions:[] ()
-  |> Result.map ignore
+  if D.discards_value destination then Ok ()
+  else
+    prepare_internal
+      ~native_static:
+        ( D.fragment destination,
+          D.root destination,
+          {
+            cell_offset = D.cell_offset destination;
+            byte_offset = D.byte_offset destination;
+            operation = D.operation destination;
+            scalar = D.scalar destination;
+          } )
+      ~check_only:true ?retained_function_source ~top_callback_calls
+      ~max_steps:1 ~span:(D.span destination) ~globals:(D.globals destination)
+      ~top_calls ~functions:[] ()
+    |> Result.map ignore
 
 let native_leaf value =
   match value.native_source with
@@ -1893,29 +1895,38 @@ let fragment_steps prepared = prepared.fragment_steps_
 
 let prepare_fragment ?top_callback_calls ?retained_function_source ?on_progress
     ~max_steps ~top_calls ~functions destination =
-  let* prepared =
-    prepare_internal ~fragment:destination ~allow_zero_budget:true
-      ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
-      ~span:(Destination.span destination)
-      ~globals:(Destination.globals destination)
-      ~top_calls ~functions ()
-  in
-  let payload =
-    match (prepared.fragment_items_, prepared.copies_) with
-    | [ item ], [] -> (
-        match item.classification_ with
-        | Prepared_constant bits -> Some (Arrays.Word bits)
-        | Scheduled -> None)
-    | [], [ (Fragment original, bytes, _) ] when original == destination ->
-        Some (Arrays.Bytes bytes)
-    | _ -> invalid_arg "fragment preparation lost its unique original work item"
-  in
-  Ok
-    {
-      fragment_destination_ = destination;
-      fragment_payload_ = payload;
-      fragment_steps_ = prepared.steps;
-    }
+  if Destination.discards_value destination then
+    Ok
+      {
+        fragment_destination_ = destination;
+        fragment_payload_ = None;
+        fragment_steps_ = 0;
+      }
+  else
+    let* prepared =
+      prepare_internal ~fragment:destination ~allow_zero_budget:true
+        ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
+        ~span:(Destination.span destination)
+        ~globals:(Destination.globals destination)
+        ~top_calls ~functions ()
+    in
+    let payload =
+      match (prepared.fragment_items_, prepared.copies_) with
+      | [ item ], [] -> (
+          match item.classification_ with
+          | Prepared_constant bits -> Some (Arrays.Word bits)
+          | Scheduled -> None)
+      | [], [ (Fragment original, bytes, _) ] when original == destination ->
+          Some (Arrays.Bytes bytes)
+      | _ ->
+          invalid_arg "fragment preparation lost its unique original work item"
+    in
+    Ok
+      {
+        fragment_destination_ = destination;
+        fragment_payload_ = payload;
+        fragment_steps_ = prepared.steps;
+      }
 
 let prepare_default ?top_callback_calls ?retained_function_source ?on_progress
     ~runtime ~authority ~max_steps ~top_calls destination =

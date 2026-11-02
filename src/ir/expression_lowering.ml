@@ -5893,111 +5893,136 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
     ?optimize_division ?aggregate_destination ?(callback = false) ~lower_address
     ~target_type ~span ~instruction_id ~value_id value =
   let ( let* ) = Result.bind in
-  let target_is_word =
-    match aggregate_destination with
-    | None -> Option.is_some (Integer_scalar_storage.of_type target_type)
-    | Some (scalar, _) ->
-        Result.is_ok (Integer_initializer_layout.normalized_word scalar 0L)
-  in
-  let target_is_callback = callback && callback_word_type target_type in
-  let* value_type =
-    checked_frame_value value |> Result.map_error (fun error -> [ error ])
-  in
-  match value_type with
-  | Checked_type value_type
-    when (target_is_word && Type.pointer_depth value_type = 0)
-         || target_is_callback
-            && (Type.pointer_depth value_type = 0
-               || Semantic_result.result_is_callback_storage value
-                  && callback_word_type value_type)
-         || Option.is_some frame
-            && data_pointer_type target_type
-            && Integer_scalar_storage.compatible_pointer target_type value_type
-    -> (
-      let* address_sequence, address_value, next_instruction, next_value =
-        lower_address ~instruction_id ~value_id
-      in
-      let* lowered =
-        lower_typed_result ?frame ?globals ?lower_call ?optimize_shifts
-          ?optimize_division ~instruction_id:next_instruction
-          ~value_id:next_value value
-      in
-      match lowered with
-      | Unsupported_expression -> Ok Unsupported_expression
-      | Lowered value ->
-          let allocator =
-            {
-              instruction =
-                Sequence.Instruction_id.to_int value.next_instruction_id_;
-              value = Sequence.Value_id.to_int value.next_value_id_;
-            }
-          in
-          let* stores, value_id, result_type =
-            match aggregate_destination with
-            | None ->
-                let* instruction_id, value_id =
-                  take_identity allocator span
-                  |> Result.map_error (fun error -> [ error ])
-                in
-                let store : Sequence.description =
-                  {
-                    instruction_id;
-                    opcode = Opcode.Ic_assign;
-                    operands = [ address_value; value.result_value_ ];
-                    result = Some { value_id };
-                    target_type = Some target_type;
-                    payload = None;
-                    flags = 0L;
-                    span;
-                  }
-                in
-                Ok ([ store ], value_id, target_type)
-            | Some (scalar, byte_offset) ->
-                let* lowered =
-                  Aggregate_initializer_store.lower ~scalar ~byte_offset
-                    ~root_type:target_type ~root:address_value
-                    ~word:value.result_value_ ~span
-                    ~instruction_id:value.next_instruction_id_
-                    ~value_id:value.next_value_id_
-                in
-                allocator.instruction <-
-                  Sequence.Instruction_id.to_int
-                    (Aggregate_initializer_store.next_instruction_id lowered);
-                allocator.value <-
-                  Sequence.Value_id.to_int
-                    (Aggregate_initializer_store.next_value_id lowered);
-                Ok
-                  ( Aggregate_initializer_store.descriptions lowered,
-                    Aggregate_initializer_store.result_value lowered,
-                    Aggregate_initializer_store.result_type lowered )
-          in
-          let descriptions sequence =
-            Sequence.instructions sequence |> List.map Sequence.description
-          in
-          let* sequence_ =
-            Sequence.create
-              (descriptions address_sequence
-              @ descriptions value.sequence_
-              @ stores)
-          in
-          let* next_instruction_id_ =
-            Sequence.Instruction_id.of_int allocator.instruction
-            |> Result.map_error (fun error -> [ error ])
-          in
-          let* next_value_id_ =
-            Sequence.Value_id.of_int allocator.value
-            |> Result.map_error (fun error -> [ error ])
-          in
-          Ok
-            (Lowered
-               {
-                 sequence_;
-                 result_value_ = value_id;
-                 result_type_ = result_type;
-                 next_instruction_id_;
-                 next_value_id_;
-               }))
-  | _ -> Ok Unsupported_expression
+  if
+    Initializer_value.discards
+      ~scalar:(Option.map fst aggregate_destination)
+      value
+  then
+    let* address_sequence, _, next_instruction, next_value =
+      lower_address ~instruction_id ~value_id
+    in
+    let* lowered =
+      lower_typed_result ?frame ?globals ?lower_call ?optimize_shifts
+        ?optimize_division ~instruction_id:next_instruction ~value_id:next_value
+        value
+    in
+    match lowered with
+    | Unsupported_expression -> Ok Unsupported_expression
+    | Lowered result ->
+        let descriptions sequence =
+          Sequence.instructions sequence |> List.map Sequence.description
+        in
+        let* sequence_ =
+          Sequence.create
+            (descriptions address_sequence @ descriptions result.sequence_)
+        in
+        Ok (Lowered { result with sequence_ })
+  else
+    let target_is_word =
+      match aggregate_destination with
+      | None -> Option.is_some (Integer_scalar_storage.of_type target_type)
+      | Some (scalar, _) ->
+          Result.is_ok (Integer_initializer_layout.normalized_word scalar 0L)
+    in
+    let target_is_callback = callback && callback_word_type target_type in
+    let* value_type =
+      checked_frame_value value |> Result.map_error (fun error -> [ error ])
+    in
+    match value_type with
+    | Checked_type value_type
+      when (target_is_word && Type.pointer_depth value_type = 0)
+           || target_is_callback
+              && (Type.pointer_depth value_type = 0
+                 || Semantic_result.result_is_callback_storage value
+                    && callback_word_type value_type)
+           || Option.is_some frame
+              && data_pointer_type target_type
+              && Integer_scalar_storage.compatible_pointer target_type
+                   value_type -> (
+        let* address_sequence, address_value, next_instruction, next_value =
+          lower_address ~instruction_id ~value_id
+        in
+        let* lowered =
+          lower_typed_result ?frame ?globals ?lower_call ?optimize_shifts
+            ?optimize_division ~instruction_id:next_instruction
+            ~value_id:next_value value
+        in
+        match lowered with
+        | Unsupported_expression -> Ok Unsupported_expression
+        | Lowered value ->
+            let allocator =
+              {
+                instruction =
+                  Sequence.Instruction_id.to_int value.next_instruction_id_;
+                value = Sequence.Value_id.to_int value.next_value_id_;
+              }
+            in
+            let* stores, value_id, result_type =
+              match aggregate_destination with
+              | None ->
+                  let* instruction_id, value_id =
+                    take_identity allocator span
+                    |> Result.map_error (fun error -> [ error ])
+                  in
+                  let store : Sequence.description =
+                    {
+                      instruction_id;
+                      opcode = Opcode.Ic_assign;
+                      operands = [ address_value; value.result_value_ ];
+                      result = Some { value_id };
+                      target_type = Some target_type;
+                      payload = None;
+                      flags = 0L;
+                      span;
+                    }
+                  in
+                  Ok ([ store ], value_id, target_type)
+              | Some (scalar, byte_offset) ->
+                  let* lowered =
+                    Aggregate_initializer_store.lower ~scalar ~byte_offset
+                      ~root_type:target_type ~root:address_value
+                      ~word:value.result_value_ ~span
+                      ~instruction_id:value.next_instruction_id_
+                      ~value_id:value.next_value_id_
+                  in
+                  allocator.instruction <-
+                    Sequence.Instruction_id.to_int
+                      (Aggregate_initializer_store.next_instruction_id lowered);
+                  allocator.value <-
+                    Sequence.Value_id.to_int
+                      (Aggregate_initializer_store.next_value_id lowered);
+                  Ok
+                    ( Aggregate_initializer_store.descriptions lowered,
+                      Aggregate_initializer_store.result_value lowered,
+                      Aggregate_initializer_store.result_type lowered )
+            in
+            let descriptions sequence =
+              Sequence.instructions sequence |> List.map Sequence.description
+            in
+            let* sequence_ =
+              Sequence.create
+                (descriptions address_sequence
+                @ descriptions value.sequence_
+                @ stores)
+            in
+            let* next_instruction_id_ =
+              Sequence.Instruction_id.of_int allocator.instruction
+              |> Result.map_error (fun error -> [ error ])
+            in
+            let* next_value_id_ =
+              Sequence.Value_id.of_int allocator.value
+              |> Result.map_error (fun error -> [ error ])
+            in
+            Ok
+              (Lowered
+                 {
+                   sequence_;
+                   result_value_ = value_id;
+                   result_type_ = result_type;
+                   next_instruction_id_;
+                   next_value_id_;
+                 }))
+    | _ -> Ok Unsupported_expression
 
 let lower_initializer ~frame ?globals ?lower_call ?optimize_shifts
     ?optimize_division ~instruction_id ~value_id initial =

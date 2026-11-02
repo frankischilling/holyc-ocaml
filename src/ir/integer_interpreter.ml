@@ -3707,18 +3707,28 @@ let prepare_native_static_initializer_copy task program capture ~work =
     Error "native static scalar copy was already prepared or has another branch"
   else
     let* bits =
-      Native_scalar_capture.consume
+      Native_scalar_capture.consume_value
         ?scope:
           (match task.resources.native_source_scopes with
           | [] -> None
           | scope :: _ -> Some scope)
         capture ~program ~work
     in
-    let* () = Static_initializer_destination.settle destination in
+    let* () =
+      if Static_initializer_destination.requires_settlement destination then
+        Static_initializer_destination.settle destination
+      else Ok ()
+    in
     let* bytes =
-      Integer_initializer_layout.word_bytes
-        (Option.get (Static_initializer_destination.scalar destination))
-        bits
+      let scalar =
+        Option.get (Static_initializer_destination.scalar destination)
+      in
+      match bits with
+      | Some bits -> Integer_initializer_layout.word_bytes scalar bits
+      | None
+        when Static_initializer_destination.discards_value destination
+             && Sema.Initializer_type.scalar_byte_size scalar = 0 -> Ok ""
+      | None -> Error "HCRUN0006: a U0 initializer cannot copy nonzero storage"
     in
     if String.length bytes > task_initializer_remaining task then
       Error "HCIRVM0007: native static scalar copy work limit was exhausted"
@@ -5612,7 +5622,7 @@ let prepare_native_initializer_copy task attempt execution program capture ~work
   then Error "native initializer scalar result has another original attempt"
   else
     let* bits =
-      Native_scalar_capture.consume
+      Native_scalar_capture.consume_value
         ?scope:
           (match task.resources.native_source_scopes with
           | [] -> None
@@ -5620,13 +5630,23 @@ let prepare_native_initializer_copy task attempt execution program capture ~work
         capture ~program ~work
     in
     let* next, layout =
-      Integer_initializer_layout.settle_live_entry attempt.attempt_next
-        attempt.attempt_destination
+      if
+        Integer_initializer_layout.requires_settlement
+          attempt.attempt_destination
+      then
+        Integer_initializer_layout.settle_live_entry attempt.attempt_next
+          attempt.attempt_destination
+      else Ok (attempt.attempt_next, attempt.attempt_destination)
     in
     let* bytes =
-      Integer_initializer_layout.word_bytes
-        (Option.get (Integer_initializer_layout.scalar layout))
-        bits
+      let scalar = Option.get (Integer_initializer_layout.scalar layout) in
+      match bits with
+      | Some bits -> Integer_initializer_layout.word_bytes scalar bits
+      | None
+        when Initializer_fragment_destination.discards_value
+               (Initializer_fragment_program.destination program)
+             && Sema.Initializer_type.scalar_byte_size scalar = 0 -> Ok ""
+      | None -> Error "HCRUN0006: a U0 initializer cannot copy nonzero storage"
     in
     if String.length bytes > task_initializer_remaining task then
       Error
@@ -5680,7 +5700,7 @@ let finish_native_initializer_copy task attempt execution program copy receipt =
 
 let complete_native_task_initializer task attempt execution program =
   if
-    Integer_initializer_layout.requires_settlement attempt.attempt_destination
+    Initializer_fragment_program.is_scalar_evaluation program
     && not
          (Option.fold ~none:false
             ~some:(fun copy -> copy.copy_complete)
@@ -14530,17 +14550,20 @@ let execute_task_static_initializer ?(use_active_stream = true)
     if not (Program.is_scalar_evaluation program) then Ok ()
     else
       let copy =
-        let* word =
-          match result.final_value_ with
-          | Some word -> Ok word
-          | None ->
-              Error "HCIRVM0026: static scalar evaluation lost its actual word"
+        let* () =
+          if Destination.requires_settlement destination then
+            Destination.settle destination
+          else Ok ()
         in
-        let* () = Destination.settle destination in
+        let scalar = Option.get (Destination.scalar destination) in
         let* bytes =
-          Integer_initializer_layout.word_bytes
-            (Option.get (Destination.scalar destination))
-            word.bits
+          match result.final_value_ with
+          | Some word -> Integer_initializer_layout.word_bytes scalar word.bits
+          | None
+            when Destination.discards_value destination
+                 && Sema.Initializer_type.scalar_byte_size scalar = 0 -> Ok ""
+          | None ->
+              Error "HCRUN0006: a U0 initializer cannot copy nonzero storage"
         in
         let count = String.length bytes in
         let* () =
@@ -14701,7 +14724,7 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
         "HCRUN0006" message;
     ]
   in
-  let publish payload =
+  let publish ?(discarded = false) payload =
     let deferred =
       Integer_initializer_layout.requires_settlement attempt.attempt_destination
     in
@@ -14714,6 +14737,17 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
         |> Result.map_error copy_error
     in
     let layout = selected_layout () in
+    let* () =
+      if
+        (not discarded)
+        || Destination.discards_value destination
+           && Option.fold ~none:false
+                ~some:(fun scalar ->
+                  Sema.Initializer_type.scalar_byte_size scalar = 0)
+                (Integer_initializer_layout.scalar layout)
+      then Ok ()
+      else invalid "HCRUN0006" "a U0 initializer cannot copy nonzero storage"
+    in
     let* payload =
       match (payload, Integer_initializer_layout.scalar layout) with
       | Integer_array_initializers.Word bits, Some scalar ->
@@ -14806,6 +14840,9 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
                 match result.final_value_ with
                 | Some word ->
                     publish (Integer_array_initializers.Word word.bits)
+                | None when Destination.discards_value destination ->
+                    publish ~discarded:true
+                      (Integer_array_initializers.Bytes "")
                 | None ->
                     invalid "HCIRVM0026"
                       "scalar initializer evaluation did not capture its \

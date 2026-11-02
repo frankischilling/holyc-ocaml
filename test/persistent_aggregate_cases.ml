@@ -58,6 +58,46 @@ let forward_initializer_values =
         "" );
     ]
 
+let void_initializer_values =
+  [
+    ( "U0 global leaf executes once without supplying a word",
+      {|I64 count=0;U0 Effect(){count++;}class Box{U0 empty;U8 value;};Box object={Effect(),42};I64 F(){if(count!=1)return -1;return object.value;}F();|},
+      42L,
+      "" );
+    ( "U0 static leaf executes before an unused function",
+      {|I64 count=0;U0 Effect(){count++;}class Box{U0 empty;U8 value;};I64 Unused(){static Box object={Effect(),42};return object.value;}I64 F(){return count+41;}F();|},
+      42L,
+      "" );
+    ( "U0 static leaves do not run again at calls",
+      {|I64 count=0;U0 Effect(){count++;}class Box{U0 empty;U8 value;};I64 F(){static Box object={Effect(),40};object.value++;return object.value;}I64 Check(){if(F()!=41 || F()!=42 || count!=1)return -1;return 42;}Check();|},
+      42L,
+      "" );
+    ( "empty aggregate consumes actual U0 completion",
+      {|I64 count=0;U0 Effect(){count++;}class Empty{};Empty object=Effect();I64 F(){return count+41;}F();|},
+      42L,
+      "" );
+    ( "empty root array executes every U0 leaf",
+      {|I64 count=0;U0 Effect(){count++;}class Empty{};Empty objects[2]={Effect(),Effect()};I64 F(){return count+40;}F();|},
+      42L,
+      "" );
+    ( "nested zero-byte leaves keep the next byte cursor",
+      {|I64 count=0;U0 Effect(){count++;}class Inner{U0 a;U0 b;};class Box{Inner inner;U8 value;};Box object={{Effect(),Effect()},42};I64 F(){if(count!=2)return -1;return object.value;}F();|},
+      42L,
+      "" );
+    ( "U0 initializer evaluates ordinary arguments",
+      {|I64 count=0;U0 Effect(I64 a,I64 b){count=a+b;}class Box{U0 empty;U8 value;};Box object={Effect(20,22),7};I64 F(){if(object.value!=7)return -1;return count;}F();|},
+      42L,
+      "" );
+    ( "U0 initializer preserves reached output",
+      {|extern U0 Print(U8 *fmt,...);U0 Effect(){Print("A");}class Box{U0 empty;U8 value;};Box object={Effect(),42};I64 F(){return object.value;}F();|},
+      42L,
+      "A" );
+    ( "U0 initializer respects early return",
+      {|I64 count=0;U0 Effect(){count++;return;count+=10;}class Box{U0 empty;U8 value;};Box object={Effect(),42};I64 F(){if(count!=1)return -1;return object.value;}F();|},
+      42L,
+      "" );
+  ]
+
 let initializer_values =
   forward_initializer_values @ callback_initializer_values
   @ [
@@ -344,6 +384,14 @@ let faults =
       "" );
   ]
 
+let void_jit_faults =
+  [
+    ( "U0 leaf completion cannot invent a word for a grown class",
+      {|extern U0 Print(U8 *fmt,...);#exe{extern class Item;class Box{Item item;$$=8;};U0 Effect(){Print("A");StreamExePrint("class Item{U8 value;};");}Box object={Effect()};StreamPrint("42;");}|},
+      "HCRUN0006",
+      "A" );
+  ]
+
 let jit_faults =
   [
     ( "JIT persistent classes begin with unknown bytes",
@@ -386,6 +434,11 @@ let pointer_faults =
 
 let unsupported =
   [
+    ( "U0 completion cannot initialize a nonzero byte",
+      {|U0 Effect(){}class Box{U8 value;};Box object={Effect()};0;|} );
+    ( "U0 completion cannot initialize a nonzero static byte",
+      {|U0 Effect(){}class Box{U8 value;};I64 F(){static Box object={Effect()};return 0;}F();|}
+    );
     ( "aggregate floating initializer leaves keep their execution boundary",
       {|class Box{U8 tag;F64 value;};Box object={7,42};0;|} );
     ( "aggregate pointer initializer leaves cannot construct numeric ownership",
@@ -421,3 +474,20 @@ let initializer_partial_faults =
       "HCRUN0006",
       "A" );
   ]
+
+let void_quota_source =
+  {|extern U0 Print(U8 *fmt,...);
+I64 effects=0;
+U0 Note() {
+  effects++;
+  Print("A");
+}
+class Box { U0 marker; U8 value; };
+Box first={Note(),20};
+I64 Sum() {
+  static Box second={Note(),22};
+  if (effects!=2) return -1;
+  return first.value+second.value;
+}
+Sum();
+|}

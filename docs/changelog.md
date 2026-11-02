@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Execute U0 calls in zero-byte aggregate initializer leaves, preserving their
+  effects without inventing an integer result. Global/static IR and native source
+  tasks support both modes; original JIT captures verify once-only effects and
+  the following byte. See [initializer effects](aggregate-initializers.md#u0-initializer-effects).
+
 - Added `holyc disasm` and the public `Asm_disassembler` library module, with
   source-owned instruction forms, addresses, operands, relative targets,
   listings, maps and versioned JSON. Native `Ui` captures check 89 distinct

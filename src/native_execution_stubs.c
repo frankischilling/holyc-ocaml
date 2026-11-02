@@ -3810,6 +3810,7 @@ struct native_internal_binding_capture {
   struct native_deferred_cleanup cleanup;
   value program, arena, scope;
   uint64_t bits;
+  int64_t value_site;
   intnat work;
   _Atomic int consumed;
 };
@@ -3863,7 +3864,7 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
   steps = Int64_val(Field(status, 2));
   saved = Val_none;
   if (Int64_val(Field(status, 0)) == 0 &&
-      Int64_val(Field(status, 3)) > 0 &&
+      Int64_val(Field(status, 3)) != 0 &&
       steps > Long_val(Field(consumed, 0))) {
     capture_handle = caml_alloc_custom_mem(
       &native_internal_binding_capture_operations, sizeof(capture),
@@ -3876,6 +3877,9 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
     value scope_option = Field(Field(task, 3), 0);
     capture->scope = scope_option == Val_none ? Val_unit : Field(scope_option, 0);
     capture->bits = (uint64_t)Int64_val(Field(status, 4));
+    /* Negative sites retain checked U0 completion, not an integer zero.
+       The image decoder validates the original site before publication. */
+    capture->value_site = Int64_val(Field(status, 3));
     capture->work = (intnat)(steps - Long_val(Field(consumed, 0)));
     atomic_init(&capture->consumed, 0);
     caml_register_generational_global_root(&capture->program);
@@ -3891,10 +3895,11 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
   CAMLreturn(result);
 }
 
-CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
-                                                           value request, value scope_option)
+static value native_consume_binding_capture(value handle, value request,
+                                           value scope_option, int optional)
 {
   CAMLparam3(handle, request, scope_option);
+  CAMLlocal2(result, bits);
   native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
@@ -3911,6 +3916,8 @@ CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
       capture->program != Field(request, 0) ||
       capture->work != Long_val(Field(request, 1)))
     caml_invalid_argument("native internal binding has another program or actual work");
+  if (!optional && capture->value_site < 0)
+    caml_invalid_argument("native scalar capture contains U0 rather than a word");
   arena = native_task_arena_get(capture->arena);
   struct native_source_scope *source_scope = native_source_scope_option(scope_option);
   if ((source_scope == NULL ? Val_unit : Field(scope_option, 0)) != capture->scope)
@@ -3928,7 +3935,24 @@ CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
     caml_failwith("native internal binding capture was already consumed");
   }
   if (!borrowed_arena) atomic_store(&arena->active, 0);
-  CAMLreturn(caml_copy_int64((int64_t)capture->bits));
+  if (optional && capture->value_site < 0) CAMLreturn(Val_none);
+  bits = caml_copy_int64((int64_t)capture->bits);
+  if (!optional) CAMLreturn(bits);
+  result = caml_alloc_small(1, 0);
+  Field(result, 0) = bits;
+  CAMLreturn(result);
 #endif
   CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
+                                                           value request, value scope_option)
+{
+  return native_consume_binding_capture(handle, request, scope_option, 0);
+}
+
+CAMLprim value holyc_native_consume_initializer_value_capture(value handle,
+                                                            value request, value scope_option)
+{
+  return native_consume_binding_capture(handle, request, scope_option, 1);
 }

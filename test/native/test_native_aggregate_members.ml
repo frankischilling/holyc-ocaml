@@ -692,6 +692,26 @@ let pointer_field_boundaries () =
 let () =
   Alcotest.run "native aggregate members"
     [
+      ( "U0 initializer effects",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                List.iter
+                  (fun mode ->
+                    task_value expected output (run_task ~mode source))
+                  modes;
+                ignore (value expected output (run Preprocessor.Aot source))))
+          Persistent.void_initializer_values );
+      ( "U0 initializer completion boundaries",
+        List.map
+          (fun (name, source, code, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                let report = run_task source in
+                task_failure code report;
+                Alcotest.(check string)
+                  "earlier U0 effects survive rejection" output
+                  (Native_source_execution.output_bytes report)))
+          Persistent.void_jit_faults );
       ( "owned fields and reference returns",
         List.map
           (fun (name, contents, expected, output) ->

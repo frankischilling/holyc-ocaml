@@ -39,10 +39,7 @@ let lower ~context ~authority destination =
   let typed = Destination.typed destination in
   let records = Initializer_fragment_typing.records context in
   let* top_calls = classify ~context destination in
-  let scalar_evaluation =
-    Ir.Integer_initializer_layout.requires_settlement
-      (Destination.layout destination)
-  in
+  let scalar_evaluation = Destination.requires_evaluation destination in
   let* lowered =
     Lower.lower_complete
       ~globals:(Destination.globals destination)

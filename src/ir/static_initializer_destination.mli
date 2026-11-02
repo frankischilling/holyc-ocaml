@@ -27,3 +27,5 @@ val operation : t -> Integer_initializer_layout.operation
 
 val span : t -> Common.Span.t
 val storage : t -> Integer_globals.storage_slot
+val discards_value : t -> bool
+val requires_evaluation : t -> bool

@@ -38,10 +38,16 @@ let scalar t =
   let _, (_, _, _, scalar) = prepared_result t in
   scalar
 
+let discards_value t =
+  Initializer_value.discards ~scalar:t.scalar_
+    (Typed.top_level_root_value t.root_)
+
 let requires_settlement t =
   Option.fold ~none:false
     ~some:Integer_initializer_layout.stream_preparation_requires_settlement
     t.preparation_
+
+let requires_evaluation t = requires_settlement t || discards_value t
 
 let settle t =
   if not (Fragment.is_current t.fragment_) then
@@ -133,7 +139,8 @@ let create ~allocation ~task_view ~cursor typed =
         | _ -> Error "static byte copy requires its original string leaf")
     | Scalar_store ->
         let callback = Option.is_some (Fragment.callback_source fragment_) in
-        if
+        if Initializer_value.discards ~scalar:scalar_ value then Ok ()
+        else if
           Typed.result_array_rank value = 0
           && (match Typed.result_category value with
             | Typed.Object_value | Typed.Lvalue -> true

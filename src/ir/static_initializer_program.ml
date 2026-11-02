@@ -14,7 +14,7 @@ let is_scalar_evaluation t = Option.is_some t.scalar_lowered_
 
 let create ?scalar_lowered ~destination ~entry ~initialization ~runtime_calls ()
     =
-  let scalar = Static_initializer_destination.requires_settlement destination in
+  let scalar = Static_initializer_destination.requires_evaluation destination in
   if
     Option.is_some (Static_initializer_destination.copy_byte_count destination)
     || scalar <> Option.is_some scalar_lowered

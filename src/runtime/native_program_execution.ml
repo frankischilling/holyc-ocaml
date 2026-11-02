@@ -775,10 +775,30 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                 capture;
                               let internal =
                                 match outcome_ with
-                                | Image.Completed { final_value = Some _; _ } ->
-                                    Option.map
-                                      (fun value -> (image, value))
-                                      !scalar_capture
+                                | Image.Completed completed ->
+                                    let accepts_void =
+                                      match Image.scalar_program image with
+                                      | Some (Image.Initializer program) ->
+                                          Ir.Initializer_fragment_destination
+                                          .discards_value
+                                            (Ir.Initializer_fragment_program
+                                             .destination program)
+                                      | Some (Image.Static_initializer program)
+                                        ->
+                                          Ir.Static_initializer_destination
+                                          .discards_value
+                                            (Ir.Static_initializer_program
+                                             .destination program)
+                                      | _ -> false
+                                    in
+                                    if
+                                      Option.is_some completed.final_value
+                                      || accepts_void
+                                    then
+                                      Option.map
+                                        (fun value -> (image, value))
+                                        !scalar_capture
+                                    else None
                                 | _ -> None
                               in
                               Atomic.set binding.task_arena_.scalar_capture_

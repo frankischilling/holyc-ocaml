@@ -18,7 +18,7 @@ let lower ?runtime ~context destination =
          consumer" |> diagnose
   in
   let typed = Destination.typed destination in
-  let scalar_evaluation = Destination.requires_settlement destination in
+  let scalar_evaluation = Destination.requires_evaluation destination in
   let records = Initializer_fragment_typing.records context in
   let* top_calls =
     List.fold_right

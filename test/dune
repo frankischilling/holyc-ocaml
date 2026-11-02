@@ -5544,3 +5544,10 @@
  (name test_aggregate_initializer_layout)
  (modules test_aggregate_initializer_layout)
  (libraries holyc_lib alcotest))
+
+(test
+ (name test_void_initializer_oracle)
+ (modules test_void_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/void-initializers/*)))

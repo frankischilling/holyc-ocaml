@@ -338,6 +338,41 @@ These checks use pinned source and hosted execution. They include no TempleOS
 runtime capture or comparison of original emitted machine code. Root bounds,
 unknown-byte faults and resource quotas are hosted policy.
 
+## U0 initializer effects
+
+A U0 call can initialize a zero-byte member or empty aggregate. The call runs
+once and consumes no destination bytes. The next leaf keeps the same byte
+cursor. Global and static source-task execution supports this in both outer
+modes, through IR and native execution. Isolated native AOT supports the same
+load path; isolated native JIT retains its existing closed-initializer boundary.
+
+The [example](../examples/void-aggregate-initializers.hc) prints `AA` and returns
+42. Its global and static calls each run once. Calling the containing function
+does not repeat static initialization. Arguments, earlier output, early returns,
+original allocation bounds and execution/preparation quotas remain checked.
+
+U0 completion is not an integer zero. IR keeps the absent value; native execution
+retains the original negative no-value site in its one-use capture. Ordinary
+scalar consumers still require an actual word. Zero-byte copies retain the
+original source, destination, program, work count and live arena checks. A callee
+that completes a zero-byte class into nonzero storage rejects after its earlier
+effects, rather than inventing register contents to fill the new bytes. Nonzero
+U0 initializer copies remain unsupported.
+
+The fixture in `test/oracle/void-initializers` records four original TempleOS JIT
+observations twice in one boot: the global call count is one, its following byte
+is 42, two calls to the static owner return a total of 84, and the total effect
+count remains two. Tests verify the complete repeated capture and its payload
+hash, then compare IR and native JIT execution with those observations. The
+original compiler also reports `U0 Expression`; that warning is not yet part of
+this execution feature's diagnostics. The capture does not establish native AOT
+or emitted-byte parity.
+
+The source is pinned at `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
+`PrsVar.HC:1-120` calls the compiled initializer and copies exactly the reached
+class size. `PrsVar.HC:209-246` preserves global/static traversal.
+`PrsExp.HC:263-301,1116-1133` retains the warning and expression compilation path.
+
 ## TempleOS source
 
 Automatic scalar declaration initializers use `PrsExpression`, through the

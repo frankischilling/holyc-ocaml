@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+U0 initializer tests cover zero-byte global/static leaves, empty roots, fixed
+arrays, nested leaves, argument effects and early returns. Both outer modes run
+in IR and native source tasks; isolated native AOT has separate checks. The
+public CLI verifies exact and one-below work limits and preserved output. A
+class that grows during a U0 call cannot acquire invented initializer bytes.
+The original JIT fixture records four values twice, with source and capture
+hashes, and checks the same observations through both hosted execution paths.
+See [U0 initializer effects](aggregate-initializers.md#u0-initializer-effects).
+
 Assignment observation cases retain the lvalue endpoint before operator
 lookahead, validate the endpoint reached afterward and preserve the original
 function's completion metadata. They cover all nine integer widths, direct and

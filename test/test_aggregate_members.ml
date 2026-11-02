@@ -527,6 +527,20 @@ let class_default_boundaries () =
 let () =
   Alcotest.run "aggregate members"
     [
+      ( "U0 initializer effects",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                List.iter
+                  (fun mode -> ignore (value expected output (run mode source)))
+                  modes))
+          Persistent.void_initializer_values );
+      ( "U0 initializer completion boundaries",
+        List.map
+          (fun (name, source, code, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                failure code output (run Preprocessor.Jit source)))
+          Persistent.void_jit_faults );
       ( "source class defaults",
         List.map
           (fun (name, source, expected, output) ->

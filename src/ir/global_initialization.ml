@@ -692,6 +692,31 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                                   | Error _ -> false)
                               | _ -> false)
                           | _ -> false)
+                      | None, Some (scalar, _)
+                        when Sema.Initializer_type.scalar_byte_size scalar = 0
+                             && store.opcode = Opcode.Ic_call_end ->
+                          let original =
+                            match slot with
+                            | Global_pending (_, root) ->
+                                Typed.top_level_root_value root
+                            | Static_pending (_, root) ->
+                                Typed.initializer_value root
+                            | Fragment_pending destination ->
+                                Typed.top_level_root_value
+                                  (Initializer_fragment_destination.root
+                                     destination)
+                            | Static_fragment_pending destination ->
+                                Typed.top_level_root_value
+                                  (Static_initializer_destination.root
+                                     destination)
+                          in
+                          Initializer_value.is_void original
+                          && Lock_semantics.clear_flag store.flags = 0L
+                          && store.operands = []
+                          && Option.fold ~none:false
+                               ~some:(fun type_ ->
+                                 same_type type_ store.target_type)
+                               (Typed.result_value_type original)
                       | None, Some (scalar, byte_offset) -> (
                           let count =
                             Aggregate_initializer_store.instruction_count scalar
