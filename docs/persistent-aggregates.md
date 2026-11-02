@@ -105,16 +105,18 @@ byte roots. A stored address cannot keep a retired activation alive. Native
 source fragments share those shadows through their original task arena.
 
 [Aggregate initializers](aggregate-initializers.md) now traverse completed selected
-classes, integer leaves, nested fixed arrays and strings with the original source
+classes, integer and owned data-pointer leaves, nested fixed arrays and strings
+with the original source
 byte cursor. Selected forward members can complete before their leaves are
 consumed. Changes during a leaf and other leaf families remain
 open.
-Callback fields, reference returns, persistent pointer
-cells, general aggregate copies and floating whole-value casts remain unfinished under
+General aggregate copies, owned callback initializer leaves and floating
+whole-value casts remain unfinished under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and related
 issues. This storage path does not close the aggregate issue or establish full
-compiler parity. Tests derive expected words from pinned source and hosted
-execution; there is no TempleOS runtime capture or machine-code comparison.
+compiler parity. The initializer documentation records original JIT captures for
+U0 effects and data-pointer aliases. Other storage checks use pinned source and
+hosted execution; these checks do not establish emitted machine-code parity.
 
 ## TempleOS source
 

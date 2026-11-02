@@ -5804,6 +5804,44 @@ let native_load_static_initializer_source ledger ~runtime receipt =
     | Load_static source -> source
     | Closed_static _ -> assert false)
 
+let observed_global_initializer_destination ledger receipt =
+  let ( let* ) = Result.bind in
+  let* _ = initializer_leaf_for ledger receipt in
+  protect (fun () ->
+      let publication = receipt.Parser.leaf_initializer.initializer_owner in
+      let span = receipt.leaf_initializer.initializer_equals.span in
+      if not (Parser.initializer_leaf_is_current receipt) then
+        fail span "initializer cursor requires its original current leaf";
+      validate_command ledger publication.global_header;
+      let boundary =
+        Names.find ledger.storage_boundaries publication.global_name
+      in
+      if boundary.storage_source != publication then
+        fail span "initializer cursor belongs to another declaration";
+      Option.map
+        (fun live ->
+          Ir.Integer_initializer_layout.live_leaf_destination live receipt
+          |> checked_initializer_layout span)
+        boundary.isolated_initializer)
+
+let observed_static_initializer_destination ledger receipt =
+  protect (fun () ->
+      let span = (Parser.static_initializer_leaf_location receipt).span in
+      if
+        (not (Parser.static_initializer_is_current receipt))
+        || not (List.exists (( == ) receipt) ledger.static_preparations)
+      then fail span "static cursor requires its original observed leaf";
+      Option.map
+        (fun snapshot ->
+          Ir.Integer_initializer_layout.static_snapshot_leaf_destination
+            snapshot receipt
+          |> checked_initializer_layout span)
+        (List.find_opt
+           (fun snapshot ->
+             Ir.Integer_initializer_layout.static_snapshot_receipt snapshot
+             == receipt.Parser.static_allocation)
+           ledger.isolated_static_snapshots))
+
 let native_static_initializer_destination ledger receipt =
   protect (fun () ->
       let span = (Parser.static_initializer_leaf_location receipt).span in

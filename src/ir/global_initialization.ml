@@ -655,6 +655,18 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                             |> Sema.Function_call_resolution.initializer_origin
                             )
                     in
+                    let original_value =
+                      match slot with
+                      | Global_pending (_, root) ->
+                          Typed.top_level_root_value root
+                      | Static_pending (_, root) -> Typed.initializer_value root
+                      | Fragment_pending destination ->
+                          Typed.top_level_root_value
+                            (Initializer_fragment_destination.root destination)
+                      | Static_fragment_pending destination ->
+                          Typed.top_level_root_value
+                            (Static_initializer_destination.root destination)
+                    in
                     let store_valid =
                       match (copy_destination, aggregate_destination) with
                       | Some (bytes, byte_offset), _ -> (
@@ -692,31 +704,57 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                                   | Error _ -> false)
                               | _ -> false)
                           | _ -> false)
+                      | None, Some (scalar, byte_offset)
+                        when Option.is_some
+                               (Initializer_value.pointer_destination
+                                  (Some scalar)) -> (
+                          let rec take count reversed suffix =
+                            match (count, reversed) with
+                            | 0, _ -> Some suffix
+                            | _, item :: rest ->
+                                take (count - 1) rest (item :: suffix)
+                            | _ -> None
+                          in
+                          match
+                            ( take
+                                (Aggregate_initializer_store.instruction_count
+                                   scalar)
+                                (store :: reversed_value) [],
+                              store.operands )
+                          with
+                          | Some (first :: _ as suffix), [ _; word ]
+                            when Initializer_value.stores_pointer
+                                   ~scalar:(Some scalar) original_value -> (
+                              match first.result with
+                              | Some result -> (
+                                  match
+                                    Aggregate_initializer_store.lower ~scalar
+                                      ~byte_offset ~root_type:expected_type
+                                      ~root:
+                                        (Global_address_lowering.result_value
+                                           prefix)
+                                      ~word ~span:store_span
+                                      ~instruction_id:first.instruction_id
+                                      ~value_id:result.value_id
+                                  with
+                                  | Ok expected ->
+                                      List.for_all2 equal_instruction
+                                        (Aggregate_initializer_store
+                                         .descriptions expected)
+                                        suffix
+                                  | Error _ -> false)
+                              | None -> false)
+                          | _ -> false)
                       | None, Some (scalar, _)
                         when Sema.Initializer_type.scalar_byte_size scalar = 0
                              && store.opcode = Opcode.Ic_call_end ->
-                          let original =
-                            match slot with
-                            | Global_pending (_, root) ->
-                                Typed.top_level_root_value root
-                            | Static_pending (_, root) ->
-                                Typed.initializer_value root
-                            | Fragment_pending destination ->
-                                Typed.top_level_root_value
-                                  (Initializer_fragment_destination.root
-                                     destination)
-                            | Static_fragment_pending destination ->
-                                Typed.top_level_root_value
-                                  (Static_initializer_destination.root
-                                     destination)
-                          in
-                          Initializer_value.is_void original
+                          Initializer_value.is_void original_value
                           && Lock_semantics.clear_flag store.flags = 0L
                           && store.operands = []
                           && Option.fold ~none:false
                                ~some:(fun type_ ->
                                  same_type type_ store.target_type)
-                               (Typed.result_value_type original)
+                               (Typed.result_value_type original_value)
                       | None, Some (scalar, byte_offset) -> (
                           let count =
                             Aggregate_initializer_store.instruction_count scalar

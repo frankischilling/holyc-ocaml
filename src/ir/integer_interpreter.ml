@@ -7500,7 +7500,12 @@ let declared_types ?frame ?globals ?literals ?initialization
                          && literal_pointer_type type_
                        then Pointer_value type_
                        else if
-                         memory_enabled && data_pointer_type type_
+                         memory_enabled
+                         && (data_pointer_type type_
+                            || frame_pointer type_
+                               && (description.opcode = Opcode.Ic_addr
+                                  || description.opcode
+                                     = Opcode.Ic_holyc_typecast))
                          && (description.opcode = Opcode.Ic_addr
                             || description.opcode = Opcode.Ic_deref
                             || description.opcode = Opcode.Ic_assign
@@ -8341,7 +8346,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
               | _ -> Error (malformed block_id description))
           | Word_view_kind
             when memory_enabled
-                 && Option.fold ~none:false ~some:data_pointer_type
+                 && Option.fold ~none:false ~some:frame_pointer
                       description.target_type -> (
               match
                 ( description.operands,
@@ -8355,6 +8360,10 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                     match payload with
                     | Sequence.Integer (0L | 1L) ->
                         scalar_pointer_type target_type
+                        || Option.fold ~none:false
+                             ~some:
+                               Aggregate_member_projection.pointer_member_type
+                             (Type.dereference target_type |> Result.to_option)
                     | Sequence.Class_pointer_view (layout, _) ->
                         Option.fold ~none:false
                           ~some:(fun context ->
@@ -8374,9 +8383,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                       Type.dereference target_type )
                   with
                   | Some operand, Ok pointee
-                    when valid_selection
-                         && data_pointer_type operand.pointer_type ->
-                      Ok (Pointer_view (operand, result.value_id, pointee))
+                    when valid_selection && frame_pointer operand.pointer_type
+                    -> Ok (Pointer_view (operand, result.value_id, pointee))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
           | Word_view_kind -> (

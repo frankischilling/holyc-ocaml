@@ -5551,3 +5551,10 @@
  (libraries holyc_lib yojson digestif alcotest)
  (deps
   (glob_files oracle/void-initializers/*)))
+
+(test
+ (name test_pointer_initializer_oracle)
+ (modules test_pointer_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/pointer-initializers/*)))

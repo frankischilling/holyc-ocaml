@@ -1133,6 +1133,20 @@ let prepare_live live leaf =
                 entry )
         | _ -> invalid "live layout did not consume its exact source leaf")
 
+let live_leaf_destination live receipt =
+  if
+    (not (Frontend.Parser.initializer_leaf_is_current receipt))
+    || receipt.Frontend.Parser.leaf_initializer.initializer_owner
+       != Sema.Compiler_record.declared_global_source live.declaration
+  then invalid "initializer cursor requires its original current leaf"
+  else
+    match live.entries_rev with
+    | entry :: _
+      when Option.fold ~none:false ~some:(( == ) receipt)
+             (Source.leaf_parser_receipt entry.leaf) ->
+        Ok (entry.cell_offset, entry.byte_offset, entry.operation, entry.scalar_)
+    | _ -> invalid "initializer cursor has no original reached leaf"
+
 let complete_live live source =
   let* () =
     if

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Preserve owned data references in global and static aggregate initializer
+  leaves, including arrays, strings and reference-returning calls. Packed stores
+  retain target lifetimes and reject expired ownership. Original JIT captures
+  check aliasing and once-only static initialization. See
+  [pointer initializers](aggregate-initializers.md#owned-data-pointer-leaves).
+
 - Execute U0 calls in zero-byte aggregate initializer leaves, preserving their
   effects without inventing an integer result. Global/static IR and native source
   tasks support both modes; original JIT captures verify once-only effects and

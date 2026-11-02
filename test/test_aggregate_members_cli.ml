@@ -614,7 +614,45 @@ let () =
           List.iter
             (fun (_, source, expected, output) ->
               value expected output (invoke ~options target mode source))
-            Persistent.void_initializer_values;
+            (Persistent.pointer_initializer_values
+           @ Persistent.void_initializer_values);
+          List.iter
+            (fun (_, source, code, output) ->
+              error ~code output (invoke ~status:1 ~options target mode source))
+            Persistent.pointer_initializer_faults;
+          let source = Persistent.pointer_initializer_quota_source in
+          let baseline = invoke ~options target mode source in
+          value 42L "AA" baseline;
+          let steps = baseline |> member "executed_steps" |> to_int in
+          let preparation =
+            baseline |> member "compiled_initializer_steps" |> to_int
+          in
+          require
+            (steps > 1 && preparation > 1)
+            "pointer stores retain charged work";
+          value 42L "AA"
+            (invoke
+               ~options:
+                 (options
+                 @ [
+                     "--step-limit=" ^ string_of_int steps;
+                     "--initializer-step-limit=" ^ string_of_int preparation;
+                   ])
+               target mode source);
+          error ~code:"HCIRVM0007" "AA"
+            (invoke ~status:1
+               ~options:
+                 (options @ [ "--step-limit=" ^ string_of_int (steps - 1) ])
+               target mode source);
+          error ~code:"HCIRVM0007" ""
+            (invoke ~status:1
+               ~options:
+                 (options
+                 @ [
+                     "--initializer-step-limit="
+                     ^ string_of_int (preparation - 1);
+                   ])
+               target mode source);
           let source = Persistent.void_quota_source in
           let baseline = invoke ~options target mode source in
           value 42L "AA" baseline;

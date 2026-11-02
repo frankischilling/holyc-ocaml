@@ -1258,3 +1258,27 @@ val native_source_callback_defaults :
   ast:Frontend.Ast.module_ ->
   source_command ->
   (Ir.Prepared_callback_default.t list, Common.Diagnostic.t list) result
+
+val observed_global_initializer_destination :
+  t ->
+  Frontend.Parser.completed_initializer_leaf ->
+  ( (int
+    * int
+    * Ir.Integer_initializer_layout.operation
+    * Sema.Initializer_type.scalar option)
+    option,
+    Common.Diagnostic.t list )
+  result
+
+val observed_static_initializer_destination :
+  t ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( (int
+    * int
+    * Ir.Integer_initializer_layout.operation
+    * Sema.Initializer_type.scalar option)
+    option,
+    Common.Diagnostic.t list )
+  result
+(** Current observed metadata for selecting a preparation path. These reads
+    grant no execution, stored value or successful copy authority. *)

@@ -327,15 +327,15 @@ initializer effects. Reference-bearing AOT statics with the data-heap option
 retain their explicit compile-time phase boundary before later body effects.
 
 Nonconstant AOT statics with globals-on-data-heap remain unsupported.
-Other runtime class changes remain unfinished. Floating,
-data pointer and owned callback leaves, inferred
+Other runtime class changes remain unfinished. Floating and owned callback leaves, inferred
 dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686). Native data
 pointer fields retain their separate owned storage and activation checks.
 
-These checks use pinned source and hosted execution. They include no TempleOS
-runtime capture or comparison of original emitted machine code. Root bounds,
+The earlier layout checks use pinned source and hosted execution. The U0 and
+data-pointer captures below add original JIT observations, but do not compare
+emitted machine code. Root bounds,
 unknown-byte faults and resource quotas are hosted policy.
 
 ## U0 initializer effects
@@ -372,6 +372,40 @@ The source is pinned at `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 `PrsVar.HC:1-120` calls the compiled initializer and copies exactly the reached
 class size. `PrsVar.HC:209-246` preserves global/static traversal.
 `PrsExp.HC:263-301,1116-1133` retains the warning and expression compilation path.
+
+## Owned data-pointer leaves
+
+Global and static aggregate initializers can store checked integer or class
+references, including array decay, reference-returning calls and byte strings.
+IR and native source tasks support both modes. Isolated native AOT uses the same
+checked load stores; isolated native JIT keeps its closed-preparation boundary.
+A pointer store preserves the target allocation, selected pointee, bounds and
+activation identity. It does not turn an arbitrary integer into an owned address.
+An overlapping numeric write invalidates the reference, and a returned pointer
+to a retired local still faults when dereferenced.
+
+Each leaf writes at the original sequential initializer cursor, including
+unaligned packed fields and nested fixed arrays. Neighboring numeric leaves keep
+their ordinary byte stores. Function-pointer words remain a separate value family.
+The [example](../examples/pointer-aggregate-initializers.hc) returns 42 and verifies
+that a global and a static alias share the same target. The static initializer
+runs once, before calls to its containing function.
+
+The fixture in `test/oracle/pointer-initializers` records seven original JIT
+observations twice: tag 7, initial target 40, alias update 41, static call sum 85,
+final target 43, two initializer calls and packed class size 9. Tests compare IR
+and native execution with that capture. Prefix updates in this fixture use
+`++(*pointer)`. The ungrouped `++*pointer` has different original semantics;
+matching that parser behavior remains separate work.
+
+`PrsVar.HC:1-120` supplies the sequential scalar store and deferred AOT assignment.
+Its direct byte-string case at lines 34-56 emits an absolute relocation. Other
+string-bearing expressions retain `CCF_NOT_CONST` through `CInit.HC:29` and
+`OptPass012.HC:66-67`. The hosted native adapter currently schedules these owned
+literal references through its checked load path. This verifies their executed
+values and lifetimes, not original AOT relocation bytes or identical preparation
+work. Numeric addresses, owned callback initializer leaves and general aggregate
+copies remain outside this feature.
 
 ## TempleOS source
 

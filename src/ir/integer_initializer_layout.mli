@@ -188,3 +188,9 @@ val normalized_word :
 
 val word_bytes :
   Sema.Initializer_type.scalar -> int64 -> (string, string) result
+
+val live_leaf_destination :
+  live ->
+  Frontend.Parser.completed_initializer_leaf ->
+  (int * int * operation * Sema.Initializer_type.scalar option, string) result
+(** Read reached cursor metadata only during its original current leaf. *)

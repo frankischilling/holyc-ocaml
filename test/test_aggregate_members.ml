@@ -527,6 +527,22 @@ let class_default_boundaries () =
 let () =
   Alcotest.run "aggregate members"
     [
+      ( "pointer initializer lifetime boundaries",
+        List.map
+          (fun (name, source, code, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                List.iter
+                  (fun mode -> failure code output (run mode source))
+                  modes))
+          Persistent.pointer_initializer_faults );
+      ( "owned pointer initializers",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                List.iter
+                  (fun mode -> ignore (value expected output (run mode source)))
+                  modes))
+          Persistent.pointer_initializer_values );
       ( "U0 initializer effects",
         List.map
           (fun (name, source, expected, output) ->

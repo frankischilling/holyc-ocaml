@@ -188,6 +188,9 @@ let fixture ?contents ?(statics = false) ?(isolated = false) mode =
                 | Parser.Global_initializer_leaf_completed receipt ->
                     check_suspended
                       ~during:(fun () ->
+                        reject "suspended parent cannot expose cursor metadata"
+                          (D.observed_global_initializer_destination ledger
+                             receipt);
                         reject "suspended parent cannot prepare its leaf"
                           (Preparation.prepare_initializer preparation ~session
                              ~ledger receipt))
@@ -199,6 +202,11 @@ let fixture ?contents ?(statics = false) ?(isolated = false) mode =
                     Alcotest.(check bool)
                       "cloned global receipt" false
                       (Parser.initializer_leaf_is_current clone);
+                    reject "cloned global receipt cannot expose cursor metadata"
+                      (D.observed_global_initializer_destination ledger clone);
+                    ignore
+                      (D.observed_global_initializer_destination ledger receipt
+                      |> diagnostics);
                     reject "cloned global receipt cannot prepare"
                       (Preparation.prepare_initializer preparation ~session
                          ~ledger clone);
@@ -247,6 +255,11 @@ let fixture ?contents ?(statics = false) ?(isolated = false) mode =
                     Alcotest.(check bool)
                       "cloned static receipt" false
                       (Parser.static_initializer_is_current clone);
+                    reject "cloned static receipt cannot expose cursor metadata"
+                      (D.observed_static_initializer_destination ledger clone);
+                    ignore
+                      (D.observed_static_initializer_destination ledger receipt
+                      |> diagnostics);
                     reject "cloned receipt cannot prepare"
                       (Preparation.prepare_static preparation ~session ~ledger
                          clone);
@@ -300,6 +313,8 @@ let fixture ?contents ?(statics = false) ?(isolated = false) mode =
         "original static completed" true
         (Option.is_some
            (Parser.static_initializer_completed_declarator receipt));
+      reject "expired static cannot expose observed cursor metadata"
+        (D.observed_static_initializer_destination ledger receipt);
       reject "expired static cannot prepare"
         (Preparation.prepare_static preparation ~session ~ledger receipt);
       reject "expired static cannot supply native cursor metadata"
@@ -315,6 +330,8 @@ let fixture ?contents ?(statics = false) ?(isolated = false) mode =
   in
   List.iter
     (fun receipt ->
+      reject "expired global cannot expose observed cursor metadata"
+        (D.observed_global_initializer_destination ledger receipt);
       reject "expired source callback"
         (D.native_initializer_fragment ledger ~runtime receipt);
       reject "expired source load callback"
@@ -587,6 +604,65 @@ let static_load_ownership () =
   Alcotest.(check bool)
     "address permission ends with the original load region" false
     (Proof.owns_static_load_address sealed ~globals ~slot ~instruction:outside)
+
+let pointer_load_ownership () =
+  let contents =
+    {|class Box{U8 tag;U8 *text;};Box first={7,"AB"},second={9,("CD"+1)};
+I64 F(){static Box saved={3,"EF"};return first.text[1]+second.text[0]+saved.text[1];}F();|}
+  in
+  let make () = fixture ~contents ~isolated:true Preprocessor.Aot in
+  let span, prepared, compile = make () in
+  let globals = Preparation.initializers prepared in
+  let statics = Preparation.static_initializers prepared in
+  let compile globals statics =
+    compile ~native_initializers:globals ~native_static_initializers:statics ()
+  in
+  let unit_ = compile globals statics |> diagnostics in
+  let seal unit_ =
+    proof
+      ~static_completions:(Preparation.static_completions prepared)
+      span
+      (Preparation.initializer_completions prepared)
+      unit_
+  in
+  let sealed = seal unit_ |> checked in
+  List.iter
+    (fun status_abi ->
+      ignore
+        (emit ~global_initializers:sealed ~status_abi unit_
+        |> Result.map_error (fun _ -> "pointer load ABI encoding failed")
+        |> checked))
+    [ Image.Windows_x64; Image.System_v_x64 ];
+  reject "pointer loads require original completion bundle" (emit unit_);
+  List.iter
+    (fun mutation ->
+      let change values =
+        match mutation with
+        | `Missing -> []
+        | `Reverse -> List.rev values
+        | `Repeat -> List.hd values :: values
+      in
+      reject "pointer global leaves retain original order and count"
+        (compile (change globals) statics);
+      reject "pointer static leaves retain original order and count"
+        (compile globals (change statics)))
+    [ `Missing; `Reverse; `Repeat ];
+  let copied =
+    compile (List.map (fun p -> Obj.obj (Obj.dup (Obj.repr p))) globals) statics
+    |> diagnostics
+  in
+  reject "copied pointer load evidence cannot replace original completion"
+    (seal copied);
+  let _, other, other_compile = make () in
+  let foreign =
+    other_compile
+      ~native_initializers:(Preparation.initializers other)
+      ~native_static_initializers:(Preparation.static_initializers other)
+      ()
+    |> diagnostics
+  in
+  reject "equal-source foreign pointer load bundle"
+    (emit ~global_initializers:sealed foreign)
 
 let array_ownership () =
   let contents =
@@ -876,6 +952,8 @@ let () =
                   "I8 A=255<<1;I64 F(){static I8 n=1<<2;return ++n;}I64 \
                    G(){static I8 n=3<<1;return n;}F();F();"
                 ());
+          Alcotest.test_case "owned pointer load source and bundle ownership"
+            `Quick pointer_load_ownership;
           Alcotest.test_case "numeric and copied array leaf ownership" `Quick
             array_ownership;
           Alcotest.test_case "prepared arrays publish before native entry"

@@ -343,6 +343,14 @@ let prepare_callback value ~session ~ledger receipt =
         receipt)
     ~finish_source:Task_declarations.finish_native_source_callback_default
 
+let literal_pointer_load destination initial =
+  match (destination, initial) with
+  | Some (_, _, Layout.Scalar_store, scalar), Ast.Scalar_initializer expression
+    ->
+      Option.is_some (Ir.Initializer_value.pointer_destination scalar)
+      && Sema.Initializer_source.expression_contains_string expression
+  | _ -> false
+
 let prepare_initializer value ~session ~ledger receipt =
   let span = receipt.Parser.leaf_initializer.initializer_equals.span in
   let diagnose result =
@@ -375,7 +383,13 @@ let prepare_initializer value ~session ~ledger receipt =
         Sema.Initializer_source.expression_identifier_nodes expression <> []
     | _ -> false
   in
-  if value.compilation_mode = Frontend.Preprocessor.Aot && has_references then (
+  let* observed =
+    Task_declarations.observed_global_initializer_destination ledger receipt
+  in
+  if
+    value.compilation_mode = Frontend.Preprocessor.Aot
+    && (has_references || literal_pointer_load observed receipt.leaf_value)
+  then (
     let* declaration, leaf =
       Task_declarations.native_load_initializer_source ledger
         ~runtime:value.state receipt
@@ -469,7 +483,14 @@ let prepare_static value ~session ~ledger receipt =
         Sema.Initializer_source.expression_identifier_nodes expression <> []
     | _ -> false
   in
-  if value.compilation_mode = Frontend.Preprocessor.Aot && has_references then (
+  let* observed =
+    Task_declarations.observed_static_initializer_destination ledger receipt
+  in
+  if
+    value.compilation_mode = Frontend.Preprocessor.Aot
+    && (has_references
+       || literal_pointer_load observed receipt.static_leaf_value)
+  then (
     let* source =
       Task_declarations.native_load_static_initializer_source ledger
         ~runtime:value.state receipt

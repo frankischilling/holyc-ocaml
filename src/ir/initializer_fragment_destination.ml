@@ -28,6 +28,11 @@ let discards_value value =
     ~scalar:(Layout.scalar value.layout_)
     (Typed.top_level_root_value value.root_)
 
+let stores_pointer value =
+  Initializer_value.stores_pointer
+    ~scalar:(Layout.scalar value.layout_)
+    (Typed.top_level_root_value value.root_)
+
 let requires_evaluation value =
   Layout.requires_settlement value.layout_ || discards_value value
 
@@ -80,8 +85,11 @@ let create ~task_view ~reference ~slot ~layout typed =
     match Layout.operation layout with
     | Layout.Copy_bytes _ -> Ok ()
     | Layout.Scalar_store ->
-        if Initializer_value.discards ~scalar:(Layout.scalar layout) value then
-          Ok ()
+        if
+          Initializer_value.discards ~scalar:(Layout.scalar layout) value
+          || Initializer_value.stores_pointer ~scalar:(Layout.scalar layout)
+               value
+        then Ok ()
         else if
           Typed.result_array_rank value = 0
           && (match Typed.result_category value with

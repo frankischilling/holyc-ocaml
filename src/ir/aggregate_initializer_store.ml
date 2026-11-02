@@ -18,7 +18,9 @@ let next_value_id t = t.next_value_
 
 let instruction_count scalar =
   let count = Leaf.scalar_byte_size scalar in
-  if count = 0 then 3 else 2 + (7 * count)
+  if Option.is_some (Initializer_value.pointer_destination (Some scalar)) then 9
+  else if count = 0 then 3
+  else 2 + (7 * count)
 
 let ( let* ) = Result.bind
 
@@ -35,8 +37,11 @@ let lower ~scalar ~byte_offset ~root_type ~root ~word ~span ~instruction_id
            && byte_offset >= 0
            && byte_offset <= Int.max_int - count
            && count >= 0 && count <= 8
-           && Result.is_ok
-                (Integer_initializer_layout.normalized_word scalar 0L) -> Ok ()
+           && (Result.is_ok
+                 (Integer_initializer_layout.normalized_word scalar 0L)
+              || Option.is_some
+                   (Initializer_value.pointer_destination (Some scalar))) ->
+        Ok ()
     | _ ->
         Error
           [
@@ -100,42 +105,74 @@ let lower ~scalar ~byte_offset ~root_type ~root ~word ~span ~instruction_id
     emit Opcode.Ic_holyc_typecast [ owned_root ] byte_pointer
       (Some (Sequence.Integer 1L))
   in
-  let* word =
-    emit Opcode.Ic_holyc_typecast [ word ] word_type
-      (Some (Sequence.Integer 1L))
+  let* result_, type_ =
+    match Initializer_value.pointer_destination (Some scalar) with
+    | Some field_type ->
+        (* Store an owned reference once. Splitting its address into bytes would
+           discard the allocation and activation identity kept by pointer stores. *)
+        let* stride =
+          emit Opcode.Ic_imm_i64 [] byte_pointer (Some (Sequence.Integer 1L))
+        in
+        let* offset =
+          emit Opcode.Ic_imm_i64 [] word_type
+            (Some (Sequence.Integer (Int64.of_int byte_offset)))
+        in
+        let* scaled = emit Opcode.Ic_mul [ stride; offset ] byte_pointer None in
+        let* destination =
+          emit Opcode.Ic_add [ byte_root; scaled ] byte_pointer None
+        in
+        let* destination =
+          emit Opcode.Ic_addr [ destination ] byte_pointer None
+        in
+        let field_pointer = Type.pointer_to field_type |> Result.get_ok in
+        let* destination =
+          emit Opcode.Ic_holyc_typecast [ destination ] field_pointer
+            (Some (Sequence.Integer 1L))
+        in
+        let* result =
+          emit Opcode.Ic_assign [ destination; word ] field_type None
+        in
+        Ok (result, field_type)
+    | None ->
+        let* word =
+          emit Opcode.Ic_holyc_typecast [ word ] word_type
+            (Some (Sequence.Integer 1L))
+        in
+        let rec write index previous =
+          if index = count then Ok previous
+          else
+            let* stride =
+              emit Opcode.Ic_imm_i64 [] byte_pointer
+                (Some (Sequence.Integer 1L))
+            in
+            let* coordinate =
+              emit Opcode.Ic_imm_i64 [] word_type
+                (Some (Sequence.Integer (Int64.of_int (byte_offset + index))))
+            in
+            let* scaled =
+              emit Opcode.Ic_mul [ stride; coordinate ] byte_pointer None
+            in
+            let* destination =
+              emit Opcode.Ic_add [ byte_root; scaled ] byte_pointer None
+            in
+            let* bits =
+              if index = 0 then Ok word
+              else
+                emit Opcode.Ic_shr_const [ word ] word_type
+                  (Some (Sequence.Integer (Int64.of_int (index * 8))))
+            in
+            let* byte =
+              emit Opcode.Ic_holyc_typecast [ bits ] word_type
+                (Some (Sequence.Integer 1L))
+            in
+            let* stored =
+              emit Opcode.Ic_assign [ destination; byte ] byte_type None
+            in
+            write (index + 1) stored
+        in
+        let* result = write 0 word in
+        Ok (result, if count = 0 then word_type else byte_type)
   in
-  let rec write index previous =
-    if index = count then Ok previous
-    else
-      let* stride =
-        emit Opcode.Ic_imm_i64 [] byte_pointer (Some (Sequence.Integer 1L))
-      in
-      let* coordinate =
-        emit Opcode.Ic_imm_i64 [] word_type
-          (Some (Sequence.Integer (Int64.of_int (byte_offset + index))))
-      in
-      let* scaled =
-        emit Opcode.Ic_mul [ stride; coordinate ] byte_pointer None
-      in
-      let* destination =
-        emit Opcode.Ic_add [ byte_root; scaled ] byte_pointer None
-      in
-      let* bits =
-        if index = 0 then Ok word
-        else
-          emit Opcode.Ic_shr_const [ word ] word_type
-            (Some (Sequence.Integer (Int64.of_int (index * 8))))
-      in
-      let* byte =
-        emit Opcode.Ic_holyc_typecast [ bits ] word_type
-          (Some (Sequence.Integer 1L))
-      in
-      let* stored =
-        emit Opcode.Ic_assign [ destination; byte ] byte_type None
-      in
-      write (index + 1) stored
-  in
-  let* result_ = write 0 word in
   let* next_instruction_ =
     Sequence.Instruction_id.of_int !instruction |> singleton
   in
@@ -144,7 +181,7 @@ let lower ~scalar ~byte_offset ~root_type ~root ~word ~span ~instruction_id
     {
       descriptions_ = List.rev !descriptions;
       result_;
-      type_ = (if count = 0 then word_type else byte_type);
+      type_;
       next_instruction_;
       next_value_;
     }

@@ -2543,3 +2543,16 @@ consumers retain their own expression boundaries. Hosted scalar consumers use
 the checked integer value type independently of the nominal destination class.
 The top-level assignment example and shared CLI cases check both outer modes
 and source executors. They contain no new TempleOS capture.
+
+## Owned aggregate pointer initializer leaves
+
+Complete `Compiler/PrsVar.HC:1-246` follows the original class/member traversal,
+copies pointer-sized results at the sequential byte cursor, and distinguishes
+JIT calls, AOT assignments and direct byte-string relocations. The original
+`STR_CONST` descriptor in `Compiler/CInit.HC:29` and the nonconstant flag update
+in `Compiler/OptPass012.HC:66-67` keep other literal-bearing expressions out of
+the numeric constant path. Hosted pointer stores preserve checked allocation
+and activation identities instead of reconstructing ownership from bytes.
+`test/oracle/pointer-initializers` retains two complete native JIT observations;
+`test/test_pointer_initializer_oracle.ml` checks hashes and the seven observed
+values. This fixture does not establish original AOT relocation-byte parity.

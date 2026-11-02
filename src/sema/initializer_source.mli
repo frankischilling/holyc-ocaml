@@ -72,3 +72,5 @@ val origin_of_location : Frontend.Ast.location -> Symbol.origin
 
 val expression_position_nodes :
   Frontend.Ast.expression -> Frontend.Ast.expression list
+
+val expression_contains_string : Frontend.Ast.expression -> bool

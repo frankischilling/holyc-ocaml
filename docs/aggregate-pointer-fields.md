@@ -3,6 +3,8 @@
 [Persistent class globals and statics](persistent-aggregates.md) also supply
 owned byte roots for IR and native pointer fields. Their shadows retain the target's
 lifetime; a persistent field cannot keep a retired activation alive.
+[Aggregate initializer leaves](aggregate-initializers.md#owned-data-pointer-leaves)
+can now initialize these fields from checked data references and strings.
 
 The IR, `host-jit` and `host-jit-task` targets read, assign and update one-level integer or class
 pointers stored in automatic class and union fields. Direct access, inherited

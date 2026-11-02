@@ -5930,7 +5930,10 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
     in
     match value_type with
     | Checked_type value_type
-      when (target_is_word && Type.pointer_depth value_type = 0)
+      when Initializer_value.stores_pointer
+             ~scalar:(Option.map fst aggregate_destination)
+             value
+           || (target_is_word && Type.pointer_depth value_type = 0)
            || target_is_callback
               && (Type.pointer_depth value_type = 0
                  || Semantic_result.result_is_callback_storage value

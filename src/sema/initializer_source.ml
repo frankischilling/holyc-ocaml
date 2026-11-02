@@ -399,6 +399,43 @@ let expression_identifier_nodes source =
   in
   List.rev (expression [] source)
 
+(* STR_CONST is marked not_const before optimization in CInit/OptPass012.
+   These are original expression nodes, not an inferred constant value. *)
+let rec expression_contains_string = function
+  | Frontend.Ast.String_literal _ -> true
+  | Frontend.Ast.Parenthesized_expression x ->
+      expression_contains_string x.grouped_expression
+  | Frontend.Ast.Prefix_expression x ->
+      expression_contains_string x.prefix_operand
+  | Frontend.Ast.Postfix_expression x ->
+      expression_contains_string x.postfix_operand
+  | Frontend.Ast.Postfix_cast_expression x ->
+      expression_contains_string x.cast_operand
+  | Frontend.Ast.Binary_expression x ->
+      expression_contains_string x.binary_left
+      || expression_contains_string x.binary_right
+  | Frontend.Ast.Call_expression x ->
+      expression_contains_string x.call_callee
+      || List.exists
+           (fun (arg : Frontend.Ast.call_argument) ->
+             match arg.call_argument_value with
+             | Frontend.Ast.Omitted_call_argument -> false
+             | Frontend.Ast.Provided_call_argument value ->
+                 expression_contains_string value)
+           x.call_arguments
+  | Frontend.Ast.Index_expression x ->
+      expression_contains_string x.index_base
+      || expression_contains_string x.index_value
+  | Frontend.Ast.Member_expression x -> expression_contains_string x.member_base
+  | Frontend.Ast.Identifier_expression _
+  | Frontend.Ast.Integer_literal _
+  | Frontend.Ast.Float_literal _
+  | Frontend.Ast.Character_literal _
+  | Frontend.Ast.Current_position_expression _
+  | Frontend.Ast.Sizeof_expression _
+  | Frontend.Ast.Offset_expression _
+  | Frontend.Ast.Defined_expression _ -> false
+
 let leaf_identifier_nodes leaf = expression_identifier_nodes leaf.expression
 
 let leaf_identifiers leaf =

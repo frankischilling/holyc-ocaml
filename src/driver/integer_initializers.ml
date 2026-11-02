@@ -1124,7 +1124,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
 let check_static_fragment ?retained_function_source ~top_calls
     ~top_callback_calls destination =
   let module D = Ir.Static_initializer_destination in
-  if D.discards_value destination then Ok ()
+  if D.discards_value destination || D.stores_pointer destination then Ok ()
   else
     prepare_internal
       ~native_static:
@@ -1187,7 +1187,10 @@ let prepare_native_load ~scalar ~declaration ~leaf ~cell_offset ~byte_offset
             = Frontend.Preprocessor.Aot
          && operation = Layout.Scalar_store
          && cell_offset >= 0 && byte_offset >= 0
-         && Sema.Initializer_source.leaf_identifier_nodes leaf <> [] ->
+         && (Sema.Initializer_source.leaf_identifier_nodes leaf <> []
+            || Option.is_some (Ir.Initializer_value.pointer_destination scalar)
+               && Sema.Initializer_source.expression_contains_string
+                    (Sema.Initializer_source.leaf_expression_ast leaf)) ->
       Ok
         {
           native_source = Native_load (declaration, leaf);
@@ -1895,7 +1898,10 @@ let fragment_steps prepared = prepared.fragment_steps_
 
 let prepare_fragment ?top_callback_calls ?retained_function_source ?on_progress
     ~max_steps ~top_calls ~functions destination =
-  if Destination.discards_value destination then
+  if
+    Destination.discards_value destination
+    || Destination.stores_pointer destination
+  then
     Ok
       {
         fragment_destination_ = destination;

@@ -265,7 +265,8 @@ let create_impl ~load ?aggregate ?activation ?callback
              allocation.allocation_function.function_header.declaration_command
                .command_context
            = Frontend.Preprocessor.Aot
-        && Initializer_source.expression_identifier_nodes expression <> []
+        && (Initializer_source.expression_identifier_nodes expression <> []
+           || Initializer_source.expression_contains_string expression)
         && references = [] && Option.is_none activation
       then Ok ()
       else Error "HCRUN0006: static load source requires its original AOT leaf"
