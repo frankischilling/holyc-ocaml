@@ -2556,3 +2556,16 @@ and activation identities instead of reconstructing ownership from bytes.
 `test/oracle/pointer-initializers` retains two complete native JIT observations;
 `test/test_pointer_initializer_oracle.ml` checks hashes and the seven observed
 values. This fixture does not establish original AOT relocation-byte parity.
+
+## Pending prefix update binding
+
+Complete `Compiler/PrsExp.HC:65-263` consumes increment/decrement flags at the
+term's implicit dereference before reducing ordinary pending unary operators.
+`PrsUnaryTerm` at lines 591-958 places dereference, negation, not and complement
+on that stack. `PrsExpression` at lines 264-301 restores pending flags across a
+nested expression. Grouping therefore distinguishes `++*p` from `++(*p)`.
+Complete `Compiler/PrsLib.HC:21-29` removes one pending star when callback
+selection reaches it. The checked callback alias preserves that cancellation
+and the actual update producer's call-argument origin without creating an
+owned address. [Prefix update tests](prefix-updates.md) record the supported
+native observations and the remaining flag-combination boundaries.

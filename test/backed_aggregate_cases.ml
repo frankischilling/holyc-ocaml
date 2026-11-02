@@ -82,7 +82,7 @@ let values =
         42L,
         "" );
       ( "backed lvalue pointer scalar updates",
-        {|U16 class Box{U16 word;U8 guard;};I64 F(){Box a[2];a[1]=41;Box *p=&a[1];return ++*p;}F();|},
+        {|U16 class Box{U16 word;U8 guard;};I64 F(){Box a[2];a[1]=41;Box *p=&a[1];return ++(*p);}F();|},
         42L,
         "" );
       ( "whole postfix store reads its binding after the RHS",

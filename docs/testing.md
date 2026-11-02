@@ -1,5 +1,18 @@
 # Testing holyc-ocaml
 
+Owned pointer initializer tests cover all nine integer pointees, class pointees,
+array decay, string offsets, embedded NULs, returned aliases and once-only static
+stores. Bounds, retired activations, overwritten ownership and original native
+completion bundles remain checked. The original JIT capture records seven fields
+twice; public-command matrices include exact and one-below work limits.
+
+Pending prefix tests distinguish `++*p` from `++(*p)`, retain once-only indices,
+and preserve the separate callback-star cancellation rule. Two native captures
+retain eleven observations. Eight supported observations are compared with IR
+and native source tasks in both outer modes; the other three remain explicit
+boundaries. Parser tests retain full expression spans and macro provenance.
+See [prefix updates](prefix-updates.md).
+
 U0 initializer tests cover zero-byte global/static leaves, empty roots, fixed
 arrays, nested leaves, argument effects and early returns. Both outer modes run
 in IR and native source tasks; isolated native AOT has separate checks. The

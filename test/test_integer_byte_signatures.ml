@@ -118,7 +118,7 @@ let effects () =
         42L );
       ("I64 F(U8 n){if(n==41)F(0);return n;}F(297);", 41L);
       ("I64 F(U8 a,U8 b){U8 *p=&a;*p=554;return a+b;}F(0,0);", 42L);
-      ("I64 F(U8 n){U8 *p=&n;return ++*p;}F(255);", 0L);
+      ("I64 F(U8 n){U8 *p=&n;return ++(*p);}F(255);", 0L);
       ("I64 F(U8 n){return n+=256;}F(42);", 298L);
       ("I64 F(U8 n){n+=256;return n;}F(42);", 42L);
       ("I64 F(U8 n){return n++;}F(255);", 255L);

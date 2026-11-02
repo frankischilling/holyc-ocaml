@@ -919,3 +919,8 @@ val make_source_implicit_output_argument :
 
 val implicit_output_argument_separator_origin :
   implicit_output_argument -> Symbol.origin option
+
+val callback_update_cancellation_operand :
+  argument_expression -> argument_expression option
+(** Original ungrouped selected callback term beneath one pending update/star.
+*)

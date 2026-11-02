@@ -395,8 +395,8 @@ The fixture in `test/oracle/pointer-initializers` records seven original JIT
 observations twice: tag 7, initial target 40, alias update 41, static call sum 85,
 final target 43, two initializer calls and packed class size 9. Tests compare IR
 and native execution with that capture. Prefix updates in this fixture use
-`++(*pointer)`. The ungrouped `++*pointer` has different original semantics;
-matching that parser behavior remains separate work.
+`++(*pointer)`. The ungrouped `++*pointer` advances the pointer before reading
+its pointee; see [pending prefix updates](prefix-updates.md).
 
 `PrsVar.HC:1-120` supplies the sequential scalar store and deferred AOT assignment.
 Its direct byte-string case at lines 34-56 emits an absolute relocation. Other

@@ -884,6 +884,18 @@ let result_canceled_callback_operand (result : expression_result) =
               operand.callback_pointer -> Some operand
   | _ -> None
 
+let same_callback_update_class (result : expression_result)
+    (operand : expression_result) =
+  result.category = Object_value
+  && result.result_class = Integer_result
+  && result.array_rank = 0 && operand.array_rank = 0
+  && Option.is_none result.callback_pointer
+  && Option.is_none operand.callback_pointer
+  &&
+  match (result.source_type, operand.source_type) with
+  | Some left, Some right -> Type.equal left right
+  | _ -> false
+
 let rec result_callback_update_operand (result : expression_result) =
   let checked (operand : expression_result) source =
     if
@@ -910,6 +922,18 @@ let rec result_callback_update_operand (result : expression_result) =
            [ Function_call_resolution.Pre_increment; Pre_decrement ] ->
       Option.bind result.operand_result (fun operand ->
           checked operand (Function_call_resolution.prefix_operand prefix))
+  | Function_call_resolution.Prefix_expression _
+    when Option.is_some
+           (Function_call_resolution.callback_update_cancellation_operand
+              result.source) ->
+      Option.bind result.operand_result (fun operand ->
+          if
+            Option.fold ~none:false ~some:(( == ) operand.source)
+              (Function_call_resolution.callback_update_cancellation_operand
+                 result.source)
+            && same_callback_update_class result operand
+          then result_callback_update_operand operand
+          else None)
   | Function_call_resolution.Postfix_expression postfix ->
       Option.bind result.operand_result (fun operand ->
           checked operand (Function_call_resolution.postfix_operand postfix))
@@ -935,6 +959,19 @@ let rec result_callback_update_operand (result : expression_result) =
             checked left (Function_call_resolution.binary_left binary)
           else None)
   | _ -> None
+
+let canceled_callback_update source (operand : expression_result) =
+  Option.fold ~none:false ~some:(( == ) operand.source)
+    (Function_call_resolution.callback_update_cancellation_operand source)
+  && Option.is_some (result_callback_update_operand operand)
+
+let result_canceled_callback_update_operand (result : expression_result) =
+  Option.bind result.operand_result (fun operand ->
+      if
+        canceled_callback_update result.source operand
+        && same_callback_update_class result operand
+      then Some operand
+      else None)
 
 let callback_word_pointer type_ =
   Type.pointer_depth type_ = 1
@@ -3473,6 +3510,10 @@ and type_prefix table members policies ~before_item_index ~context
               finish
                 ~source_type:(result_storage_type operand)
                 Object_value operand.result_class)
+      | Function_call_resolution.Dereference
+        when canceled_callback_update source operand ->
+          finish ~source_type:operand.source_type Object_value
+            operand.result_class
       | Function_call_resolution.Dereference
         when canceled_callback_storage source operand ->
           (* PrsPopDeref removes the pending star at callback selection before

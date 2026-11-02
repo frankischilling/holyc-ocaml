@@ -52,7 +52,7 @@ let write_matrix =
 
 let ownership =
   [
-    ("I64 A=41;I64 Read(I64 *p=&A){return ++*p;}Read();", 42L);
+    ("I64 A=41;I64 Read(I64 *p=&A){return ++(*p);}Read();", 42L);
     ("I64 A=41;I64 Read(I64 *p=&A){return *p;}A=42;Read();", 42L);
     ( "I64 A[2]={17,42};I64 N=0;I64 Read(I64 *p=&A[++N]){return \
        *p;}N=0;Read()+N;",
@@ -73,7 +73,7 @@ let ownership =
       42L );
     ("I64 A;I64 Set(I64 *p=&A){*p=42;return *p;}Set();", 42L);
     ("U64 A=0;I64 Set(U8 *p=(&A)(U8*)){p[1]=42;return A;}Set();", 10752L);
-    ("I64 A=41;I64 F(I64 *p){return ++*p;}I64 (*q)(I64 *p=&A)=&F;q();", 42L);
+    ("I64 A=41;I64 F(I64 *p){return ++(*p);}I64 (*q)(I64 *p=&A)=&F;q();", 42L);
     ( "I64 A[2]={17,42};I64 N=0;I64 F(I64 *p){return *p;}I64 (*q)(I64 \
        *p=&A[++N])=&F;N=0;q()+N;",
       42L );
@@ -85,17 +85,18 @@ let ownership =
 let strings =
   [
     ("I64 Read(U8 *p=\"AB\"){p[0]=42;return p[0];}Read();", 42L);
-    ("I64 Read(U8 *p=\"(\"){return ++*p;}Read();Read();", 42L);
+    ("I64 Read(U8 *p=\"(\"){return ++(*p);}Read();Read();", 42L);
     ("I64 Read(U8 *p=\"prefixAB\"+6){return p[0]-23;}Read();", 42L);
     ("I64 Read(U8 *p=\"ABC\"+3){return *p+42;}Read();", 42L);
     ("I64 Read(U8 *p=\"A\\0B\"){return *p-23;}Read();", 42L);
     ("I64 Read(U32 *p=\"ABCDEFG\"(U32*)){return p[1];}Read();", 0x00474645L);
-    ( "I64 F(U8 *p=\"(\"){return ++*p;}I64 G(U8 *p=\"(\"){return *p;}F();G()+2;",
+    ( "I64 F(U8 *p=\"(\"){return ++(*p);}I64 G(U8 *p=\"(\"){return \
+       *p;}F();G()+2;",
       42L );
     ( "U8 A[3]={65,66,0};I64 Read(U8 *p=A+(\"x\"[0]-120)){return \
        p[0];}A[0]=0;Read();",
       65L );
-    ("I64 F(U8 *p){return ++*p;}I64 (*q)(U8 *p=\"(\")=&F;q();q();", 42L);
+    ("I64 F(U8 *p){return ++(*p);}I64 (*q)(U8 *p=\"(\")=&F;q();q();", 42L);
     ( "extern U0 Print(U8 *fmt,...);I64 F(U8 *p=\"AB\"){Print(\"%s\",p);return \
        42;}F();",
       42L );

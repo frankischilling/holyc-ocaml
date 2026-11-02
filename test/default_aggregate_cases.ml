@@ -68,7 +68,7 @@ let values =
       42L,
       "" );
     ( "default pointer lvalue increments the value",
-      {|class Box{U64 word;U8 guard;};I64 F(){Box a[2];a[1].word=41;Box *p=&a[1];return ++*p;}F();|},
+      {|class Box{U64 word;U8 guard;};I64 F(){Box a[2];a[1].word=41;Box *p=&a[1];return ++(*p);}F();|},
       42L,
       "" );
     ( "internal storage cast captures the destination before RHS rebinding",

@@ -2914,6 +2914,19 @@ let plan ?frame ?globals ~allow_calls root =
                   Visit { result = operand; conversion }
                   :: Finish_alias { result; operand }
                   :: !pending
+            | Semantic_source.Prefix_expression _
+              when Option.is_some
+                     (Semantic_result.result_canceled_callback_update_operand
+                        result) ->
+                let operand =
+                  Option.get
+                    (Semantic_result.result_canceled_callback_update_operand
+                       result)
+                in
+                pending :=
+                  Visit { result = operand; conversion }
+                  :: Finish_alias { result; operand }
+                  :: !pending
             | Semantic_source.Prefix_expression prefix -> (
                 let source_operand = Semantic_source.prefix_operand prefix in
                 match Semantic_source.prefix_operator prefix with

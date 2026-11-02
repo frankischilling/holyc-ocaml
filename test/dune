@@ -5558,3 +5558,10 @@
  (libraries holyc_lib yojson digestif alcotest)
  (deps
   (glob_files oracle/pointer-initializers/*)))
+
+(test
+ (name test_prefix_update_oracle)
+ (modules test_prefix_update_oracle)
+ (libraries holyc_lib yojson digestif alcotest automatic_aggregate_fixture)
+ (deps
+  (glob_files oracle/prefix-updates/*)))

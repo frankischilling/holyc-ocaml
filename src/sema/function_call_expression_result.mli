@@ -726,3 +726,8 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val result_canceled_callback_update_operand :
+  expression_result -> expression_result option
+(** The original callback update whose pending star was consumed at selection.
+*)

@@ -758,7 +758,8 @@ let pointer_alias_semantics () =
         42L );
       ( "loop goto switch preserve reference slots",
         "I64 F(){I64 x=40;I64 *p=&x;I64 n=0;again:switch(n){case \
-         0:++*p;break;case 1:++*p;break;default:return x;}n++;goto again;}F();",
+         0:++(*p);break;case 1:++(*p);break;default:return x;}n++;goto \
+         again;}F();",
         42L );
       ( "all indirect compound families",
         "I64 F(){I64 x=100;I64 \
@@ -766,8 +767,8 @@ let pointer_alias_semantics () =
          x;}F();",
         42L );
       ( "postfix and prefix results",
-        "I64 F(){I64 x=39;I64 *p=&x;I64 a=(*p)++;I64 b=++*p;--*p;(*p)--;return \
-         a+b-x+1;}F();",
+        "I64 F(){I64 x=39;I64 *p=&x;I64 a=(*p)++;I64 \
+         b=++(*p);--(*p);(*p)--;return a+b-x+1;}F();",
         42L );
     ]
   in
@@ -806,7 +807,7 @@ let pointer_alias_semantics () =
         (fun type_name ->
           let source =
             Printf.sprintf
-              "I64 F(){%s x=255;%s *p=&x;I64 old=(*p)++;return ++*p+old;}F();"
+              "I64 F(){%s x=255;%s *p=&x;I64 old=(*p)++;return ++(*p)+old;}F();"
               type_name type_name
           in
           let expected_bits = if type_name = "I8" then 0L else 256L in

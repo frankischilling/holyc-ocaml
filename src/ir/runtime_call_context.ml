@@ -1443,6 +1443,11 @@ let rec producer_origin result =
   else
     match Typed.result_source result |> Resolution.argument_expression_kind with
     | Resolution.Prefix_expression _
+      when Option.is_some (Typed.result_canceled_callback_update_operand result)
+      ->
+        producer_origin
+          (Option.get (Typed.result_canceled_callback_update_operand result))
+    | Resolution.Prefix_expression _
       when Option.is_some (Typed.result_canceled_callback_operand result) ->
         producer_origin
           (Option.get (Typed.result_canceled_callback_operand result))

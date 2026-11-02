@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Match original pending-prefix binding: `++*p` advances the pointer before
+  dereferencing it, while `++(*p)` updates the pointee. Preserve callback-star
+  cancellation, indexed side effects and operator provenance. See
+  [prefix updates](prefix-updates.md) for native observations and remaining cases.
+
 - Preserve owned data references in global and static aggregate initializer
   leaves, including arrays, strings and reference-returning calls. Packed stores
   retain target lifetimes and reject expired ownership. Original JIT captures

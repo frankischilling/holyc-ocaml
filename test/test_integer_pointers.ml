@@ -18,7 +18,7 @@ let gates =
       "I64 Bump(I64 *p){*p+=1;return *p;}I64 F(){I64 n=20;I64 \
        *p=&n;*p+=Bump(p);return n;}F();" );
     ( "static-alias",
-      "I64 Next(){static I64 n=40;I64 *p=&n;return ++*p;}Next();Next();" );
+      "I64 Next(){static I64 n=40;I64 *p=&n;return ++(*p);}Next();Next();" );
   ]
 
 module S = Test_integer_statics
@@ -47,7 +47,7 @@ let updates () =
   cases
     [
       ("I64 F(){I64 n=42;I64 *p=&n;return (*p)++;}F();", 42L);
-      ("I64 F(){I64 n=43;I64 *p=&n;return --*p;}F();", 42L);
+      ("I64 F(){I64 n=43;I64 *p=&n;return --(*p);}F();", 42L);
       ( "I64 F(){I64 n=21;I64 \
          *p=&n;*p*=4;*p/=2;*p%=43;*p&=63;*p|=1;*p^=1;*p<<=1;*p>>=1;return \
          n;}F();",
@@ -67,7 +67,7 @@ let unsigned () =
             Set(&n);}F();"
         |> F.expect ~type_:VM.U64 (-1L));
       ignore
-        (G.run ~mode "U64 F(){U64 n=-1;U64 *p=&n;return ++*p;}F();"
+        (G.run ~mode "U64 F(){U64 n=-1;U64 *p=&n;return ++(*p);}F();"
         |> F.expect ~type_:VM.U64 0L))
     G.modes
 

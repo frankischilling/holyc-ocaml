@@ -3960,6 +3960,35 @@ let rebuild_prefix prefix operand =
     (Ast.make_prefix_expression ~operator_kind:prefix.prefix_operator_kind
        ~operator:prefix.prefix_operator ~operand ~location)
 
+(* PrsExp.HC:65-118 consumes the pending update at the term's implicit
+   dereference before reducing the ordinary prefix operators on its stack.
+   Parentheses start a separate expression and remain a boundary here. *)
+let make_prefix_node ~operator_kind ~operator ~operand ~location =
+  let update operand =
+    Ast.Prefix_expression
+      (Ast.make_prefix_expression ~operator_kind ~operator ~operand ~location)
+  in
+  let rec beneath_pending_prefix operand =
+    match operand with
+    | Ast.Prefix_expression prefix
+      when match prefix.prefix_operator_kind with
+           | Ast.Unary_plus
+           | Ast.Unary_minus
+           | Ast.Logical_not
+           | Ast.Bitwise_not
+           | Ast.Dereference -> true
+           | _ -> false ->
+        Ast.Prefix_expression
+          (Ast.make_prefix_expression ~operator_kind:prefix.prefix_operator_kind
+             ~operator:prefix.prefix_operator
+             ~operand:(beneath_pending_prefix prefix.prefix_operand)
+             ~location)
+    | _ -> update operand
+  in
+  match operator_kind with
+  | Ast.Pre_increment | Ast.Pre_decrement -> beneath_pending_prefix operand
+  | _ -> update operand
+
 let rec split_power_sensitive_minus expression =
   match expression with
   | Ast.Prefix_expression prefix
@@ -4261,9 +4290,8 @@ and parse_expression_prefix cursor ~parenthesis_phase ~context ~depth
           let tokens = operator_item.token :: operand.tokens in
           let location = location_from_expression_tokens tokens in
           let node =
-            Ast.Prefix_expression
-              (Ast.make_prefix_expression ~operator_kind ~operator
-                 ~operand:operand.node ~location)
+            make_prefix_node ~operator_kind ~operator ~operand:operand.node
+              ~location
           in
           Some { node; tokens })
   | None -> parse_expression_atom cursor ~parenthesis_phase ~context ~depth

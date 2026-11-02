@@ -1,102 +1,123 @@
-let pointer_initializer_values =
+let pending_prefix_values =
   [
-    ( "owned pointer initializer width-Bool",
-      {|Bool target=42;class Box{U8 tag;Bool *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+    ( "pending prefix updates the selected pointer field before dereference",
+      {|I64 data[3]={40,41,42};class Box{I64 *values[2];};Box object={{data,data}};I64 F(){I64 index=0;I64 value=++*object.values[index++];if(value!=41 || index!=1 || object.values[0]!=&data[1] || data[0]!=40)return -1;return 42;}F();|},
       42L,
       "" );
-    ( "owned pointer initializer width-I8",
-      {|I8 target=42;class Box{U8 tag;I8 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+    ( "grouped dereference updates the pointee and evaluates its index once",
+      {|I64 data[3]={40,41,42};class Box{I64 *values[2];};Box object={{data,data}};I64 F(){I64 index=0;I64 value=++(*object.values[index++]);if(value!=41 || index!=1 || object.values[0]!=&data[0] || data[0]!=41)return -1;return 42;}F();|},
       42L,
       "" );
-    ( "owned pointer initializer width-U8",
-      {|U8 target=42;class Box{U8 tag;U8 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+    ( "prefix decrement retains the pointer field stride",
+      {|I64 data[3]={40,41,42};class Box{I64 *value;};Box object={&data[2]};I64 F(){I64 value=--*object.value;if(value!=41 || object.value!=&data[1] || data[2]!=42)return -1;return 42;}F();|},
       42L,
       "" );
-    ( "owned pointer initializer width-I16",
-      {|I16 target=42;class Box{U8 tag;I16 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer width-U16",
-      {|U16 target=42;class Box{U8 tag;U16 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer width-I32",
-      {|I32 target=42;class Box{U8 tag;I32 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer width-U32",
-      {|U32 target=42;class Box{U8 tag;U32 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer width-I64",
-      {|I64 target=42;class Box{U8 tag;I64 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer width-U64",
-      {|U64 target=42;class Box{U8 tag;U64 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer call",
-      {|I64 target=42,count=0;I64 *Get(){count++;return &target;}class Box{I64 *value;};Box object={Get()};I64 F(){if(count!=1)return -1;return *object.value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer implicit-call",
-      {|I64 target=42;I64 *Get(){return &target;}class Box{I64 *value;};Box object={Get};I64 F(){return *object.value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer class",
-      {|class Value{U8 tag;U16 value;};Value target={7,42};class Box{U8 tag;Value *value;};Box object={9,&target};I64 F(){return object.value->value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer array",
-      {|I64 target[2]={40,42};class Box{I64 *values[2];};Box object={{&target[0],&target[1]}};I64 F(){*object.values[0]=7;return *object.values[1];}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer decay",
-      {|I64 target[2]={40,42};class Box{I64 *value;};Box object={target};I64 F(){return object.value[1];}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer string",
-      {|extern U0 Print(U8 *fmt,...);class Box{U8 *text;};Box object={"AB"};I64 F(){Print("%s",object.text);return 42;}F();|},
-      42L,
-      "AB" );
-    ( "owned pointer initializer padding",
-      {|I64 target=42;class View{U8 tag;I64 *value;};class Box{U8 tag;$$=16;I64 *value;};Box object={7,&target};I64 F(){return *object(View).value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer static-string",
-      {|class Box{U8 *text;};I64 F(){static Box object={"AB"};return object.text[1]-24;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer static-decay",
-      {|I64 data[2]={40,42};class Box{I64 *value;};I64 F(){static Box object={data};return object.value[1];}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer static-call",
-      {|I64 data=40,count=0;I64 *Get(){count++;return &data;}class Box{I64 *value;};I64 F(){static Box object={Get()};return ++(*object.value);}I64 Check(){if(F()!=41 || F()!=42 || count!=1)return -1;return data;}Check();|},
-      42L,
-      "" );
-    ( "owned pointer initializer string-offset",
-      {|class Box{U8 *text;};Box object={"ABC"+1};I64 F(){return object.text[1]-25;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer static-string-offset",
-      {|class Box{U8 *text;};I64 F(){static Box object={("ABC"+1)};return object.text[1]-25;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer embedded-null",
-      {|class Box{U8 *text;};Box object={"A\0B"};I64 F(){if(object.text[1]!=0)return -1;return object.text[2]-24;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer nested-array",
-      {|I64 data[2]={40,42};class Inner{I64 *value;};class Box{U8 tag;Inner items[2];};Box object={7,{{&data[0]},{&data[1]}}};I64 F(){return *object.items[1].value;}F();|},
-      42L,
-      "" );
-    ( "owned pointer initializer alias",
-      {|I64 data=40;class Box{I64 *value;};Box first={&data},second={first.value};I64 F(){*second.value=42;return *first.value;}F();|},
+    ( "ordinary pending complement runs after the scalar update",
+      {|I64 F(){I64 value=4;I64 result=++~value;if(value!=5 || result!=-6)return -1;return 42;}F();|},
       42L,
       "" );
   ]
+
+let pointer_initializer_values =
+  pending_prefix_values
+  @ [
+      ( "owned pointer initializer width-Bool",
+        {|Bool target=42;class Box{U8 tag;Bool *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer width-I8",
+        {|I8 target=42;class Box{U8 tag;I8 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer width-U8",
+        {|U8 target=42;class Box{U8 tag;U8 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer width-I16",
+        {|I16 target=42;class Box{U8 tag;I16 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer width-U16",
+        {|U16 target=42;class Box{U8 tag;U16 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer width-I32",
+        {|I32 target=42;class Box{U8 tag;I32 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer width-U32",
+        {|U32 target=42;class Box{U8 tag;U32 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer width-I64",
+        {|I64 target=42;class Box{U8 tag;I64 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer width-U64",
+        {|U64 target=42;class Box{U8 tag;U64 *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer call",
+        {|I64 target=42,count=0;I64 *Get(){count++;return &target;}class Box{I64 *value;};Box object={Get()};I64 F(){if(count!=1)return -1;return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer implicit-call",
+        {|I64 target=42;I64 *Get(){return &target;}class Box{I64 *value;};Box object={Get};I64 F(){return *object.value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer class",
+        {|class Value{U8 tag;U16 value;};Value target={7,42};class Box{U8 tag;Value *value;};Box object={9,&target};I64 F(){return object.value->value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer array",
+        {|I64 target[2]={40,42};class Box{I64 *values[2];};Box object={{&target[0],&target[1]}};I64 F(){*object.values[0]=7;return *object.values[1];}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer decay",
+        {|I64 target[2]={40,42};class Box{I64 *value;};Box object={target};I64 F(){return object.value[1];}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer string",
+        {|extern U0 Print(U8 *fmt,...);class Box{U8 *text;};Box object={"AB"};I64 F(){Print("%s",object.text);return 42;}F();|},
+        42L,
+        "AB" );
+      ( "owned pointer initializer padding",
+        {|I64 target=42;class View{U8 tag;I64 *value;};class Box{U8 tag;$$=16;I64 *value;};Box object={7,&target};I64 F(){return *object(View).value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer static-string",
+        {|class Box{U8 *text;};I64 F(){static Box object={"AB"};return object.text[1]-24;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer static-decay",
+        {|I64 data[2]={40,42};class Box{I64 *value;};I64 F(){static Box object={data};return object.value[1];}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer static-call",
+        {|I64 data=40,count=0;I64 *Get(){count++;return &data;}class Box{I64 *value;};I64 F(){static Box object={Get()};return ++(*object.value);}I64 Check(){if(F()!=41 || F()!=42 || count!=1)return -1;return data;}Check();|},
+        42L,
+        "" );
+      ( "owned pointer initializer string-offset",
+        {|class Box{U8 *text;};Box object={"ABC"+1};I64 F(){return object.text[1]-25;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer static-string-offset",
+        {|class Box{U8 *text;};I64 F(){static Box object={("ABC"+1)};return object.text[1]-25;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer embedded-null",
+        {|class Box{U8 *text;};Box object={"A\0B"};I64 F(){if(object.text[1]!=0)return -1;return object.text[2]-24;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer nested-array",
+        {|I64 data[2]={40,42};class Inner{I64 *value;};class Box{U8 tag;Inner items[2];};Box object={7,{{&data[0]},{&data[1]}}};I64 F(){return *object.items[1].value;}F();|},
+        42L,
+        "" );
+      ( "owned pointer initializer alias",
+        {|I64 data=40;class Box{I64 *value;};Box first={&data},second={first.value};I64 F(){*second.value=42;return *first.value;}F();|},
+        42L,
+        "" );
+    ]
 
 let callback_initializer_values =
   List.map

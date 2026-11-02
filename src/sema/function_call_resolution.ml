@@ -1696,6 +1696,24 @@ let callback_cancellation_operand expression =
   in
   whole expression
 
+let callback_update_cancellation_operand expression =
+  let rec selected expression =
+    match argument_expression_kind expression with
+    | Bound_identifier_expression _ | Top_level_bound_identifier_expression _
+    | Unresolved_expression Identifier_expression -> true
+    | Index_expression index -> selected (index_base index)
+    | _ -> false
+  in
+  match argument_expression_kind expression with
+  | Prefix_expression star when prefix_operator star = Dereference -> (
+      let operand = prefix_operand star in
+      match argument_expression_kind operand with
+      | Prefix_expression update
+        when List.mem (prefix_operator update) [ Pre_increment; Pre_decrement ]
+             && selected (prefix_operand update) -> Some operand
+      | _ -> None)
+  | _ -> None
+
 let sizeof_keyword_spelling expression = expression.sizeof_keyword_spelling_
 let sizeof_keyword_origin expression = expression.sizeof_keyword_origin_
 let sizeof_opening_origins expression = expression.sizeof_opening_origins_
