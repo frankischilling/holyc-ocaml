@@ -316,7 +316,6 @@ let initializer_boundaries =
     ("wide parameter assignment", "I64 F(U8 n){n=554;return n;}I64 N=F(0);N;");
     ( "later wide assignment",
       "I64 F(U8 n){I64 a=n;n=554;return n+a;}I64 N=F(0);N;" );
-    ("parameter update", "I64 F(U8 n){return ++n;}I64 N=F(255);N;");
     ("parameter compound", "I64 F(U8 n){n+=256;return n;}I64 N=F(42);N;");
     ( "explicit parameter register",
       "I64 F(U8 reg RAX n){return n;}I64 N=F(42);N;" );
@@ -353,6 +352,9 @@ let tests =
         ("fixture exact and one-below limits and fresh cells", fixture_limits);
         ("recursive ABI frame and depth limits", recursive_limits);
         ("native parameter entry proof", safe_initializers);
+        ( "parameter update",
+          fun () ->
+            B.cases [ ("I64 F(U8 n){return ++n;}I64 N=F(255);N;", 256L) ] );
       ]
   @ List.map
       (fun (name, source) ->

@@ -9,7 +9,9 @@ val analyze :
     options. Supported shapes include a two-parameter function that updates a
     narrow parameter, and a function that initializes one narrow local from a
     literal or a signed or unsigned integer parameter before returning it. The
-    local may receive a supported literal or parameter update. Addition and
+    local may receive a supported literal or parameter update. A single narrow
+    parameter or literal-initialized local may also be incremented or
+    decremented before return, or returned with a prefix update. Addition and
     subtraction by a local literal are limited to nonnegative signed-32-bit
     operands. Remainder is not proved for the two-parameter update of a narrow
     parameter. Explicit hardware registers, escapes, extra locals and other

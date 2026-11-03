@@ -408,10 +408,6 @@ let initializer_boundaries =
     ("byte type does not bound assignment", "U8 G=40,R;I64 N=(G|=(R=256));N;");
     ( "RHS effects invalidate old initializer",
       "U8 G=0;I64 R(){G=250;return 10;}I64 N=(G+=R());N;" );
-    ( "automatic prefix register wrap",
-      "I64 F(){U8 n=255;return ++n;}I64 N=F();N;" );
-    ( "transitive automatic register wrap",
-      "I64 F(){U8 n=255;return ++n;}I64 Outer(){return F();}I64 N=Outer();N;" );
     ( "cancelled address is not memory proof",
       "I64 F(){U8 n=255;return ++(*(&n));}I64 N=F();N;" );
     ( "discarded or widens memory",
@@ -479,6 +475,18 @@ let tests =
         ("promoted byte storage boundaries", promoted_cases);
         ("all canonical opcode and preflight contracts", canonical_preflight);
         ("proven native initializer update controls", safe_initializers);
+        ( "automatic prefix register wrap",
+          fun () ->
+            Bytes.cases [ ("I64 F(){U8 n=255;return ++n;}I64 N=F();N;", 256L) ]
+        );
+        ( "transitive automatic register wrap",
+          fun () ->
+            Bytes.cases
+              [
+                ( "I64 F(){U8 n=255;return ++n;}I64 Outer(){return F();}I64 \
+                   N=Outer();N;",
+                  256L );
+              ] );
         ( "automatic discarded register wrap",
           fun () ->
             Bytes.cases

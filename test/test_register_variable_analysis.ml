@@ -1098,6 +1098,49 @@ let source_controls () =
         "-2",
         "4294967295" );
     ];
+  List.iter
+    (fun shape ->
+      List.iter
+        (fun operation ->
+          List.iter
+            (fun width ->
+              let suffix = shape ^ "-" ^ operation ^ "-" ^ width in
+              let expected = fixture ("unary-" ^ suffix) in
+              let actual = fixture ("prefix-return-" ^ suffix) in
+              List.iter
+                (fun name ->
+                  Alcotest.(check string)
+                    "original returned prefix update" (List.assoc name expected)
+                    (List.assoc name actual))
+                [ "J_S"; "J_U"; "J_SN"; "J_UN"; "A_S"; "A_U"; "A_SN"; "A_UN" ])
+            [ "byte"; "16"; "32" ])
+        [ "increment"; "decrement" ])
+    [ "parameter"; "local" ];
+  List.iter
+    (fun (stem, values) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original narrow function prefix return" expected
+                (List.assoc (prefix ^ name) fields))
+            values)
+        [ "J_"; "A_" ])
+    [
+      ( "prefix-return-narrow-type",
+        [ ("S", "256"); ("U", "257"); ("SN", "0"); ("UN", "1") ] );
+      ( "prefix-return-narrow-edge",
+        [ ("S", "128"); ("U", "256"); ("SN", "-128"); ("UN", "0") ] );
+    ];
+  let prefix_default = fixture "prefix-return-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained original prefix return" expected
+        (List.assoc name prefix_default))
+    [ ("PIN", "128"); ("PDEC", "-129"); ("LIN", "256"); ("LDEC", "254") ];
   let unary_default = fixture "unary-default" in
   List.iter
     (fun (name, expected) ->
@@ -1465,7 +1508,32 @@ let unary_selection () =
                            ~symbol:x
                         = Some expected))
                     [ false; true ])
-                [ "x++"; "++x"; "x--"; "--x" ])
+                [ "x++"; "++x"; "x--"; "--x" ];
+              List.iter
+                (fun op ->
+                  List.iter
+                    (fun local ->
+                      let source =
+                        if local then
+                          Printf.sprintf "I64 F(){%s %s x=255;return %sx;}42;"
+                            ty qualifier op
+                        else
+                          Printf.sprintf "I64 F(%s %s x){return %sx;}42;" ty
+                            qualifier op
+                      in
+                      let fn = compile mode source in
+                      let proof =
+                        Option.get
+                          (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+                      in
+                      let x = location fn.frame "x" |> Frame.location_symbol in
+                      Alcotest.(check bool)
+                        "prefix return selection" true
+                        (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                           ~symbol:x
+                        = Some expected))
+                    [ false; true ])
+                [ "++"; "--" ])
             [ ("", Analysis.Register_candidate); ("noreg", Analysis.Stack) ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -1537,6 +1605,7 @@ let local_ownership () =
         [
           "I64 F(){I8 x=255;x<<=0;return x;}42;";
           "I64 F(){I8 x=255;x++;return x;}42;";
+          "I64 F(){I8 x=255;return ++x;}42;";
           "I64 F(){I8 x=255;return x;}42;";
           "I64 F(I64 c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=1;return x;}42;";
@@ -1566,7 +1635,7 @@ let unsupported_selection () =
           "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
           "I64 F(){I8 x=255;x++;x++;return x;}42;";
           "I64 F(){I8 x=255;return x++;}42;";
-          "I64 F(I8 x){return ++x;}42;";
+          "I64 F(I8 x){return x++;}42;";
           "I64 F(){I8 x=1,y=2;x<<=1;return x;}42;";
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";

@@ -244,16 +244,24 @@ let adjacent_storage_assignments_and_updates () =
         "U8 F(){U8 n=250;n+=48;return n;}\nF();",
         "U64",
         298L );
-      ( "prefix returns the normalized new stored I8 value",
+      ( "prefix returns the full selected I8 register value",
         "I8 F(){I8 n=127;return ++n;}\nF();",
+        "I64",
+        128L );
+      ( "prefix returns the normalized noreg I8 value",
+        "I8 F(){I8 noreg n=127;return ++n;}\nF();",
         "I64",
         -128L );
       ( "postfix returns the normalized old stored I8 value",
         "I8 F(){I8 n=127;return n++;}\nF();",
         "I64",
         127L );
-      ( "U8 prefix wraps before returning the new stored value",
+      ( "U8 prefix returns the full selected register value",
         "U8 F(){U8 n=255;return ++n;}\nF();",
+        "U64",
+        256L );
+      ( "U8 noreg prefix returns the wrapped memory value",
+        "U8 F(){U8 noreg n=255;return ++n;}\nF();",
         "U64",
         0L );
       ( "U8 postfix returns the old value across storage wrap",

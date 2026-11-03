@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "77b90017a0a3dfc87dbc55d98d92b4b1b23debeb0c05f0b04469d3e7410d014b",
+  "boot_payload_sha256": "2f784d6b9b003c06ecd91c62c9f51a0c9078c37930cba5136c0801a95bae2732",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "a7a568872e5e07e1f9eb55d7658394a13e6a08b8217d756c1c1cd33d421d64ae",
+  "boot_iso_sha256": "51a9816b79b90fb3129a228373c8871a6cc4e8803faadfae8e7f631660506c50",
+  "fields": {
+    "J_S": "256",
+    "J_U": "257",
+    "J_SN": "0",
+    "J_UN": "1",
+    "ERR": "0",
+    "A_S": "256",
+    "A_U": "257",
+    "A_SN": "0",
+    "A_UN": "1"
+  },
+  "scope": "Repeated original JIT and compiled observations of directly returned prefix updates with narrow function return types."
+}

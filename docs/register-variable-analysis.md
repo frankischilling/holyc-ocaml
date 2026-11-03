@@ -31,3 +31,5 @@ A narrow local initialized from one signed or unsigned integer parameter and ret
 A one-parameter function can also return a literal-initialized narrow local, with or without a literal update. The same local may be updated using its full-word parameter with shifts, arithmetic or bitwise operations. Division by zero and signed quotient overflow retain their original fault behavior. Other uses of that parameter remain outside this proof.
 
 The analysis also covers a narrow parameter or literal-initialized local incremented or decremented as a standalone statement before direct return. The reference captures cover prefix and postfix forms, explicit `noreg` storage and signed and unsigned widths. Other uses of the update expression remain outside the proof.
+
+The same bounded parameter and local shapes may directly return a prefix increment or decrement. Repeated original JIT and compiled captures cover each narrow width and `noreg` controls. Postfix expressions returned directly remain outside this proof.

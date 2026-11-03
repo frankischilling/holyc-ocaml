@@ -1664,6 +1664,13 @@ let () =
           ("U0 Set(U8 *p){*p=42;}I64 F(U8 n){Set(&n);return n;}F(0);", "i64");
           ("I64 Id(U8 n){return n;}U8 G=Id(42);G;", "u64");
         ];
+      with_file ".hc" "I64 F(U8 n){return ++n;}I64 N=F(255);N;" (fun path ->
+          let status, report = run path in
+          require (status = Unix.WEXITED 0) "native parameter prefix return";
+          require
+            (report |> member "final_value" |> member "value" |> to_string
+           = "256")
+            "native parameter prefix return value");
       List.iter
         (fun text ->
           with_file ".hc" text (fun path ->
@@ -1678,7 +1685,6 @@ let () =
                 "native parameter and return proof boundary"))
         [
           "I64 F(U8 n){n=554;return n;}I64 N=F(0);N;";
-          "I64 F(U8 n){return ++n;}I64 N=F(255);N;";
           "U8 G=84;U8 Wide(){return 554;}I64 F(){U8 n=Wide();return G/=n;}I64 \
            N=F();N;";
         ];
