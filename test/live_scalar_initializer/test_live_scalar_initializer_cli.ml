@@ -63,9 +63,11 @@ let success ?(output_hex = "41") ?(warnings = []) expected report =
     (member "output_hex" report = `String output_hex)
     "callee output occurred exactly once";
   require
-    (report |> member "diagnostics" |> to_list
-    |> List.map (fun d -> member "code" d |> to_string)
-    = warnings)
+    (let diagnostics = report |> member "diagnostics" |> to_list in
+     List.map (fun d -> member "code" d |> to_string) diagnostics = warnings
+     && List.for_all
+          (fun d -> member "severity" d = `String "warning")
+          diagnostics)
     ("successful scalar copy diagnostics: " ^ !current_source ^ " "
     ^ Yojson.Safe.to_string report)
 
@@ -210,6 +212,16 @@ let () =
                               later completion";
                            ]
                     then [ "HCSEMA0080" ]
+                    else if
+                      mode = "aot"
+                      && List.mem name
+                           [
+                             "ordinary source zero-byte member arrays keep \
+                              each leaf";
+                             "ordinary source aggregate arrays retain each \
+                              initializer effect";
+                           ]
+                    then [ "HCSEMA0080"; "HCSEMA0080" ]
                     else []
                   in
                   if mode = "aot" && Cases.requires_aot_zero_assignment source
@@ -250,12 +262,19 @@ let () =
                       then "40"
                       else "42"
                     in
+                    let warnings =
+                      if
+                        mode = "aot"
+                        && filename = "native-aot-static-initializers.hc"
+                      then [ "HCSEMA0080" ]
+                      else []
+                    in
                     let baseline =
                       invoke compiler forward_example target mode [] 0
                     in
-                    success expected baseline;
+                    success ~warnings expected baseline;
                     let steps = member "executed_steps" baseline |> to_int in
-                    success expected
+                    success ~warnings expected
                       (invoke compiler forward_example target mode
                          [ Printf.sprintf "--step-limit=%d" steps ]
                          0);
@@ -270,7 +289,7 @@ let () =
                       let work =
                         member "compiled_initializer_steps" baseline |> to_int
                       in
-                      success expected
+                      success ~warnings expected
                         (invoke compiler forward_example target mode
                            [ Printf.sprintf "--initializer-step-limit=%d" work ]
                            0);

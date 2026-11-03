@@ -5829,16 +5829,62 @@ let observed_global_initializer_destination ledger receipt =
           |> checked_initializer_layout span)
         boundary.isolated_initializer)
 
-(* A completed direct call to a source-defined, zero-argument primitive
-   function cannot fold to a constant in the original AOT initializer phase.
-   Keep this deliberately narrower than general expression classification. *)
+(* These source-defined direct calls necessarily retain IC_CALL, which is
+   nonconstant in the original optimizer. Keep argument checking deliberately
+   narrower than general expression classification. *)
+let proven_direct_arguments ledger header arguments =
+  let module A = Frontend.Ast in
+  let parameters = header.Parser.parameters in
+  let completed_i64_global name =
+    match Names.find_opt ledger.references name with
+    | Some
+        {
+          target =
+            Selected_source
+              { stage = Global_selection (publication, Some _); _ };
+          _;
+        } -> (
+        publication.global_pointer_layers = []
+        && publication.global_function_pointer = None
+        && publication.global_dimensions = []
+        && publication.global_header.modifiers = []
+        && publication.global_header.binding = None
+        &&
+        match publication.global_header.type_specifier with
+        | A.Primitive_type_specifier { primitive = Sema.Primitive_type.I64; _ }
+          -> true
+        | _ -> false)
+    | _ -> false
+  in
+  header.variadic = None
+  && header.empty_parameter_entries = []
+  && List.length parameters = List.length arguments
+  && List.length arguments <= 2
+  && List.for_all2
+       (fun (parameter : A.function_parameter) (argument : A.call_argument) ->
+         parameter.pointer_layers = []
+         && parameter.function_pointer = None
+         && parameter.default = None
+         && parameter.register_qualifiers = []
+         &&
+         match (parameter.type_specifier, argument.call_argument_value) with
+         | ( A.Primitive_type_specifier
+               { primitive = Sema.Primitive_type.I64; _ },
+             A.Provided_call_argument (A.Integer_literal _) ) -> true
+         | ( A.Primitive_type_specifier
+               { primitive = Sema.Primitive_type.I64; _ },
+             A.Provided_call_argument (A.Identifier_expression name) ) ->
+             completed_i64_global name
+         | _ -> false)
+       parameters arguments
+
 let emit_direct_call_warnings ledger ~context ~span ~value ~destination =
   match (value, destination) with
   | ( Ast.Scalar_initializer
         (Ast.Call_expression
            {
              call_callee = Ast.Identifier_expression name;
-             call_arguments = [];
+             call_arguments = arguments;
              _;
            }),
       Some (_, _, Ir.Integer_initializer_layout.Scalar_store, Some scalar) )
@@ -5850,7 +5896,7 @@ let emit_direct_call_warnings ledger ~context ~span ~value ~destination =
               Selected_source { stage = Function_selection (header, Some _); _ };
             _;
           }
-        when header.parameters = [] && header.variadic = None -> (
+        when proven_direct_arguments ledger header arguments -> (
           let publication = header.function_publication in
           if
             publication.function_pointer_layers = []

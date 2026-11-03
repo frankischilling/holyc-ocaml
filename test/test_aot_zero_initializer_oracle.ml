@@ -105,6 +105,96 @@ let direct_call_warning () =
         (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
     [ false; true ]
 
+let direct_call_argument_warnings () =
+  let fields = fixture "warnings-argument" in
+  Alcotest.(check int)
+    "original argument call warning" 1
+    (List.assoc "INTEGER" fields - List.assoc "CONSTANT" fields);
+  Alcotest.(check int)
+    "original static argument warning" 1
+    (List.assoc "STATIC" fields - List.assoc "VOID" fields);
+  List.iter
+    (fun native ->
+      List.iter
+        (fun source ->
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            "argument load value" (Some 7L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "argument load warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [
+          "I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};Box \
+           object={Get(7),42};I64 F(){return object.value;}F();";
+          "I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};I64 \
+           F(){static Box object={Get(7),42};return object.value;}F();";
+        ])
+    [ false; true ];
+  let void_fields = fixture "warnings-void-argument" in
+  Alcotest.(check int)
+    "original U0 call and assignment warnings" 2
+    (List.assoc "VOID" void_fields - List.assoc "INTEGER" void_fields);
+  List.iter
+    (fun native ->
+      let diagnostics, result, _ =
+        run native Preprocessor.Aot
+          "U0 Get(I64 n){}class Box{U0 empty;I64 value;};Box \
+           object={Get(7),42};42;"
+      in
+      Alcotest.(check bool)
+        "U0 register result remains unsupported" true (Result.is_error result);
+      Alcotest.(check (list string))
+        "warnings precede unsupported result"
+        [ "HCSEMA0079"; "HCSEMA0080"; "HCRUN0006" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+    [ false; true ]
+
+let direct_call_two_argument_warnings () =
+  let fields = fixture "warnings-two-arguments" in
+  Alcotest.(check int)
+    "original two-argument call warning" 1
+    (List.assoc "INTEGER" fields - List.assoc "CONSTANT" fields);
+  List.iter
+    (fun native ->
+      List.iter
+        (fun source ->
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            "two-argument load value" (Some 7L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "two-argument load warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [
+          "I64 Get(I64 a,I64 b){return a+b;}class Box{U0 empty;I64 value;};Box \
+           object={Get(3,4),42};I64 F(){return object.value;}F();";
+          "I64 Get(I64 a,I64 b){return a+b;}class Box{U0 empty;I64 value;};I64 \
+           F(){static Box object={Get(3,4),42};return object.value;}F();";
+        ])
+    [ false; true ]
+
+let direct_call_global_argument_warnings () =
+  let fields = fixture "warnings-global-argument" in
+  Alcotest.(check int)
+    "original global argument warning" 1
+    (List.assoc "INTEGER" fields - List.assoc "CONSTANT" fields);
+  List.iter
+    (fun native ->
+      List.iter
+        (fun source ->
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            "global argument load value" (Some 7L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "global argument load warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [
+          "I64 N=7;I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};Box \
+           object={Get(N),42};I64 F(){return object.value;}F();";
+          "I64 N=7;I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};I64 \
+           F(){static Box object={Get(N),42};return object.value;}F();";
+        ])
+    [ false; true ]
+
 let direct_call_warning_controls () =
   List.iter
     (fun native ->
@@ -293,13 +383,23 @@ let () =
             `Quick (fun () ->
               ignore (fixture "void");
               ignore (fixture "integer");
-              ignore (fixture "warnings"));
+              ignore (fixture "warnings");
+              ignore (fixture "warnings-argument");
+              ignore (fixture "warnings-void-argument");
+              ignore (fixture "warnings-two-arguments");
+              ignore (fixture "warnings-global-argument"));
           Alcotest.test_case "AOT warning counts occur during parsing" `Quick
             warning_phases;
           Alcotest.test_case "direct AOT calls warn at a U0 destination" `Quick
             direct_call_warning;
           Alcotest.test_case "direct call warning controls" `Quick
             direct_call_warning_controls;
+          Alcotest.test_case "direct literal argument warnings" `Quick
+            direct_call_argument_warnings;
+          Alcotest.test_case "direct two literal argument warnings" `Quick
+            direct_call_two_argument_warnings;
+          Alcotest.test_case "direct global argument warnings" `Quick
+            direct_call_global_argument_warnings;
           Alcotest.test_case
             "patterned native stores retain their observed width" `Quick
             original_store_width;

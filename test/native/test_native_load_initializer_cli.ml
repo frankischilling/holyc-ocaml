@@ -72,10 +72,15 @@ let invoke ?(mode = "aot") ?(target = "host-jit") ?(status = 0) ?(options = [])
               "native load execution identity";
           report))
 
-let success ?(expected = "42") report =
+let success ?(expected = "42") ?(warnings = []) report =
   require
     (member "outcome" report = `String "success"
-    && member "diagnostics" report = `List [])
+    &&
+    let diagnostics = report |> member "diagnostics" |> to_list in
+    List.map (fun d -> member "code" d |> to_string) diagnostics = warnings
+    && List.for_all
+         (fun d -> member "severity" d = `String "warning")
+         diagnostics)
     "load success";
   require
     (member "final_value" report |> member "value" = `String expected)
@@ -185,7 +190,9 @@ let () =
       "native-aot-static-initializers.hc"
   in
   List.iter
-    (fun target -> success ~expected:"40" (invoke ~target static_example))
+    (fun target ->
+      success ~expected:"40" ~warnings:[ "HCSEMA0080" ]
+        (invoke ~target static_example))
     [ "ir"; "host-jit" ];
   (* Keep ordinary nonzero AOT load and quota coverage separate from the
      zero-byte example's unsupported load-assignment operation. *)

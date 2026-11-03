@@ -61,9 +61,10 @@ The warning probe observes the compiler counter in successive `#exe` blocks.
 A constant U0 copy adds no warning, an integer load assignment adds one, a U0
 call followed by its load assignment adds two, and a static load assignment
 adds one. These counts occur while parsing, before each following block. The
-compiler now counts the corresponding warnings for a direct, zero-argument call
-to a completed source-defined primitive function in a global or static scalar
-leaf. It counts at the original leaf callback, with single-use source authority,
+compiler now counts the corresponding warnings for a direct call to a completed
+source-defined primitive function in a global or static scalar leaf, when the
+call has up to two integer literals or completed scalar `I64` globals supplied
+to `I64` parameters. It counts at the original leaf callback, with single-use source authority,
 and checks the current data-heap option before counting the load-assignment
 warning. `Compiler/OptPass012.HC` marks opcodes with the nonconstant flag and
 warns on a zero-sized assignment operand; the pinned intermediate-code table
@@ -73,7 +74,7 @@ unimplemented.
 ## Evidence and checks
 
 `test/oracle/aot-zero-initializers` retains five load source/capture pairs and
-one warning-phase pair, each run twice. Every compiled probe reports zero
+five warning-phase pairs, each run twice. Every compiled probe reports zero
 errors. The load controls
 cover ordinary and U0 callees, globals, statics, constants, patterned storage,
 empty and three-byte classes, and expression-lookahead completion. The AOT

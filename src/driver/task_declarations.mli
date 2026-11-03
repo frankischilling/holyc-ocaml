@@ -1284,7 +1284,8 @@ val emit_aot_direct_call_initializer_warnings :
   Frontend.Parser.completed_initializer_leaf ->
   (unit, Common.Diagnostic.t list) result
 (** Count warnings for the original AOT scalar leaf when its direct,
-    zero-argument source-defined primitive call is proven nonconstant. *)
+    source-defined primitive call and its bounded arguments are proven
+    nonconstant. *)
 
 val emit_aot_direct_call_static_warnings :
   t ->
