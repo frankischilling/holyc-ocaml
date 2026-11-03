@@ -65,9 +65,9 @@ compiler now counts the corresponding warnings for a direct call to a completed
 source-defined primitive function in a global or static scalar leaf, when the
 call has up to two integer literals, selected closed integer expressions, or
 completed nonzero numeric scalar globals supplied to nonzero numeric parameters.
-Expressions include unary minus of a literal or completed integer scalar global,
-and addition, subtraction, multiplication, bitwise operations, and shifts of
-these operands. Constant shift counts are limited to 0 through 63; completed
+Expressions include bounded nesting of unary minus, addition, subtraction,
+multiplication, bitwise operations, and shifts of integer literals or completed
+integer scalar globals. Constant shift counts are limited to 0 through 63; completed
 integer scalar globals can also supply a shift count.
 The warning is counted at the original leaf callback, with single-use source
 authority. The compiler checks the current data-heap option before counting the
@@ -81,7 +81,7 @@ currently rejects an F64 global before it reaches the later warning callback.
 ## Evidence and checks
 
 `test/oracle/aot-zero-initializers` retains five load source/capture pairs and
-fifteen warning-phase pairs, each run twice. Every compiled probe reports zero
+sixteen warning-phase pairs, each run twice. Every compiled probe reports zero
 errors. The load controls
 cover ordinary and U0 callees, globals, statics, constants, patterned storage,
 empty and three-byte classes, and expression-lookahead completion. The AOT

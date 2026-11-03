@@ -5872,26 +5872,36 @@ let proven_direct_arguments ledger header arguments =
     | A.Identifier_expression name -> completed_integer_global name
     | _ -> false
   in
-  let proven_numeric = function
-    | expression when proven_operand expression -> true
-    | A.Prefix_expression
-        { prefix_operator_kind = A.Unary_minus; prefix_operand; _ } ->
-        proven_operand prefix_operand
-    | A.Binary_expression { binary_left; binary_operator_spec; binary_right; _ }
-      when proven_operand binary_left -> (
-        match binary_operator_spec.ic_name with
-        | "IC_ADD" | "IC_SUB" | "IC_MUL" | "IC_AND" | "IC_OR" | "IC_XOR" ->
-            proven_operand binary_right
-        | "IC_SHL" | "IC_SHR" -> (
-            match binary_right with
-            | A.Integer_literal right -> (
-                match right.literal_value with
-                | A.Integer_value n -> n >= 0L && n < 64L
-                | _ -> false)
-            | A.Identifier_expression name -> completed_integer_global name
-            | _ -> false)
-        | _ -> false)
-    | _ -> false
+  (* A bounded tree of source-selected integer operands and non-faulting
+     operators needs no invented constant or runtime value. *)
+  let rec proven_numeric fuel expression =
+    if fuel = 0 then false
+    else
+      match expression with
+      | expression when proven_operand expression -> true
+      | A.Parenthesized_expression { grouped_expression; _ } ->
+          proven_numeric (fuel - 1) grouped_expression
+      | A.Prefix_expression
+          { prefix_operator_kind = A.Unary_minus; prefix_operand; _ } ->
+          proven_numeric (fuel - 1) prefix_operand
+      | A.Binary_expression
+          { binary_left; binary_operator_spec; binary_right; _ } -> (
+          match binary_operator_spec.ic_name with
+          | "IC_ADD" | "IC_SUB" | "IC_MUL" | "IC_AND" | "IC_OR" | "IC_XOR" ->
+              proven_numeric (fuel - 1) binary_left
+              && proven_numeric (fuel - 1) binary_right
+          | "IC_SHL" | "IC_SHR" -> (
+              proven_numeric (fuel - 1) binary_left
+              &&
+              match binary_right with
+              | A.Integer_literal right -> (
+                  match right.literal_value with
+                  | A.Integer_value n -> n >= 0L && n < 64L
+                  | _ -> false)
+              | A.Identifier_expression name -> completed_integer_global name
+              | _ -> false)
+          | _ -> false)
+      | _ -> false
   in
   header.variadic = None
   && header.empty_parameter_entries = []
@@ -5911,7 +5921,7 @@ let proven_direct_arguments ledger header arguments =
              && completed_numeric_global name
          | ( A.Primitive_type_specifier { primitive; _ },
              A.Provided_call_argument expression )
-           when proven_numeric expression ->
+           when proven_numeric 16 expression ->
              (Sema.Primitive_type.info primitive).byte_size > 0
          | _ -> false)
        parameters arguments

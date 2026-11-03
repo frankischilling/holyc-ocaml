@@ -3589,8 +3589,9 @@ let aot_initializer_warning_authority () =
          small={Tiny(7),42};Box smallnamed={Tiny(N),42};Box \
          sum={Arg(3+4),42};Box diff={Arg(8-1),42};Box neg={Arg(-7),42};Box \
          sumN={Arg(N+0),42};Box negN={Arg(-N),42};Box uarg={Arg(U),42};Box \
-         narrow={Arg(U+0),42};Box both={Arg(N+U),42};I64 F(){static Box \
-         x={Get(),42};return x.value;}I64 after;"
+         narrow={Arg(U+0),42};Box both={Arg(N+U),42};Box \
+         nested={Arg((N+1)*2),42};Box doubleNeg={Arg(-(-N)),42};I64 F(){static \
+         Box x={Get(),42};return x.value;}I64 after;"
   in
   let ledger = D.create_source session ~source |> checked in
   let foreign = D.create_source session ~source |> checked in
@@ -3684,7 +3685,7 @@ let aot_initializer_warning_authority () =
     ([ 0L; 0L; 0L; 0L ]
     @ List.concat_map
         (fun n -> [ Int64.of_int n; Int64.of_int n ])
-        (List.init 15 (fun n -> n + 1)))
+        (List.init 17 (fun n -> n + 1)))
     (List.rev !counts);
   Option.iter
     (fun receipt ->

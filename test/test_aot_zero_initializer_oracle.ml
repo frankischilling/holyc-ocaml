@@ -580,6 +580,50 @@ let direct_call_mixed_global_warnings () =
         [ false; true ])
     cases
 
+let direct_call_nested_argument_warnings () =
+  let fields = fixture "warnings-nested-arguments" in
+  let cases =
+    [
+      ("NEST1", "(N+1)*2", 16L);
+      ("NEST2", "(3+4)*(N-6)", 7L);
+      ("NEST3", "-(-N)", 7L);
+      ("NEST4", "(N|M)&7", 7L);
+      ("NEST5", "(N+1)<<1", 16L);
+    ]
+  in
+  List.iteri
+    (fun index (name, expression, expected) ->
+      Alcotest.(check int)
+        (name ^ " original nested warning count")
+        (index + 1) (List.assoc name fields);
+      List.iter
+        (fun native ->
+          let source =
+            Printf.sprintf
+              "I64 N=7,M=1;I64 Get(I64 n){return n;}class Box{U0 empty;I64 \
+               value;};Box object={Get(%s),42};I64 F(){return \
+               object.value;}F();"
+              expression
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
+          if name = "NEST5" then (
+            Alcotest.(check bool)
+              "dynamic shift remains unsupported" true (Result.is_error result);
+            Alcotest.(check (list string))
+              "warning precedes shift boundary"
+              [ "HCSEMA0080"; "HCRUN0006" ]
+              codes)
+          else (
+            Alcotest.(check (option int64))
+              (name ^ " nested load value")
+              (Some expected) (Result.get_ok result);
+            Alcotest.(check (list string))
+              (name ^ " nested load warning")
+              [ "HCSEMA0080" ] codes))
+        [ false; true ])
+    cases
+
 let direct_call_warning_controls () =
   List.iter
     (fun native ->
@@ -782,7 +826,8 @@ let () =
               ignore (fixture "warnings-global-types");
               ignore (fixture "warnings-global-type-arithmetic");
               ignore (fixture "warnings-two-globals");
-              ignore (fixture "warnings-mixed-globals"));
+              ignore (fixture "warnings-mixed-globals");
+              ignore (fixture "warnings-nested-arguments"));
           Alcotest.test_case "AOT warning counts occur during parsing" `Quick
             warning_phases;
           Alcotest.test_case "direct AOT calls warn at a U0 destination" `Quick
@@ -815,6 +860,8 @@ let () =
             direct_call_two_global_warnings;
           Alcotest.test_case "direct mixed global arithmetic warnings" `Quick
             direct_call_mixed_global_warnings;
+          Alcotest.test_case "direct nested argument warnings" `Quick
+            direct_call_nested_argument_warnings;
           Alcotest.test_case
             "patterned native stores retain their observed width" `Quick
             original_store_width;
