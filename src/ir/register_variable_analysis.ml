@@ -750,7 +750,10 @@ let analyze_local ~frame ~body =
                       | ">>=", Ic_shr_equ
                       | "+=", Ic_add_equ
                       | "-=", Ic_sub_equ
-                      | "*=", Ic_mul_equ -> true
+                      | "*=", Ic_mul_equ
+                      | "&=", Ic_and_equ
+                      | "|=", Ic_or_equ
+                      | "^=", Ic_xor_equ -> true
                       | _ -> false
                     in
                     operator
@@ -1041,7 +1044,13 @@ let analyze_local ~frame ~body =
                      count.target_type
                 && is_one count acid
                 && (update.Seq.opcode = O.Ic_shl_equ
-                   || update.opcode = O.Ic_add_equ)
+                   || update.opcode = O.Ic_shr_equ
+                   || update.opcode = O.Ic_add_equ
+                   || update.opcode = O.Ic_sub_equ
+                   || update.opcode = O.Ic_mul_equ
+                   || update.opcode = O.Ic_and_equ
+                   || update.opcode = O.Ic_or_equ
+                   || update.opcode = O.Ic_xor_equ)
                 && update.payload = None && same_type update
                 && update.operands = [ a2id; countid ]
                 && end2.Seq.opcode = O.Ic_end_exp

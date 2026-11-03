@@ -792,6 +792,40 @@ let source_controls () =
         [ "J_"; "A_" ])
     [
       ("local-param-dynamic-add-byte", "256", "257", "0", "1");
+      ("local-param-dynamic-and-byte", "255", "255", "-1", "255");
+      ("local-param-dynamic-and-16", "65535", "65535", "-1", "65535");
+      ( "local-param-dynamic-and-32",
+        "4294967295",
+        "4294967295",
+        "-1",
+        "4294967295" );
+      ("local-param-dynamic-or-byte", "511", "511", "-1", "255");
+      ("local-param-dynamic-or-16", "131071", "131071", "-1", "65535");
+      ( "local-param-dynamic-or-32",
+        "8589934591",
+        "8589934591",
+        "-1",
+        "4294967295" );
+      ("local-param-dynamic-xor-byte", "511", "511", "-1", "255");
+      ("local-param-dynamic-xor-16", "131071", "131071", "-1", "65535");
+      ( "local-param-dynamic-xor-32",
+        "8589934591",
+        "8589934591",
+        "-1",
+        "4294967295" );
+      ("local-param-dynamic-sub-byte", "254", "255", "-2", "255");
+      ("local-param-dynamic-sub-16", "65534", "65535", "-2", "65535");
+      ( "local-param-dynamic-sub-32",
+        "4294967294",
+        "4294967295",
+        "-2",
+        "4294967295" );
+      ("local-param-dynamic-right-byte", "127", "128", "-1", "0");
+      ("local-param-dynamic-right-16", "32767", "32768", "-1", "0");
+      ("local-param-dynamic-right-32", "2147483647", "2147483648", "-1", "0");
+      ("local-param-dynamic-mul-byte", "765", "768", "-3", "0");
+      ("local-param-dynamic-mul-16", "196605", "196608", "-3", "0");
+      ("local-param-dynamic-mul-32", "12884901885", "12884901888", "-3", "0");
       ("local-param-count-U8", "510", "511", "-2", "255");
       ("local-param-count-I16", "254", "255", "-2", "255");
       ("local-param-count-I32", "254", "255", "-2", "255");
@@ -825,6 +859,20 @@ let source_controls () =
         "retained dynamic local" expected
         (List.assoc name dynamic_default))
     [ ("SIGNED", "256"); ("UNSIGNED", "512") ];
+  let dynamic_more_default = fixture "local-param-dynamic-more-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained dynamic update" expected
+        (List.assoc name dynamic_more_default))
+    [ ("SUB", "254"); ("RIGHT", "127"); ("MUL", "765") ];
+  let dynamic_bit_default = fixture "local-param-dynamic-bit-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained dynamic bitwise" expected
+        (List.assoc name dynamic_bit_default))
+    [ ("AND", "255"); ("OR", "511"); ("XOR", "511") ];
   let unsigned_parameter = fixture "local-param-unsigned" in
   List.iter
     (fun prefix ->
@@ -1042,7 +1090,7 @@ let dynamic_parameter_local_selection () =
                 (Analysis.selection proof ~frame:fn.frame ~body:fn.body
                    ~symbol:x
                 = Some expected))
-            [ "+"; "<<" ])
+            [ "+"; "-"; "*"; "<<"; ">>"; "&"; "|"; "^" ])
         (List.concat_map
            (fun ty ->
              [
@@ -1073,7 +1121,7 @@ let dynamic_count_width_selection () =
                 (Analysis.selection proof ~frame:fn.frame ~body:fn.body
                    ~symbol:x
                 = Some Analysis.Register_candidate))
-            [ "+"; "<<" ])
+            [ "+"; "-"; "*"; "<<"; ">>"; "&"; "|"; "^" ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -1152,6 +1200,9 @@ let local_ownership () =
           "I64 F(I64 c){I8 x=c;x*=3;return x;}42;";
           "I64 F(I64 c,I8 n){I8 x=c;x+=n;return x;}42;";
           "I64 F(I64 c,I8 n){I8 x=c;x<<=n;return x;}42;";
+          "I64 F(I64 c,I64 n){I8 x=c;x&=n;return x;}42;";
+          "I64 F(I64 c,I64 n){I8 x=c;x|=n;return x;}42;";
+          "I64 F(I64 c,I64 n){I8 x=c;x^=n;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -1175,7 +1226,7 @@ let unsupported_selection () =
           "I64 F(I64 c,I8 n){I8 x=c;return x;}42;";
           "I64 F(I64 c,Bool n){I8 x=c;x+=n;return x;}42;";
           "I64 F(I64 c,I8 n){I8 x=c;x+=c;return x;}42;";
-          "I64 F(I64 c,I8 n){I8 x=c;x-=n;return x;}42;";
+          "I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}42;";
           "I64 F(I8 c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x-=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=2147483648;return x;}42;";

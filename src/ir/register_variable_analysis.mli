@@ -13,12 +13,12 @@ val analyze :
     subtraction or multiplication by an integer literal. Parameter-initialized
     locals also admit literal shifts, multiplication, or bounded addition and
     subtraction before return. A second signed or unsigned 8-, 16-, 32- or
-    64-bit parameter may supply the operand for addition or left shift. Division
-    is proved only for parameter operands. Local compound addition or
-    subtraction requires a nonnegative signed-32-bit literal. Both require
-    default compiler options. Escapes, explicit hardware registers, other
-    control flow and all other shapes remain unproved. This witness does not
-    alter storage or execution. *)
+    64-bit parameter may supply the operand for shifts, addition, subtraction,
+    multiplication or bitwise updates. Division is proved only for parameter
+    operands. Local compound addition or subtraction requires a nonnegative
+    signed-32-bit literal. Both require default compiler options. Escapes,
+    explicit hardware registers, other control flow and all other shapes remain
+    unproved. This witness does not alter storage or execution. *)
 
 val selection :
   t ->

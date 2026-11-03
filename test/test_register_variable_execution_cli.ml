@@ -519,6 +519,64 @@ let () =
           ])
         dynamic_count_widths
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, sub, sub_memory, right, right_memory, mul, mul_memory)
+           ->
+          let source qualifier operation n =
+            Printf.sprintf
+              "I64 F(I64 c,I8 n){%s %s x=c;x%s=n;return x;}F(%s,%s);" ty
+              qualifier operation input n
+          in
+          [
+            (source "" "-" "1", sub);
+            (source "noreg" "-" "1", sub_memory);
+            (source "" ">>" "1", right);
+            (source "noreg" ">>" "1", right_memory);
+            (source "" "*" "3", mul);
+            (source "noreg" "*" "3", mul_memory);
+          ])
+        parameter_local_more_updates
+  in
+  let dynamic_bitwise_locals =
+    [
+      ("I8", "255", "256", "511", "-1", "255", "-1");
+      ("U8", "255", "256", "511", "255", "255", "255");
+      ("I16", "65535", "65536", "131071", "-1", "65535", "-1");
+      ("U16", "65535", "65536", "131071", "65535", "65535", "65535");
+      ("I32", "4294967295", "4294967296", "8589934591", "-1", "4294967295", "-1");
+      ( "U32",
+        "4294967295",
+        "4294967296",
+        "8589934591",
+        "4294967295",
+        "4294967295",
+        "4294967295" );
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, mask, wide, memory, and_wide, and_memory) ->
+          let source qualifier operation initial operand =
+            Printf.sprintf
+              "I64 F(I64 c,I64 n){%s %s x=c;x%s=n;return x;}F(%s,%s);" ty
+              qualifier operation initial operand
+          in
+          List.concat_map
+            (fun op ->
+              [
+                (source "" op input mask, wide);
+                (source "noreg" op input mask, memory);
+              ])
+            [ "|"; "^" ]
+          @ [
+              (source "" "&" "-1" input, and_wide);
+              (source "noreg" "&" "-1" input, and_memory);
+            ])
+        dynamic_bitwise_locals
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
