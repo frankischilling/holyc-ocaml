@@ -886,9 +886,17 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                     Task_declarations.complete_source_callback_defaults ledger
                       header
                 | Frontend.Parser.Global_initializer_leaf_completed receipt ->
+                    let* () =
+                      Task_declarations
+                      .emit_aot_direct_call_initializer_warnings ledger receipt
+                    in
                     Native_default_preparation.prepare_initializer preparation
                       ~session ~ledger receipt
                 | Frontend.Parser.Static_initializer_preparing receipt ->
+                    let* () =
+                      Task_declarations.emit_aot_direct_call_static_warnings
+                        ledger receipt
+                    in
                     Native_default_preparation.prepare_static preparation
                       ~session ~ledger receipt
                 | Frontend.Parser.Function_header_completed header ->

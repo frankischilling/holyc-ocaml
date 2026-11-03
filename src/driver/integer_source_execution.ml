@@ -443,6 +443,13 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                           ensure_task receipt.callback_default_ast.location.span
                           |> Result.map ignore
                       | Lastclass_default _ -> Ok ())
+                  | false, _, Parser.Global_initializer_leaf_completed receipt
+                    ->
+                      Task_declarations
+                      .emit_aot_direct_call_initializer_warnings ledger receipt
+                  | false, _, Parser.Static_initializer_preparing receipt ->
+                      Task_declarations.emit_aot_direct_call_static_warnings
+                        ledger receipt
                   | false, _, Parser.Callback_default_completed receipt -> (
                       match receipt.callback_default_ast.value with
                       | Frontend.Ast.Expression_default _ ->

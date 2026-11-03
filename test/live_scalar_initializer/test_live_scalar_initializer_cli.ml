@@ -49,7 +49,9 @@ let invoke compiler example target mode options status =
         "JSON scalar copy diagnostics escaped to stderr";
       Yojson.Safe.from_string output)
 
-let success ?(output_hex = "41") expected report =
+let current_source = ref ""
+
+let success ?(output_hex = "41") ?(warnings = []) expected report =
   require
     (member "outcome" report = `String "success")
     (Yojson.Safe.to_string report);
@@ -61,8 +63,11 @@ let success ?(output_hex = "41") expected report =
     (member "output_hex" report = `String output_hex)
     "callee output occurred exactly once";
   require
-    (member "diagnostics" report = `List [])
-    "successful scalar copy diagnostics"
+    (report |> member "diagnostics" |> to_list
+    |> List.map (fun d -> member "code" d |> to_string)
+    = warnings)
+    ("successful scalar copy diagnostics: " ^ !current_source ^ " "
+    ^ Yojson.Safe.to_string report)
 
 let failure code report =
   require
@@ -135,11 +140,12 @@ let () =
             invoke compiler source_example target mode options status
           in
           let expected = if mode = "aot" then "7" else "42" in
+          let warnings = if mode = "aot" then [ "HCSEMA0080" ] else [] in
           let baseline = run [] 0 in
-          success expected baseline;
+          success ~warnings expected baseline;
           let work = member "compiled_initializer_steps" baseline |> to_int
           and steps = member "executed_steps" baseline |> to_int in
-          success expected
+          success ~warnings expected
             (run
                [
                  Printf.sprintf "--initializer-step-limit=%d" work;
@@ -157,6 +163,7 @@ let () =
     ~finally:(fun () -> Sys.remove probe)
     (fun () ->
       let write source =
+        current_source := source;
         let channel = open_out_bin probe in
         Fun.protect
           ~finally:(fun () -> close_out channel)
@@ -184,13 +191,32 @@ let () =
           List.iter
             (fun mode ->
               List.iter
-                (fun (_, source, output) ->
+                (fun (name, source, output) ->
                   write source;
+                  let warnings =
+                    if
+                      mode = "aot"
+                      && List.mem name
+                           [
+                             "ordinary source evaluates zero-byte members \
+                              exactly once";
+                             "ordinary source zero-byte leaves follow the \
+                              direct member cursor";
+                             "ordinary source later completion preserves the \
+                              earlier copy";
+                             "ordinary source shares reached globals with \
+                              later functions";
+                             "static load evaluates a zero-byte leaf before \
+                              later completion";
+                           ]
+                    then [ "HCSEMA0080" ]
+                    else []
+                  in
                   if mode = "aot" && Cases.requires_aot_zero_assignment source
                   then
                     failure "HCRUN0006" (invoke compiler probe target mode [] 1)
                   else
-                    success
+                    success ~warnings
                       ~output_hex:(if output = "A" then "41" else "")
                       (if mode = "aot" then
                          Int64.to_string

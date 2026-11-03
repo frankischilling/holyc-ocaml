@@ -3577,8 +3577,120 @@ let retained_aggregate_context () =
   reject "copied attached source cannot borrow its sealed declarations"
     (D.collection ~table ~ast:(copy_module attached attached.items) command)
 
+let aot_initializer_warning_authority () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"aot-warning-authority.hc"
+      ~contents:
+        "I64 Get(){return 7;}class Box{U0 empty;I64 value;};Box \
+         heap_probe={Get(),42};Box object={Get(),42};I64 F(){static Box \
+         x={Get(),42};return x.value;}I64 after;"
+  in
+  let ledger = D.create_source session ~source |> checked in
+  let foreign = D.create_source session ~source |> checked in
+  let counts = ref [] and retained = ref None and retained_static = ref None in
+  let observe event =
+    let ( let* ) = Result.bind in
+    let* () = D.observe ~isolated_initializers:true ledger event in
+    match event with
+    | Parser.Global_initializer_leaf_completed receipt ->
+        reject "foreign ledger rejects the current leaf"
+          (D.emit_aot_direct_call_initializer_warnings foreign receipt);
+        let copy : Parser.completed_initializer_leaf =
+          Obj.obj (Obj.dup (Obj.repr receipt))
+        in
+        reject "copied leaf is not original"
+          (D.emit_aot_direct_call_initializer_warnings ledger copy);
+        let context =
+          receipt.leaf_initializer.initializer_owner.global_header
+            .declaration_command
+            .command_context
+        in
+        let heap_probe =
+          receipt.leaf_initializer.initializer_owner.global_name.spelling
+          = "heap_probe"
+          && receipt.leaf_index = 0
+        in
+        if heap_probe then
+          ignore
+            (Parser.context_set_option context ~bit_index:35L true |> checked);
+        let* () = D.emit_aot_direct_call_initializer_warnings ledger receipt in
+        if heap_probe then
+          ignore
+            (Parser.context_set_option context ~bit_index:35L false |> checked);
+        reject "current leaf cannot emit twice"
+          (D.emit_aot_direct_call_initializer_warnings ledger receipt);
+        let context =
+          receipt.leaf_initializer.initializer_owner.global_header
+            .declaration_command
+            .command_context
+        in
+        counts := (Parser.context_warning_count context |> checked) :: !counts;
+        retained := Some receipt;
+        Ok ()
+    | Parser.Static_initializer_preparing receipt ->
+        reject "foreign static leaf rejected"
+          (D.emit_aot_direct_call_static_warnings foreign receipt);
+        let copy : Parser.static_initializer_preparation =
+          Obj.obj (Obj.dup (Obj.repr receipt))
+        in
+        reject "copied static leaf is not original"
+          (D.emit_aot_direct_call_static_warnings ledger copy);
+        let* () = D.emit_aot_direct_call_static_warnings ledger receipt in
+        reject "static leaf cannot emit twice"
+          (D.emit_aot_direct_call_static_warnings ledger receipt);
+        let context =
+          receipt.static_allocation.allocation_function.function_header
+            .declaration_command
+            .command_context
+        in
+        counts := (Parser.context_warning_count context |> checked) :: !counts;
+        retained_static := Some receipt;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = Some (D.observe_command ledger);
+      reference = Some (D.observe_reference ledger);
+      query = Some (D.observe_query ledger);
+      call = None;
+      implicit_output = None;
+      declaration = Some observe;
+      dimension_count = Some (D.grammar_dimension_count ledger);
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:Preprocessor.Aot () |> checked
+  in
+  let parsed =
+    Parser.parse ~commands ~sources:(Session.sources session)
+      ~symbols:(Session.symbols session)
+      ~definitions:(Session.definitions session)
+      ~config source
+  in
+  ignore (Test_parser.expect_ast parsed);
+  Alcotest.(check (list int64))
+    "heap option suppresses load warning; later leaves count"
+    [ 0L; 0L; 1L; 1L; 2L; 2L ] (List.rev !counts);
+  Option.iter
+    (fun receipt ->
+      reject "expired leaf cannot emit"
+        (D.emit_aot_direct_call_initializer_warnings ledger receipt))
+    !retained;
+  Option.iter
+    (fun receipt ->
+      reject "expired static leaf cannot emit"
+        (D.emit_aot_direct_call_static_warnings ledger receipt))
+    !retained_static
+
 let tests =
   [
+    Alcotest.test_case "AOT initializer warning authority" `Quick
+      aot_initializer_warning_authority;
     Alcotest.test_case
       "retained classes import exact metadata and preserve command ownership"
       `Quick retained_aggregate_context;

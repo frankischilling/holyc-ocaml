@@ -338,6 +338,9 @@ type t = {
     Parser.completed_static_initializer_delimiter list;
   mutable static_completions : Parser.completed_static_initializer list;
   mutable static_allocations_rev : Sema.Compiler_record.static_allocation list;
+  mutable aot_static_warning_leaves :
+    Parser.static_initializer_preparation list;
+  mutable aot_warning_leaves : Parser.completed_initializer_leaf list;
   mutable native_initializer_attempts : Sema.Initializer_source.leaf list;
   storage_boundaries : storage_boundary Names.t;
   mutable last_storage_global : Sema.Symbol.t option;
@@ -495,6 +498,8 @@ let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
                   source_default_attempts = [];
                   source_defaults_runtime = None;
                   prepared_source_defaults = [];
+                  aot_static_warning_leaves = [];
+                  aot_warning_leaves = [];
                   native_initializer_attempts = [];
                   native_static_attempts = [];
                   internal_bindings = [];
@@ -5824,6 +5829,82 @@ let observed_global_initializer_destination ledger receipt =
           |> checked_initializer_layout span)
         boundary.isolated_initializer)
 
+(* A completed direct call to a source-defined, zero-argument primitive
+   function cannot fold to a constant in the original AOT initializer phase.
+   Keep this deliberately narrower than general expression classification. *)
+let emit_direct_call_warnings ledger ~context ~span ~value ~destination =
+  match (value, destination) with
+  | ( Ast.Scalar_initializer
+        (Ast.Call_expression
+           {
+             call_callee = Ast.Identifier_expression name;
+             call_arguments = [];
+             _;
+           }),
+      Some (_, _, Ir.Integer_initializer_layout.Scalar_store, Some scalar) )
+    -> (
+      match Names.find_opt ledger.references name with
+      | Some
+          {
+            target =
+              Selected_source { stage = Function_selection (header, Some _); _ };
+            _;
+          }
+        when header.parameters = [] && header.variadic = None -> (
+          let publication = header.function_publication in
+          if
+            publication.function_pointer_layers = []
+            && publication.function_header.modifiers = []
+          then
+            match publication.function_header.type_specifier with
+            | Ast.Primitive_type_specifier primitive ->
+                let emit code message =
+                  Common.Diagnostic.make ~severity:Common.Diagnostic.Warning
+                    ~code ~message ~primary:span ()
+                  |> Parser.context_emit_counted_compiler_warning context
+                  |> checked span
+                in
+                let is_void = primitive.primitive = Sema.Primitive_type.U0 in
+                if is_void then emit "HCSEMA0079" "U0 Expression";
+                let source_bytes =
+                  (Sema.Primitive_type.info primitive.primitive).byte_size
+                in
+                let heap_option =
+                  Sema.Compiler_option.info
+                    Sema.Compiler_option.Globals_on_data_heap
+                in
+                let heap =
+                  Parser.context_get_option context
+                    ~bit_index:(Int64.of_int heap_option.bit_index)
+                  |> checked span
+                in
+                if
+                  (not heap)
+                  && (source_bytes = 0
+                     || Sema.Initializer_type.scalar_byte_size scalar = 0)
+                then emit "HCSEMA0080" "Assign U0"
+            | _ -> ())
+      | _ -> ())
+  | _ -> ()
+
+let emit_aot_direct_call_initializer_warnings ledger receipt =
+  let ( let* ) = Result.bind in
+  let* destination = observed_global_initializer_destination ledger receipt in
+  protect (fun () ->
+      let start = receipt.Parser.leaf_initializer in
+      let context =
+        start.initializer_owner.global_header.declaration_command
+          .command_context
+      in
+      if Parser.context_mode context = Frontend.Preprocessor.Aot then (
+        if List.exists (( == ) receipt) ledger.aot_warning_leaves then
+          fail start.initializer_equals.span
+            "AOT initializer warnings already consumed";
+        ledger.aot_warning_leaves <- receipt :: ledger.aot_warning_leaves;
+        emit_direct_call_warnings ledger ~context
+          ~span:start.initializer_equals.span ~value:receipt.leaf_value
+          ~destination))
+
 let observed_static_initializer_destination ledger receipt =
   protect (fun () ->
       let span = (Parser.static_initializer_leaf_location receipt).span in
@@ -5841,6 +5922,24 @@ let observed_static_initializer_destination ledger receipt =
              Ir.Integer_initializer_layout.static_snapshot_receipt snapshot
              == receipt.Parser.static_allocation)
            ledger.isolated_static_snapshots))
+
+let emit_aot_direct_call_static_warnings ledger receipt =
+  let ( let* ) = Result.bind in
+  let* destination = observed_static_initializer_destination ledger receipt in
+  protect (fun () ->
+      let allocation = receipt.Parser.static_allocation in
+      let context =
+        allocation.allocation_function.function_header.declaration_command
+          .command_context
+      in
+      let span = (Parser.static_initializer_leaf_location receipt).span in
+      if Parser.context_mode context = Frontend.Preprocessor.Aot then (
+        if List.exists (( == ) receipt) ledger.aot_static_warning_leaves then
+          fail span "AOT static initializer warnings already consumed";
+        ledger.aot_static_warning_leaves <-
+          receipt :: ledger.aot_static_warning_leaves;
+        emit_direct_call_warnings ledger ~context ~span
+          ~value:receipt.static_leaf_value ~destination))
 
 let native_static_initializer_destination ledger receipt =
   protect (fun () ->

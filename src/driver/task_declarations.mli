@@ -1279,6 +1279,19 @@ val observed_global_initializer_destination :
     Common.Diagnostic.t list )
   result
 
+val emit_aot_direct_call_initializer_warnings :
+  t ->
+  Frontend.Parser.completed_initializer_leaf ->
+  (unit, Common.Diagnostic.t list) result
+(** Count warnings for the original AOT scalar leaf when its direct,
+    zero-argument source-defined primitive call is proven nonconstant. *)
+
+val emit_aot_direct_call_static_warnings :
+  t ->
+  Frontend.Parser.static_initializer_preparation ->
+  (unit, Common.Diagnostic.t list) result
+(** Count the corresponding bounded AOT static initializer warnings. *)
+
 val observed_static_initializer_destination :
   t ->
   Frontend.Parser.static_initializer_preparation ->

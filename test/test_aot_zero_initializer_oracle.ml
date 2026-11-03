@@ -72,6 +72,62 @@ let run native mode contents =
           output )
     | Error diagnostics -> (diagnostics, Error (), output)
 
+let warning_phases () =
+  let fields = fixture "warnings" in
+  let count name = List.assoc name fields in
+  Alcotest.(check int)
+    "constant copy adds no warning" 0
+    (count "CONSTANT" - count "START");
+  Alcotest.(check int)
+    "integer load assignment adds one warning" 1
+    (count "INTEGER" - count "CONSTANT");
+  Alcotest.(check int)
+    "U0 load expression and assignment add two warnings" 2
+    (count "VOID" - count "INTEGER");
+  Alcotest.(check int)
+    "static load assignment adds one warning" 1
+    (count "STATIC" - count "VOID");
+  Alcotest.(check int)
+    "original compilation succeeds" 0 (count "COMPILE_ERRORS")
+
+let direct_call_warning () =
+  let contents =
+    "I64 Get(){return 7;}class Box{U0 empty;I64 value;};Box \
+     object={Get(),42};I64 F(){return object.value;}F();"
+  in
+  List.iter
+    (fun native ->
+      let diagnostics, result, _ = run native Preprocessor.Aot contents in
+      Alcotest.(check (option int64))
+        "load value" (Some 7L) (Result.get_ok result);
+      Alcotest.(check (list string))
+        "original AOT warning" [ "HCSEMA0080" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+    [ false; true ]
+
+let direct_call_warning_controls () =
+  List.iter
+    (fun native ->
+      List.iter
+        (fun (mode, source) ->
+          let diagnostics, result, _ = run native mode source in
+          Alcotest.(check bool) "control succeeds" true (Result.is_ok result);
+          Alcotest.(check (list string))
+            "no false warning" []
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [
+          ( Preprocessor.Jit,
+            "I64 Get(){return 7;}class Box{U0 empty;I64 value;};Box \
+             object={Get(),42};I64 F(){return object.value;}F();" );
+          ( Preprocessor.Aot,
+            "I64 Get(){return 7;}class Box{I64 value;};Box object={Get()};I64 \
+             F(){return object.value;}F();" );
+          ( Preprocessor.Aot,
+            "class Box{U0 empty;I64 value;};Box object={7,42};I64 F(){return \
+             object.value;}F();" );
+        ])
+    [ false; true ]
+
 let controls () =
   let fields = fixture "integer" in
   Alcotest.(check int)
@@ -121,7 +177,7 @@ let boundaries () =
   List.iter
     (fun native ->
       List.iter
-        (fun (contents, expected) ->
+        (fun (contents, expected, warnings) ->
           let _, jit, _ = run native Preprocessor.Jit contents in
           Alcotest.(check (option int64))
             "JIT retains its empty copy" (Some 42L) (Result.get_ok jit);
@@ -130,30 +186,38 @@ let boundaries () =
           | Some bits ->
               Alcotest.(check (option int64))
                 "original AOT integer store" (Some bits) (Result.get_ok aot);
-              Alcotest.(check int)
-                "integer assignment has no warnings" 0 (List.length diagnostics)
+              Alcotest.(check (list string))
+                "assignment warnings" warnings
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics)
           | None ->
               Alcotest.(check bool)
                 "missing words/windows cannot become stores" true
                 (Result.is_error aot);
               Alcotest.(check (list string))
-                "unsupported assignment boundary" [ "HCRUN0006" ]
+                "unsupported assignment boundary"
+                (warnings @ [ "HCRUN0006" ])
                 (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics));
           Alcotest.(check string) "no unrequested output" "" output)
         [
           ( "I64 Get(){return 7;}class Box{U0 empty;I64 value;};Box \
              object={Get(),42};I64 F(){return object.value;}F();",
-            Some 7L );
+            Some 7L,
+            [ "HCSEMA0080" ] );
           ( "I64 Get(){return 7;}class Box{U0 empty;I64 value;};I64 F(){static \
              Box object={Get(),42};return object.value;}F();",
-            Some 7L );
+            Some 7L,
+            [ "HCSEMA0080" ] );
           ( "U0 Get(){}class Box{U0 empty;I64 value;};Box \
              object={Get(),42};I64 F(){return object.value;}F();",
-            None );
+            None,
+            [ "HCSEMA0079"; "HCSEMA0080" ] );
           ( "U0 Get(){}class Box{U0 empty;I64 value;};I64 F(){static Box \
              object={Get(),42};return object.value;}F();",
-            None );
-          ("I64 Get(){return 7;}class Empty{};Empty object=Get();42;", None);
+            None,
+            [ "HCSEMA0079"; "HCSEMA0080" ] );
+          ( "I64 Get(){return 7;}class Empty{};Empty object=Get();42;",
+            None,
+            [ "HCSEMA0080" ] );
         ])
     [ false; true ]
 
@@ -204,8 +268,17 @@ let assignment_words () =
                 "native-observed raw store width"
                 (Some (Int64.of_int (List.assoc field fields)))
                 (Result.get_ok result);
-              Alcotest.(check int)
-                "no assignment diagnostics" 0 (List.length diagnostics);
+              let warnings =
+                if
+                  mode = Preprocessor.Aot
+                  && (stem = "pattern"
+                     || (stem = "classes" && jit_field = "JIT_EMPTY"))
+                then [ "HCSEMA0080" ]
+                else []
+              in
+              Alcotest.(check (list string))
+                "assignment diagnostics" warnings
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
               Alcotest.(check string) "no assignment output" "" output)
             [ (Preprocessor.Jit, jit_field); (Preprocessor.Aot, aot_field) ])
         [ false; true ])
@@ -219,7 +292,14 @@ let () =
           Alcotest.test_case "repeated native BIN load records and hashes"
             `Quick (fun () ->
               ignore (fixture "void");
-              ignore (fixture "integer"));
+              ignore (fixture "integer");
+              ignore (fixture "warnings"));
+          Alcotest.test_case "AOT warning counts occur during parsing" `Quick
+            warning_phases;
+          Alcotest.test_case "direct AOT calls warn at a U0 destination" `Quick
+            direct_call_warning;
+          Alcotest.test_case "direct call warning controls" `Quick
+            direct_call_warning_controls;
           Alcotest.test_case
             "patterned native stores retain their observed width" `Quick
             original_store_width;

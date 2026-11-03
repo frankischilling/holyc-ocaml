@@ -66,7 +66,7 @@ let invoke target mode source options =
                 (Yojson.Safe.to_string report);
               (status, report))))
 
-let success ?(expected = 42L) ?(warnings = 0) target mode source options =
+let success ?(expected = 42L) ?(warnings = []) target mode source options =
   let status, report = invoke target mode source options in
   require
     (status = Unix.WEXITED 0 && member "outcome" report = `String "success")
@@ -77,11 +77,9 @@ let success ?(expected = 42L) ?(warnings = 0) target mode source options =
     (Yojson.Safe.to_string report);
   require
     (let diagnostics = report |> member "diagnostics" |> to_list in
-     List.length diagnostics = warnings
+     List.map (fun d -> member "code" d |> to_string) diagnostics = warnings
      && List.for_all
-          (fun d ->
-            member "code" d = `String "HCSEMA0079"
-            && member "severity" d = `String "warning")
+          (fun d -> member "severity" d = `String "warning")
           diagnostics)
     (Yojson.Safe.to_string report);
   report
@@ -195,9 +193,10 @@ let bounds =
 let () =
   List.iter
     (fun target ->
-      List.iter
-        (fun (source, jit, aot) ->
-          ignore (success ~expected:aot target "aot" source []);
+      List.iteri
+        (fun index (source, jit, aot) ->
+          let warnings = if index = 3 then [] else [ "HCSEMA0080" ] in
+          ignore (success ~warnings ~expected:aot target "aot" source []);
           if target <> "host-jit" then
             ignore (success ~expected:jit target "jit" source []))
         (words @ widths);
@@ -211,7 +210,9 @@ let () =
             ignore (success ~expected:99L target "jit" source []))
         [ (callback, "HCIRVM0024"); (pointer, "HCIRVM0018") ];
       let source, _, expected = List.hd words in
-      let baseline = success ~expected target "aot" source [] in
+      let baseline =
+        success ~warnings:[ "HCSEMA0080" ] ~expected target "aot" source []
+      in
       let steps = baseline |> member "executed_steps" |> to_int in
       let preparation =
         baseline |> member "compiled_initializer_steps" |> to_int
@@ -220,7 +221,7 @@ let () =
         (steps > 1 && preparation > 1)
         "actual load stores and constant image preparation";
       ignore
-        (success ~expected target "aot" source
+        (success ~warnings:[ "HCSEMA0080" ] ~expected target "aot" source
            [
              "--step-limit=" ^ string_of_int steps;
              "--initializer-step-limit=" ^ string_of_int preparation;
