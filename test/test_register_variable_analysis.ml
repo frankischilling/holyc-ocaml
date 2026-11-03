@@ -743,6 +743,17 @@ let source_controls () =
       ("local-param-add-byte", "256", "257", "0", "1");
       ("local-param-add-bound", "2147483902", "2147483903", "-2", "255");
       ("local-param-shift-byte", "510", "512", "-2", "0");
+      ("local-param-sub-byte", "254", "255", "-2", "255");
+      ("local-param-sub-16", "65534", "65535", "-2", "65535");
+      ("local-param-sub-32", "4294967294", "4294967295", "-2", "4294967295");
+      ("local-param-right-byte", "127", "128", "-1", "0");
+      ("local-param-right-16", "32767", "32768", "-1", "0");
+      ("local-param-right-32", "2147483647", "2147483648", "-1", "0");
+      ("local-param-mul-byte", "765", "768", "-3", "0");
+      ("local-param-mul-16", "196605", "196608", "-3", "0");
+      ("local-param-mul-32", "12884901885", "12884901888", "-3", "0");
+      ("local-param-mul-high", "-9223372036854775808", "0", "0", "0");
+      ("local-param-right-high", "-1", "9223372036854775807", "-1", "127");
       ("local-param-add-16", "65536", "65537", "0", "1");
       ("local-param-shift-16", "131070", "131072", "-2", "0");
       ("local-param-add-32", "4294967296", "4294967297", "0", "1");
@@ -755,6 +766,13 @@ let source_controls () =
         "retained updated parameter local" expected
         (List.assoc name param_update_default))
     [ ("SIGNED", "256"); ("UNSIGNED", "512") ];
+  let more_default = fixture "local-param-more-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained parameter local update" expected
+        (List.assoc name more_default))
+    [ ("SUB", "254"); ("RIGHT", "127"); ("MUL", "765") ];
   let unsigned_parameter = fixture "local-param-unsigned" in
   List.iter
     (fun prefix ->
@@ -941,7 +959,7 @@ let local_parameter_selection () =
                 (Analysis.selection proof ~frame:fn.frame ~body:fn.body
                    ~symbol:x
                 = Some expected))
-            [ ""; "x+=1;"; "x<<=1;" ])
+            [ ""; "x+=1;"; "x-=1;"; "x<<=1;"; "x>>=1;"; "x*=3;" ])
         (List.concat_map
            (fun ty ->
              [
@@ -1021,6 +1039,9 @@ let local_ownership () =
           "I64 F(I64 c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=1;return x;}42;";
           "I64 F(I64 c){I8 x=c;x<<=1;return x;}42;";
+          "I64 F(I64 c){I8 x=c;x-=1;return x;}42;";
+          "I64 F(I64 c){I8 x=c;x>>=1;return x;}42;";
+          "I64 F(I64 c){I8 x=c;x*=3;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -1042,7 +1063,7 @@ let unsupported_selection () =
           "I64 F(){I8 x;x<<=1;return x;}42;";
           "I64 F(){Bool x=1;x<<=1;return x;}42;";
           "I64 F(I8 c){I8 x=c;return x;}42;";
-          "I64 F(I64 c){I8 x=c;x-=1;return x;}42;";
+          "I64 F(I64 c){I8 x=c;x-=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=255;return x;}42;";
           "I64 F(){I8 x=255;x/=2;return x;}42;";

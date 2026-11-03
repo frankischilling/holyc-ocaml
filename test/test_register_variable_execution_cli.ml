@@ -374,6 +374,67 @@ let () =
         ("I64 F(I64 c){U8 noreg x=c;x+=2147483647;return x;}F(256);", "255");
       ]
   in
+  let parameter_local_more_updates =
+    [
+      ("I8", "255", "254", "-2", "127", "-1", "765", "-3");
+      ("U8", "256", "255", "255", "128", "0", "768", "0");
+      ("I16", "65535", "65534", "-2", "32767", "-1", "196605", "-3");
+      ("U16", "65536", "65535", "65535", "32768", "0", "196608", "0");
+      ( "I32",
+        "4294967295",
+        "4294967294",
+        "-2",
+        "2147483647",
+        "-1",
+        "12884901885",
+        "-3" );
+      ( "U32",
+        "4294967296",
+        "4294967295",
+        "4294967295",
+        "2147483648",
+        "0",
+        "12884901888",
+        "0" );
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, sub, sub_memory, right, right_memory, mul, mul_memory)
+           ->
+          let source qualifier operation =
+            Printf.sprintf "I64 F(I64 c){%s %s x=c;x%s;return x;}F(%s);" ty
+              qualifier operation input
+          in
+          [
+            (source "" "-=1", sub);
+            (source "noreg" "-=1", sub_memory);
+            (source "" ">>=1", right);
+            (source "noreg" ">>=1", right_memory);
+            (source "" "*=3", mul);
+            (source "noreg" "*=3", mul_memory);
+          ])
+        parameter_local_more_updates
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I64 c){I8 x=c;x>>=1;return x;}F(-1);", "-1");
+        ("I64 F(I64 c){U8 x=c;x>>=1;return x;}F(-1);", "9223372036854775807");
+        ("I64 F(I64 c){U8 noreg x=c;x>>=1;return x;}F(-1);", "127");
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(I64 c){I8 x=c;x*=0x8000000000000000;return x;}F(255);",
+          "-9223372036854775808" );
+        ( "I64 F(I64 c){I8 noreg x=c;x*=0x8000000000000000;return x;}F(255);",
+          "0" );
+        ("I64 F(I64 c){U8 x=c;x*=0x8000000000000000;return x;}F(256);", "0");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

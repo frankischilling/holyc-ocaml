@@ -916,7 +916,10 @@ let analyze_local ~frame ~body =
                 && end1.payload = None && end1.result = None
                 && end1.flags = 0x200L && is_one end1 storeid
                 && (update.Seq.opcode = O.Ic_shl_equ
-                   || update.opcode = O.Ic_add_equ
+                   || update.opcode = O.Ic_shr_equ
+                   || update.opcode = O.Ic_mul_equ
+                   || (update.opcode = O.Ic_add_equ
+                      || update.opcode = O.Ic_sub_equ)
                       && countbits >= 0L
                       && countbits <= Int64.of_int32 Int32.max_int)
                 && update.payload = None && same_type update

@@ -11,12 +11,12 @@ val analyze :
     initializes one narrow local from an integer literal or a full-word
     parameter and returns it directly, optionally after a shift, addition,
     subtraction or multiplication by an integer literal. Parameter-initialized
-    locals also admit a literal left shift or bounded addition before return.
-    Division is proved only for parameter operands. Local compound addition or
-    subtraction requires a nonnegative signed-32-bit literal. Both require
-    default compiler options. Escapes, explicit hardware registers, other
-    control flow and all other shapes remain unproved. This witness does not
-    alter storage or execution. *)
+    locals also admit literal shifts, multiplication, or bounded addition and
+    subtraction before return. Division is proved only for parameter operands.
+    Local compound addition or subtraction requires a nonnegative signed-32-bit
+    literal. Both require default compiler options. Escapes, explicit hardware
+    registers, other control flow and all other shapes remain unproved. This
+    witness does not alter storage or execution. *)
 
 val selection :
   t ->
