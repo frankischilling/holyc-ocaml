@@ -2442,8 +2442,9 @@ each reached leaf. Shared IR/native tests cover zero-byte members, arrays,
 inherited layouts, later completion, shared globals, malformed later input and
 fault order. The [ordinary-source example](../examples/source-aggregate-initializers.hc)
 adds exact and one-below execution and initializer limits. This uses pinned
-source and hosted execution without a new TempleOS runtime capture. AOT's
-detached task and isolated preparation retain their existing boundaries.
+source and hosted execution. Later [native AOT captures](aot-zero-byte-initializers.md)
+show a different load-time store for nonconstant zero-byte leaves, which now
+reject explicitly. Constant copies and live JIT retain their existing behavior.
 
 ## Isolated initializer layout snapshots
 
@@ -2480,6 +2481,10 @@ retain prepared image bytes. The
 IR/native cases check load order, zero-byte leaves, earlier statics, original
 function selection, repeated mutations and retained fault output. Nonconstant
 AOT statics with globals-on-data-heap and wider initializer families remain open.
+This example contains a nonconstant zero-byte forward leaf. It currently runs
+in JIT only; AOT now rejects that leaf with `HCRUN0006` until the original
+[load-assignment storage](aot-zero-byte-initializers.md) is implemented. Earlier
+AOT success expectations did not match the original compiler.
 
 Static member references retain the class and dimensions allocated by complete
 `PrsVarLst` at `Compiler/PrsVar.HC:408-742`. Complete `PrsUnaryTerm` and

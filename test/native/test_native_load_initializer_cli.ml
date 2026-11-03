@@ -184,42 +184,56 @@ let () =
     Filename.concat (Filename.dirname example)
       "native-aot-static-initializers.hc"
   in
-  let ir = invoke ~target:"ir" static_example in
-  let native = invoke static_example in
-  success ir;
-  success native;
-  List.iter
-    (fun field ->
-      require
-        (member field ir = member field native)
-        ("original static load IR/native agreement: " ^ field))
-    [ "final_value"; "executed_steps"; "output_hex" ];
-  let steps = member "executed_steps" native |> to_int in
   List.iter
     (fun target ->
-      let baseline = if target = "ir" then ir else native in
-      let work = member "compiled_initializer_steps" baseline |> to_int in
-      for _ = 1 to 3 do
-        success
-          (invoke ~target
-             ~options:
-               [
-                 "--step-limit=" ^ string_of_int steps;
-                 "--initializer-step-limit=" ^ string_of_int work;
-               ]
-             static_example)
-      done;
-      error
-        (invoke ~target ~status:1
-           ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
-           static_example)
-        "HCIRVM0007" "41";
-      error
-        (invoke ~target ~status:1
-           ~options:[ "--initializer-step-limit=" ^ string_of_int (work - 1) ]
-           static_example)
-        "HCIRVM0007" "")
+      error (invoke ~target ~status:1 static_example) "HCRUN0006" "")
     [ "ir"; "host-jit" ];
+  (* Keep ordinary nonzero AOT load and quota coverage separate from the
+     zero-byte example's unsupported load-assignment operation. *)
+  with_file ".hc"
+    "extern U0 Print(U8 *fmt,...);I64 calls=0;I64 Next(I64 \
+     n){calls++;if(calls==1)Print(\"A\");return n;}I64 first=Next(0);class \
+     Box{U8 values[2];};I64 F(){static Box saved={{Next(40),2}};static U8 \
+     tail=saved.values[1];return saved.values[0]+tail++;}I64 Next(I64 \
+     n){return n+99;}I64 Check(){if(calls!=2)return -1;F();return \
+     F()-1;}Check();" (fun static_example ->
+      let ir = invoke ~target:"ir" static_example in
+      let native = invoke static_example in
+      success ir;
+      success native;
+      List.iter
+        (fun field ->
+          require
+            (member field ir = member field native)
+            ("original static load IR/native agreement: " ^ field))
+        [ "final_value"; "executed_steps"; "output_hex" ];
+      let steps = member "executed_steps" native |> to_int in
+      List.iter
+        (fun target ->
+          let baseline = if target = "ir" then ir else native in
+          let work = member "compiled_initializer_steps" baseline |> to_int in
+          for _ = 1 to 3 do
+            success
+              (invoke ~target
+                 ~options:
+                   [
+                     "--step-limit=" ^ string_of_int steps;
+                     "--initializer-step-limit=" ^ string_of_int work;
+                   ]
+                 static_example)
+          done;
+          error
+            (invoke ~target ~status:1
+               ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+               static_example)
+            "HCIRVM0007" "41";
+          error
+            (invoke ~target ~status:1
+               ~options:
+                 [ "--initializer-step-limit=" ^ string_of_int (work - 1) ]
+               static_example)
+            "HCIRVM0007" "")
+        [ "ir"; "host-jit" ]);
   List.iter
     (fun source ->
       with_file ".hc" source (fun path ->

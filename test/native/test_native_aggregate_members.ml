@@ -764,11 +764,21 @@ let () =
         List.map
           (fun (name, source, expected, output) ->
             Alcotest.test_case name `Quick (fun () ->
-                List.iter
-                  (fun mode ->
-                    task_value expected output (run_task ~mode source))
-                  modes;
-                ignore (value expected output (run Preprocessor.Aot source))))
+                task_value expected output (run_task source);
+                let rejected = run_task ~mode:Preprocessor.Aot source in
+                task_failure "HCRUN0006" rejected;
+                Alcotest.(check string)
+                  "unsupported AOT load does not execute" ""
+                  (Native_source_execution.output_bytes rejected);
+                match Native_program.outcome (run Preprocessor.Aot source) with
+                | Error errors ->
+                    Alcotest.(check bool)
+                      "isolated AOT boundary" true
+                      (List.exists
+                         (fun (d : Diagnostic.t) -> d.code = "HCRUN0006")
+                         errors)
+                | Ok _ ->
+                    Alcotest.fail "zero-copy cannot represent AOT assignment"))
           Persistent.void_initializer_values );
       ( "U0 initializer completion boundaries",
         List.map

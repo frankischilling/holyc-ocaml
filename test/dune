@@ -5625,3 +5625,10 @@
  (libraries holyc_lib yojson digestif alcotest)
  (deps
   (glob_files oracle/persistent-void/*)))
+
+(test
+ (name test_aot_zero_initializer_oracle)
+ (modules test_aot_zero_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/aot-zero-initializers/*)))

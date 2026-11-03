@@ -1,5 +1,10 @@
 # Changelog
 
+Nonconstant zero-byte AOT initializers now reject instead of using JIT empty-copy
+semantics. [Native AOT captures](aot-zero-byte-initializers.md) show an actual
+load-time store into the following member. Constant copies and live JIT remain
+supported.
+
 Scalar U0 globals and statics now retain zero-byte storage and live JIT
 initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)
 for native observations, execution checks and the separate AOT boundary.
@@ -36,7 +41,7 @@ for native observations, execution checks and the separate AOT boundary.
 
 - Execute U0 calls in zero-byte aggregate initializer leaves, preserving their
   effects without inventing an integer result. Global/static IR and native source
-  tasks support both modes; original JIT captures verify once-only effects and
+  tasks support live JIT; original JIT captures verify once-only effects and
   the following byte. See [initializer effects](aggregate-initializers.md#u0-initializer-effects).
 
 - Added `holyc disasm` and the public `Asm_disassembler` library module, with

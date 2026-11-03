@@ -36,8 +36,9 @@ reached expression executes once during parsing, including a zero-byte forward
 member inside a nonempty allocation. That member copies no bytes; the following
 direct member keeps the same initializer cursor. The
 [ordinary-source example](../examples/source-aggregate-initializers.hc) checks
-this timing without a `#exe` block and now runs in both source modes. AOT's
-scheduled leaves retain their load-time behavior.
+this timing without a `#exe` block in JIT. Nonconstant zero-byte AOT leaves
+require a separate [load-assignment operation](aot-zero-byte-initializers.md)
+and reject until that operation is implemented.
 
 Isolated global and static initializers keep their original layout metadata
 through later class completion or replacement. Completed consumers join those
@@ -52,6 +53,10 @@ leaves retain their prepared image bytes. The
 [static-load example](../examples/native-aot-static-initializers.hc) checks load
 order, forward members, original function selection and persistent mutation.
 Nonconstant AOT statics with globals-on-data-heap remain open.
+This example contains a nonconstant zero-byte forward leaf. It currently runs
+in JIT only; AOT now rejects that leaf with `HCRUN0006` until the original
+[load-assignment storage](aot-zero-byte-initializers.md) is implemented. Earlier
+AOT success expectations did not match the original compiler.
 
 Source-task static references retain the original aggregate type and dimensions.
 A later initializer can read or update that object's direct, inherited and
@@ -68,13 +73,13 @@ storage charge to eight bytes without granting access to the padding.
 
 Empty global and static roots have zero data bytes and retain their original
 identity and dimensions. Their fixed arrays have positive element counts and
-zero strides. Every initializer expression still executes once, including leaves
+zero strides. In live JIT, every initializer expression still executes once, including leaves
 of zero-width direct members. Native storage retains one owner word per root and
 no byte flags, so an arena can contain only private metadata. Reads cannot cross
 the empty root into an adjacent nonempty object. The
 [empty-root example](../examples/empty-aggregate-initializers.hc) checks source
-order, unused-function preparation, repeated calls and class replacement in both
-source modes. Automatic zero-byte frame storage remains open.
+order, unused-function preparation, repeated calls and class replacement in
+JIT. Its nonconstant AOT leaves reject; closed constant copies remain supported. Automatic zero-byte frame storage remains open.
 
 Owned class pointers, primitive byte views and casts retain the complete original
 root. Every reached field window must fit that root, including from an interior

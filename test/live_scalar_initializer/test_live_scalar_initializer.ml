@@ -142,7 +142,17 @@ let () =
                   Alcotest.test_case
                     ((if mode = Preprocessor.Jit then "JIT " else "AOT ") ^ name)
                     `Quick
-                    (fun () -> value output (run mode source)))
+                    (fun () ->
+                      let report = run mode source in
+                      if
+                        mode = Preprocessor.Aot
+                        && Cases.requires_aot_zero_assignment source
+                      then (
+                        failure "HCRUN0006" report;
+                        Alcotest.(check string)
+                          "unsupported AOT assignment does not execute" ""
+                          (integer_program_report_output_bytes report))
+                      else value output report))
                 (Cases.both_values @ Cases.static_both_values))
             [ Preprocessor.Jit; Preprocessor.Aot ]
         @ [

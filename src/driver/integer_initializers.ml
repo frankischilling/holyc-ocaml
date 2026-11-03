@@ -608,6 +608,40 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                          | _ -> false))
                   value_code
               in
+              let zero_byte_leaf =
+                let scalar entry = Layout.scalar (Arrays.destination entry) in
+                let selected =
+                  match root_ with
+                  | Global (slot, root) ->
+                      Option.bind (Globals.slot_array_initializers slot)
+                        (fun arrays -> Arrays.find arrays root)
+                      |> fun entry -> Option.bind entry scalar
+                  | Static (slot, root) ->
+                      Option.bind (Globals.static_array_initializers slot)
+                        (fun arrays -> Arrays.find arrays root)
+                      |> fun entry -> Option.bind entry scalar
+                  | _ -> None
+                in
+                Option.fold ~none:false
+                  ~some:(fun scalar ->
+                    Sema.Initializer_type.scalar_byte_size scalar = 0)
+                  selected
+              in
+              let* () =
+                (* PrsVarInit emits a load-time assignment for nonconstant AOT
+                   leaves. Its machine store can overwrite following bytes even
+                   when the compile-time copy width is zero. Empty-copy
+                   completion cannot stand in for that separate operation. *)
+                if
+                  (not constant) && zero_byte_leaf
+                  && Globals.compilation_mode globals
+                     = Sema.Global_resolution.Aot
+                then
+                  invalid ~at ~notes "HCRUN0006"
+                    "nonconstant zero-byte AOT initializers require original \
+                     load-time assignment storage"
+                else Ok ()
+              in
               let guard ?runtime ~constant code =
                 let divisions =
                   Option.bind runtime (fun (context, owner) ->

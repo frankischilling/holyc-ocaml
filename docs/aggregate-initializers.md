@@ -248,8 +248,9 @@ input; an initializer fault stops before that later input is parsed.
 Isolated source preparation retains global initializer layouts at the original
 parser callbacks. The completed consumer receives each leaf's selected scalar
 type, width and byte cursor rather than rebuilding them from a later completed
-member index. AOT globals can therefore initialize zero-byte forward members
-inside nonempty roots. A class completed before the initializer supplies its
+member index. Closed constant AOT leaves can initialize zero-byte forward members
+inside nonempty roots. Nonconstant leaves require the separate load-assignment
+operation and reject rather than reusing zero-copy semantics. A class completed before the initializer supplies its
 reached direct members; completion or replacement afterward cannot change an
 earlier leaf.
 
@@ -282,6 +283,10 @@ same declaring frame. The
 once and returns 42 after later class and function replacement.
 One-star static callback storage also retains its originally selected function
 address through replacement.
+This example contains a nonconstant zero-byte forward leaf. It currently runs
+in JIT only; AOT now rejects that leaf with `HCRUN0006` until the original
+[load-assignment storage](aot-zero-byte-initializers.md) is implemented. Earlier
+AOT success expectations did not match the original compiler.
 
 Later source-task static initializers can read and update earlier class or union
 objects. Static references retain the nominal type and dimensions from their
@@ -342,12 +347,13 @@ unknown-byte faults and resource quotas are hosted policy.
 
 A U0 call can initialize a zero-byte member or empty aggregate. The call runs
 once and consumes no destination bytes. The next leaf keeps the same byte
-cursor. Global and static source-task execution supports this in both outer
-modes, through IR and native execution. Isolated native AOT supports the same
-load path; isolated native JIT retains its existing closed-initializer boundary.
+cursor. Global and static live JIT source tasks support this through IR and
+native execution. Nonconstant zero-byte AOT leaves require a different
+[load-time assignment](aot-zero-byte-initializers.md) and now reject explicitly.
+Isolated native JIT retains its existing closed-initializer boundary.
 
 The [example](../examples/void-aggregate-initializers.hc) prints `AA` and returns
-42. Its global and static calls each run once. Calling the containing function
+42 in live JIT. Its global and static calls each run once. Calling the containing function
 does not repeat static initialization. Arguments, earlier output, early returns,
 original allocation bounds and execution/preparation quotas remain checked.
 

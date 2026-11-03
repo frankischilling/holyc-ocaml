@@ -626,3 +626,27 @@ let static_faults =
       {|#exe {extern class Item;class Box{Item item;$$=8;};I64 Z=0;I64 Bad(){Print("A");return 1/Z;}I64 F(){static Box object={Bad()};return 42;}StreamPrint("%d;",F());}|},
       "HCIRVM0009" );
   ]
+
+(* These cases still exercise live JIT copies. Their nonconstant AOT leaves
+   require the distinct load-assignment operation observed in native BINs. *)
+let requires_aot_zero_assignment source =
+  List.exists
+    (fun (_, original, _) -> String.equal original source)
+    (List.tl ordinary_source_values
+    @ List.filter
+        (fun (name, _, _) ->
+          name <> "closed empty initializer leaves retain zero-byte images"
+          && name
+             <> "uninitialized empty globals and statics retain zero geometry")
+        empty_root_values
+    @ List.filter
+        (fun (name, _, _) ->
+          name
+          = "static load evaluates a zero-byte leaf before later completion")
+        static_load_values
+    @ List.filter
+        (fun (name, _, _) ->
+          name
+          = "global initialization retains the forward through same-name \
+             replacement")
+        both_values)

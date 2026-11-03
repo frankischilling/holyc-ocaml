@@ -581,9 +581,8 @@ let () =
         List.map
           (fun (name, source, expected, output) ->
             Alcotest.test_case name `Quick (fun () ->
-                List.iter
-                  (fun mode -> ignore (value expected output (run mode source)))
-                  modes))
+                ignore (value expected output (run Preprocessor.Jit source));
+                failure "HCRUN0006" "" (run Preprocessor.Aot source)))
           Persistent.void_initializer_values );
       ( "U0 initializer completion boundaries",
         List.map

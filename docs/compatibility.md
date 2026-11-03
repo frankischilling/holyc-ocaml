@@ -958,8 +958,9 @@ leaf effects before later declarations are checked. Zero-byte members inside
 nonempty roots still evaluate once, while their copies leave the byte cursor
 unchanged. Later functions share the reached globals and storage. The
 [ordinary-source example](../examples/source-aggregate-initializers.hc) runs
-through IR and native source tasks in both modes. Isolated global and static
-layout snapshots preserve the original forward selection and cursor through
+through IR and native source tasks in JIT. Its nonconstant zero-byte AOT
+leaves now reject; see [native AOT observations](aot-zero-byte-initializers.md).
+Isolated global and static layout snapshots preserve the original forward selection and cursor through
 later completion or replacement. A completed static frame must match the
 original local, nominal type, dimensions and leaves. Snapshots supply metadata
 without computed values or execution receipts. Closed AOT class-offset work is

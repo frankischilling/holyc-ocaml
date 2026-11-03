@@ -1,5 +1,10 @@
 # Compiler status and implementation notes
 
+Nonconstant zero-byte AOT initializers now reject instead of using JIT empty-copy
+semantics. [Native AOT captures](aot-zero-byte-initializers.md) show an actual
+load-time store into the following member. Constant copies and live JIT remain
+supported.
+
 Scalar U0 globals and statics now retain zero-byte storage and live JIT
 initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)
 for native observations, execution checks and the separate AOT boundary.

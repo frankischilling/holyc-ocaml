@@ -133,21 +133,25 @@ let () =
           let run options status =
             invoke compiler source_example target mode options status
           in
-          let baseline = run [] 0 in
-          success "42" baseline;
-          let work = member "compiled_initializer_steps" baseline |> to_int
-          and steps = member "executed_steps" baseline |> to_int in
-          success "42"
-            (run
-               [
-                 Printf.sprintf "--initializer-step-limit=%d" work;
-                 Printf.sprintf "--step-limit=%d" steps;
-               ]
-               0);
-          failure "HCIRVM0007"
-            (run [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ] 1);
-          failure "HCIRVM0007"
-            (run [ Printf.sprintf "--step-limit=%d" (steps - 1) ] 1))
+          if mode = "aot" then failure "HCRUN0006" (run [] 1)
+          else
+            let baseline = run [] 0 in
+            success "42" baseline;
+            let work = member "compiled_initializer_steps" baseline |> to_int
+            and steps = member "executed_steps" baseline |> to_int in
+            success "42"
+              (run
+                 [
+                   Printf.sprintf "--initializer-step-limit=%d" work;
+                   Printf.sprintf "--step-limit=%d" steps;
+                 ]
+                 0);
+            failure "HCIRVM0007"
+              (run
+                 [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ]
+                 1);
+            failure "HCIRVM0007"
+              (run [ Printf.sprintf "--step-limit=%d" (steps - 1) ] 1))
         [ "jit"; "aot" ])
     targets;
   let probe = Filename.temp_file "holyc static grammar " ".hc" in
@@ -184,10 +188,14 @@ let () =
               List.iter
                 (fun (_, source, output) ->
                   write source;
-                  success
-                    ~output_hex:(if output = "A" then "41" else "")
-                    "42"
-                    (invoke compiler probe target mode [] 0))
+                  if mode = "aot" && Cases.requires_aot_zero_assignment source
+                  then
+                    failure "HCRUN0006" (invoke compiler probe target mode [] 1)
+                  else
+                    success
+                      ~output_hex:(if output = "A" then "41" else "")
+                      "42"
+                      (invoke compiler probe target mode [] 0))
                 (Cases.ordinary_source_values @ Cases.static_load_values
                @ Cases.fragment_member_values @ Cases.empty_root_values
                @ Cases.option_both_values);
@@ -201,37 +209,45 @@ let () =
                   let forward_example =
                     Filename.concat (Filename.dirname example) filename
                   in
-                  let baseline =
-                    invoke compiler forward_example target mode [] 0
-                  in
-                  success "42" baseline;
-                  let steps = member "executed_steps" baseline |> to_int in
-                  success "42"
-                    (invoke compiler forward_example target mode
-                       [ Printf.sprintf "--step-limit=%d" steps ]
-                       0);
-                  failure "HCIRVM0007"
-                    (invoke compiler forward_example target mode
-                       [ Printf.sprintf "--step-limit=%d" (steps - 1) ]
-                       1);
                   if
-                    filename = "retained-aot-initializer-layouts.hc"
-                    || filename = "native-aot-static-initializers.hc"
-                  then (
-                    let work =
-                      member "compiled_initializer_steps" baseline |> to_int
+                    mode = "aot"
+                    && (filename = "empty-aggregate-initializers.hc"
+                       || filename = "native-aot-static-initializers.hc")
+                  then
+                    failure "HCRUN0006"
+                      (invoke compiler forward_example target mode [] 1)
+                  else
+                    let baseline =
+                      invoke compiler forward_example target mode [] 0
                     in
+                    success "42" baseline;
+                    let steps = member "executed_steps" baseline |> to_int in
                     success "42"
                       (invoke compiler forward_example target mode
-                         [ Printf.sprintf "--initializer-step-limit=%d" work ]
+                         [ Printf.sprintf "--step-limit=%d" steps ]
                          0);
                     failure "HCIRVM0007"
                       (invoke compiler forward_example target mode
-                         [
-                           Printf.sprintf "--initializer-step-limit=%d"
-                             (work - 1);
-                         ]
-                         1)))
+                         [ Printf.sprintf "--step-limit=%d" (steps - 1) ]
+                         1);
+                    if
+                      filename = "retained-aot-initializer-layouts.hc"
+                      || filename = "native-aot-static-initializers.hc"
+                    then (
+                      let work =
+                        member "compiled_initializer_steps" baseline |> to_int
+                      in
+                      success "42"
+                        (invoke compiler forward_example target mode
+                           [ Printf.sprintf "--initializer-step-limit=%d" work ]
+                           0);
+                      failure "HCIRVM0007"
+                        (invoke compiler forward_example target mode
+                           [
+                             Printf.sprintf "--initializer-step-limit=%d"
+                               (work - 1);
+                           ]
+                           1)))
                 [
                   "backed-forward-initializers.hc";
                   "class-body-initializers.hc";

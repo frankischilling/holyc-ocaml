@@ -621,19 +621,23 @@ let () =
             Persistent.pointer_initializer_values;
           List.iter
             (fun (name, source, expected, output) ->
-              let count =
-                if mode <> "jit" then 0
-                else
-                  match name with
-                  | "empty root array executes every U0 leaf"
-                  | "nested zero-byte leaves keep the next byte cursor" -> 2
-                  | _ -> 1
-              in
-              value
-                ~warnings:
-                  (List.init count (fun _ -> ("HCSEMA0079", "U0 Expression")))
-                expected output
-                (invoke ~options target mode source))
+              if mode = "aot" then
+                error ~code:"HCRUN0006" ""
+                  (invoke ~status:1 ~options target mode source)
+              else
+                let count =
+                  if mode <> "jit" then 0
+                  else
+                    match name with
+                    | "empty root array executes every U0 leaf"
+                    | "nested zero-byte leaves keep the next byte cursor" -> 2
+                    | _ -> 1
+                in
+                value
+                  ~warnings:
+                    (List.init count (fun _ -> ("HCSEMA0079", "U0 Expression")))
+                  expected output
+                  (invoke ~options target mode source))
             Persistent.void_initializer_values;
           List.iter
             (fun (_, source, code, output) ->
@@ -673,46 +677,51 @@ let () =
                    ])
                target mode source);
           let source = Persistent.void_quota_source in
-          let baseline = invoke ~options target mode source in
-          let warnings =
-            if mode = "jit" then
-              [
-                ("HCSEMA0079", "U0 Expression"); ("HCSEMA0079", "U0 Expression");
-              ]
-            else []
-          in
-          value ~warnings 42L "AA" baseline;
-          let steps = baseline |> member "executed_steps" |> to_int in
-          let preparation =
-            baseline |> member "compiled_initializer_steps" |> to_int
-          in
-          require
-            (steps > 1 && preparation > 1)
-            "U0 effects retain charged work";
-          value ~warnings 42L "AA"
-            (invoke
-               ~options:
-                 (options
-                 @ [
-                     "--step-limit=" ^ string_of_int steps;
-                     "--initializer-step-limit=" ^ string_of_int preparation;
-                   ])
-               target mode source);
-          error ~code:"HCIRVM0007" "AA"
-            (invoke ~status:1
-               ~options:
-                 (options @ [ "--step-limit=" ^ string_of_int (steps - 1) ])
-               target mode source);
-          error ~code:"HCIRVM0007"
-            (if mode = "jit" then "AA" else "")
-            (invoke ~status:1
-               ~options:
-                 (options
-                 @ [
-                     "--initializer-step-limit="
-                     ^ string_of_int (preparation - 1);
-                   ])
-               target mode source))
+          if mode = "aot" then
+            error ~code:"HCRUN0006" ""
+              (invoke ~status:1 ~options target mode source)
+          else
+            let baseline = invoke ~options target mode source in
+            let warnings =
+              if mode = "jit" then
+                [
+                  ("HCSEMA0079", "U0 Expression");
+                  ("HCSEMA0079", "U0 Expression");
+                ]
+              else []
+            in
+            value ~warnings 42L "AA" baseline;
+            let steps = baseline |> member "executed_steps" |> to_int in
+            let preparation =
+              baseline |> member "compiled_initializer_steps" |> to_int
+            in
+            require
+              (steps > 1 && preparation > 1)
+              "U0 effects retain charged work";
+            value ~warnings 42L "AA"
+              (invoke
+                 ~options:
+                   (options
+                   @ [
+                       "--step-limit=" ^ string_of_int steps;
+                       "--initializer-step-limit=" ^ string_of_int preparation;
+                     ])
+                 target mode source);
+            error ~code:"HCIRVM0007" "AA"
+              (invoke ~status:1
+                 ~options:
+                   (options @ [ "--step-limit=" ^ string_of_int (steps - 1) ])
+                 target mode source);
+            error ~code:"HCIRVM0007"
+              (if mode = "jit" then "AA" else "")
+              (invoke ~status:1
+                 ~options:
+                   (options
+                   @ [
+                       "--initializer-step-limit="
+                       ^ string_of_int (preparation - 1);
+                     ])
+                 target mode source))
         [ "jit"; "aot" ];
       List.iter
         (fun (_, source, code, output) ->
