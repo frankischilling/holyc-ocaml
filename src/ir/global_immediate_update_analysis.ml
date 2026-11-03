@@ -8,6 +8,10 @@ module Bind = Sema.Module_expression_binding
 type stamp = Seq.description * Seq.description
 type block_stamp = Seq.Block_id.t * stamp list * Seq.Block_id.t list
 
+type outer =
+  | Literal of int64 * Sema.Type.t
+  | Global of Sema.Symbol.t * bool * Sema.Type.t * Sema.Type.t
+
 type t = {
   frame : Frame.function_layout;
   body : Function_body.t;
@@ -97,6 +101,29 @@ let analyze ~frame ~body =
         | _ -> false)
     | _ -> false
   in
+  let source_matches_identifier ~retained symbol value =
+    match Calls.argument_expression_kind (Typed.result_source value) with
+    | Calls.Bound_identifier_expression bound -> (
+        match
+          Bind.occurrence_resolution (Calls.bound_identifier_occurrence bound)
+        with
+        | Bind.Module_binding publication
+          when Bind.publication_kind publication = Bind.Global_variable ->
+            Bind.publication_canonical_symbol publication == symbol
+        | _ -> false)
+    | Calls.Unresolved_expression Calls.Identifier_expression when retained -> (
+        (* Retained globals are resolved through the exact task catalog; the
+           unresolved outer occurrence must name that retained symbol. *)
+        match
+          Calls.argument_expression_source_identifier
+            (Typed.result_source value)
+        with
+        | Some occurrence ->
+            Bind.occurrence_resolution occurrence = Bind.Outer_candidate
+            && Bind.occurrence_name occurrence = Sema.Symbol.name symbol
+        | None -> false)
+    | _ -> false
+  in
   let valid_source ~retained ~outer symbol target operation count =
     Option.fold ~none:false
       ~some:(fun source ->
@@ -110,7 +137,12 @@ let analyze ~frame ~body =
               Option.bind (Typed.return_value returned) (fun value ->
                   match outer with
                   | None -> Some value
-                  | Some (expected, sum_type) -> (
+                  | Some outer -> (
+                      let sum_type =
+                        match outer with
+                        | Literal (_, sum_type) | Global (_, _, _, sum_type) ->
+                            sum_type
+                      in
                       match
                         ( Calls.argument_expression_source
                             (Typed.result_source value),
@@ -122,12 +154,23 @@ let analyze ~frame ~body =
                                ~some:(Sema.Type.equal sum_type)
                                (Typed.result_type value)
                              && binary.binary_operator_spec.spelling = "+"
-                             && (match
-                                   Calls.argument_expression_kind
-                                     (Typed.result_source right)
-                                 with
-                               | Calls.Integer_literal bits -> bits = expected
-                               | _ -> false)
+                             && (match outer with
+                               | Literal (expected, _) -> (
+                                   match
+                                     Calls.argument_expression_kind
+                                       (Typed.result_source right)
+                                   with
+                                   | Calls.Integer_literal bits ->
+                                       bits = expected
+                                   | _ -> false)
+                               | Global
+                                   (right_symbol, right_retained, right_type, _)
+                                 ->
+                                   source_matches_identifier
+                                     ~retained:right_retained right_symbol right
+                                   && Option.fold ~none:false
+                                        ~some:(Sema.Type.equal right_type)
+                                        (Typed.result_type right))
                              &&
                              match
                                Calls.argument_expression_kind
@@ -150,39 +193,8 @@ let analyze ~frame ~body =
                       (spelling = "+=" && operation = O.Ic_add_equ)
                       || (spelling = "-=" && operation = O.Ic_sub_equ)
                     in
-                    let source_matches =
-                      match
-                        Calls.argument_expression_kind
-                          (Typed.result_source left)
-                      with
-                      | Calls.Bound_identifier_expression bound -> (
-                          match
-                            Bind.occurrence_resolution
-                              (Calls.bound_identifier_occurrence bound)
-                          with
-                          | Bind.Module_binding publication
-                            when Bind.publication_kind publication
-                                 = Bind.Global_variable ->
-                              Bind.publication_canonical_symbol publication
-                              == symbol
-                          | _ -> false)
-                      | Calls.Unresolved_expression Calls.Identifier_expression
-                        when retained -> (
-                          (* Retained globals are resolved through the exact task
-                             catalog; the outer occurrence must name that symbol. *)
-                          match
-                            Calls.argument_expression_source_identifier
-                              (Typed.result_source left)
-                          with
-                          | Some occurrence ->
-                              Bind.occurrence_resolution occurrence
-                              = Bind.Outer_candidate
-                              && Bind.occurrence_name occurrence
-                                 = Sema.Symbol.name symbol
-                          | None -> false)
-                      | _ -> false
-                    in
-                    operator_matches && source_matches
+                    operator_matches
+                    && source_matches_identifier ~retained symbol left
                     && Option.fold ~none:false ~some:(Sema.Type.equal target)
                          (Typed.result_type left)
                     &&
@@ -236,6 +248,20 @@ let analyze ~frame ~body =
                  | _ -> false)
                item.target_type
         in
+        let global_symbol (item : Seq.description) =
+          match item.payload with
+          | Some (Seq.Symbol symbol) -> Some (symbol, false)
+          | Some (Seq.Retained_global reference) ->
+              Some (Retained_global.symbol reference, true)
+          | _ -> None
+        in
+        let word_type type_ =
+          Sema.Type.pointer_depth type_ = 0
+          &&
+          match Sema.Type.base type_ with
+          | Sema.Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+          | _ -> false
+        in
         let shape =
           match items with
           | [ address; literal; update; returned; jump ]
@@ -278,19 +304,60 @@ let analyze ~frame ~body =
                       update,
                       returned,
                       sum_id,
-                      Some (outer_bits, sum_type) )
+                      Some (Literal (outer_bits, sum_type)) )
+              | _ -> None)
+          | [
+           address; literal; update; right_address; load; sum; returned; jump;
+          ]
+            when valid_terminator jump -> (
+              match
+                ( id update,
+                  id right_address,
+                  global_symbol right_address,
+                  id load,
+                  load.Seq.target_type,
+                  id sum,
+                  sum.Seq.target_type )
+              with
+              | ( Some update_id,
+                  Some address_id,
+                  Some (right_symbol, right_retained),
+                  Some load_id,
+                  Some right_type,
+                  Some sum_id,
+                  Some sum_type )
+                when Sema.Symbol.kind right_symbol = Sema.Symbol.Global_variable
+                     && (right_address.opcode = O.Ic_imm_i64
+                        || right_address.opcode = O.Ic_abs_addr)
+                     && right_address.operands = []
+                     && Option.fold ~none:false
+                          ~some:(fun pointer ->
+                            match Sema.Type.dereference pointer with
+                            | Ok actual -> Sema.Type.equal actual right_type
+                            | Error _ -> false)
+                          right_address.target_type
+                     && word_type right_type && load.opcode = O.Ic_deref
+                     && load.payload = None
+                     && load.operands = [ address_id ]
+                     && sum.opcode = O.Ic_add && sum.payload = None
+                     && sum.operands = [ update_id; load_id ]
+                     && word_type sum_type ->
+                  Some
+                    ( address,
+                      literal,
+                      update,
+                      returned,
+                      sum_id,
+                      Some
+                        (Global
+                           (right_symbol, right_retained, right_type, sum_type))
+                    )
               | _ -> None)
           | _ -> None
         in
         match shape with
         | Some (address, literal, update, returned, return_id, outer) -> (
-            let address_symbol =
-              match address.Seq.payload with
-              | Some (Seq.Symbol symbol) -> Some (symbol, false)
-              | Some (Seq.Retained_global reference) ->
-                  Some (Retained_global.symbol reference, true)
-              | _ -> None
-            in
+            let address_symbol = global_symbol address in
             match
               ( address_symbol,
                 id address,

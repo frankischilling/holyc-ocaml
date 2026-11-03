@@ -1515,6 +1515,58 @@ let source_controls () =
             amount)
         [ ("1", 1L); ("256", 256L) ])
     [ "byte"; "32" ];
+  let check_dynamic stem direct_stem amount =
+    let fields = fixture stem and direct = fixture direct_stem in
+    List.iter
+      (fun prefix ->
+        List.iter
+          (fun name ->
+            let expected =
+              Int64.add
+                (Int64.of_string (List.assoc (prefix ^ name) direct))
+                amount
+              |> Int64.to_string
+            in
+            Alcotest.(check string)
+              "original dynamic global addition" expected
+              (List.assoc (prefix ^ name) fields))
+          [ "S"; "U"; "SN"; "UN" ])
+      [ "J_"; "A_" ]
+  in
+  List.iter
+    (fun op ->
+      List.iter
+        (fun width ->
+          check_dynamic
+            ("global-nested-dynamic-" ^ op ^ "-" ^ width)
+            ("global-immediate-" ^ op ^ "-" ^ width)
+            7L)
+        [ "byte"; "16"; "32" ];
+      List.iter
+        (fun width ->
+          List.iter
+            (fun (label, value) ->
+              check_dynamic
+                ("global-nested-dynamic-" ^ op ^ "-" ^ width ^ "-" ^ label)
+                ("global-immediate-" ^ op ^ "-" ^ width)
+                value)
+            [ ("negative", -7L); ("high", Int64.max_int) ])
+        [ "byte"; "32" ];
+      List.iter
+        (fun (label, value) ->
+          check_dynamic
+            ("global-nested-unsigned-" ^ op ^ "-" ^ label)
+            ("global-immediate-" ^ op ^ "-byte")
+            value)
+        [ ("small", 7L); ("max", -1L) ])
+    [ "add"; "sub" ];
+  let global_dynamic_exe = fixture "global-nested-dynamic-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original dynamic global compile-time execution" expected
+        (List.assoc name global_dynamic_exe))
+    [ ("ADD", "7"); ("SUB", "262") ];
   let global_nested_exe = fixture "global-nested-exe" in
   List.iter
     (fun (name, expected) ->
@@ -2083,6 +2135,66 @@ let global_immediate_proof () =
                 ])
             [ "+"; "-" ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun rhs_type ->
+              List.iter
+                (fun operator ->
+                  let source =
+                    Printf.sprintf "%s G=0;%s N=7;I64 F(){return (G%s=1)+N;}42;"
+                      ty rhs_type operator
+                  in
+                  let fn = compile mode source in
+                  Alcotest.(check bool)
+                    "dynamic nested global proved" true
+                    (Option.is_some
+                       (Global.analyze ~frame:fn.frame ~body:fn.body)))
+                [ "+"; "-" ])
+            [ "I64"; "U64" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      let dynamic =
+        compile mode "U8 G=255;I64 N=7;I64 F(){return (G+=1)+N;}42;"
+      in
+      let dynamic_proof =
+        Option.get (Global.analyze ~frame:dynamic.frame ~body:dynamic.body)
+      in
+      let descriptions =
+        Body.body dynamic.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+      in
+      let address name =
+        List.find
+          (fun (item : Seq.description) ->
+            match item.payload with
+            | Some (Seq.Symbol symbol) -> Symbol.name symbol = name
+            | _ -> false)
+          descriptions
+      in
+      let global_address = address "G" and right_address = address "N" in
+      let symbol =
+        match global_address.payload with
+        | Some (Seq.Symbol symbol) -> symbol
+        | _ -> assert false
+      in
+      let update =
+        List.find
+          (fun (item : Seq.description) ->
+            item.opcode = Holyc_lib__Ir.Opcode.Ic_add_equ)
+          descriptions
+      in
+      Alcotest.(check bool)
+        "dynamic global proof matches" true
+        (Global.matches dynamic_proof ~frame:dynamic.frame ~body:dynamic.body
+           ~instruction:update ~symbol);
+      Obj.set_field (Obj.repr right_address) 5
+        (Obj.repr (Some (Seq.Symbol symbol)));
+      Alcotest.(check bool)
+        "foreign dynamic operand invalidates proof" false
+        (Global.matches dynamic_proof ~frame:dynamic.frame ~body:dynamic.body
+           ~instruction:update ~symbol);
       let nested = compile mode "U8 G=255;I64 F(){return (G+=1)+0;}42;" in
       let nested_proof =
         Option.get (Global.analyze ~frame:nested.frame ~body:nested.body)
@@ -2145,9 +2257,10 @@ let global_immediate_proof () =
           "U8 G=255;I64 N=1;I64 F(){return G+=N;}42;";
           "U8 G=255;I64 F(){U8 *p=&G;return *p+=1;}42;";
           "U8 G=255;I64 F(){return (G+=1)*1;}42;";
+          "U8 G=255;U8 N=7;I64 F(){return (G+=1)+N;}42;";
           "U8 G=255;I64 F(){return (G+=1)+2147483648;}42;";
           "U8 G=255;I64 F(){return 1+(G+=1);}42;";
-          "U8 G=255;I64 N=1;I64 F(){return (G+=1)+N;}42;";
+          "U8 G=255;I64 N=1;I64 F(){return (G+=1)+(N+0);}42;";
           "U8 G=255;I64 F(){return G+=2147483648;}42;";
           "U8 G=255;I64 F(){return G*=1;}42;";
           "U8 G=255;I64 F(I64 x){return G+=1;}42;";

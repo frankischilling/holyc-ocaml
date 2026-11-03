@@ -6,8 +6,9 @@ val analyze :
   t option
 (** Prove a literal update of a narrow global in a zero-argument, zero-local
     function using its checked source and exact instruction graph. The update
-    may be returned directly or added to another literal. Addition and
-    subtraction literals are limited to nonnegative signed-32-bit values. *)
+    may be returned directly or added to another literal or a signed/unsigned
+    64-bit global value. Addition and subtraction literals are limited to
+    nonnegative signed-32-bit values. *)
 
 val matches :
   t ->

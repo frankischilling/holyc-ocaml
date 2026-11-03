@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "2ba4626d19ff6794a1a690c9152fc0fb78728a927d7e7d76ebdcd0696a3a08c9",
+  "boot_payload_sha256": "18eeaf5b46835ac6484b4e100690b27e90ce6d62a8238d52e4ee8b09fb1e7343",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "3e06a201aab5c30801ee325de448b98df71f9cf1857b29f009b73da5fe4f15b0",
+  "boot_iso_sha256": "7723408a8e4ab31ae5625b697fe4054f65d3433c610cfc886557ee45f1916f66",
+  "fields": {
+    "J_S": "9223372036854775679",
+    "J_U": "9223372036854775807",
+    "J_SN": "9223372036854775679",
+    "J_UN": "9223372036854775807",
+    "ERR": "0",
+    "A_S": "9223372036854775679",
+    "A_U": "9223372036854775807",
+    "A_SN": "9223372036854775679",
+    "A_UN": "9223372036854775807"
+  },
+  "scope": "Repeated original observations at signed 64-bit outer-value boundaries."
+}

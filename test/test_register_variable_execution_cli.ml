@@ -1301,6 +1301,79 @@ let () =
           ("U32", 32, false);
         ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let minimum = if signed then neg (div n 2L) else 0L in
+          let add_result = if signed then neg (div n 2L) else 0L in
+          let sub_result = if signed then maximum else sub n 1L in
+          List.concat_map
+            (fun rhs_type ->
+              List.map
+                (fun (operator, initial, narrowed) ->
+                  let source =
+                    Printf.sprintf
+                      "%s G=%s;%s N=7;I64 F(){return (G%s=1)+N;}F();" ty
+                      (to_string initial) rhs_type operator
+                  in
+                  (source, to_string (add narrowed 7L)))
+                [ ("+", maximum, add_result); ("-", minimum, sub_result) ])
+            [ "I64"; "U64" ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+    @ [
+        ("U8 G=255;I64 N=-7;I64 F(){return (G+=1)+N;}F();", "-7");
+        ("U8 G=0;I64 N=-7;I64 F(){return (G-=1)+N;}F();", "248");
+        ( "U8 G=255;I64 N=0x7FFFFFFFFFFFFFFF;I64 F(){return (G+=1)+N;}F();",
+          "9223372036854775807" );
+        ("U8 G=0;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G-=1)+N;}F();", "254");
+      ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let minimum = if signed then neg (div n 2L) else 0L in
+          let add_result = if signed then neg (div n 2L) else 0L in
+          let sub_result = if signed then maximum else sub n 1L in
+          List.concat_map
+            (fun (rhs, rhs_source) ->
+              List.map
+                (fun (operator, initial, narrowed) ->
+                  ( Printf.sprintf
+                      "%s G=%s;I64 N=%s;I64 F(){return (G%s=1)+N;}F();" ty
+                      (to_string initial) rhs_source operator,
+                    to_string (add narrowed rhs) ))
+                [ ("+", maximum, add_result); ("-", minimum, sub_result) ])
+            [ (-7L, "-7"); (max_int, "0x7FFFFFFFFFFFFFFF") ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+    @ [
+        ( "I8 G=127;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G+=1)+N;}F();",
+          "-129" );
+        ("U8 G=255;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G+=1)+N;}F();", "-1");
+        ( "I8 G=-128;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G-=1)+N;}F();",
+          "126" );
+        ("U8 G=0;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G-=1)+N;}F();", "254");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
