@@ -67,6 +67,13 @@ val owns_expression :
   value:Sema.Function_call_expression_result.expression_result ->
   bool
 
+val owns_framed_expression :
+  t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  globals:Integer_globals.t ->
+  value:Sema.Function_call_expression_result.expression_result ->
+  bool
+
 val publications : t -> Global_initialization.publication_description list
 
 val publication_evidence :

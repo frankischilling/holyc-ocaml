@@ -677,14 +677,22 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | _ -> Ok ()
               in
               (* This graph is freshly lowered from the exact retained global
-                 root or live fragment. It may authorize only the same full-word
+                 or static root, or live fragment. It may authorize only the same full-word
                  canonical constant shifts qualified for retained callees. *)
               let root_shifts =
                 match root_ with
-                | (Global _ | Fragment _)
-                  when Option.is_none frame
-                       && Ir.Integer_program_lowering.owns_expression
-                            value_lowered ~globals ~value ->
+                | (Global _ | Fragment _ | Static _)
+                  when match (root_, frame) with
+                       | (Global _ | Fragment _), None ->
+                           Ir.Integer_program_lowering.owns_expression
+                             value_lowered ~globals ~value
+                       | Static (slot, root), Some frame ->
+                           Globals.static_frame slot == frame
+                           && List.exists (( == ) root)
+                                (Globals.static_initializers slot)
+                           && Ir.Integer_program_lowering.owns_framed_expression
+                                value_lowered ~frame ~globals ~value
+                       | _ -> false ->
                     let word (item : Seq.description) =
                       Option.fold ~none:false
                         ~some:(fun type_ ->

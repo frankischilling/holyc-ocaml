@@ -97,21 +97,27 @@ let source_values () =
     cases
 
 let original_division () =
-  let fields = fixture ~stem:"division" () in
   List.iter
-    (fun native ->
+    (fun (stem, source) ->
+      let fields = fixture ~stem () in
       List.iter
-        (fun (mode, field) ->
-          let diagnostics, result = run native mode "I64 G=-3;I64 H=G/2;H;" in
-          Alcotest.(check (option int64))
-            "original rewritten division"
-            (Some (Int64.of_string (List.assoc field fields)))
-            (Result.get_ok result);
-          Alcotest.(check (list string))
-            "no division diagnostics" []
-            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
-        [ (Preprocessor.Jit, "JIT_DIV"); (Preprocessor.Aot, "AOT_DIV") ])
-    [ false; true ]
+        (fun native ->
+          List.iter
+            (fun (mode, field) ->
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original rewritten division"
+                (Some (Int64.of_string (List.assoc field fields)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no division diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ (Preprocessor.Jit, "JIT_DIV"); (Preprocessor.Aot, "AOT_DIV") ])
+        [ false; true ])
+    [
+      ("division", "I64 G=-3;I64 H=G/2;H;");
+      ("static-division", "I64 G=-3;I64 F(){static I64 H=G/2;return H;}F();");
+    ]
 
 let original_counts () =
   let fields = fixture ~stem:"counts" () in
@@ -170,6 +176,97 @@ let original_effects () =
         [ (Preprocessor.Jit, "JIT"); (Preprocessor.Aot, "AOT") ])
     [ false; true ]
 
+let original_static () =
+  let fields = fixture ~stem:"static" () in
+  let source =
+    "I64 N=7;I64 F(){static I64 O=(++N)<<1;return O;}I64 Before=N;I64 \
+     First=F();N=20;First*100+F()+Before;"
+  in
+  List.iter
+    (fun native ->
+      List.iter
+        (fun (mode, prefix) ->
+          let number field =
+            Int64.of_string (List.assoc (prefix ^ field) fields)
+          in
+          let expected =
+            Int64.add
+              (Int64.mul (number "FIRST") 100L)
+              (Int64.add (number "SECOND") (number "N_BEFORE"))
+          in
+          let diagnostics, result = run native mode source in
+          Alcotest.(check (option int64))
+            "original static lifetime and effects" (Some expected)
+            (Result.get_ok result);
+          Alcotest.(check (list string))
+            "no static diagnostics" []
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+    [ false; true ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let diagnostics, result = run false mode source in
+          Alcotest.(check bool)
+            "unproved static shift is rejected" true (Result.is_error result);
+          Alcotest.(check bool)
+            "static rejection boundary" true
+            (List.exists
+               (fun (d : Diagnostic.t) -> d.code = "HCRUN0006")
+               diagnostics))
+        [
+          "I64 N=7,C=1;I64 F(){static I64 O=N<<C;return O;}F();";
+          "I8 N=-8;I64 F(){static I64 O=N>>1;return O;}F();";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let static_owner_identity () =
+  let module G = Ir_integer_globals in
+  let module L = Ir_integer_program_lowering in
+  let module T = Semantic_function_call_expression_result in
+  let compile () =
+    let session = Session.create () in
+    let source =
+      Session.add_source session ~path:"static-owner.hc"
+        ~contents:"I64 N=7;I64 F(){static I64 O=N<<1;return O;}F();"
+    in
+    let config =
+      Preprocessor.Config.create ~compilation_mode:Preprocessor.Aot ()
+      |> Result.get_ok
+    in
+    let compiled =
+      compile_integer_program session ~config ~source |> Result.get_ok
+    in
+    let globals = integer_program_globals compiled.value in
+    let slot = List.hd (G.statics globals) in
+    let frame = G.static_frame slot in
+    let value = Option.get (G.static_initializer slot) |> T.initializer_value in
+    let span =
+      match T.result_origin value with
+      | Semantic_symbol.Source_location location -> location.span
+      | _ -> failwith "missing source span"
+    in
+    (globals, frame, value, span)
+  in
+  let globals, frame, value, span = compile () in
+  let other_globals, other_frame, other_value, _ = compile () in
+  let lowered =
+    L.lower_complete ~frame ~globals ~span [ L.Expression value ]
+    |> Result.get_ok
+  in
+  let owns frame globals value =
+    L.owns_framed_expression lowered ~frame ~globals ~value
+  in
+  Alcotest.(check bool)
+    "original frame, globals and root" true (owns frame globals value);
+  Alcotest.(check bool) "foreign frame" false (owns other_frame globals value);
+  Alcotest.(check bool) "foreign globals" false (owns frame other_globals value);
+  Alcotest.(check bool) "foreign root" false (owns frame globals other_value);
+  Alcotest.(check bool)
+    "framed graph is not an unframed proof" false
+    (L.owns_expression lowered ~globals ~value)
+
 let boundaries () =
   List.iter
     (fun native ->
@@ -200,6 +297,10 @@ let () =
             original_division;
           Alcotest.test_case "original once-only update" `Quick original_effects;
           Alcotest.test_case "original full-width counts" `Quick original_counts;
+          Alcotest.test_case "original static initializer" `Quick
+            original_static;
+          Alcotest.test_case "static owner identity" `Quick
+            static_owner_identity;
           Alcotest.test_case "unsupported boundaries" `Quick boundaries;
         ] );
     ]

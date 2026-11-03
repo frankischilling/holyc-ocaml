@@ -907,7 +907,7 @@ let failed_preparation () =
            ("I64 F(){static I8 n=40 junk;return n;}42;", "HCPARSE0102");
            ("I64 A=40;I64 F(){static I8 n={2};return n;}42;", "HCRUN0001");
            ("I64 A=40;I64 F(){static I8 n=\"a\";return n;}42;", "HCRUN0006");
-           ("I64 A=40;I64 F(){static I8 n=A<<2;return n;}42;", "HCRUN0006");
+           ("I8 A=40;I64 F(){static I8 n=A<<2;return n;}42;", "HCRUN0006");
            ("I64 A=40;42;I64 F(){static I8 n=2;return n;}", "HCRUN0001");
          ]
         @
