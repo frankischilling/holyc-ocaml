@@ -4,7 +4,7 @@ TempleOS can keep a narrow integer variable in a register without narrowing the 
 
 Selection depends on more than the declared type. The original `Compiler/OptPass3.HC` scores frame members and assigns a limited set of registers; escape and register pressure can prevent selection. The captures include a larger pressure case where the signed result is -2. An option experiment enabled an option in the surrounding compiler context but still returned 254 from a compiled function. That experiment does not establish the function's own option snapshot, so the analysis declines non-default option states.
 
-The current analysis covers only a default-option, straight-line function with two scalar integer parameters, one compound left shift, right shift, addition, subtraction, multiplication or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return of that parameter. It declines address escapes, additional statements, control flow, locals, explicit register assignments, and larger graphs. It ties the result to the original typed source, frame, and instruction graph and rejects subsequent changes to the evidence. Explicit `noreg` is classified as stack storage; other unproved cases remain unknown.
+For parameters, the analysis covers a default-option, straight-line function with two scalar integer parameters, one compound shift, addition, subtraction, multiplication, division or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return. It ties the result to the original typed source, frame and instruction graph and rejects changes to that evidence. Explicit `noreg` is classified as stack storage. Address escapes, extra statements, control flow, explicit register assignments and larger graphs remain unproved.
 
 For this bounded class, the interpreter and native backends preserve the full register value through the update and return. Arguments are first converted to their declared narrow type, as in the entry-conversion captures. Explicit `noreg` continues to use narrow memory storage. The native entry path normalizes the incoming value before preserving its full-width register value.
 
@@ -23,3 +23,7 @@ Original JIT and compiled captures cover the same bounded parameter and local sh
 Original JIT and compiled captures cover the bounded parameter and local shapes for compound multiplication, including high-bit operands and retained defaults.
 
 Original JIT and compiled captures cover parameter compound AND, OR and XOR using a second parameter, including `noreg` and retained defaults. Literal bitwise updates on locals remain outside this proof because native bit operations can affect neighboring memory.
+
+Compound division is supported for the two-parameter shape only. Original JIT and compiled observations cover signed and unsigned widths, negative operands, truncation toward zero, `noreg` and retained defaults. A zero divisor reaches the original `DivZero` exception; native exception handling remains a separate boundary.
+
+A narrow local initialized from one full-word parameter and returned directly is also covered. Original JIT and compiled observations cover signed and unsigned locals, a high-bit unsigned parameter, `noreg` and retained defaults. The parameter-initialized case does not yet include subsequent updates, narrower parameters or additional locals.

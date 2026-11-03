@@ -705,6 +705,40 @@ let source_controls () =
           ("U32", "2147483647");
         ] );
     ];
+  List.iter
+    (fun (stem, signed, unsigned) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "parameter-initialized local" expected
+                (List.assoc (prefix ^ name) fields))
+            [ ("S", signed); ("U", unsigned); ("SN", "-1"); ("UN", "0") ])
+        [ "J_"; "A_" ])
+    [
+      ("local-param-byte", "255", "256");
+      ("local-param-16", "65535", "65536");
+      ("local-param-32", "4294967295", "4294967296");
+    ];
+  let unsigned_parameter = fixture "local-param-unsigned" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "unsigned parameter local" expected
+            (List.assoc (prefix ^ name) unsigned_parameter))
+        [ ("S", "-1"); ("U", "-1"); ("SN", "-1"); ("UN", "255") ])
+    [ "J_"; "A_" ];
+  let param_default = fixture "local-param-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained parameter local" expected
+        (List.assoc name param_default))
+    [ ("SIGNED", "255"); ("UNSIGNED", "256") ];
   let div_zero = fixture "div-zero" in
   List.iter
     (fun name ->
@@ -853,6 +887,32 @@ let simple_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let local_parameter_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (ty, qualifier, expected) ->
+          let source =
+            Printf.sprintf "I64 F(I64 c){%s %s x=c;return x;}42;" ty qualifier
+          in
+          let fn = compile mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let x = location fn.frame "x" |> Frame.location_symbol in
+          Alcotest.(check bool)
+            "parameter local selection" true
+            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x
+            = Some expected))
+        (List.concat_map
+           (fun ty ->
+             [
+               (ty, "", Analysis.Register_candidate);
+               (ty, "noreg", Analysis.Stack);
+             ])
+           [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ]))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let local_selection () =
   List.iter
     (fun mode ->
@@ -920,6 +980,7 @@ let local_ownership () =
         [
           "I64 F(){I8 x=255;x<<=0;return x;}42;";
           "I64 F(){I8 x=255;return x;}42;";
+          "I64 F(I64 c){I8 x=c;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -940,6 +1001,9 @@ let unsupported_selection () =
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";
           "I64 F(){Bool x=1;x<<=1;return x;}42;";
+          "I64 F(I8 c){I8 x=c;return x;}42;";
+          "I64 F(I64 c){I8 x=c;x+=1;return x;}42;";
+          "I64 F(I64 c){I8 x=255;return x;}42;";
           "I64 F(){I8 x=255;x/=2;return x;}42;";
           "I64 F(){I8 x=1;x|=256;return x;}42;";
           "I64 F(){I8 x=1;x^=256;return x;}42;";
@@ -1100,6 +1164,8 @@ let () =
         [
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
+          Alcotest.test_case "parameter-initialized local selection" `Quick
+            local_parameter_selection;
           Alcotest.test_case "bounded local selection" `Quick local_selection;
           Alcotest.test_case "local return selection" `Quick
             local_return_selection;

@@ -555,8 +555,28 @@ let analyze_local ~frame ~body =
          (Int64.lognot Function_body.ordinary_calling_flag_mask)
        = 0L
   in
-  match locations with
-  | [ location ] when ordinary && supported location ->
+  let parameter location =
+    Frame.location_kind location = Frame.Named_parameter
+    && Frame.location_value_shape location = Frame.Scalar
+    && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
+    && (match Sema.Type.base (Frame.location_checked_type location) with
+      | Sema.Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+      | _ -> false)
+    && Option.is_some (Frame.location_frame_slot location)
+    &&
+    match Frame.location_register_selection location with
+    | Request.Explicit _ -> false
+    | Unspecified | Allocatable | Disabled -> true
+  in
+  let shape =
+    match locations with
+    | [ location ] when supported location -> Some (None, location)
+    | [ argument; location ] when parameter argument && supported location ->
+        Some (Some argument, location)
+    | _ -> None
+  in
+  match shape with
+  | Some (argument, location) when ordinary ->
       let blocks = snapshot body in
       let code =
         List.concat_map (fun (_, instructions, _) -> instructions) blocks
@@ -629,7 +649,7 @@ let analyze_local ~frame ~body =
         | O.Ic_imm_i64, Some (Seq.Integer value), [] -> Some value
         | _ -> None
       in
-      let address rbp offset add =
+      let address location rbp offset add =
         rbp.Seq.opcode = O.Ic_rbp && rbp.operands = [] && rbp.payload = None
         && offset.Seq.opcode = O.Ic_imm_i64
         && Option.fold ~none:false
@@ -757,8 +777,75 @@ let analyze_local ~frame ~body =
             | _ -> false)
           (Function_body.definition_source body)
       in
+      let source_matches_parameter argument =
+        Option.fold ~none:false
+          ~some:(fun source ->
+            match
+              ( Typed.function_initializers source,
+                Typed.function_expression_statements source,
+                Typed.function_returns source )
+            with
+            | [ initialization ], [], [ returned ] ->
+                let local =
+                  initialization |> Typed.initializer_source
+                  |> Calls.initializer_local
+                in
+                Sema.Local_type_resolution.local_symbol local
+                == Frame.location_symbol location
+                && Option.fold ~none:false
+                     ~some:(( == ) (Frame.location_binding argument))
+                     (binding_of (Typed.initializer_value initialization))
+                && Option.fold ~none:false
+                     ~some:(fun value ->
+                       Option.fold ~none:false
+                         ~some:(( == ) (Frame.location_binding location))
+                         (binding_of value))
+                     (Typed.return_value returned)
+            | _ -> false)
+          (Function_body.definition_source body)
+      in
       let matched =
         match core with
+        | [
+         r1; o1; a1; rp; op; ap; input; store; end1; r2; o2; a2; load; returned;
+        ] -> (
+            match
+              (argument, id a1, id ap, id input, id store, id a2, id load)
+            with
+            | ( Some argument,
+                Some a1id,
+                Some apid,
+                Some inputid,
+                Some storeid,
+                Some a2id,
+                Some loadid ) ->
+                address location r1 o1 a1 && address argument rp op ap
+                && address location r2 o2 a2
+                && input.Seq.opcode = O.Ic_deref
+                && input.payload = None
+                && Option.fold ~none:false
+                     ~some:
+                       (Sema.Type.equal (Frame.location_checked_type argument))
+                     input.target_type
+                && is_one input apid
+                && store.Seq.opcode = O.Ic_assign
+                && store.payload = None && same_type store
+                && store.operands = [ a1id; inputid ]
+                && end1.Seq.opcode = O.Ic_end_exp
+                && end1.payload = None && end1.result = None
+                && end1.flags = 0x200L && is_one end1 storeid
+                && load.Seq.opcode = O.Ic_deref
+                && load.payload = None && same_type load && is_one load a2id
+                && returned.Seq.opcode = O.Ic_return_val
+                && returned.payload = None && returned.result = None
+                && is_one returned loadid
+                && List.for_all
+                     (fun (item : Seq.description) ->
+                       Option.is_some (instruction_stamp item)
+                       && (item.opcode = O.Ic_end_exp || item.flags = 0L))
+                     code
+                && source_matches_parameter argument
+            | _ -> false)
         | [ r1; o1; a1; initial; store; end1; r2; o2; a2; load; returned ] -> (
             match
               (id a1, id initial, id store, id a2, id load, integer initial)
@@ -769,7 +856,8 @@ let analyze_local ~frame ~body =
                 Some a2id,
                 Some loadid,
                 Some bits ) ->
-                address r1 o1 a1 && address r2 o2 a2 && scalar_literal initial
+                address location r1 o1 a1 && address location r2 o2 a2
+                && scalar_literal initial
                 && store.Seq.opcode = O.Ic_assign
                 && store.payload = None && same_type store
                 && store.operands = [ a1id; initialid ]
@@ -786,7 +874,7 @@ let analyze_local ~frame ~body =
                        Option.is_some (instruction_stamp item)
                        && (item.opcode = O.Ic_end_exp || item.flags = 0L))
                      code
-                && source_matches_direct bits
+                && Option.is_none argument && source_matches_direct bits
             | _ -> false)
         | [
          r1;
@@ -829,8 +917,9 @@ let analyze_local ~frame ~body =
                 Some loadid,
                 Some initialbits,
                 Some countbits ) ->
-                address r1 o1 a1 && address r2 o2 a2 && address r3 o3 a3
-                && scalar_literal initial && scalar_literal count
+                address location r1 o1 a1 && address location r2 o2 a2
+                && address location r3 o3 a3 && scalar_literal initial
+                && scalar_literal count
                 && store.Seq.opcode = O.Ic_assign
                 && store.payload = None && same_type store
                 && store.operands = [ a1id; initialid ]
@@ -861,6 +950,7 @@ let analyze_local ~frame ~body =
                        Option.is_some (instruction_stamp item)
                        && (item.opcode = O.Ic_end_exp || item.flags = 0L))
                      code
+                && Option.is_none argument
                 && source_matches initialbits countbits update
             | _ -> false)
         | _ -> false
@@ -879,7 +969,8 @@ let analyze_local ~frame ~body =
             source_ = Function_body.definition_source body;
             options_ = Function_body.compiler_options body;
             flags_ = Function_body.stored_flags body;
-            locations_ = [ Option.get (location_stamp location) ];
+            locations_ =
+              List.map (fun item -> Option.get (location_stamp item)) locations;
             blocks_ = blocks;
             stamps_ =
               List.map

@@ -310,6 +310,35 @@ let () =
           "0" );
       ]
   in
+  let parameter_local_widths =
+    [
+      ("I8", "255", "255", "-1");
+      ("U8", "256", "256", "0");
+      ("I16", "65535", "65535", "-1");
+      ("U16", "65536", "65536", "0");
+      ("I32", "4294967295", "4294967295", "-1");
+      ("U32", "4294967296", "4294967296", "0");
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, wide, narrow) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(I64 c){%s %s x=c;return x;}F(%s);" ty
+              qualifier input
+          in
+          [ (source "", wide); (source "noreg", narrow) ])
+        parameter_local_widths
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(U64 c){I8 x=c;return x;}F(0xFFFFFFFFFFFFFFFF);", "-1");
+        ("I64 F(U64 c){U8 x=c;return x;}F(0xFFFFFFFFFFFFFFFF);", "-1");
+        ("I64 F(U64 c){U8 noreg x=c;return x;}F(0xFFFFFFFFFFFFFFFF);", "255");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

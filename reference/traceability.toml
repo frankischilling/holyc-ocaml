@@ -15038,3 +15038,15 @@ status = "partial"
 issue = 690
 verification = "Five original probe pairs repeat twice with zero AOT compilation errors and real BIN loading. U0-target stores overwrite four bytes; default-I64 empty and three-byte class stores overwrite eight. A lookahead-completed two-byte class retains the raw I64 assignment. Hosted IR/native values match those captures. Canonical source-region validation derives raw operations and complete windows; stores invalidate overlapping data/callback ownership. Exact/one-below limits, signed integer results, unaligned offsets and undersized roots are checked. Native authority compiles both ABIs and rejects copied, reordered, missing and foreign evidence."
 verification_boundary = "Missing U0 register results, reference values without actual integer words, undersized roots, scalar U0 AOT roots, globals-on-data-heap and unqualified intrinsic folding phases remain unsupported. Original nonconstant opcode evidence is required when assignment and copy widths differ. AOT assignment warnings and emitted-byte equality are not claimed."
+
+[[feature]]
+id = "HC-BOUNDED-NARROW-REGISTER-VALUES"
+description = "Preserve full register values in source-proven narrow parameter updates and direct local returns."
+sources = ["Compiler/OptPass3.HC", "Compiler/BackA.HC:ICDivEqu", "Kernel/KInts.HC:IntDivZero"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/driver/integer_update_initializers.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "test/test_prepared_integer_shifts_cli.ml", "test/exception_execution_cases.ml", "test/oracle/register-variable-analysis/div-zero.capture", "test/oracle/register-variable-analysis/local-param-byte.capture"]
+documentation = ["docs/register-variable-analysis.md"]
+status = "partial"
+issue = 703
+verification = "Original JIT and compiled observations repeat twice; focused IR and native tests cover signed and unsigned values, noreg and retained defaults. Original division-by-zero is caught by a JIT caller of both JIT and compiled functions."
+evidence_limit = "Only source-proven function shapes are covered. General register allocation, explicit registers, aliases, additional control flow, narrower parameter-initialized locals and native exception handling remain open."
