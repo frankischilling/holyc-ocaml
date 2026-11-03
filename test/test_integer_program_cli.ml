@@ -1801,11 +1801,19 @@ let () =
                    = "HCRUN0006")
                 "signed native initializer proof boundary"))
         [
-          "I64 F(){I8 n=255;return n;}I64 N=F();N;";
           "I8 A=-1;I64 N=(A&=255);N;";
           "I8 A=-128;I64 D=-1;I64 F(){I8 n=(A/=D);return n;}I64 N=F();N;";
           "I8 A=-1;U16 N=(A&=255);N;";
         ];
+      with_file ".hc" "I64 F(){I8 n=255;return n;}I64 N=F();N;" (fun path ->
+          let status, report = run path in
+          require
+            (status = Unix.WEXITED 0
+            && report |> member "outcome" |> to_string = "success"
+            && report |> member "final_value" |> member "value" |> to_string
+               = "255"
+            && report |> member "output_hex" |> to_string = "")
+            "proven wide local initializer result");
       let legacy =
         success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
         |> Yojson.Safe.from_string
