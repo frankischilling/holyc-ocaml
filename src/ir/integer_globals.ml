@@ -985,6 +985,9 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
             "global declaration initializer execution is not implemented"
         else if
           Option.is_none (Scalar.public_byte_size shape_type)
+          && (not
+                (Shape.is_void_scalar shape_type
+                && Global.global_array_dimensions global = []))
           && not
                (Option.is_some members
                && Type.pointer_depth shape_type = 0
@@ -1075,6 +1078,16 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
           in
           let* () =
             if
+              Shape.is_storage_free shape
+              && Records.compilation_mode records = Resolution.Aot
+              && Option.is_some (Global.global_initializer global)
+            then
+              fail "HCRUN0006"
+                "U0 scalar initializers require the live JIT source path"
+            else Ok ()
+          in
+          let* () =
+            if
               Shape.cell_count shape > Sys.max_array_length - index
               || Shape.byte_size shape > Int.max_int - byte_size
             then
@@ -1088,7 +1101,7 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
               (Symbols.find_opt (Symbol.id symbol) roots)
           in
           let* array_initializers =
-            if dimensions = [] && not (Shape.is_aggregate shape) then Ok None
+            if dimensions = [] && not (Shape.has_byte_leaves shape) then Ok None
             else
               match (Global.global_initializer global, owned) with
               | None, None -> Ok None
@@ -1175,7 +1188,7 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
                     "array declaration and initializer roots disagree"
           in
           let* initializer_root =
-            if dimensions <> [] || Shape.is_aggregate shape then Ok None
+            if dimensions <> [] || Shape.has_byte_leaves shape then Ok None
             else
               match (Global.global_initializer global, owned) with
               | None, None -> Ok None

@@ -185,6 +185,9 @@ let warning_execution () =
             diagnostics)
         [
           ("STATEMENT_WARNINGS", "U0 Effect(){}Effect();42;", 42L);
+          ( "GLOBAL_WARNINGS",
+            "U0 Effect(){}U0 object=Effect();sizeof(object)+42;",
+            42L );
           ( "AGGREGATE_WARNINGS",
             "U0 Effect(){}class Box{U0 empty;U8 value;};Box \
              object={Effect(),42};I64 F(){return object.value;}F();",

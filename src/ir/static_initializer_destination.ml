@@ -52,7 +52,10 @@ let requires_settlement t =
     ~some:Integer_initializer_layout.stream_preparation_requires_settlement
     t.preparation_
 
-let requires_evaluation t = requires_settlement t || discards_value t
+let requires_evaluation t =
+  requires_settlement t || discards_value t
+  || Integer_storage_shape.is_storage_free
+       (Integer_static_allocation.shape t.allocation_)
 
 let settle t =
   if not (Fragment.is_current t.fragment_) then

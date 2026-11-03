@@ -1,5 +1,9 @@
 # Testing holyc-ocaml
 
+Scalar U0 globals and statics now retain zero-byte storage and live JIT
+initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)
+for native observations, execution checks and the separate AOT boundary.
+
 [Zero-byte reference initializer tests](zero-byte-reference-initializers.md)
 compare ten repeated native observations, check actual no-scalar captures and
 empty-copy receipts, and retain exact/one-below work, storage and literal limits.

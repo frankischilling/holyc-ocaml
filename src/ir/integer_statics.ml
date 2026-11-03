@@ -283,7 +283,7 @@ let create ~initializer_snapshots ~allocations ~span ~mode ~start ~frames
                   in
                   if
                     Option.is_none scalar_bytes
-                    && not (Shape.is_aggregate shape)
+                    && not (Shape.has_byte_leaves shape)
                     || dimensions <> []
                        && not
                             (Frame.location_source_dimensions_checked location)
@@ -327,10 +327,20 @@ let create ~initializer_snapshots ~allocations ~span ~mode ~start ~frames
                         remaining
                     in
                     let* () =
+                      if
+                        Shape.is_storage_free shape
+                        && mode = Resolution.Aot && owned <> []
+                      then
+                        invalid ~at ~code:"HCRUN0006"
+                          "U0 scalar static initializers require the live JIT \
+                           source path"
+                      else Ok ()
+                    in
+                    let* () =
                       List.fold_left
                         (fun checked root ->
                           let* () = checked in
-                          (if Shape.is_aggregate shape then Ok ()
+                          (if Shape.has_byte_leaves shape then Ok ()
                            else
                              Frame_address_lowering.prepare_initializer ~frame
                                root
@@ -347,8 +357,8 @@ let create ~initializer_snapshots ~allocations ~span ~mode ~start ~frames
                         (Ok ()) owned
                     in
                     let* array_initializers =
-                      if dimensions = [] && not (Shape.is_aggregate shape) then
-                        Ok None
+                      if dimensions = [] && not (Shape.has_byte_leaves shape)
+                      then Ok None
                       else
                         match owned with
                         | [] when Shape.element_count shape = 0 -> (
@@ -428,7 +438,7 @@ let create ~initializer_snapshots ~allocations ~span ~mode ~start ~frames
                             end
                     in
                     let* initial =
-                      if dimensions <> [] || Shape.is_aggregate shape then
+                      if dimensions <> [] || Shape.has_byte_leaves shape then
                         Ok None
                       else
                         match owned with

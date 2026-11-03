@@ -296,14 +296,13 @@ let local_source_error (declaration : Ast.local_declaration) =
   in
   let is_static = declaration.local_storage = Ast.Static_local in
   let storage_free_void =
-    (not is_static)
-    && void_return_type declaration.local_type_specifier
+    void_return_type declaration.local_type_specifier
     && List.for_all
          (fun (local : Ast.local_declarator) ->
            local.local_pointer_layers = []
            && local.local_array_dimensions = []
            && Option.is_none local.local_function_pointer
-           && Option.is_none local.local_initializer)
+           && (is_static || Option.is_none local.local_initializer))
          declaration.local_declarators
   in
   let aggregate_object =
@@ -370,7 +369,7 @@ let local_source_error (declaration : Ast.local_declaration) =
       declaration.local_declarators
 
 let global_source_error ~span ~modifiers ~binding ~type_specifier
-    ~pointer_layers ~function_pointer ~array_dimensions:_ ~has_initializer:_ =
+    ~pointer_layers ~function_pointer ~array_dimensions ~has_initializer:_ =
   let reject message = Some (source_error span message) in
   if
     List.exists
@@ -389,6 +388,7 @@ let global_source_error ~span ~modifiers ~binding ~type_specifier
   else if
     not
       (scalar_word_type type_specifier
+      || (void_return_type type_specifier && array_dimensions = [])
       || Option.is_some function_pointer
       ||
       match type_specifier with

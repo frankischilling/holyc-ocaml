@@ -14267,8 +14267,10 @@ let execute_program_with_output ?task ?isolated_budget
       Option.fold ~none:[] ~some:Integer_globals.allocated_storage_slots globals
       |> List.iter (fun slot ->
           let initial =
-            Option.map (storage_word slot)
-              (Integer_globals.storage_initial_bits slot)
+            if Integer_globals.storage_cell_count slot = 0 then None
+            else
+              Option.map (storage_word slot)
+                (Integer_globals.storage_initial_bits slot)
           in
           Array.fill cells
             (Integer_globals.storage_index slot)

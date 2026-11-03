@@ -12,6 +12,16 @@ val cell_count : t -> int
 val initializer_type : t -> Sema.Initializer_type.t option
 val is_aggregate : t -> bool
 
+val is_storage_free : t -> bool
+(** True only for the scalar U0 shape, with no bytes or cells. This does not
+    classify empty classes, which retain their own nominal owner. *)
+
+val has_byte_leaves : t -> bool
+(** Initializer leaves retain their exact byte widths instead of an integer cell
+    width. Both class storage and scalar U0 use this traversal. *)
+
+val is_void_scalar : Sema.Type.t -> bool
+
 val matches :
   t ->
   symbol:Sema.Symbol.t ->

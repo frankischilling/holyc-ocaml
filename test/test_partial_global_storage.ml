@@ -162,7 +162,7 @@ let preflight_failure () =
         task)
     [
       ({|I64 A[2]={#exe {StreamPrint("42");},0};|}, 15);
-      ("U0 A;", 16);
+      ("U0 A[1];", 16);
       ("I64 *A;", 16);
       ("_I64 A;", 16);
       ("static I64 A;", 16);
@@ -180,7 +180,12 @@ let zero_extent_admission () =
       Alcotest.(check (option int64))
         "original size query observes zero" (Some 0L)
         (Option.map (fun word -> word.VM.bits) progress.final_value))
-    [ "I64 A[0];sizeof A;"; "I64 A[];sizeof A;" ]
+    [
+      "I64 A[0];sizeof A;";
+      "I64 A[];sizeof A;";
+      "U0 A;sizeof A;";
+      "U0 A,B;sizeof A+sizeof B;";
+    ]
 
 let replay_and_foreign () =
   let on_admitted task publication =

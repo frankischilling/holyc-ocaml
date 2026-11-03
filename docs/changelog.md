@@ -1,5 +1,9 @@
 # Changelog
 
+Scalar U0 globals and statics now retain zero-byte storage and live JIT
+initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)
+for native observations, execution checks and the separate AOT boundary.
+
 ## Unreleased
 
 - Evaluate supported reference values in zero-byte JIT initializer leaves

@@ -236,7 +236,7 @@ let advance_tokens ~shape ~final ~expression_of_leaf ~make_entry progress input
         else
           run rest (offset + bytes)
             (entry leaf offset Scalar_store
-               (if Shape.is_aggregate shape then Some scalar else None)
+               (if Shape.has_byte_leaves shape then Some scalar else None)
             :: reversed)
             input
     | Scalar_value _ :: _, _ ->
@@ -459,7 +459,7 @@ let prepare_stream_leaf preparation ~value =
             let scalar = Initializer_type.scalar_evaluation_before phase in
             Ok
               ( Scalar_store,
-                (if Shape.is_aggregate shape then Some scalar else None),
+                (if Shape.has_byte_leaves shape then Some scalar else None),
                 Initializer_type.scalar_byte_size scalar )
         | Prepared_string count -> (
             match expression with
@@ -968,7 +968,7 @@ let prepared_entry live preparation leaf =
         let scalar = Initializer_type.scalar_evaluation_before phase in
         Ok
           ( Scalar_store,
-            (if Shape.is_aggregate live.shape then Some scalar else None),
+            (if Shape.has_byte_leaves live.shape then Some scalar else None),
             Initializer_type.scalar_byte_size scalar,
             if Initializer_type.scalar_evaluation_may_change phase then
               Some phase

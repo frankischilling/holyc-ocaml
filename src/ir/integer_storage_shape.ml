@@ -8,6 +8,7 @@ type t = {
   cell_count : int;
   aggregate_owner : (Sema.Symbol.t * Sema.Type.t) option;
   initializer_type : Sema.Initializer_type.t option;
+  storage_free : bool;
 }
 
 type error = Unsupported_type | Invalid_extent | Overflow
@@ -21,6 +22,16 @@ let element_size shape = shape.element_size
 let cell_count shape = shape.cell_count
 let initializer_type shape = shape.initializer_type
 let is_aggregate shape = Option.is_some shape.aggregate_owner
+let is_storage_free shape = shape.storage_free
+let has_byte_leaves shape = is_aggregate shape || is_storage_free shape
+
+let is_void_scalar type_ =
+  Sema.Type.pointer_depth type_ = 0
+  &&
+  match Sema.Type.base type_ with
+  | Sema.Type.Primitive (Sema.Type.Public_spelling, Sema.Primitive_type.U0) ->
+      true
+  | _ -> false
 
 let matches shape ~symbol ~type_ ~dimensions =
   shape.dimensions = dimensions
@@ -71,19 +82,38 @@ let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
           cell_count = Int64.to_int cells;
           aggregate_owner;
           initializer_type;
+          storage_free = false;
         }
 
 let create ~type_ ~dimensions =
-  match
-    ( Integer_scalar_storage.public_byte_size type_,
-      Integer_scalar_storage.of_type type_ )
-  with
-  | Some width, Some scalar ->
-      create_with_scalar ~width ~scalar ~aggregate_owner:None
-        ~initializer_type:
-          (Sema.Initializer_type.of_type type_ |> Result.to_option)
-        ~dimensions
-  | _ -> Error Unsupported_type
+  if dimensions = [] && is_void_scalar type_ then
+    (* This byte-addressed shape owns no bytes or scalar cells. U8 supplies only
+       cursor units; it does not turn the U0 object into an integer value. *)
+    Ok
+      {
+        scalar = Automatic_aggregate_storage.byte_scalar;
+        dimensions = [];
+        strides = [];
+        element_count = 1;
+        byte_size = 0;
+        element_size = 0;
+        cell_count = 0;
+        aggregate_owner = None;
+        storage_free = true;
+        initializer_type =
+          Sema.Initializer_type.of_type type_ |> Result.to_option;
+      }
+  else
+    match
+      ( Integer_scalar_storage.public_byte_size type_,
+        Integer_scalar_storage.of_type type_ )
+    with
+    | Some width, Some scalar ->
+        create_with_scalar ~width ~scalar ~aggregate_owner:None
+          ~initializer_type:
+            (Sema.Initializer_type.of_type type_ |> Result.to_option)
+          ~dimensions
+    | _ -> Error Unsupported_type
 
 let aggregate_shape ~initializer_type ~symbol ~type_ ~element_size ~dimensions =
   if element_size < 0L || element_size > Int64.of_int Int.max_int then

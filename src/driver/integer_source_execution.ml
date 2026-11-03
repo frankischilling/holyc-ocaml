@@ -374,9 +374,18 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                   in
                   match (is_jit, !task, event) with
                   | true, None, Parser.Global_initializer_started start
-                    when Option.is_some
-                           start.initializer_owner.global_header
-                             .declaration_type_selection
+                    when (Option.is_some
+                            start.initializer_owner.global_header
+                              .declaration_type_selection
+                         || start.initializer_owner.global_dimensions = []
+                            &&
+                            match
+                              start.initializer_owner.global_header
+                                .type_specifier
+                            with
+                            | Frontend.Ast.Primitive_type_specifier p ->
+                                p.primitive = Sema.Primitive_type.U0
+                            | _ -> false)
                          && start.initializer_owner.global_pointer_layers = []
                          && Option.is_none
                               start.initializer_owner.global_function_pointer ->
@@ -413,6 +422,9 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                                 &&
                                 match source.local_type_specifier with
                                 | Frontend.Ast.Named_type_specifier _ -> true
+                                | Frontend.Ast.Primitive_type_specifier p ->
+                                    p.primitive = Sema.Primitive_type.U0
+                                    && source.local_array_dimensions = []
                                 | _ -> false)
                          | _ -> false ->
                       ensure_task

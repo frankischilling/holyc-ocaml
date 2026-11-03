@@ -616,7 +616,7 @@ let prepare_static_initializer ~globals slot root =
       in
       let* () =
         if
-          Integer_storage_shape.is_aggregate
+          Integer_storage_shape.has_byte_leaves
             (Integer_globals.storage_shape storage)
         then Ok ()
         else

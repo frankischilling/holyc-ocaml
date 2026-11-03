@@ -35,7 +35,10 @@ let stores_pointer value =
     (Typed.top_level_root_value value.root_)
 
 let requires_evaluation value =
-  Layout.requires_settlement value.layout_ || discards_value value
+  Layout.requires_settlement value.layout_
+  || discards_value value
+  || Integer_storage_shape.is_storage_free
+       (Globals.storage_shape value.storage_)
 
 let ( let* ) = Result.bind
 

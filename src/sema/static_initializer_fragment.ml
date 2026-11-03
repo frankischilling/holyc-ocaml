@@ -194,6 +194,8 @@ let create_impl ~load ?aggregate ?activation ?callback
     match Type.base type_ with
     | Type.Primitive (_, p)
       when Option.is_some (Primitive_type.integer_storage_info p) -> Ok ()
+    | Type.Primitive (Type.Public_spelling, Primitive_type.U0)
+      when Type.pointer_depth type_ = 0 && source_dimensions = [] -> Ok ()
     | Type.Aggregate _
       when Option.is_some aggregate && Type.pointer_depth type_ = 0 -> Ok ()
     | _ ->

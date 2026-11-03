@@ -1,5 +1,9 @@
 # Compiler status and implementation notes
 
+Scalar U0 globals and statics now retain zero-byte storage and live JIT
+initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)
+for native observations, execution checks and the separate AOT boundary.
+
 [Zero-byte reference initializers](zero-byte-reference-initializers.md) now
 evaluate supported function, callback and data references in live JIT sources
 without copying address bits. Original AOT behavior remains separately gated.

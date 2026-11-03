@@ -49,9 +49,9 @@ Tests compare supported warning counts and values through both executors,
 check source spans, and preserve a warning before a later division failure.
 The live-parser test also checks duplicate and expired preparation attempts.
 
-The native fixture includes a plain scalar U0 global as reference evidence;
-that storage family is still unsupported and is not counted as an execution
-comparison. AOT and isolated native warning phases are not implemented by this
+The native fixture also covers plain scalar U0 globals. Their warning count
+now has an execution comparison through the
+[persistent U0 path](persistent-void-declarations.md). AOT and isolated native warning phases are not implemented by this
 change. Original AOT load code has its own assignment-warning path, which must
 not be replaced by replaying the JIT warning. Automatic U0 assignments and their
 register aliases also remain separate. Issues #686 and #690 stay open.

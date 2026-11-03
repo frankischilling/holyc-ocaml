@@ -2714,16 +2714,11 @@ let print_callback_entry_abis () =
        *fmt,...){N=42;}q=&Print;p(\"A\");q(\"B\");N;";
     ]
 
-let zero_reference_initializer_authority () =
+let check_zero_reference_initializer_authority contents =
   let module Program = Holyc_lib__Ir.Initializer_fragment_program in
   let module Destination = Holyc_lib__Ir.Initializer_fragment_destination in
   let module Capture = Holyc_lib__Ir.Native_scalar_capture in
-  let session, config, source =
-    inputs
-      "I64 target=7;U0 Fn(){target=99;}class Box{U0 empty;I64 value;};Box \
-       first={&Fn,20},second={&target,22};I64 F(){if(target!=7)return \
-       -1;return first.value+second.value;}F();"
-  in
+  let session, config, source = inputs contents in
   let layout = Image.create_task_layout ~max_global_bytes:64 |> compiled in
   let arena =
     Runtime.create_task_arena ~max_arena_bytes:1024 layout |> checked
@@ -2865,6 +2860,16 @@ let zero_reference_initializer_authority () =
       rejected "closed source cannot reuse empty-copy authority"
         (Dispatch.check_initializer_copy request token))
     !saved
+
+let zero_reference_initializer_authority () =
+  List.iter check_zero_reference_initializer_authority
+    [
+      "I64 target=7;U0 Fn(){target=99;}class Box{U0 empty;I64 value;};Box \
+       first={&Fn,20},second={&target,22};I64 F(){if(target!=7)return \
+       -1;return first.value+second.value;}F();";
+      "I64 target=7;U0 Fn(){target=99;}U0 first=&Fn,second=&target;I64 \
+       F(){if(target!=7)return -1;return sizeof(first)+sizeof(second)+42;}F();";
+    ]
 
 let () =
   Alcotest.run "Native source authority"
