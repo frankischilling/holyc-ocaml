@@ -216,8 +216,8 @@ let original_static () =
                (fun (d : Diagnostic.t) -> d.code = "HCRUN0006")
                diagnostics))
         [
-          "I64 N=7;I8 C=1;I64 F(){static I64 O=N<<C;return O;}F();";
-          "I8 N=-8;I64 F(){static I64 O=N>>1;return O;}F();";
+          "I64 F(I64 p){static I64 O=p<<2;return O;}42;";
+          "I64 F(I64 p){static I64 O=p>>1;return O;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -296,6 +296,110 @@ let original_dynamic_counts () =
         [ false; true ])
     [ ("ZERO", "0"); ("NEG", "-1"); ("63", "63"); ("64", "64"); ("128", "128") ]
 
+let original_narrow () =
+  let fields = fixture ~stem:"narrow" () in
+  let cases =
+    [
+      ("SIGNED", "I8 N=-8;I64 O=N>>1;O;");
+      ("UNSIGNED", "U8 N=248;I64 O=N>>1;O;");
+      ("DYN_SIGNED", "I8 N=-8,C=1;I64 O=N>>C;O;");
+      ("DYN_UNSIGNED", "U8 N=248;I8 C=1;I64 O=N>>C;O;");
+    ]
+  in
+  List.iter
+    (fun (name, source) ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun (mode, prefix) ->
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original narrow shift"
+                (Some (Int64.of_string (List.assoc (prefix ^ name) fields)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no narrow shift diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+        [ false; true ])
+    cases;
+  let fields = fixture ~stem:"narrow-widths" () in
+  List.iter
+    (fun (type_, initial) ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun (mode, prefix) ->
+              let source =
+                Printf.sprintf "%s N=%s;I8 C=1;I64 O=N>>C;O;" type_ initial
+              in
+              let _, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original narrow width"
+                (Some (Int64.of_string (List.assoc (prefix ^ type_) fields)))
+                (Result.get_ok result))
+            [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+        [ false; true ])
+    [
+      ("I8", "-8");
+      ("U8", "248");
+      ("I16", "-8");
+      ("U16", "65528");
+      ("I32", "-8");
+      ("U32", "4294967288");
+    ];
+  let fields = fixture ~stem:"static-narrow" () in
+  let source =
+    "I8 N=-8,C=0;I64 F(){static I64 O=(++N)>>(++C);return O;}I64 \
+     A=N,B=C,D=F();N=7;A*10000+B*100+D+F();"
+  in
+  List.iter
+    (fun native ->
+      List.iter
+        (fun (mode, prefix) ->
+          let number key = Int64.of_string (List.assoc (prefix ^ key) fields) in
+          let expected =
+            Int64.add
+              (Int64.mul (number "N") 10000L)
+              (Int64.add
+                 (Int64.mul (number "C") 100L)
+                 (Int64.add (number "FIRST") (number "SAVED")))
+          in
+          let _, result = run native mode source in
+          Alcotest.(check (option int64))
+            "original narrow static effects" (Some expected)
+            (Result.get_ok result))
+        [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+    [ false; true ]
+
+let original_narrow_left () =
+  let fields = fixture ~stem:"narrow-left" () in
+  let cases =
+    [
+      ("POS", "I8 N=127,C=1;I64 O=N<<C;O;");
+      ("NEG", "I8 N=-128,C=1;I64 O=N<<C;O;");
+      ("UNSIGNED", "U8 N=255;I8 C=1;I64 O=N<<C;O;");
+      ("CONST", "I8 N=127;I64 O=N<<1;O;");
+    ]
+  in
+  List.iter
+    (fun (name, source) ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun (mode, prefix) ->
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original narrow left shift"
+                (Some (Int64.of_string (List.assoc (prefix ^ name) fields)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no narrow left shift diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+        [ false; true ])
+    cases
+
 let static_owner_identity () =
   let module G = Ir_integer_globals in
   let module L = Ir_integer_program_lowering in
@@ -358,7 +462,10 @@ let boundaries () =
                 (List.exists
                    (fun (d : Diagnostic.t) -> d.code = "HCRUN0006")
                    diagnostics))
-            [ "I64 N=7;I8 C=1;I64 O=N<<C;O;"; "I8 N=-8;I64 O=N>>1;O;" ])
+            [
+              "I64 F(I64 p){static I64 O=p<<2;return O;}42;";
+              "I64 F(I64 p){static I64 O=p>>1;return O;}42;";
+            ])
         [ Preprocessor.Jit; Preprocessor.Aot ])
     [ false; true ]
 
@@ -377,6 +484,9 @@ let () =
           Alcotest.test_case "original dynamic shifts" `Quick original_dynamic;
           Alcotest.test_case "original dynamic counts" `Quick
             original_dynamic_counts;
+          Alcotest.test_case "original narrow shifts" `Quick original_narrow;
+          Alcotest.test_case "original narrow left shifts" `Quick
+            original_narrow_left;
           Alcotest.test_case "static owner identity" `Quick
             static_owner_identity;
           Alcotest.test_case "unsupported boundaries" `Quick boundaries;

@@ -677,7 +677,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | _ -> Ok ()
               in
               (* This graph is freshly lowered from the exact retained global
-                 or static root, or live fragment. It may authorize full-word
+                 or static root, or live fragment. It may authorize scalar integer
                  shifts whose original operand producers belong to that graph. *)
               let root_shifts =
                 match root_ with
@@ -693,15 +693,11 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                            && Ir.Integer_program_lowering.owns_framed_expression
                                 value_lowered ~frame ~globals ~value
                        | _ -> false ->
-                    let word (item : Seq.description) =
+                    let scalar (item : Seq.description) =
                       Option.fold ~none:false
                         ~some:(fun type_ ->
-                          Sema.Type.pointer_depth type_ = 0
-                          &&
-                          match Sema.Type.base type_ with
-                          | Sema.Type.Primitive
-                              (_, (Sema.Primitive_type.I64 | U64)) -> true
-                          | _ -> false)
+                          Option.is_some
+                            (Ir.Integer_scalar_storage.of_type type_))
                         item.target_type
                     in
                     let produced =
@@ -720,14 +716,14 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                         | ( (Ir.Opcode.Ic_shl_const | Ic_shr_const),
                             [ operand ],
                             Some (Seq.Integer _) ) ->
-                            word item
-                            && Option.fold ~none:false ~some:word
+                            scalar item
+                            && Option.fold ~none:false ~some:scalar
                                  (Values.find_opt operand produced)
                         | (Ir.Opcode.Ic_shl | Ic_shr), [ left; right ], None ->
-                            word item
+                            scalar item
                             && List.for_all
                                  (fun operand ->
-                                   Option.fold ~none:false ~some:word
+                                   Option.fold ~none:false ~some:scalar
                                      (Values.find_opt operand produced))
                                  [ left; right ]
                         | _ -> false)

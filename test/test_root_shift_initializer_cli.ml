@@ -101,6 +101,10 @@ let () =
       ( "I64 N=7,C=65;I64 F(){static I64 O=N<<C;return O;}I64 A=F();C=1;A+F();",
         "28",
         32 );
+      ( "I8 N=-8,C=0;I64 F(){static I64 O=(++N)>>(++C);return O;}I64 \
+         A=N,B=C,D=F();N=7;A*10000+B*100+D+F();",
+        "-69908",
+        34 );
     ]
   in
   List.iter

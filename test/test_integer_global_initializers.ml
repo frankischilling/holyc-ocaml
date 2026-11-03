@@ -343,7 +343,7 @@ let preparation_limits_and_domain () =
           "I64 Half(I64 n){return n/2;}I64 G=Half(-3);G;";
           "I64 Half(I64 n){return n/2;}I64 Outer(I64 n){return Half(n);}I64 \
            G=Outer(-3);G;";
-          "I8 G=1;I64 C=3;I64 H=G<<C;H;";
+          "I64 F(I64 p){static I64 O=p<<2;return O;}42;";
         ];
       let error = F.first_error (G.run ~mode "I64 G=1/0;G;") in
       Alcotest.(check string)

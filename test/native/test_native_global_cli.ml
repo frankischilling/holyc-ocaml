@@ -259,7 +259,7 @@ let () =
            "I64 *G[1];42;";
            "I64 *G;42;";
            "extern I64 G;42;";
-           "I8 N=1;I64 C=2;I64 F(){static I64 G=N<<C;return 42;}F();";
+           "I64 F(I64 p){static I64 G=p<<2;return 42;}42;";
            "F64 G;42;";
            "I64 G;I64 F(I64 x=G){return x;}F();";
          ]

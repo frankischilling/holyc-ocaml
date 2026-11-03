@@ -1,13 +1,13 @@
 # Source initializer shifts
 
-A source-owned global or static initializer can prepare a full-word canonical
+A source-owned global or static initializer can prepare a scalar integer
 constant or variable-count left or right shift. This includes a shift inside a
-call argument and an initializer that updates its source global. The runtime executes the update
-once and keeps the initialized result when that source later changes.
+call argument and an initializer that updates its source global. The runtime
+executes the update once and keeps the initialized result when that source later changes.
 
 ## Original observations
 
-At pinned reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`, nine
+At pinned reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`, thirteen
 source/capture pairs in `test/oracle/source-root-shifts` record JIT and compiled
 BIN-load results twice in one boot. The original compiler reported no errors.
 They cover signed and unsigned right shifts, negative and large constant counts,
@@ -18,6 +18,9 @@ this context, unlike a folded constant division. A static initializer capture
 shows its update occurs before the first call and its value survives later calls.
 Variable-count captures cover signed and unsigned results; negative, zero and
 word-boundary counts; and updates to both operands in a static initializer.
+Narrow signed and unsigned captures cover 8-, 16- and 32-bit operands,
+including a static initializer with updates to both operands and left-shift
+results larger than their source storage width.
 
 `Compiler/PrsVar.HC` supplies initializer compilation and evaluation;
 `OptPass012.HC` and `BackA.HC` select and emit the shift operations. The
@@ -31,9 +34,9 @@ live initializer fragment. For static roots, the exact frame and static slot
 must also match. The lowering must still own that exact typed expression and
 global context. Only its original zero-flag `IC_SHL_CONST`, `IC_SHR_CONST`,
 `IC_SHL` and `IC_SHR` instructions qualify. The result and each operand producer
-must be full-word I64 or U64 values. The instruction identity must be the one
-selected from that graph. Narrow or otherwise unproved shifts remain outside
-this path.
+must have supported non-pointer scalar integer types. The instruction identity
+must be the one selected from that graph. Unsupported or unproved shifts remain
+outside this path.
 
 The IR and live native-task paths cover both source modes; native AOT source
 also covers this case. Standalone native JIT initializers with source references

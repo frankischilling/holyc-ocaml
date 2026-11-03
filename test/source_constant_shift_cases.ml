@@ -71,7 +71,7 @@ let retained =
 
 let rejected =
   [
-    "I8 G=1;I64 C=3;I64 H=G<<C;H;";
+    "I64 F(I64 p){static I64 O=p<<2;return O;}42;";
     "I64 F(I64 x){return x<<2;}I64 G=F(1);G;";
     "I64 N=0;I64 Touch(){N=42;return N<<1;}I64 A[2]={40,Touch()};";
     "I64 F(){static I64 n=1;n<<=2;return n;}I64 G=F();G;";

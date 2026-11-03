@@ -899,7 +899,7 @@ let failed_preparation () =
            ("I64 A=40;I64 F(I64 n=1/0){return n;}42;", "HCIRVM0009");
            ("I64 A=40;I64 B=0&&(1/0);42;", "HCIRVM0009");
            ("I64 A=40;I64 B=1/0;I64 C=1<<2;42;", "HCIRVM0009");
-           ("I8 A=40;I64 C=2;I64 B=A<<C;42;", "HCRUN0006");
+           ("I64 A=40;I64 F(I64 p){static I64 O=p<<2;return O;}42;", "HCRUN0006");
            ("I64 A=40;42;I64 B=2;", "HCRUN0001");
            ("I64 A=40;I64 F(){static I8 n=1/0;return n;}42;", "HCIRVM0009");
            ("I64 F(){static I8 n=40;return n;}I64 B=1/0;42;", "HCIRVM0009");
@@ -907,7 +907,7 @@ let failed_preparation () =
            ("I64 F(){static I8 n=40 junk;return n;}42;", "HCPARSE0102");
            ("I64 A=40;I64 F(){static I8 n={2};return n;}42;", "HCRUN0001");
            ("I64 A=40;I64 F(){static I8 n=\"a\";return n;}42;", "HCRUN0006");
-           ("I8 A=40;I64 F(){static I8 n=A<<2;return n;}42;", "HCRUN0006");
+           ("I64 A=40;I64 F(I64 p){static I8 n=p<<2;return n;}42;", "HCRUN0006");
            ("I64 A=40;42;I64 F(){static I8 n=2;return n;}", "HCRUN0001");
          ]
         @
