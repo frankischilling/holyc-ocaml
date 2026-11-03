@@ -5854,8 +5854,12 @@ let proven_direct_arguments ledger header arguments =
         | _ -> None)
     | _ -> None
   in
-  let completed_i64_global name =
-    completed_global_type name = Some Sema.Primitive_type.I64
+  let completed_integer_global name =
+    Option.fold ~none:false
+      ~some:(fun primitive ->
+        let info = Sema.Primitive_type.info primitive in
+        info.byte_size > 0 && info.category <> Sema.Primitive_type.Floating)
+      (completed_global_type name)
   in
   let completed_numeric_global name =
     Option.fold ~none:false
@@ -5865,7 +5869,7 @@ let proven_direct_arguments ledger header arguments =
   in
   let proven_operand = function
     | A.Integer_literal _ -> true
-    | A.Identifier_expression name -> completed_i64_global name
+    | A.Identifier_expression name -> completed_integer_global name
     | _ -> false
   in
   let proven_numeric = function
@@ -5873,19 +5877,18 @@ let proven_direct_arguments ledger header arguments =
     | A.Prefix_expression
         { prefix_operator_kind = A.Unary_minus; prefix_operand; _ } ->
         proven_operand prefix_operand
-    | A.Binary_expression
-        {
-          binary_left;
-          binary_operator_spec;
-          binary_right = A.Integer_literal right;
-          _;
-        }
+    | A.Binary_expression { binary_left; binary_operator_spec; binary_right; _ }
       when proven_operand binary_left -> (
         match binary_operator_spec.ic_name with
-        | "IC_ADD" | "IC_SUB" | "IC_MUL" | "IC_AND" | "IC_OR" | "IC_XOR" -> true
+        | "IC_ADD" | "IC_SUB" | "IC_MUL" | "IC_AND" | "IC_OR" | "IC_XOR" ->
+            proven_operand binary_right
         | "IC_SHL" | "IC_SHR" -> (
-            match right.literal_value with
-            | A.Integer_value n -> n >= 0L && n < 64L
+            match binary_right with
+            | A.Integer_literal right -> (
+                match right.literal_value with
+                | A.Integer_value n -> n >= 0L && n < 64L
+                | _ -> false)
+            | A.Identifier_expression name -> completed_integer_global name
             | _ -> false)
         | _ -> false)
     | _ -> false

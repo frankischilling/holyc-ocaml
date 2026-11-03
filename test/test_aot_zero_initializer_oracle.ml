@@ -456,6 +456,130 @@ let direct_call_global_type_warnings () =
         [ false; true ])
     types
 
+let direct_call_integer_global_arithmetic_warnings () =
+  let fields = fixture "warnings-global-type-arithmetic" in
+  let types =
+    [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64"; "Bool" ]
+  in
+  List.iteri
+    (fun index type_ ->
+      Alcotest.(check int)
+        (type_ ^ " original arithmetic warning count")
+        (index + 1) (List.assoc type_ fields);
+      List.iter
+        (fun native ->
+          let value = if type_ = "Bool" then "1" else "7" in
+          let source =
+            Printf.sprintf
+              "%s N=%s;I64 Get(I64 n){return n;}class Box{U0 empty;I64 \
+               value;};Box object={Get(N+0),42};I64 F(){return \
+               object.value;}F();"
+              type_ value
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            (type_ ^ " arithmetic load value")
+            (Some (if type_ = "Bool" then 1L else 7L))
+            (Result.get_ok result);
+          Alcotest.(check (list string))
+            (type_ ^ " arithmetic load warning")
+            [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ false; true ])
+    types
+
+let direct_call_two_global_warnings () =
+  let fields = fixture "warnings-two-globals" in
+  let cases =
+    [
+      ("ADD", "N+M", 8L);
+      ("RADD", "0+N", 7L);
+      ("SUB", "8-N", 1L);
+      ("MUL", "N*M", 7L);
+      ("AND", "N&M", 1L);
+      ("OR", "N|M", 7L);
+      ("XOR", "N^M", 6L);
+      ("SHL", "N<<M", 14L);
+      ("SHR", "N>>M", 3L);
+    ]
+  in
+  List.iteri
+    (fun index (name, expression, expected) ->
+      Alcotest.(check int)
+        (name ^ " original two-global warning count")
+        (index + 1) (List.assoc name fields);
+      List.iter
+        (fun native ->
+          let source =
+            Printf.sprintf
+              "I64 N=7,M=1;I64 Get(I64 n){return n;}class Box{U0 empty;I64 \
+               value;};Box object={Get(%s),42};I64 F(){return \
+               object.value;}F();"
+              expression
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
+          if name = "SHL" || name = "SHR" then (
+            Alcotest.(check bool)
+              "dynamic shift remains unsupported" true (Result.is_error result);
+            Alcotest.(check (list string))
+              "warning precedes shift boundary"
+              [ "HCSEMA0080"; "HCRUN0006" ]
+              codes)
+          else (
+            Alcotest.(check (option int64))
+              (name ^ " two-global load value")
+              (Some expected) (Result.get_ok result);
+            Alcotest.(check (list string))
+              (name ^ " two-global load warning")
+              [ "HCSEMA0080" ] codes))
+        [ false; true ])
+    cases
+
+let direct_call_mixed_global_warnings () =
+  let fields = fixture "warnings-mixed-globals" in
+  let cases =
+    [
+      ("MIX1", "N+U", 8L);
+      ("MIX2", "U+N", 8L);
+      ("MIX3", "S+W", 8L);
+      ("MIX4", "B+T", 2L);
+      ("SHIFT", "U<<N", 128L);
+    ]
+  in
+  List.iteri
+    (fun index (name, expression, expected) ->
+      Alcotest.(check int)
+        (name ^ " original mixed-global warning count")
+        (index + 1) (List.assoc name fields);
+      List.iter
+        (fun native ->
+          let source =
+            Printf.sprintf
+              "I64 N=7;U8 U=1;I8 S=7;U64 W=1;Bool B=1;U16 T=1;I64 Get(I64 \
+               n){return n;}class Box{U0 empty;I64 value;};Box \
+               object={Get(%s),42};I64 F(){return object.value;}F();"
+              expression
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
+          if name = "SHIFT" then (
+            Alcotest.(check bool)
+              "dynamic shift remains unsupported" true (Result.is_error result);
+            Alcotest.(check (list string))
+              "warning precedes shift boundary"
+              [ "HCSEMA0080"; "HCRUN0006" ]
+              codes)
+          else (
+            Alcotest.(check (option int64))
+              (name ^ " mixed-global load value")
+              (Some expected) (Result.get_ok result);
+            Alcotest.(check (list string))
+              (name ^ " mixed-global load warning")
+              [ "HCSEMA0080" ] codes))
+        [ false; true ])
+    cases
+
 let direct_call_warning_controls () =
   List.iter
     (fun native ->
@@ -655,7 +779,10 @@ let () =
               ignore (fixture "warnings-add-argument");
               ignore (fixture "warnings-arithmetic-arguments");
               ignore (fixture "warnings-global-arithmetic");
-              ignore (fixture "warnings-global-types"));
+              ignore (fixture "warnings-global-types");
+              ignore (fixture "warnings-global-type-arithmetic");
+              ignore (fixture "warnings-two-globals");
+              ignore (fixture "warnings-mixed-globals"));
           Alcotest.test_case "AOT warning counts occur during parsing" `Quick
             warning_phases;
           Alcotest.test_case "direct AOT calls warn at a U0 destination" `Quick
@@ -682,6 +809,12 @@ let () =
             direct_call_global_arithmetic_warnings;
           Alcotest.test_case "direct numeric global type warnings" `Quick
             direct_call_global_type_warnings;
+          Alcotest.test_case "direct integer global arithmetic warnings" `Quick
+            direct_call_integer_global_arithmetic_warnings;
+          Alcotest.test_case "direct two global arithmetic warnings" `Quick
+            direct_call_two_global_warnings;
+          Alcotest.test_case "direct mixed global arithmetic warnings" `Quick
+            direct_call_mixed_global_warnings;
           Alcotest.test_case
             "patterned native stores retain their observed width" `Quick
             original_store_width;
