@@ -854,6 +854,121 @@ let () =
         ("I64 F(I64 c){U8 noreg x=256;x%=c;return x;}F(-1);", "0");
       ]
   in
+  let unary_widths =
+    [
+      ( "I8",
+        "127",
+        "128",
+        "-128",
+        "-128",
+        "-129",
+        "127",
+        "255",
+        "256",
+        "0",
+        "254",
+        "-2" );
+      ( "U8",
+        "255",
+        "256",
+        "0",
+        "0",
+        "-1",
+        "255",
+        "256",
+        "257",
+        "1",
+        "255",
+        "255" );
+      ( "I16",
+        "32767",
+        "32768",
+        "-32768",
+        "-32768",
+        "-32769",
+        "32767",
+        "65535",
+        "65536",
+        "0",
+        "65534",
+        "-2" );
+      ( "U16",
+        "65535",
+        "65536",
+        "0",
+        "0",
+        "-1",
+        "65535",
+        "65536",
+        "65537",
+        "1",
+        "65535",
+        "65535" );
+      ( "I32",
+        "2147483647",
+        "2147483648",
+        "-2147483648",
+        "-2147483648",
+        "-2147483649",
+        "2147483647",
+        "4294967295",
+        "4294967296",
+        "0",
+        "4294967294",
+        "-2" );
+      ( "U32",
+        "4294967295",
+        "4294967296",
+        "0",
+        "0",
+        "-1",
+        "4294967295",
+        "4294967296",
+        "4294967297",
+        "1",
+        "4294967295",
+        "4294967295" );
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun ( ty,
+               pin,
+               pinc,
+               pinc_memory,
+               pdecin,
+               pdec,
+               pdec_memory,
+               initial,
+               linc,
+               linc_memory,
+               ldec,
+               ldec_memory ) ->
+          let parameter qualifier operation input =
+            Printf.sprintf "I64 F(%s %s x){%s;return x;}F(%s);" ty qualifier
+              operation input
+          in
+          let local qualifier operation =
+            Printf.sprintf "I64 F(){%s %s x=%s;%s;return x;}F();" ty qualifier
+              initial operation
+          in
+          List.concat_map
+            (fun (operation, input, wide, memory, lwide, lmemory) ->
+              [
+                (parameter "" operation input, wide);
+                (parameter "noreg" operation input, memory);
+                (local "" operation, lwide);
+                (local "noreg" operation, lmemory);
+              ])
+            [
+              ("x++", pin, pinc, pinc_memory, linc, linc_memory);
+              ("++x", pin, pinc, pinc_memory, linc, linc_memory);
+              ("x--", pdecin, pdec, pdec_memory, ldec, ldec_memory);
+              ("--x", pdecin, pdec, pdec_memory, ldec, ldec_memory);
+            ])
+        unary_widths
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

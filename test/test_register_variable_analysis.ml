@@ -1019,6 +1019,92 @@ let source_controls () =
         "retained literal parameter arithmetic" expected
         (List.assoc name literal_remaining_default))
     [ ("DIV", "127"); ("MOD", "1"); ("SHL", "510"); ("AND", "255") ];
+  List.iter
+    (fun (shape, operation, signed, unsigned, signed_memory, unsigned_memory) ->
+      List.iter
+        (fun prefix_form ->
+          let fields =
+            fixture ("unary-" ^ shape ^ "-" ^ prefix_form ^ operation ^ "-byte")
+          in
+          List.iter
+            (fun prefix ->
+              List.iter
+                (fun (name, expected) ->
+                  Alcotest.(check string)
+                    "original unary update" expected
+                    (List.assoc (prefix ^ name) fields))
+                [
+                  ("S", signed);
+                  ("U", unsigned);
+                  ("SN", signed_memory);
+                  ("UN", unsigned_memory);
+                ])
+            [ "J_"; "A_" ])
+        [ ""; "prefix-" ])
+    [
+      ("parameter", "increment", "128", "256", "-128", "0");
+      ("parameter", "decrement", "-129", "-1", "127", "255");
+      ("local", "increment", "256", "257", "0", "1");
+      ("local", "decrement", "254", "255", "-2", "255");
+    ];
+  List.iter
+    (fun ( shape,
+           operation,
+           width,
+           signed,
+           unsigned,
+           signed_memory,
+           unsigned_memory ) ->
+      let fields = fixture ("unary-" ^ shape ^ "-" ^ operation ^ "-" ^ width) in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "wide original unary update" expected
+                (List.assoc (prefix ^ name) fields))
+            [
+              ("S", signed);
+              ("U", unsigned);
+              ("SN", signed_memory);
+              ("UN", unsigned_memory);
+            ])
+        [ "J_"; "A_" ])
+    [
+      ("parameter", "increment", "16", "32768", "65536", "-32768", "0");
+      ( "parameter",
+        "increment",
+        "32",
+        "2147483648",
+        "4294967296",
+        "-2147483648",
+        "0" );
+      ("parameter", "decrement", "16", "-32769", "-1", "32767", "65535");
+      ( "parameter",
+        "decrement",
+        "32",
+        "-2147483649",
+        "-1",
+        "2147483647",
+        "4294967295" );
+      ("local", "increment", "16", "65536", "65537", "0", "1");
+      ("local", "increment", "32", "4294967296", "4294967297", "0", "1");
+      ("local", "decrement", "16", "65534", "65535", "-2", "65535");
+      ( "local",
+        "decrement",
+        "32",
+        "4294967294",
+        "4294967295",
+        "-2",
+        "4294967295" );
+    ];
+  let unary_default = fixture "unary-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained original unary update" expected
+        (List.assoc name unary_default))
+    [ ("PIN", "128"); ("PDEC", "-129"); ("LIN", "256"); ("LDEC", "254") ];
   let unsigned_parameter = fixture "local-param-unsigned" in
   List.iter
     (fun prefix ->
@@ -1348,6 +1434,42 @@ let literal_parameter_selection () =
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let unary_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun (qualifier, expected) ->
+              List.iter
+                (fun operation ->
+                  List.iter
+                    (fun local ->
+                      let source =
+                        if local then
+                          Printf.sprintf "I64 F(){%s %s x=255;%s;return x;}42;"
+                            ty qualifier operation
+                        else
+                          Printf.sprintf "I64 F(%s %s x){%s;return x;}42;" ty
+                            qualifier operation
+                      in
+                      let fn = compile mode source in
+                      let proof =
+                        Option.get
+                          (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+                      in
+                      let x = location fn.frame "x" |> Frame.location_symbol in
+                      Alcotest.(check bool)
+                        "unary selection" true
+                        (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                           ~symbol:x
+                        = Some expected))
+                    [ false; true ])
+                [ "x++"; "++x"; "x--"; "--x" ])
+            [ ("", Analysis.Register_candidate); ("noreg", Analysis.Stack) ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let local_selection () =
   List.iter
     (fun mode ->
@@ -1414,6 +1536,7 @@ let local_ownership () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(){I8 x=255;x<<=0;return x;}42;";
+          "I64 F(){I8 x=255;x++;return x;}42;";
           "I64 F(){I8 x=255;return x;}42;";
           "I64 F(I64 c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=1;return x;}42;";
@@ -1441,7 +1564,9 @@ let unsupported_selection () =
         [
           "I64 F(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}42;";
           "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
-          "I64 F(){I8 x=255;x++;return x;}42;";
+          "I64 F(){I8 x=255;x++;x++;return x;}42;";
+          "I64 F(){I8 x=255;return x++;}42;";
+          "I64 F(I8 x){return ++x;}42;";
           "I64 F(){I8 x=1,y=2;x<<=1;return x;}42;";
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";
@@ -1624,6 +1749,7 @@ let () =
             narrow_initializer_selection;
           Alcotest.test_case "literal parameter selection" `Quick
             literal_parameter_selection;
+          Alcotest.test_case "unary selection" `Quick unary_selection;
           Alcotest.test_case "bounded local selection" `Quick local_selection;
           Alcotest.test_case "local return selection" `Quick
             local_return_selection;

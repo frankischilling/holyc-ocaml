@@ -8286,7 +8286,10 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                  result.value_id,
                                  stored_type,
                                  callback_word_type slot_type,
-                                 false ))
+                                 match (frame, location) with
+                                 | Some context, Frame_slot (index, _) ->
+                                     context.slots.(index).wide_register
+                                 | _ -> false ))
                       | _ -> Error (malformed block_id description))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))

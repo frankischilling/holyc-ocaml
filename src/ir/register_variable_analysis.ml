@@ -546,6 +546,20 @@ let analyze_local ~frame ~body =
     | Request.Unspecified | Allocatable | Disabled -> true
     | Explicit _ -> false
   in
+  let unary_parameter location =
+    Frame.location_kind location = Frame.Named_parameter
+    && Frame.location_value_shape location = Frame.Scalar
+    && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
+    && (match Sema.Type.base (Frame.location_checked_type location) with
+      | Sema.Type.Primitive
+          (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32)) -> true
+      | _ -> false)
+    && Option.is_some (Frame.location_frame_slot location)
+    &&
+    match Frame.location_register_selection location with
+    | Request.Explicit _ -> false
+    | Unspecified | Allocatable | Disabled -> true
+  in
   let ordinary =
     Option.is_some (Function_body.definition_declaration body)
     && Function_body.definition_matches_frame body frame
@@ -587,7 +601,8 @@ let analyze_local ~frame ~body =
   in
   let shape =
     match locations with
-    | [ location ] when supported location -> Some (None, None, location)
+    | [ location ] when supported location || unary_parameter location ->
+        Some (None, None, location)
     | [ argument; location ] when parameter argument && supported location ->
         Some (Some argument, None, location)
     | [ argument; count; location ]
@@ -896,8 +911,159 @@ let analyze_local ~frame ~body =
             | _ -> false)
           (Function_body.definition_source body)
       in
+      let source_matches_unary initial update =
+        Option.fold ~none:false
+          ~some:(fun source ->
+            match
+              ( Typed.function_initializers source,
+                Typed.function_expression_statements source,
+                Typed.function_returns source )
+            with
+            | initializers, [ statement ], [ returned ] ->
+                let initial_matches =
+                  match (initial, initializers) with
+                  | None, [] -> unary_parameter location
+                  | Some bits, [ initialization ] ->
+                      supported location
+                      && Sema.Local_type_resolution.local_symbol
+                           (initialization |> Typed.initializer_source
+                          |> Calls.initializer_local)
+                         == Frame.location_symbol location
+                      && literal (Typed.initializer_value initialization)
+                         = Some bits
+                  | _ -> false
+                in
+                let value = Typed.expression_statement_value statement in
+                let operator_matches =
+                  match
+                    Calls.argument_expression_source (Typed.result_source value)
+                  with
+                  | Some (Frontend.Ast.Prefix_expression prefix) -> (
+                      match
+                        (prefix.prefix_operator_kind, update.Seq.opcode)
+                      with
+                      | Frontend.Ast.Pre_increment, O.Ic_pp_
+                      | Frontend.Ast.Pre_decrement, Ic_mm_ -> true
+                      | _ -> false)
+                  | Some (Frontend.Ast.Postfix_expression postfix) -> (
+                      match
+                        (postfix.postfix_operator_kind, update.Seq.opcode)
+                      with
+                      | Frontend.Ast.Post_increment, O.Ic__pp
+                      | Frontend.Ast.Post_decrement, Ic__mm -> true
+                      | _ -> false)
+                  | _ -> false
+                in
+                initial_matches && operator_matches
+                && Option.fold ~none:false
+                     ~some:(fun operand ->
+                       Option.fold ~none:false
+                         ~some:(( == ) (Frame.location_binding location))
+                         (binding_of operand))
+                     (Typed.result_operand value)
+                && Option.fold ~none:false
+                     ~some:(fun value ->
+                       Option.fold ~none:false
+                         ~some:(( == ) (Frame.location_binding location))
+                         (binding_of value))
+                     (Typed.return_value returned)
+            | _ -> false)
+          (Function_body.definition_source body)
+      in
       let matched =
         match core with
+        | [ r1; o1; a1; update; end1; r2; o2; a2; load; returned ] -> (
+            match (id a1, id update, id a2, id load) with
+            | Some a1id, Some updateid, Some a2id, Some loadid ->
+                Option.is_none argument
+                && Option.is_none count_argument
+                && address location r1 o1 a1 && address location r2 o2 a2
+                && (update.Seq.opcode = O.Ic_pp_
+                   || update.opcode = O.Ic_mm_ || update.opcode = O.Ic__pp
+                   || update.opcode = O.Ic__mm)
+                && update.payload = None && same_type update
+                && is_one update a1id
+                && end1.Seq.opcode = O.Ic_end_exp
+                && end1.payload = None && end1.result = None
+                && end1.flags = 0x200L && is_one end1 updateid
+                && load.Seq.opcode = O.Ic_deref
+                && load.payload = None && same_type load && is_one load a2id
+                && returned.Seq.opcode = O.Ic_return_val
+                && returned.payload = None && returned.result = None
+                && is_one returned loadid
+                && List.for_all
+                     (fun (item : Seq.description) ->
+                       Option.is_some (instruction_stamp item)
+                       && (item.opcode = O.Ic_end_exp || item.flags = 0L))
+                     code
+                && source_matches_unary None update
+            | _ -> false)
+        | [
+         r1;
+         o1;
+         a1;
+         initial;
+         store;
+         end1;
+         r2;
+         o2;
+         a2;
+         update;
+         end2;
+         r3;
+         o3;
+         a3;
+         load;
+         returned;
+        ] -> (
+            match
+              ( id a1,
+                id initial,
+                integer initial,
+                id store,
+                id a2,
+                id update,
+                id a3,
+                id load )
+            with
+            | ( Some a1id,
+                Some initialid,
+                Some initialbits,
+                Some storeid,
+                Some a2id,
+                Some updateid,
+                Some a3id,
+                Some loadid ) ->
+                Option.is_none argument
+                && Option.is_none count_argument
+                && address location r1 o1 a1 && scalar_literal initial
+                && address location r2 o2 a2 && address location r3 o3 a3
+                && store.Seq.opcode = O.Ic_assign
+                && store.payload = None && same_type store
+                && store.operands = [ a1id; initialid ]
+                && end1.Seq.opcode = O.Ic_end_exp
+                && end1.payload = None && end1.result = None
+                && end1.flags = 0x200L && is_one end1 storeid
+                && (update.Seq.opcode = O.Ic_pp_
+                   || update.opcode = O.Ic_mm_ || update.opcode = O.Ic__pp
+                   || update.opcode = O.Ic__mm)
+                && update.payload = None && same_type update
+                && is_one update a2id
+                && end2.Seq.opcode = O.Ic_end_exp
+                && end2.payload = None && end2.result = None
+                && end2.flags = 0x200L && is_one end2 updateid
+                && load.Seq.opcode = O.Ic_deref
+                && load.payload = None && same_type load && is_one load a3id
+                && returned.Seq.opcode = O.Ic_return_val
+                && returned.payload = None && returned.result = None
+                && is_one returned loadid
+                && List.for_all
+                     (fun (item : Seq.description) ->
+                       Option.is_some (instruction_stamp item)
+                       && (item.opcode = O.Ic_end_exp || item.flags = 0L))
+                     code
+                && source_matches_unary (Some initialbits) update
+            | _ -> false)
         | [
          r1; o1; a1; rp; op; ap; input; store; end1; r2; o2; a2; load; returned;
         ] -> (

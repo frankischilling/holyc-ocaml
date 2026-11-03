@@ -410,8 +410,6 @@ let initializer_boundaries =
       "U8 G=0;I64 R(){G=250;return 10;}I64 N=(G+=R());N;" );
     ( "automatic prefix register wrap",
       "I64 F(){U8 n=255;return ++n;}I64 N=F();N;" );
-    ( "automatic discarded register wrap",
-      "I64 F(){U8 n=255;n++;return n;}I64 N=F();N;" );
     ( "transitive automatic register wrap",
       "I64 F(){U8 n=255;return ++n;}I64 Outer(){return F();}I64 N=Outer();N;" );
     ( "cancelled address is not memory proof",
@@ -481,6 +479,10 @@ let tests =
         ("promoted byte storage boundaries", promoted_cases);
         ("all canonical opcode and preflight contracts", canonical_preflight);
         ("proven native initializer update controls", safe_initializers);
+        ( "automatic discarded register wrap",
+          fun () ->
+            Bytes.cases
+              [ ("I64 F(){U8 n=255;n++;return n;}I64 N=F();N;", 256L) ] );
         ("all update opcodes across storage owners and neighbors", owner_matrix);
         ("address RHS call loop and recursive effects", effects_and_calls);
         ("byte update faults and earlier effects", runtime_faults);
