@@ -5835,7 +5835,7 @@ let observed_global_initializer_destination ledger receipt =
 let proven_direct_arguments ledger header arguments =
   let module A = Frontend.Ast in
   let parameters = header.Parser.parameters in
-  let completed_i64_global name =
+  let completed_global_type name =
     match Names.find_opt ledger.references name with
     | Some
         {
@@ -5843,16 +5843,50 @@ let proven_direct_arguments ledger header arguments =
             Selected_source
               { stage = Global_selection (publication, Some _); _ };
           _;
-        } -> (
-        publication.global_pointer_layers = []
-        && publication.global_function_pointer = None
-        && publication.global_dimensions = []
-        && publication.global_header.modifiers = []
-        && publication.global_header.binding = None
-        &&
+        }
+      when publication.global_pointer_layers = []
+           && publication.global_function_pointer = None
+           && publication.global_dimensions = []
+           && publication.global_header.modifiers = []
+           && publication.global_header.binding = None -> (
         match publication.global_header.type_specifier with
-        | A.Primitive_type_specifier { primitive = Sema.Primitive_type.I64; _ }
-          -> true
+        | A.Primitive_type_specifier { primitive; _ } -> Some primitive
+        | _ -> None)
+    | _ -> None
+  in
+  let completed_i64_global name =
+    completed_global_type name = Some Sema.Primitive_type.I64
+  in
+  let completed_numeric_global name =
+    Option.fold ~none:false
+      ~some:(fun primitive ->
+        (Sema.Primitive_type.info primitive).byte_size > 0)
+      (completed_global_type name)
+  in
+  let proven_operand = function
+    | A.Integer_literal _ -> true
+    | A.Identifier_expression name -> completed_i64_global name
+    | _ -> false
+  in
+  let proven_numeric = function
+    | expression when proven_operand expression -> true
+    | A.Prefix_expression
+        { prefix_operator_kind = A.Unary_minus; prefix_operand; _ } ->
+        proven_operand prefix_operand
+    | A.Binary_expression
+        {
+          binary_left;
+          binary_operator_spec;
+          binary_right = A.Integer_literal right;
+          _;
+        }
+      when proven_operand binary_left -> (
+        match binary_operator_spec.ic_name with
+        | "IC_ADD" | "IC_SUB" | "IC_MUL" | "IC_AND" | "IC_OR" | "IC_XOR" -> true
+        | "IC_SHL" | "IC_SHR" -> (
+            match right.literal_value with
+            | A.Integer_value n -> n >= 0L && n < 64L
+            | _ -> false)
         | _ -> false)
     | _ -> false
   in
@@ -5869,12 +5903,13 @@ let proven_direct_arguments ledger header arguments =
          &&
          match (parameter.type_specifier, argument.call_argument_value) with
          | ( A.Primitive_type_specifier { primitive; _ },
-             A.Provided_call_argument (A.Integer_literal _) ) ->
-             (Sema.Primitive_type.info primitive).byte_size > 0
-         | ( A.Primitive_type_specifier { primitive; _ },
              A.Provided_call_argument (A.Identifier_expression name) ) ->
              (Sema.Primitive_type.info primitive).byte_size > 0
-             && completed_i64_global name
+             && completed_numeric_global name
+         | ( A.Primitive_type_specifier { primitive; _ },
+             A.Provided_call_argument expression )
+           when proven_numeric expression ->
+             (Sema.Primitive_type.info primitive).byte_size > 0
          | _ -> false)
        parameters arguments
 

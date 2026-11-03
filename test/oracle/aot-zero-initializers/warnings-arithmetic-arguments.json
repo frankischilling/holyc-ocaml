@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "1508bc9e97edb325816baa0d273f8f119f3c3a1db01629a5ebaab1b76a5d16bb",
+  "capture_sha256": "1d2eddadd8036997e08b1340fd1eab440b2c0db815c80d6598c2f8289c08e242",
+  "fields": {
+    "START": 0,
+    "ADD": 1,
+    "SUB": 2,
+    "MUL": 3,
+    "AND": 4,
+    "OR": 5,
+    "XOR": 6,
+    "SHL": 7,
+    "SHR": 8,
+    "NEG": 9,
+    "COMPILE_ERRORS": 0
+  },
+  "scope": "Original AOT warning counts for nine closed integer argument expressions, observed twice in one boot.",
+  "boot_iso_sha256": "cda4ca60890d4f53edb6cb303ee1739f46263dd7925086b61f56d4d9ecd2bf6c"
+}

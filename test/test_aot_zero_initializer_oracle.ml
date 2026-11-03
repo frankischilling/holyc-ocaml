@@ -304,6 +304,158 @@ let direct_call_numeric_global_warnings () =
         [ false; true ])
     types
 
+let direct_call_add_argument_warnings () =
+  let fields = fixture "warnings-add-argument" in
+  Alcotest.(check int)
+    "original addition argument warning" 1
+    (List.assoc "INTEGER" fields - List.assoc "CONSTANT" fields);
+  Alcotest.(check int)
+    "original static addition argument warning" 1
+    (List.assoc "STATIC" fields - List.assoc "VOID" fields);
+  List.iter
+    (fun native ->
+      List.iter
+        (fun source ->
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            "addition argument load value" (Some 7L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "addition argument load warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [
+          "I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};Box \
+           object={Get(3+4),42};I64 F(){return object.value;}F();";
+          "I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};I64 \
+           F(){static Box object={Get(3+4),42};return object.value;}F();";
+        ])
+    [ false; true ]
+
+let direct_call_arithmetic_argument_warnings () =
+  let fields = fixture "warnings-arithmetic-arguments" in
+  let cases =
+    [
+      ("ADD", "3+4", 7L);
+      ("SUB", "8-1", 7L);
+      ("MUL", "7*1", 7L);
+      ("AND", "15&7", 7L);
+      ("OR", "3|4", 7L);
+      ("XOR", "3^4", 7L);
+      ("SHL", "1<<2", 4L);
+      ("SHR", "8>>1", 4L);
+      ("NEG", "-7", 4294967289L);
+    ]
+  in
+  List.iteri
+    (fun index (name, expression, expected) ->
+      Alcotest.(check int)
+        (name ^ " original cumulative warning count")
+        (index + 1) (List.assoc name fields);
+      List.iter
+        (fun native ->
+          let source =
+            Printf.sprintf
+              "I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};Box \
+               object={Get(%s),42};I64 F(){return object.value;}F();"
+              expression
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            (name ^ " load value") (Some expected) (Result.get_ok result);
+          Alcotest.(check (list string))
+            (name ^ " load warning") [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ false; true ])
+    cases
+
+let direct_call_global_arithmetic_warnings () =
+  let fields = fixture "warnings-global-arithmetic" in
+  let cases =
+    [
+      ("ADD", "N+0", 7L);
+      ("SUB", "N-0", 7L);
+      ("MUL", "N*1", 7L);
+      ("AND", "N&7", 7L);
+      ("OR", "N|0", 7L);
+      ("XOR", "N^0", 7L);
+      ("SHL", "N<<1", 14L);
+      ("SHR", "N>>1", 3L);
+      ("NEG", "-N", 4294967289L);
+    ]
+  in
+  List.iteri
+    (fun index (name, expression, expected) ->
+      Alcotest.(check int)
+        (name ^ " original global warning count")
+        (index + 1) (List.assoc name fields);
+      List.iter
+        (fun native ->
+          let source =
+            Printf.sprintf
+              "I64 N=7;I64 Get(I64 n){return n;}class Box{U0 empty;I64 \
+               value;};Box object={Get(%s),42};I64 F(){return \
+               object.value;}F();"
+              expression
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
+          if name = "SHL" || name = "SHR" then (
+            Alcotest.(check bool)
+              "dynamic shift remains unsupported" true (Result.is_error result);
+            Alcotest.(check (list string))
+              "warning precedes shift boundary"
+              [ "HCSEMA0080"; "HCRUN0006" ]
+              codes)
+          else (
+            Alcotest.(check (option int64))
+              (name ^ " global load value")
+              (Some expected) (Result.get_ok result);
+            Alcotest.(check (list string))
+              (name ^ " global load warning")
+              [ "HCSEMA0080" ] codes))
+        [ false; true ])
+    cases
+
+let direct_call_global_type_warnings () =
+  let fields = fixture "warnings-global-types" in
+  let types =
+    [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64"; "F64"; "Bool" ]
+  in
+  List.iteri
+    (fun index type_ ->
+      Alcotest.(check int)
+        (type_ ^ " original source global warning count")
+        (index + 1) (List.assoc type_ fields);
+      List.iter
+        (fun native ->
+          let source =
+            Printf.sprintf
+              "%s N=%s;I64 Get(I64 n){return n;}class Box{U0 empty;I64 \
+               value;};Box object={Get(N),42};I64 F(){return \
+               object.value;}F();"
+              type_
+              (if type_ = "Bool" then "1" else "7")
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
+          if type_ = "F64" then (
+            Alcotest.(check bool)
+              "F64 global path remains unsupported" true
+              (Result.is_error result);
+            Alcotest.(check (list string))
+              "F64 boundary and reached warnings"
+              (if native then [ "HCRUN0001" ] else [ "HCSEMA0080"; "HCRUN0001" ])
+              codes)
+          else (
+            Alcotest.(check (option int64))
+              (type_ ^ " global load value")
+              (Some (if type_ = "Bool" then 1L else 7L))
+              (Result.get_ok result);
+            Alcotest.(check (list string))
+              (type_ ^ " global load warning")
+              [ "HCSEMA0080" ] codes))
+        [ false; true ])
+    types
+
 let direct_call_warning_controls () =
   List.iter
     (fun native ->
@@ -499,7 +651,11 @@ let () =
               ignore (fixture "warnings-global-argument");
               ignore (fixture "warnings-u8-argument");
               ignore (fixture "warnings-numeric-arguments");
-              ignore (fixture "warnings-numeric-global"));
+              ignore (fixture "warnings-numeric-global");
+              ignore (fixture "warnings-add-argument");
+              ignore (fixture "warnings-arithmetic-arguments");
+              ignore (fixture "warnings-global-arithmetic");
+              ignore (fixture "warnings-global-types"));
           Alcotest.test_case "AOT warning counts occur during parsing" `Quick
             warning_phases;
           Alcotest.test_case "direct AOT calls warn at a U0 destination" `Quick
@@ -518,6 +674,14 @@ let () =
             direct_call_numeric_argument_warnings;
           Alcotest.test_case "direct numeric global argument warnings" `Quick
             direct_call_numeric_global_warnings;
+          Alcotest.test_case "direct addition argument warnings" `Quick
+            direct_call_add_argument_warnings;
+          Alcotest.test_case "direct arithmetic argument warnings" `Quick
+            direct_call_arithmetic_argument_warnings;
+          Alcotest.test_case "direct global arithmetic warnings" `Quick
+            direct_call_global_arithmetic_warnings;
+          Alcotest.test_case "direct numeric global type warnings" `Quick
+            direct_call_global_type_warnings;
           Alcotest.test_case
             "patterned native stores retain their observed width" `Quick
             original_store_width;

@@ -3582,12 +3582,14 @@ let aot_initializer_warning_authority () =
   let source =
     Session.add_source session ~path:"aot-warning-authority.hc"
       ~contents:
-        "I64 N=7;I64 Get(){return 7;}I64 Arg(I64 n){return n;}I64 Tiny(U8 \
-         n){return n;}I64 Add(I64 a,I64 b){return a+b;}class Box{U0 empty;I64 \
-         value;};Box heap_probe={Get(),42};Box object={Get(),42};Box \
+        "I64 N=7;U8 U=7;I64 Get(){return 7;}I64 Arg(I64 n){return n;}I64 \
+         Tiny(U8 n){return n;}I64 Add(I64 a,I64 b){return a+b;}class Box{U0 \
+         empty;I64 value;};Box heap_probe={Get(),42};Box object={Get(),42};Box \
          argument={Arg(7),42};Box pair={Add(3,4),42};Box named={Arg(N),42};Box \
-         small={Tiny(7),42};Box smallnamed={Tiny(N),42};I64 F(){static Box \
-         x={Get(),42};return x.value;}I64 after;"
+         small={Tiny(7),42};Box smallnamed={Tiny(N),42};Box \
+         sum={Arg(3+4),42};Box diff={Arg(8-1),42};Box neg={Arg(-7),42};Box \
+         sumN={Arg(N+0),42};Box negN={Arg(-N),42};Box uarg={Arg(U),42};I64 \
+         F(){static Box x={Get(),42};return x.value;}I64 after;"
   in
   let ledger = D.create_source session ~source |> checked in
   let foreign = D.create_source session ~source |> checked in
@@ -3678,7 +3680,10 @@ let aot_initializer_warning_authority () =
   ignore (Test_parser.expect_ast parsed);
   Alcotest.(check (list int64))
     "heap option suppresses load warning; later leaves count"
-    [ 0L; 0L; 0L; 1L; 1L; 2L; 2L; 3L; 3L; 4L; 4L; 5L; 5L; 6L; 6L; 7L; 7L ]
+    ([ 0L; 0L; 0L; 0L ]
+    @ List.concat_map
+        (fun n -> [ Int64.of_int n; Int64.of_int n ])
+        (List.init 13 (fun n -> n + 1)))
     (List.rev !counts);
   Option.iter
     (fun receipt ->
