@@ -600,6 +600,52 @@ let original_narrow_left_gap () =
         [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
     [ false; true ]
 
+let original_retained_narrow_memory () =
+  let fields = fixture ~stem:"narrow-left-addressed" () in
+  List.iter
+    (fun (key, type_, initial) ->
+      let source =
+        Printf.sprintf
+          "#exe {I64 F(%s x,I8 c){%s *p=&x;*p<<=c;return x;}I64 I(){return \
+           F(%s,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%%d;\",S());}"
+          type_ type_ initial
+      in
+      List.iter
+        (fun native ->
+          List.iter
+            (fun mode ->
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original retained addressed narrow left shift"
+                (Some (Int64.of_string (List.assoc key fields)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no addressed shift diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ Preprocessor.Jit; Preprocessor.Aot ])
+        [ false; true ])
+    [ ("SIGNED", "I8", "127"); ("UNSIGNED", "U8", "255") ];
+  let captured = fixture ~stem:"retained-memory-default" () in
+  Alcotest.(check string)
+    "original memory initializer call count" "1"
+    (List.assoc "CALLS" captured);
+  let source =
+    "#exe {I64 NR=0;I64 FR(I8 x,I8 c){I8 *p=&x;NR++;*p<<=c;return x;}I64 \
+     IR(){return FR(127,1);}I64 SR(I64 n=IR()){return \
+     n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}"
+  in
+  List.iter
+    (fun native ->
+      List.iter
+        (fun mode ->
+          let _, result = run native mode source in
+          Alcotest.(check (option int64))
+            "original memory default and single call"
+            (Some (Int64.of_string (List.assoc "VALUE" captured)))
+            (Result.get_ok result))
+        [ Preprocessor.Jit; Preprocessor.Aot ])
+    [ false; true ]
+
 let static_owner_identity () =
   let module G = Ir_integer_globals in
   let module L = Ir_integer_program_lowering in
@@ -699,6 +745,8 @@ let () =
             original_narrow_right_update;
           Alcotest.test_case "original narrow left gap" `Quick
             original_narrow_left_gap;
+          Alcotest.test_case "original retained narrow memory" `Quick
+            original_retained_narrow_memory;
           Alcotest.test_case "static owner identity" `Quick
             static_owner_identity;
           Alcotest.test_case "unsupported boundaries" `Quick boundaries;

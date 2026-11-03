@@ -606,18 +606,7 @@ let original_preparation_shifts context ~owner =
                        Option.fold ~none:false ~some:scalar
                          (Values.find_opt operand produced))
                      [ left; right ]
-            | (Opcode.Ic_shl_equ | Ic_shr_equ), [ target; count ], None
-              when Option.fold ~none:false
-                     ~some:(fun type_ ->
-                       Option.fold ~none:false
-                         ~some:(fun scalar ->
-                           Integer_scalar_storage.byte_size scalar = 8)
-                         (Integer_scalar_storage.of_type type_))
-                     item.target_type ->
-                Option.is_some (Values.find_opt target produced)
-                && Option.fold ~none:false ~some:scalar
-                     (Values.find_opt count produced)
-            | Opcode.Ic_shr_equ, [ target; count ], None ->
+            | (Opcode.Ic_shl_equ | Ic_shr_equ), [ target; count ], None ->
                 scalar item
                 && Option.is_some (Values.find_opt target produced)
                 && Option.fold ~none:false ~some:scalar

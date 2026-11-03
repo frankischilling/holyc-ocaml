@@ -144,6 +144,9 @@ let authority () =
           ("I64 F(I64 x,I64 n){x<<=n;return x;}F(7,1);", Op.Ic_shl_equ, 14L);
           ("I64 F(I64 x,I64 n){x>>=n;return x;}F(-8,1);", Op.Ic_shr_equ, -4L);
           ("I64 F(I8 x,I64 n){x>>=n;return x;}F(-7,65);", Op.Ic_shr_equ, -4L);
+          ( "I64 F(I8 x,I8 n){I8 *p=&x;*p<<=n;return x;}F(127,1);",
+            Op.Ic_shl_equ,
+            -2L );
         ])
     modes
 
@@ -256,6 +259,13 @@ let ranges_and_boundaries () =
           "I8 x=-7;I8 y=x;y>>=1;return y;";
           "I8 x=-7;I64 n=65;x>>=n;return x;";
         ];
+      let _, addressed =
+        success mode
+          (retained ~expected:"-2" "I8 x=127;I8 n=1;I8 *p=&x;*p<<=n;return x;")
+      in
+      Alcotest.(check (option int64))
+        "addressed narrow update stores low byte" (Some 44L)
+        (Option.map (fun w -> w.VM.bits) (VM.final_value addressed));
       let _, shifted =
         success mode (retained ~expected:"-7" "I64 x=X;x>>=64;return x;")
       in

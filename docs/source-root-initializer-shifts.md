@@ -7,7 +7,7 @@ executes the update once and keeps the initialized result when that source later
 
 ## Original observations
 
-At pinned reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`, twenty-three
+At pinned reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`, twenty-four
 source/capture pairs in `test/oracle/source-root-shifts` record JIT and compiled
 BIN-load results twice in one boot. The original compiler reported no errors.
 They cover signed and unsigned right shifts, negative and large constant counts,
