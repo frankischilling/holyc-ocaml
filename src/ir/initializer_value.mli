@@ -20,3 +20,6 @@ val discards_reference :
 (** A zero-byte live destination may consume an actually evaluated reference
     without copying its address or granting a scalar word. Expression lowering,
     execution ownership and final-size settlement remain required. *)
+
+val has_integer_word :
+  Sema.Function_call_expression_result.expression_result -> bool

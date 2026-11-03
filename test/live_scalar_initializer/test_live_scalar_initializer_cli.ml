@@ -55,7 +55,8 @@ let success ?(output_hex = "41") expected report =
     (Yojson.Safe.to_string report);
   require
     (report |> member "final_value" |> member "value" = `String expected)
-    "original scalar cursor and saved table result";
+    ("original scalar cursor and saved table result: "
+    ^ Yojson.Safe.to_string report);
   require
     (member "output_hex" report = `String output_hex)
     "callee output occurred exactly once";
@@ -133,25 +134,22 @@ let () =
           let run options status =
             invoke compiler source_example target mode options status
           in
-          if mode = "aot" then failure "HCRUN0006" (run [] 1)
-          else
-            let baseline = run [] 0 in
-            success "42" baseline;
-            let work = member "compiled_initializer_steps" baseline |> to_int
-            and steps = member "executed_steps" baseline |> to_int in
-            success "42"
-              (run
-                 [
-                   Printf.sprintf "--initializer-step-limit=%d" work;
-                   Printf.sprintf "--step-limit=%d" steps;
-                 ]
-                 0);
-            failure "HCIRVM0007"
-              (run
-                 [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ]
-                 1);
-            failure "HCIRVM0007"
-              (run [ Printf.sprintf "--step-limit=%d" (steps - 1) ] 1))
+          let expected = if mode = "aot" then "7" else "42" in
+          let baseline = run [] 0 in
+          success expected baseline;
+          let work = member "compiled_initializer_steps" baseline |> to_int
+          and steps = member "executed_steps" baseline |> to_int in
+          success expected
+            (run
+               [
+                 Printf.sprintf "--initializer-step-limit=%d" work;
+                 Printf.sprintf "--step-limit=%d" steps;
+               ]
+               0);
+          failure "HCIRVM0007"
+            (run [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ] 1);
+          failure "HCIRVM0007"
+            (run [ Printf.sprintf "--step-limit=%d" (steps - 1) ] 1))
         [ "jit"; "aot" ])
     targets;
   let probe = Filename.temp_file "holyc static grammar " ".hc" in
@@ -194,7 +192,11 @@ let () =
                   else
                     success
                       ~output_hex:(if output = "A" then "41" else "")
-                      "42"
+                      (if mode = "aot" then
+                         Int64.to_string
+                           (Option.value ~default:42L
+                              (Cases.aot_integer_value source))
+                       else "42")
                       (invoke compiler probe target mode [] 0))
                 (Cases.ordinary_source_values @ Cases.static_load_values
                @ Cases.fragment_member_values @ Cases.empty_root_values
@@ -210,19 +212,24 @@ let () =
                     Filename.concat (Filename.dirname example) filename
                   in
                   if
-                    mode = "aot"
-                    && (filename = "empty-aggregate-initializers.hc"
-                       || filename = "native-aot-static-initializers.hc")
+                    mode = "aot" && filename = "empty-aggregate-initializers.hc"
                   then
                     failure "HCRUN0006"
                       (invoke compiler forward_example target mode [] 1)
                   else
+                    let expected =
+                      if
+                        mode = "aot"
+                        && filename = "native-aot-static-initializers.hc"
+                      then "40"
+                      else "42"
+                    in
                     let baseline =
                       invoke compiler forward_example target mode [] 0
                     in
-                    success "42" baseline;
+                    success expected baseline;
                     let steps = member "executed_steps" baseline |> to_int in
-                    success "42"
+                    success expected
                       (invoke compiler forward_example target mode
                          [ Printf.sprintf "--step-limit=%d" steps ]
                          0);
@@ -237,7 +244,7 @@ let () =
                       let work =
                         member "compiled_initializer_steps" baseline |> to_int
                       in
-                      success "42"
+                      success expected
                         (invoke compiler forward_example target mode
                            [ Printf.sprintf "--initializer-step-limit=%d" work ]
                            0);

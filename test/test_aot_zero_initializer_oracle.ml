@@ -121,30 +121,95 @@ let boundaries () =
   List.iter
     (fun native ->
       List.iter
-        (fun contents ->
+        (fun (contents, expected) ->
           let _, jit, _ = run native Preprocessor.Jit contents in
           Alcotest.(check (option int64))
             "JIT retains its empty copy" (Some 42L) (Result.get_ok jit);
           let diagnostics, aot, output = run native Preprocessor.Aot contents in
-          Alcotest.(check bool)
-            "AOT never substitutes JIT empty completion" true
-            (Result.is_error aot);
-          Alcotest.(check (list string))
-            "separate load-assignment boundary" [ "HCRUN0006" ]
-            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
-          Alcotest.(check string) "unsupported load is not executed" "" output)
+          (match expected with
+          | Some bits ->
+              Alcotest.(check (option int64))
+                "original AOT integer store" (Some bits) (Result.get_ok aot);
+              Alcotest.(check int)
+                "integer assignment has no warnings" 0 (List.length diagnostics)
+          | None ->
+              Alcotest.(check bool)
+                "missing words/windows cannot become stores" true
+                (Result.is_error aot);
+              Alcotest.(check (list string))
+                "unsupported assignment boundary" [ "HCRUN0006" ]
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics));
+          Alcotest.(check string) "no unrequested output" "" output)
         [
-          "I64 Get(){return 7;}class Box{U0 empty;I64 value;};Box \
-           object={Get(),42};I64 F(){return object.value;}F();";
-          "I64 Get(){return 7;}class Box{U0 empty;I64 value;};I64 F(){static \
-           Box object={Get(),42};return object.value;}F();";
-          "U0 Get(){}class Box{U0 empty;I64 value;};Box object={Get(),42};I64 \
-           F(){return object.value;}F();";
-          "U0 Get(){}class Box{U0 empty;I64 value;};I64 F(){static Box \
-           object={Get(),42};return object.value;}F();";
-          "I64 Get(){return 7;}class Empty{};Empty object=Get();42;";
+          ( "I64 Get(){return 7;}class Box{U0 empty;I64 value;};Box \
+             object={Get(),42};I64 F(){return object.value;}F();",
+            Some 7L );
+          ( "I64 Get(){return 7;}class Box{U0 empty;I64 value;};I64 F(){static \
+             Box object={Get(),42};return object.value;}F();",
+            Some 7L );
+          ( "U0 Get(){}class Box{U0 empty;I64 value;};Box \
+             object={Get(),42};I64 F(){return object.value;}F();",
+            None );
+          ( "U0 Get(){}class Box{U0 empty;I64 value;};I64 F(){static Box \
+             object={Get(),42};return object.value;}F();",
+            None );
+          ("I64 Get(){return 7;}class Empty{};Empty object=Get();42;", None);
         ])
     [ false; true ]
+
+let assignment_words () =
+  let cases =
+    [
+      ( "lookahead",
+        "JIT_LOOKAHEAD",
+        "AOT_LOOKAHEAD",
+        {|I64 Next(I64 n){return n;}extern class Item;class Box{Item item;U8 tail;$$=8;};I64 F(){static Box object={Next(
+#exe {StreamExePrint("class Item{U16 value;};");}
+7),42};U8 *p=(&object)(U8*);return p[2];}F();|}
+      );
+      ( "pattern",
+        "JIT_INTEGER",
+        "AOT_INTEGER",
+        "I64 Get(){return 7;}class Box{U0 empty;I64 value;};Box \
+         object={Get(),0x112233445566772a};I64 F(){return object.value;}F();" );
+      ( "classes",
+        "JIT_EMPTY",
+        "AOT_EMPTY",
+        "I64 Get(){return 7;}class Empty{};class Box{Empty empty;I64 \
+         value;};Box object={Get(),0x112233445566772a};I64 F(){return \
+         object.value;}F();" );
+      ( "classes",
+        "JIT_THREE",
+        "AOT_THREE",
+        "I64 Get(){return 7;}class Base{U8 bytes[3];};class Leaf:Base{};class \
+         Box{Leaf leaf;U8 tail[5];};Box object={Get(),{5,4,3,2,1}};I64 \
+         F(){return *(&object)(I64*);}F();" );
+      ( "classes",
+        "JIT_THREE",
+        "AOT_STATIC",
+        "I64 Get(){return 7;}class Base{U8 bytes[3];};class Leaf:Base{};class \
+         Box{Leaf leaf;U8 tail[5];};I64 F(){static Box \
+         object={Get(),{5,4,3,2,1}};return *(&object)(I64*);}F();" );
+    ]
+  in
+  List.iter
+    (fun (stem, jit_field, aot_field, contents) ->
+      let fields = fixture stem in
+      List.iter
+        (fun native ->
+          List.iter
+            (fun (mode, field) ->
+              let diagnostics, result, output = run native mode contents in
+              Alcotest.(check (option int64))
+                "native-observed raw store width"
+                (Some (Int64.of_int (List.assoc field fields)))
+                (Result.get_ok result);
+              Alcotest.(check int)
+                "no assignment diagnostics" 0 (List.length diagnostics);
+              Alcotest.(check string) "no assignment output" "" output)
+            [ (Preprocessor.Jit, jit_field); (Preprocessor.Aot, aot_field) ])
+        [ false; true ])
+    cases
 
 let () =
   Alcotest.run "AOT zero-byte initializer phases"
@@ -160,8 +225,10 @@ let () =
             original_store_width;
           Alcotest.test_case "constant copies retain their original width"
             `Quick controls;
+          Alcotest.test_case "integer assignments match original raw widths"
+            `Quick assignment_words;
           Alcotest.test_case
-            "nonconstant assignments need their own storage operation" `Quick
+            "bounded actual words and unsupported U0 completions" `Quick
             boundaries;
         ] );
     ]

@@ -627,26 +627,38 @@ let static_faults =
       "HCIRVM0009" );
   ]
 
-(* These cases still exercise live JIT copies. Their nonconstant AOT leaves
-   require the distinct load-assignment operation observed in native BINs. *)
+(* AOT assignments use the raw machine width rather than the copy cursor.
+   These bounded roots retain all bytes touched by the original load store. *)
+let aot_integer_value source =
+  let expected =
+    [
+      ("ordinary source evaluates zero-byte members exactly once", 7L);
+      ("ordinary source zero-byte member arrays keep each leaf", 2L);
+      ("ordinary source zero-byte leaves follow the direct member cursor", 7L);
+      ("ordinary source later completion preserves the earlier copy", 7L);
+      ("ordinary source shares reached globals with later functions", 7L);
+      ("ordinary source aggregate arrays retain each initializer effect", 40L);
+      ("static load keeps its scalar branch through expression lookahead", 0L);
+      ("static load evaluates a zero-byte leaf before later completion", 1L);
+      ( "global initialization retains the forward through same-name replacement",
+        7L );
+    ]
+  in
+  List.find_map
+    (fun (name, original, _) ->
+      if String.equal source original then List.assoc_opt name expected
+      else None)
+    both_values
+
 let requires_aot_zero_assignment source =
-  List.exists
-    (fun (_, original, _) -> String.equal original source)
-    (List.tl ordinary_source_values
-    @ List.filter
-        (fun (name, _, _) ->
-          name <> "closed empty initializer leaves retain zero-byte images"
-          && name
-             <> "uninitialized empty globals and statics retain zero geometry")
-        empty_root_values
-    @ List.filter
-        (fun (name, _, _) ->
-          name
-          = "static load evaluates a zero-byte leaf before later completion")
-        static_load_values
-    @ List.filter
-        (fun (name, _, _) ->
-          name
-          = "global initialization retains the forward through same-name \
-             replacement")
-        both_values)
+  Option.is_none (aot_integer_value source)
+  && List.exists
+       (fun (_, original, _) -> String.equal original source)
+       (List.tl ordinary_source_values
+       @ List.filter
+           (fun (name, _, _) ->
+             name <> "closed empty initializer leaves retain zero-byte images"
+             && name
+                <> "uninitialized empty globals and statics retain zero \
+                    geometry")
+           empty_root_values)

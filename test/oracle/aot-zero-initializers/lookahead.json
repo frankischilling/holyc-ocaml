@@ -1,0 +1,12 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "84388429938f2c8151fc0196e8910639ef253d0ac7fe3d09ade9ad1e92ed2f4f",
+  "capture_sha256": "207069b70f8922a7e4b292e22d5000cabf95fdeaba86fe0f606912bec4aee82b",
+  "boot_iso_sha256": "8a08b5ef19190cc5121a4498c8ddd01a7d9cea28dd18243d7b25267305c4615f",
+  "fields": {
+    "JIT_LOOKAHEAD": 42,
+    "COMPILE_ERRORS": 0,
+    "AOT_LOOKAHEAD": 0
+  },
+  "scope": "Original static initializer expression lookahead completes a selected class to two bytes; JIT copies two bytes while AOT assigns the raw I64 width, overwriting the following byte."
+}

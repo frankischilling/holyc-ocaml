@@ -509,13 +509,7 @@ let static_ownership ?contents () =
            ~max_initializer_steps:(steps - 1) ()))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
-let static_load_ownership () =
-  let contents =
-    "I64 calls=0;I64 Next(){return ++calls;}extern class Item;class Box{Item \
-     item;U8 tail;$$=8;};I64 F(){static Box object={Next(),42};static U8 \
-     n=object.tail;return n;}I64 G(){static U8 other=41;return other;}class \
-     Item{U16 value;};F();"
-  in
+let check_static_load_ownership contents =
   let make () = fixture ~contents ~isolated:true Preprocessor.Aot in
   let span, prepared, compile = make () in
   let evidence = Preparation.static_initializers prepared in
@@ -604,6 +598,18 @@ let static_load_ownership () =
   Alcotest.(check bool)
     "address permission ends with the original load region" false
     (Proof.owns_static_load_address sealed ~globals ~slot ~instruction:outside)
+
+let static_load_ownership () =
+  List.iter check_static_load_ownership
+    [
+      "I64 calls=0;I64 Next(){return ++calls;}extern class Item;class Box{Item \
+       item;U8 tail;$$=8;};I64 F(){static Box object={Next(),42};static U8 \
+       n=object.tail;return n;}I64 G(){static U8 other=41;return other;}class \
+       Item{U16 value;};F();";
+      "I64 calls=0;I64 Next(){return ++calls;}class Box{U0 item;I64 tail;};I64 \
+       F(){static Box object={Next(),0x112233445566772a};static U8 \
+       n=object.tail;return n;}I64 G(){static U8 other=41;return other;}F();";
+    ]
 
 let pointer_load_ownership () =
   let contents =

@@ -152,7 +152,14 @@ let () =
                         Alcotest.(check string)
                           "unsupported AOT assignment does not execute" ""
                           (integer_program_report_output_bytes report))
-                      else value output report))
+                      else
+                        value
+                          ~expected:
+                            (if mode = Preprocessor.Aot then
+                               Option.value ~default:42L
+                                 (Cases.aot_integer_value source)
+                             else 42L)
+                          output report))
                 (Cases.both_values @ Cases.static_both_values))
             [ Preprocessor.Jit; Preprocessor.Aot ]
         @ [

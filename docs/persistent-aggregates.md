@@ -36,9 +36,8 @@ reached expression executes once during parsing, including a zero-byte forward
 member inside a nonempty allocation. That member copies no bytes; the following
 direct member keeps the same initializer cursor. The
 [ordinary-source example](../examples/source-aggregate-initializers.hc) checks
-this timing without a `#exe` block in JIT. Nonconstant zero-byte AOT leaves
-require a separate [load-assignment operation](aot-zero-byte-initializers.md)
-and reject until that operation is implemented.
+this timing without a `#exe` block in JIT. Its AOT load uses the separate
+[raw assignment](aot-zero-byte-initializers.md), returning 7 instead of 42.
 
 Isolated global and static initializers keep their original layout metadata
 through later class completion or replacement. Completed consumers join those
@@ -53,10 +52,10 @@ leaves retain their prepared image bytes. The
 [static-load example](../examples/native-aot-static-initializers.hc) checks load
 order, forward members, original function selection and persistent mutation.
 Nonconstant AOT statics with globals-on-data-heap remain open.
-This example contains a nonconstant zero-byte forward leaf. It currently runs
-in JIT only; AOT now rejects that leaf with `HCRUN0006` until the original
-[load-assignment storage](aot-zero-byte-initializers.md) is implemented. Earlier
-AOT success expectations did not match the original compiler.
+Its zero-byte forward leaf now uses the original raw I64 load store in AOT.
+That overwrites the constant following byte before later load leaves run, so the
+example returns 40 in AOT and 42 in JIT. See
+[load-assignment storage](aot-zero-byte-initializers.md).
 
 Source-task static references retain the original aggregate type and dimensions.
 A later initializer can read or update that object's direct, inherited and

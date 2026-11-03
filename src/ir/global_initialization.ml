@@ -667,6 +667,31 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                           Typed.top_level_root_value
                             (Static_initializer_destination.root destination)
                     in
+                    let aggregate_operation =
+                      match slot with
+                      | (Global_pending _ | Static_pending _)
+                        when Integer_globals.compilation_mode globals
+                             = Sema.Global_resolution.Aot ->
+                          Aggregate_initializer_store.Load_assignment
+                      | _ -> Aggregate_initializer_store.Copy
+                    in
+                    let store_window_valid =
+                      match aggregate_destination with
+                      | Some (scalar, offset)
+                        when aggregate_operation
+                             = Aggregate_initializer_store.Load_assignment ->
+                          let width =
+                            Aggregate_initializer_store.byte_size
+                              aggregate_operation scalar
+                          in
+                          let bytes =
+                            Integer_storage_shape.byte_size
+                              (Integer_globals.storage_shape storage)
+                          in
+                          offset >= 0 && width <= bytes
+                          && offset <= bytes - width
+                      | _ -> true
+                    in
                     let store_valid =
                       match (copy_destination, aggregate_destination) with
                       | Some (bytes, byte_offset), _ -> (
@@ -718,7 +743,7 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                           match
                             ( take
                                 (Aggregate_initializer_store.instruction_count
-                                   scalar)
+                                   ~operation:aggregate_operation scalar)
                                 (store :: reversed_value) [],
                               store.operands )
                           with
@@ -728,7 +753,9 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                               match first.result with
                               | Some result -> (
                                   match
-                                    Aggregate_initializer_store.lower ~scalar
+                                    Aggregate_initializer_store
+                                    .lower_for_operation
+                                      ~operation:aggregate_operation ~scalar
                                       ~byte_offset ~root_type:expected_type
                                       ~root:
                                         (Global_address_lowering.result_value
@@ -748,16 +775,27 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                       | None, Some (scalar, _)
                         when Sema.Initializer_type.scalar_byte_size scalar = 0
                              && store.opcode = Opcode.Ic_call_end ->
-                          Initializer_value.is_void original_value
+                          aggregate_operation = Aggregate_initializer_store.Copy
+                          && Initializer_value.is_void original_value
                           && Lock_semantics.clear_flag store.flags = 0L
                           && store.operands = []
                           && Option.fold ~none:false
                                ~some:(fun type_ ->
                                  same_type type_ store.target_type)
                                (Typed.result_value_type original_value)
+                      | None, Some (scalar, _)
+                        when aggregate_operation
+                             = Aggregate_initializer_store.Load_assignment
+                             && Aggregate_initializer_store.byte_size
+                                  aggregate_operation scalar
+                                <> Sema.Initializer_type.scalar_byte_size scalar
+                             && not
+                                  (Initializer_value.has_integer_word
+                                     original_value) -> false
                       | None, Some (scalar, byte_offset) -> (
                           let count =
-                            Aggregate_initializer_store.instruction_count scalar
+                            Aggregate_initializer_store.instruction_count
+                              ~operation:aggregate_operation scalar
                           in
                           let reversed = store :: reversed_value in
                           let rec take count reversed suffix =
@@ -772,7 +810,9 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                               match (first.result, conversion.operands) with
                               | Some result, [ word ] -> (
                                   match
-                                    Aggregate_initializer_store.lower ~scalar
+                                    Aggregate_initializer_store
+                                    .lower_for_operation
+                                      ~operation:aggregate_operation ~scalar
                                       ~byte_offset ~root_type:expected_type
                                       ~root:
                                         (Global_address_lowering.result_value
@@ -830,8 +870,8 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                         reversed_value
                     in
                     if
-                      address_valid && store_valid && end_valid
-                      && interior_valid
+                      address_valid && store_window_valid && store_valid
+                      && end_valid && interior_valid
                       && closed (address :: rest)
                     then Ok ()
                     else

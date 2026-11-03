@@ -608,39 +608,73 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                          | _ -> false))
                   value_code
               in
-              let zero_byte_leaf =
-                let scalar entry = Layout.scalar (Arrays.destination entry) in
-                let selected =
-                  match root_ with
-                  | Global (slot, root) ->
-                      Option.bind (Globals.slot_array_initializers slot)
-                        (fun arrays -> Arrays.find arrays root)
-                      |> fun entry -> Option.bind entry scalar
-                  | Static (slot, root) ->
-                      Option.bind (Globals.static_array_initializers slot)
-                        (fun arrays -> Arrays.find arrays root)
-                      |> fun entry -> Option.bind entry scalar
-                  | _ -> None
+              let assignment_leaf =
+                let selected storage arrays root =
+                  Option.bind arrays (fun arrays ->
+                      Option.bind (Arrays.find arrays root) (fun entry ->
+                          let destination = Arrays.destination entry in
+                          Option.map
+                            (fun scalar -> (storage, destination, scalar))
+                            (Layout.scalar destination)))
                 in
-                Option.fold ~none:false
-                  ~some:(fun scalar ->
-                    Sema.Initializer_type.scalar_byte_size scalar = 0)
-                  selected
+                match root_ with
+                | Global (slot, root) ->
+                    selected
+                      (Globals.global_storage slot)
+                      (Globals.slot_array_initializers slot)
+                      root
+                | Static (slot, root) ->
+                    selected
+                      (Globals.static_storage slot)
+                      (Globals.static_array_initializers slot)
+                      root
+                | _ -> None
               in
               let* () =
-                (* PrsVarInit emits a load-time assignment for nonconstant AOT
-                   leaves. Its machine store can overwrite following bytes even
-                   when the compile-time copy width is zero. Empty-copy
-                   completion cannot stand in for that separate operation. *)
-                if
-                  (not constant) && zero_byte_leaf
-                  && Globals.compilation_mode globals
-                     = Sema.Global_resolution.Aot
-                then
-                  invalid ~at ~notes "HCRUN0006"
-                    "nonconstant zero-byte AOT initializers require original \
-                     load-time assignment storage"
-                else Ok ()
+                match assignment_leaf with
+                | Some (storage, destination, scalar)
+                  when (not constant)
+                       && Globals.compilation_mode globals
+                          = Sema.Global_resolution.Aot ->
+                    let width =
+                      Ir.Aggregate_initializer_store.byte_size Load_assignment
+                        scalar
+                    in
+                    let proven_load =
+                      List.exists
+                        (fun (item : Seq.description) ->
+                          (Ir.Opcode.info item.opcode).prevents_constant_folding)
+                        value_code
+                    in
+                    let bytes =
+                      Ir.Integer_storage_shape.byte_size
+                        (Globals.storage_shape storage)
+                    in
+                    let offset = Layout.byte_offset destination in
+                    let actual_word =
+                      Ir.Initializer_value.has_integer_word value
+                    in
+                    (* A load assignment uses its raw machine width, not the
+                       compile-time copy width. No missing U0 register word or
+                       bytes beyond the original object may be invented. *)
+                    if
+                      width <> Sema.Initializer_type.scalar_byte_size scalar
+                      && not proven_load
+                    then
+                      invalid ~at ~notes "HCRUN0006"
+                        "AOT assignment width requires original nonconstant \
+                         expression evidence"
+                    else if
+                      offset < 0 || width > bytes
+                      || offset > bytes - width
+                      || width <> Sema.Initializer_type.scalar_byte_size scalar
+                         && not actual_word
+                    then
+                      invalid ~at ~notes "HCRUN0006"
+                        "AOT initializer assignment requires its actual scalar \
+                         word and original storage window"
+                    else Ok ()
+                | _ -> Ok ()
               in
               let guard ?runtime ~constant code =
                 let divisions =

@@ -1,9 +1,9 @@
 # Changelog
 
-Nonconstant zero-byte AOT initializers now reject instead of using JIT empty-copy
-semantics. [Native AOT captures](aot-zero-byte-initializers.md) show an actual
-load-time store into the following member. Constant copies and live JIT remain
-supported.
+Bounded integer AOT initializer leaves now use their original raw assignment
+width, separately from JIT and constant-copy widths. [Native captures](aot-zero-byte-initializers.md)
+verify four- and eight-byte stores. Missing register values, ownership and storage
+windows still reject explicitly.
 
 Scalar U0 globals and statics now retain zero-byte storage and live JIT
 initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)

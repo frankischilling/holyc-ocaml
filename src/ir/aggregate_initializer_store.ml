@@ -16,20 +16,37 @@ let result_type t = t.type_
 let next_instruction_id t = t.next_instruction_
 let next_value_id t = t.next_value_
 
-let instruction_count scalar =
-  let count = Leaf.scalar_byte_size scalar in
+type operation = Copy | Load_assignment
+
+let byte_size operation scalar =
+  match operation with
+  | Copy -> Leaf.scalar_byte_size scalar
+  | Load_assignment -> (
+      let type_ = Leaf.scalar_type scalar in
+      if Type.pointer_depth type_ > 0 then 8
+      else
+        match Type.base type_ with
+        | Type.Primitive (_, primitive) ->
+            let width = (Sema.Primitive_type.info primitive).byte_size in
+            (* ICSlashOp uses the default 32-bit memory opcode for U0/I0. *)
+            if width = 0 then 4 else width
+        | Type.Aggregate _ -> 8)
+
+let instruction_count ?(operation = Copy) scalar =
+  let count = byte_size operation scalar in
   if Option.is_some (Initializer_value.pointer_destination (Some scalar)) then 9
+  else if operation = Load_assignment then 10
   else if count = 0 then 3
   else 2 + (7 * count)
 
 let ( let* ) = Result.bind
 
-let lower ~scalar ~byte_offset ~root_type ~root ~word ~span ~instruction_id
-    ~value_id =
+let lower_for_operation ~operation ~scalar ~byte_offset ~root_type ~root ~word
+    ~span ~instruction_id ~value_id =
   let singleton result = Result.map_error (fun error -> [ error ]) result in
   let instruction = ref (Sequence.Instruction_id.to_int instruction_id)
   and value = ref (Sequence.Value_id.to_int value_id) in
-  let count = Leaf.scalar_byte_size scalar in
+  let count = byte_size operation scalar in
   let* () =
     match Type.base root_type with
     | Type.Aggregate _
@@ -138,40 +155,81 @@ let lower ~scalar ~byte_offset ~root_type ~root ~word ~span ~instruction_id
           emit Opcode.Ic_holyc_typecast [ word ] word_type
             (Some (Sequence.Integer 1L))
         in
-        let rec write index previous =
-          if index = count then Ok previous
-          else
-            let* stride =
-              emit Opcode.Ic_imm_i64 [] byte_pointer
-                (Some (Sequence.Integer 1L))
-            in
-            let* coordinate =
-              emit Opcode.Ic_imm_i64 [] word_type
-                (Some (Sequence.Integer (Int64.of_int (byte_offset + index))))
-            in
-            let* scaled =
-              emit Opcode.Ic_mul [ stride; coordinate ] byte_pointer None
-            in
-            let* destination =
-              emit Opcode.Ic_add [ byte_root; scaled ] byte_pointer None
-            in
-            let* bits =
-              if index = 0 then Ok word
-              else
-                emit Opcode.Ic_shr_const [ word ] word_type
-                  (Some (Sequence.Integer (Int64.of_int (index * 8))))
-            in
-            let* byte =
-              emit Opcode.Ic_holyc_typecast [ bits ] word_type
-                (Some (Sequence.Integer 1L))
-            in
-            let* stored =
-              emit Opcode.Ic_assign [ destination; byte ] byte_type None
-            in
-            write (index + 1) stored
-        in
-        let* result = write 0 word in
-        Ok (result, if count = 0 then word_type else byte_type)
+        if operation = Load_assignment then
+          (* Keep the original raw assignment as one checked memory store,
+             rather than a sequence of partial byte stores. *)
+          let primitive =
+            match count with
+            | 1 -> Sema.Primitive_type.U8
+            | 2 -> Sema.Primitive_type.U16
+            | 4 -> Sema.Primitive_type.U32
+            | _ -> Sema.Primitive_type.I64
+          in
+          let storage_type =
+            Type.make_primitive ~form:Type.Public_spelling ~primitive
+              ~pointer_depth:0
+            |> Result.get_ok
+          in
+          let pointer_type = Type.pointer_to storage_type |> Result.get_ok in
+          let* stride =
+            emit Opcode.Ic_imm_i64 [] byte_pointer (Some (Sequence.Integer 1L))
+          in
+          let* offset =
+            emit Opcode.Ic_imm_i64 [] word_type
+              (Some (Sequence.Integer (Int64.of_int byte_offset)))
+          in
+          let* scaled =
+            emit Opcode.Ic_mul [ stride; offset ] byte_pointer None
+          in
+          let* destination =
+            emit Opcode.Ic_add [ byte_root; scaled ] byte_pointer None
+          in
+          let* destination =
+            emit Opcode.Ic_addr [ destination ] byte_pointer None
+          in
+          let* destination =
+            emit Opcode.Ic_holyc_typecast [ destination ] pointer_type
+              (Some (Sequence.Integer 1L))
+          in
+          let* result =
+            emit Opcode.Ic_assign [ destination; word ] storage_type None
+          in
+          Ok (result, storage_type)
+        else
+          let rec write index previous =
+            if index = count then Ok previous
+            else
+              let* stride =
+                emit Opcode.Ic_imm_i64 [] byte_pointer
+                  (Some (Sequence.Integer 1L))
+              in
+              let* coordinate =
+                emit Opcode.Ic_imm_i64 [] word_type
+                  (Some (Sequence.Integer (Int64.of_int (byte_offset + index))))
+              in
+              let* scaled =
+                emit Opcode.Ic_mul [ stride; coordinate ] byte_pointer None
+              in
+              let* destination =
+                emit Opcode.Ic_add [ byte_root; scaled ] byte_pointer None
+              in
+              let* bits =
+                if index = 0 then Ok word
+                else
+                  emit Opcode.Ic_shr_const [ word ] word_type
+                    (Some (Sequence.Integer (Int64.of_int (index * 8))))
+              in
+              let* byte =
+                emit Opcode.Ic_holyc_typecast [ bits ] word_type
+                  (Some (Sequence.Integer 1L))
+              in
+              let* stored =
+                emit Opcode.Ic_assign [ destination; byte ] byte_type None
+              in
+              write (index + 1) stored
+          in
+          let* result = write 0 word in
+          Ok (result, if count = 0 then word_type else byte_type)
   in
   let* next_instruction_ =
     Sequence.Instruction_id.of_int !instruction |> singleton
@@ -186,6 +244,7 @@ let lower ~scalar ~byte_offset ~root_type ~root ~word ~span ~instruction_id
       next_value_;
     }
 
+let lower = lower_for_operation ~operation:Copy
 let copy_instruction_count bytes = 2 + (6 * String.length bytes)
 
 let lower_copy ~bytes ~byte_offset ~root_type ~root ~span ~instruction_id

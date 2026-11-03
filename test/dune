@@ -5632,3 +5632,21 @@
  (libraries holyc_lib yojson digestif alcotest)
  (deps
   (glob_files oracle/aot-zero-initializers/*)))
+
+(executable
+ (name test_aot_load_assignment_cli)
+ (modules test_aot_load_assignment_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_aot_load_assignment_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_aot_load_assignment_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))

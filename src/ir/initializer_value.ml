@@ -64,3 +64,14 @@ let discards_reference ~scalar value =
         && (Typed.result_is_callback_storage value
            || Typed.result_category value = Typed.Address_value
               && Option.is_some (Typed.result_function_address_path value)))
+
+let has_integer_word value =
+  Typed.result_class value = Typed.Integer_result
+  && Typed.result_array_rank value = 0
+  && (not (Typed.result_is_callback_storage value))
+  && (not (Typed.result_is_numeric_callback value))
+  && Option.is_none (Typed.result_function_address_path value)
+  && Option.fold ~none:false
+       ~some:(fun type_ ->
+         Option.is_some (Integer_scalar_storage.of_type type_))
+       (Typed.result_storage_type value)

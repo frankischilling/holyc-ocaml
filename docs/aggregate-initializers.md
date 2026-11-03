@@ -240,8 +240,9 @@ element. Later completion cannot enlarge the earlier copy or containing root.
 
 The [ordinary-source example](../examples/source-aggregate-initializers.hc)
 contains no `#exe` block. Its zero-byte member calls `Next` once, prints `A`,
-and leaves the following byte initialized to 42. Later functions observe the
-same globals and storage. IR and native source tasks check the result and exact
+and leaves the following byte initialized to 42 in JIT. Its bounded AOT load
+assignment overwrites that byte and returns 7. Later functions observe the same
+globals and storage. IR and native source tasks check the result and exact
 execution and initializer limits. Reached output survives malformed later
 input; an initializer fault stops before that later input is parsed.
 
@@ -249,8 +250,8 @@ Isolated source preparation retains global initializer layouts at the original
 parser callbacks. The completed consumer receives each leaf's selected scalar
 type, width and byte cursor rather than rebuilding them from a later completed
 member index. Closed constant AOT leaves can initialize zero-byte forward members
-inside nonempty roots. Nonconstant leaves require the separate load-assignment
-operation and reject rather than reusing zero-copy semantics. A class completed before the initializer supplies its
+inside nonempty roots. Nonconstant integer leaves use the separate load-assignment operation and its
+raw width when the full write fits the original root. A class completed before the initializer supplies its
 reached direct members; completion or replacement afterward cannot change an
 earlier leaf.
 
@@ -283,10 +284,10 @@ same declaring frame. The
 once and returns 42 after later class and function replacement.
 One-star static callback storage also retains its originally selected function
 address through replacement.
-This example contains a nonconstant zero-byte forward leaf. It currently runs
-in JIT only; AOT now rejects that leaf with `HCRUN0006` until the original
-[load-assignment storage](aot-zero-byte-initializers.md) is implemented. Earlier
-AOT success expectations did not match the original compiler.
+Its zero-byte forward leaf now uses the original raw I64 load store in AOT.
+That overwrites the constant following byte before later load leaves run, so the
+example returns 40 in AOT and 42 in JIT. See
+[load-assignment storage](aot-zero-byte-initializers.md).
 
 Later source-task static initializers can read and update earlier class or union
 objects. Static references retain the nominal type and dimensions from their

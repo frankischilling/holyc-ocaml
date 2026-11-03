@@ -1,9 +1,9 @@
 # Testing holyc-ocaml
 
-Nonconstant zero-byte AOT initializers now reject instead of using JIT empty-copy
-semantics. [Native AOT captures](aot-zero-byte-initializers.md) show an actual
-load-time store into the following member. Constant copies and live JIT remain
-supported.
+Bounded integer AOT initializer leaves now use their original raw assignment
+width, separately from JIT and constant-copy widths. [Native captures](aot-zero-byte-initializers.md)
+verify four- and eight-byte stores. Missing register values, ownership and storage
+windows still reject explicitly.
 
 Scalar U0 globals and statics now retain zero-byte storage and live JIT
 initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)
@@ -47,8 +47,8 @@ See [prefix updates](prefix-updates.md).
 
 U0 initializer tests cover zero-byte global/static leaves, empty roots, fixed
 arrays, nested leaves, argument effects and early returns in live JIT.
-Nonconstant zero-byte AOT leaves now have explicit rejection checks, backed by
-[original load-time observations](aot-zero-byte-initializers.md). The
+AOT U0 callees without register words still reject. Bounded integer-returning
+leaves now match [original load-time stores](aot-zero-byte-initializers.md). The
 public CLI verifies exact and one-below work limits and preserved output. A
 class that grows during a U0 call cannot acquire invented initializer bytes.
 The original JIT fixture records four values twice, with source and capture
@@ -2485,8 +2485,9 @@ member cursor across inherited layouts, later completion, shared globals and
 once-only effects. A later malformed declaration retains earlier output; a
 faulting initializer stops first. The `source-aggregate-initializers.hc` example
 runs through IR and native source tasks with exact and one-below execution and
-initializer limits in JIT. The same nonconstant zero-byte AOT leaves reject
-with `HCRUN0006`; constant leaves keep their separate preparation path.
+initializer limits in JIT. Bounded AOT integer leaves check their different
+raw-store results; empty roots and missing words still reject. Constant leaves
+keep their separate preparation path.
 
 Isolated initializer cases cover original forward selections, completion before
 and after initialization, same-name replacement, direct and inherited member
@@ -2511,8 +2512,8 @@ reordered, copied and foreign proofs, missing completions and foreign bundles.
 Static addresses reject another declaring frame and instructions outside the
 sealed load regions. Both native ABI encodings remain required.
 
-Nonconstant zero-byte AOT assignments, AOT statics with globals-on-data-heap,
-other leaf families and full aggregate parity remain open.
+AOT stores without actual scalar words or complete windows, AOT statics with
+globals-on-data-heap, other leaf families and full aggregate parity remain open.
 
 Fragment member cases check reads and once-only updates of earlier aggregate
 statics, nested and root arrays, inherited offsets, global initializer reads and

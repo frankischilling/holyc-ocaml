@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "df3a3c0f867c76dc7dd3a35ebbf59d4c0b3088c8782a5c3372e3e1ee2dc74766",
+  "capture_sha256": "9aa34cb1a380430ee1da6126774a4b44b3807da961eb4592aa692996057529fa",
+  "boot_iso_sha256": "7ceb565459d470b8ca7c334cfa4498bfd0faacfb5f95e90c9e1f1d30c01503e4",
+  "fields": {
+    "JIT_EMPTY": 1234605616436508458,
+    "JIT_THREE": 72623859789987847,
+    "COMPILE_ERRORS": 0,
+    "AOT_EMPTY": 7,
+    "AOT_THREE": 7,
+    "AOT_CONSTANT": 72623859789987847,
+    "AOT_STATIC": 7
+  },
+  "scope": "Original default-I64 class AOT stores use eight bytes for empty and inherited three-byte scalar leaves; JIT and constant AOT copy the original zero/three bytes."
+}

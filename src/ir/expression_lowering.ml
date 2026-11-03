@@ -5912,13 +5912,16 @@ let condition_chain_continuations lowered = lowered.continuations_
 let condition_chain_next_block_id lowered = lowered.next_block_id_
 
 let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
-    ?optimize_division ?aggregate_destination ?(callback = false) ~lower_address
-    ~target_type ~span ~instruction_id ~value_id value =
+    ?optimize_division ?aggregate_destination
+    ?(aggregate_operation = Aggregate_initializer_store.Copy)
+    ?(callback = false) ~lower_address ~target_type ~span ~instruction_id
+    ~value_id value =
   let ( let* ) = Result.bind in
   if
-    Initializer_value.discards
-      ~scalar:(Option.map fst aggregate_destination)
-      value
+    aggregate_operation = Aggregate_initializer_store.Copy
+    && Initializer_value.discards
+         ~scalar:(Option.map fst aggregate_destination)
+         value
   then
     let* address_sequence, _, next_instruction, next_value =
       lower_address ~instruction_id ~value_id
@@ -6004,7 +6007,8 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
                   Ok ([ store ], value_id, target_type)
               | Some (scalar, byte_offset) ->
                   let* lowered =
-                    Aggregate_initializer_store.lower ~scalar ~byte_offset
+                    Aggregate_initializer_store.lower_for_operation
+                      ~operation:aggregate_operation ~scalar ~byte_offset
                       ~root_type:target_type ~root:address_value
                       ~word:value.result_value_ ~span
                       ~instruction_id:value.next_instruction_id_
@@ -6226,6 +6230,10 @@ let lower_global_initializer ~globals ?lower_call ?optimize_shifts
   in
   lower_store_initializer ~globals ?lower_call ?optimize_shifts
     ?optimize_division ?aggregate_destination
+    ~aggregate_operation:
+      (if Integer_globals.compilation_mode globals = Sema.Global_resolution.Aot
+       then Aggregate_initializer_store.Load_assignment
+       else Copy)
     ~callback:
       (Global_address_lowering.storage prepared
       |> Integer_globals.storage_is_callback)
@@ -6340,6 +6348,12 @@ let lower_static_initializer ~globals ?root ?lower_call ?optimize_shifts
         | _ -> None
       in
       lower_store_initializer
+        ~aggregate_operation:
+          (if
+             Integer_globals.compilation_mode globals
+             = Sema.Global_resolution.Aot
+           then Aggregate_initializer_store.Load_assignment
+           else Copy)
         ~frame:(Integer_globals.static_frame slot)
         ~globals ?lower_call ?optimize_shifts ?optimize_division
         ?aggregate_destination:
