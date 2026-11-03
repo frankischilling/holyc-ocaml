@@ -470,6 +470,55 @@ let () =
         ("I64 F(I64 c,I8 n){U8 x=c;x<<=n;return x;}F(256,255);", "0");
       ]
   in
+  let dynamic_count_widths =
+    [
+      ("I8", "255", "254", "255", "-2", "255");
+      ("U8", "255", "510", "511", "-2", "255");
+      ("I16", "65535", "254", "255", "-2", "255");
+      ("U16", "65535", "65790", "65791", "-2", "255");
+      ("I32", "4294967295", "254", "255", "-2", "255");
+      ("U32", "4294967295", "4294967550", "4294967551", "-2", "255");
+      ("I64", "256", "511", "512", "-1", "0");
+      ("U64", "256", "511", "512", "-1", "0");
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (count_type, n, signed, unsigned, signed_memory, unsigned_memory)
+           ->
+          let source ty qualifier initial =
+            Printf.sprintf
+              "I64 F(I64 c,%s n){%s %s x=c;x+=n;return x;}F(%s,%s);" count_type
+              ty qualifier initial n
+          in
+          [
+            (source "I8" "" "255", signed);
+            (source "U8" "" "256", unsigned);
+            (source "I8" "noreg" "255", signed_memory);
+            (source "U8" "noreg" "256", unsigned_memory);
+          ])
+        dynamic_count_widths
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (count_type, n, _, _, _, _) ->
+          let wide_count = count_type = "I64" || count_type = "U64" in
+          let source ty qualifier initial =
+            Printf.sprintf
+              "I64 F(I64 c,%s n){%s %s x=c;x<<=n;return x;}F(%s,%s);" count_type
+              ty qualifier initial n
+          in
+          [
+            ( source "I8" "" "255",
+              if wide_count then "255" else "-9223372036854775808" );
+            (source "U8" "" "256", if wide_count then "256" else "0");
+            (source "I8" "noreg" "255", if wide_count then "-1" else "0");
+            (source "U8" "noreg" "256", "0");
+          ])
+        dynamic_count_widths
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

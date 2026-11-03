@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "0abf3ef2c2881afa646c4d38a1bc45444164e7a9252b9d94976aef0f628a6641",
+  "boot_payload_sha256": "31b99f85df2282eb4d6405025594afceec21b049f072aa19fe38ea8076dacbcf",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "830a9c6d55b15ade02b806c19000c88f389846a7dc6beca7d21cf41df415991c",
+  "boot_iso_sha256": "82627b085d889f1fb541cee28586571a7070033d59515241b1514b99578678d2",
+  "fields": {
+    "SIGNED": "511",
+    "UNSIGNED": "256",
+    "ERR": "0"
+  },
+  "scope": "Repeated original retained-default observations using a full-word dynamic operand. Stored source omits boot padding."
+}
