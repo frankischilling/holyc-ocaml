@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "f16b757307204adef4b62c400bddeb5cfb751b362008e026fc7b167a166cb267",
+  "boot_payload_sha256": "177c3afdafa39bea78df6b6338ba2814d6a1b6ca42118714f758871fbd685427",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "6d72c482b8263c83204731d9a739249a3e6e5404e6eb668d85aa4e7396bdbbcd",
+  "boot_iso_sha256": "b059a2d11ff66886c971ceb5ba5cc515894fe3858929d7a23de031fb816004c9",
+  "fields": {
+    "J_S": "-255",
+    "J_U": "0",
+    "J_SN": "1",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "-255",
+    "A_U": "0",
+    "A_SN": "1",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of dynamic division by a negative parameter. Stored source omits boot padding."
+}

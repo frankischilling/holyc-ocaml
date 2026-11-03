@@ -15,7 +15,7 @@ let with_file suffix f =
 let compiler = Sys.argv.(1)
 let native = Array.length Sys.argv = 3 && Sys.argv.(2) = "--native"
 
-let run source expected target mode =
+let run ?(fault = false) source expected target mode =
   with_file ".hc" (fun path ->
       let channel = open_out_bin path in
       output_string channel source;
@@ -49,13 +49,21 @@ let run source expected target mode =
               require (read errors = "") "unexpected stderr";
               let result = Yojson.Safe.from_string (read output) in
               require
-                (status = Unix.WEXITED 0
-                && member "outcome" result = `String "success")
+                (status = Unix.WEXITED (if fault then 1 else 0)
+                && member "outcome" result
+                   = `String (if fault then "error" else "success"))
                 (Yojson.Safe.to_string result);
-              require
-                (result |> member "final_value" |> member "value"
-               = `String expected)
-                (target ^ " " ^ mode ^ ": " ^ Yojson.Safe.to_string result))))
+              if fault then
+                require
+                  (result |> member "diagnostics" |> to_list
+                  |> List.exists (fun diagnostic ->
+                      member "code" diagnostic = `String expected))
+                  (target ^ " " ^ mode ^ ": " ^ Yojson.Safe.to_string result)
+              else
+                require
+                  (result |> member "final_value" |> member "value"
+                 = `String expected)
+                  (target ^ " " ^ mode ^ ": " ^ Yojson.Safe.to_string result))))
 
 let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
@@ -577,6 +585,65 @@ let () =
             ])
         dynamic_bitwise_locals
   in
+  let dynamic_local_division =
+    [
+      ("I8", "255", "127", "0", "1", "-1");
+      ("U8", "256", "128", "0", "0", "0");
+      ("I16", "65535", "32767", "0", "1", "-1");
+      ("U16", "65536", "32768", "0", "0", "0");
+      ("I32", "4294967295", "2147483647", "0", "1", "-1");
+      ("U32", "4294967296", "2147483648", "0", "0", "0");
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, div, div_memory, rem, rem_memory) ->
+          let source qualifier op =
+            Printf.sprintf
+              "I64 F(I64 c,I8 n){%s %s x=c;x%s=n;return x;}F(%s,2);" ty
+              qualifier op input
+          in
+          [
+            (source "" "/", div);
+            (source "noreg" "/", div_memory);
+            (source "" "%", rem);
+            (source "noreg" "%", rem_memory);
+          ])
+        dynamic_local_division
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(255,-1);", "-255");
+        ("I64 F(I64 c,I8 n){I8 noreg x=c;x/=n;return x;}F(255,-1);", "1");
+        ("I64 F(I64 c,I8 n){U8 x=c;x/=n;return x;}F(256,-1);", "0");
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(255,-1);", "0");
+        ("I64 F(I64 c,I8 n){U8 x=c;x%=n;return x;}F(256,-1);", "256");
+        ("I64 F(I64 c,I8 n){U8 noreg x=c;x%=n;return x;}F(256,-1);", "0");
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I64 c,U64 n){I8 x=c;x/=n;return x;}F(255,-1);", "-255");
+        ("I64 F(I64 c,U64 n){I8 noreg x=c;x/=n;return x;}F(255,-1);", "1");
+        ("I64 F(I64 c,U64 n){U8 x=c;x/=n;return x;}F(256,-1);", "0");
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I64 c,U64 n){I8 x=c;x%=n;return x;}F(255,-1);", "0");
+        ("I64 F(I64 c,U64 n){U8 x=c;x%=n;return x;}F(256,-1);", "256");
+        ("I64 F(I64 c,U64 n){U8 noreg x=c;x%=n;return x;}F(256,-1);", "0");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
@@ -704,6 +771,25 @@ let () =
             cases)
         [ "jit"; "aot" ])
     targets;
+  let faults =
+    [
+      ("I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(1,0);", "HCIRVM0009");
+      ("I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(1,0);", "HCIRVM0009");
+      ( "I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(0x8000000000000000,-1);",
+        "HCIRVM0010" );
+      ( "I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(0x8000000000000000,-1);",
+        "HCIRVM0010" );
+    ]
+  in
+  List.iter
+    (fun target ->
+      List.iter
+        (fun mode ->
+          List.iter
+            (fun (source, code) -> run ~fault:true source code target mode)
+            faults)
+        [ "jit"; "aot" ])
+    targets;
   if native then
     List.iter
       (fun mode ->
@@ -719,4 +805,5 @@ let () =
           ])
       [ "jit"; "aot" ];
   Printf.printf "Register execution checks passed (%d reports).\n"
-    ((List.length targets * 2 * List.length cases) + if native then 4 else 0)
+    ((List.length targets * 2 * (List.length cases + List.length faults))
+    + if native then 4 else 0)
