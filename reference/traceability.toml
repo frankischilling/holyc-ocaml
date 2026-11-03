@@ -15041,7 +15041,7 @@ verification_boundary = "Missing U0 register results, reference values without a
 
 [[feature]]
 id = "HC-BOUNDED-NARROW-REGISTER-VALUES"
-description = "Preserve full register values in source-proven narrow parameter updates and direct local returns."
+description = "Preserve full register values in source-proven narrow parameter updates and local returns."
 sources = ["Compiler/OptPass3.HC", "Compiler/BackA.HC:ICDivEqu", "Kernel/KInts.HC:IntDivZero"]
 implementation = ["src/ir/register_variable_analysis.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/driver/integer_update_initializers.ml"]
 tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "test/test_prepared_integer_shifts_cli.ml", "test/exception_execution_cases.ml", "test/oracle/register-variable-analysis/div-zero.capture", "test/oracle/register-variable-analysis/local-param-byte.capture"]
@@ -15049,4 +15049,4 @@ documentation = ["docs/register-variable-analysis.md"]
 status = "partial"
 issue = 703
 verification = "Original JIT and compiled observations repeat twice; focused IR and native tests cover signed and unsigned values, noreg and retained defaults. Original division-by-zero is caught by a JIT caller of both JIT and compiled functions."
-evidence_limit = "Only source-proven function shapes are covered. General register allocation, explicit registers, aliases, additional control flow, narrower parameter-initialized locals and native exception handling remain open."
+evidence_limit = "Only source-proven function shapes are covered. General register allocation, explicit registers, aliases, additional control flow, narrower source parameters, other parameter-local updates and native exception handling remain open."

@@ -722,6 +722,39 @@ let source_controls () =
       ("local-param-16", "65535", "65536");
       ("local-param-32", "4294967295", "4294967296");
     ];
+  List.iter
+    (fun (stem, signed, unsigned, signed_memory, unsigned_memory) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "updated parameter local" expected
+                (List.assoc (prefix ^ name) fields))
+            [
+              ("S", signed);
+              ("U", unsigned);
+              ("SN", signed_memory);
+              ("UN", unsigned_memory);
+            ])
+        [ "J_"; "A_" ])
+    [
+      ("local-param-add-byte", "256", "257", "0", "1");
+      ("local-param-add-bound", "2147483902", "2147483903", "-2", "255");
+      ("local-param-shift-byte", "510", "512", "-2", "0");
+      ("local-param-add-16", "65536", "65537", "0", "1");
+      ("local-param-shift-16", "131070", "131072", "-2", "0");
+      ("local-param-add-32", "4294967296", "4294967297", "0", "1");
+      ("local-param-shift-32", "8589934590", "8589934592", "-2", "0");
+    ];
+  let param_update_default = fixture "local-param-update-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained updated parameter local" expected
+        (List.assoc name param_update_default))
+    [ ("SIGNED", "256"); ("UNSIGNED", "512") ];
   let unsigned_parameter = fixture "local-param-unsigned" in
   List.iter
     (fun prefix ->
@@ -892,18 +925,23 @@ let local_parameter_selection () =
     (fun mode ->
       List.iter
         (fun (ty, qualifier, expected) ->
-          let source =
-            Printf.sprintf "I64 F(I64 c){%s %s x=c;return x;}42;" ty qualifier
-          in
-          let fn = compile mode source in
-          let proof =
-            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
-          in
-          let x = location fn.frame "x" |> Frame.location_symbol in
-          Alcotest.(check bool)
-            "parameter local selection" true
-            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x
-            = Some expected))
+          List.iter
+            (fun update ->
+              let source =
+                Printf.sprintf "I64 F(I64 c){%s %s x=c;%sreturn x;}42;" ty
+                  qualifier update
+              in
+              let fn = compile mode source in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let x = location fn.frame "x" |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "parameter local selection" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                   ~symbol:x
+                = Some expected))
+            [ ""; "x+=1;"; "x<<=1;" ])
         (List.concat_map
            (fun ty ->
              [
@@ -981,6 +1019,8 @@ let local_ownership () =
           "I64 F(){I8 x=255;x<<=0;return x;}42;";
           "I64 F(){I8 x=255;return x;}42;";
           "I64 F(I64 c){I8 x=c;return x;}42;";
+          "I64 F(I64 c){I8 x=c;x+=1;return x;}42;";
+          "I64 F(I64 c){I8 x=c;x<<=1;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -1002,7 +1042,8 @@ let unsupported_selection () =
           "I64 F(){I8 x;x<<=1;return x;}42;";
           "I64 F(){Bool x=1;x<<=1;return x;}42;";
           "I64 F(I8 c){I8 x=c;return x;}42;";
-          "I64 F(I64 c){I8 x=c;x+=1;return x;}42;";
+          "I64 F(I64 c){I8 x=c;x-=1;return x;}42;";
+          "I64 F(I64 c){I8 x=c;x+=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=255;return x;}42;";
           "I64 F(){I8 x=255;x/=2;return x;}42;";
           "I64 F(){I8 x=1;x|=256;return x;}42;";
