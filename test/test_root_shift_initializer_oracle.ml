@@ -646,6 +646,74 @@ let original_retained_narrow_memory () =
         [ Preprocessor.Jit; Preprocessor.Aot ])
     [ false; true ]
 
+let original_memory_shift_result () =
+  let values = fixture ~stem:"memory-left-result" () in
+  Alcotest.(check string)
+    "original full expression" "254"
+    (List.assoc "EXPRESSION" values);
+  Alcotest.(check string)
+    "original stored byte" "-2"
+    (List.assoc "STORED" values);
+  let widths = fixture ~stem:"memory-left-widths" () in
+  List.iter
+    (fun (type_, initial) ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun mode ->
+              let source =
+                Printf.sprintf
+                  "#exe {I64 F(%s x,I64 c){%s *p=&x;return *p<<=c;}I64 \
+                   I(){return F(%s,65);}I64 S(I64 n=I()){return \
+                   n;}StreamPrint(\"%%d;\",S());}"
+                  type_ type_ initial
+              in
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original memory shift expression width"
+                (Some (Int64.of_string (List.assoc type_ widths)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no exposed memory shift diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ Preprocessor.Jit; Preprocessor.Aot ])
+        [ false; true ])
+    [
+      ("I8", "127");
+      ("U8", "255");
+      ("I16", "32767");
+      ("U16", "65535");
+      ("I32", "2147483647");
+      ("U32", "4294967295");
+    ];
+  List.iter
+    (fun (stem, source) ->
+      let fields = fixture ~stem () in
+      Alcotest.(check string)
+        "original memory result call count" "1"
+        (List.assoc "CALLS" fields);
+      List.iter
+        (fun native ->
+          List.iter
+            (fun mode ->
+              let _, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original memory expression and single call"
+                (Some (Int64.of_string (List.assoc "VALUE" fields)))
+                (Result.get_ok result))
+            [ Preprocessor.Jit; Preprocessor.Aot ])
+        [ false; true ])
+    [
+      ( "memory-result-default",
+        "#exe {I64 NR=0;I64 FR(I8 x,I64 c){I8 *p=&x;NR++;return *p<<=c;}I64 \
+         IR(){return FR(127,65);}I64 SR(I64 n=IR()){return \
+         n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}" );
+      ( "memory-left-both",
+        "#exe {I64 NR=0;I64 F(I8 x,I64 c){I8 *p=&x;NR++;I64 a=(*p<<=c);return \
+         a*1000+x;}I64 I(){return F(127,65);}I64 S(I64 n=I()){return \
+         n;}StreamPrint(\"%d;\",S()+(NR!=1)*1000000);}" );
+    ]
+
 let static_owner_identity () =
   let module G = Ir_integer_globals in
   let module L = Ir_integer_program_lowering in
@@ -747,6 +815,8 @@ let () =
             original_narrow_left_gap;
           Alcotest.test_case "original retained narrow memory" `Quick
             original_retained_narrow_memory;
+          Alcotest.test_case "original memory shift result" `Quick
+            original_memory_shift_result;
           Alcotest.test_case "static owner identity" `Quick
             static_owner_identity;
           Alcotest.test_case "unsupported boundaries" `Quick boundaries;

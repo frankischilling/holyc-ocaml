@@ -531,6 +531,12 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                 else if
                   increment item.opcode
                   || safe_compound scalar item right
+                  (* ICShiftEqu computes a full register result before its
+                     narrow memory write. The caller authenticates the original
+                     shift and scalar count; an exact memory target keeps the
+                     observable result distinct from the stored low bytes. *)
+                  || item.opcode = O.Ic_shl_equ && item.flags = 0L
+                     && exact_memory target type_
                   || source_discard || narrow_sink
                 then None
                 else

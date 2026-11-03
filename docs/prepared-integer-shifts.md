@@ -2,7 +2,8 @@
 
 Retained initializer calls prepare original supported scalar constant and
 variable-count shifts, full-word compound shifts, bounded narrow right updates
-and proven addressed narrow left updates in both source modes. This includes the literal power-of-two division
+and proven addressed narrow left updates, including their full expression
+results, in both source modes. This includes the literal power-of-two division
 reductions described in
 [integer division](integer-division.md). For signed `x=-7`, a retained `x/2`
 default saves `-4`, while the constant expression `-7/2` saves `-3`.

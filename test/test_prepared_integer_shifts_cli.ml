@@ -157,6 +157,10 @@ let () =
           ( "#exe {I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}I64 I(){return \
              F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "-2" );
+          ( "#exe {I64 NR=0;I64 F(I8 x,I64 c){I8 *p=&x;NR++;I64 \
+             a=(*p<<=c);return a*1000+x;}I64 I(){return F(127,65);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S()+(NR!=1)*1000000);}",
+            "253998" );
         ]
       in
       List.iter

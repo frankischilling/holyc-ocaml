@@ -266,6 +266,13 @@ let ranges_and_boundaries () =
       Alcotest.(check (option int64))
         "addressed narrow update stores low byte" (Some 44L)
         (Option.map (fun w -> w.VM.bits) (VM.final_value addressed));
+      let _, expression =
+        success mode
+          (retained ~expected:"254" "I8 x=127;I8 *p=&x;return *p<<=1;")
+      in
+      Alcotest.(check (option int64))
+        "addressed narrow update keeps full result" (Some 300L)
+        (Option.map (fun w -> w.VM.bits) (VM.final_value expression));
       let _, shifted =
         success mode (retained ~expected:"-7" "I64 x=X;x>>=64;return x;")
       in
