@@ -569,8 +569,9 @@ let check_graph ~globals ~frame ~function_body ~compiler_options ~terminal graph
                      && (exact_memory target type_
                         || exact_register target type_)
                   || (item.opcode = O.Ic_add_equ || item.opcode = O.Ic_sub_equ
-                    || item.opcode = O.Ic_mul_equ || item.opcode = O.Ic_and_equ
-                    || item.opcode = O.Ic_or_equ || item.opcode = O.Ic_xor_equ)
+                    || item.opcode = O.Ic_mul_equ || item.opcode = O.Ic_div_equ
+                    || item.opcode = O.Ic_and_equ || item.opcode = O.Ic_or_equ
+                    || item.opcode = O.Ic_xor_equ)
                      && item.flags = 0L
                      && exact_register target type_
                   || source_discard || narrow_sink

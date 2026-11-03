@@ -310,6 +310,33 @@ let () =
           "0" );
       ]
   in
+  let division_widths =
+    [
+      ("I8", "-128", "-1", "128", "-128");
+      ("U8", "255", "2", "127", "127");
+      ("I16", "-32768", "-1", "32768", "-32768");
+      ("U16", "65535", "2", "32767", "32767");
+      ("I32", "-2147483648", "-1", "2147483648", "-2147483648");
+      ("U32", "4294967295", "2", "2147483647", "2147483647");
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, divisor, wide, narrow) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(%s %s x,I8 c){x/=c;return x;}F(%s,%s);" ty
+              qualifier initial divisor
+          in
+          [ (source "", wide); (source "noreg", narrow) ])
+        division_widths
+    @ [
+        ("I64 F(I8 x,I8 c){x/=c;return x;}F(-7,2);", "-3");
+        ("I64 F(I8 noreg x,I8 c){x/=c;return x;}F(-7,2);", "-3");
+        ("I64 F(U8 x,I8 c){x/=c;return x;}F(255,-1);", "0");
+        ("I64 F(U8 noreg x,I8 c){x/=c;return x;}F(255,-1);", "0");
+      ]
+  in
   let bitwise_widths =
     [
       ("I8", "127", "256", "383", "127", "-1", "255", "255", "-1");

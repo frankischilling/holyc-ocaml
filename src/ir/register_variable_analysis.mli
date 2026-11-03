@@ -9,8 +9,9 @@ val analyze :
     integer parameter using a shift, compound arithmetic or bitwise update by
     the other parameter, then returns it directly. Also analyze a function that
     initializes one narrow local from an integer literal and returns it
-    directly, optionally after the same kind of update by an integer literal.
-    Local compound addition or subtraction requires a nonnegative signed-32-bit
+    directly, optionally after a shift, addition, subtraction or multiplication
+    by an integer literal. Division is proved only for parameter operands. Local
+    compound addition or subtraction requires a nonnegative signed-32-bit
     literal. Both require default compiler options. Escapes, explicit hardware
     registers, other control flow and all other shapes remain unproved. This
     witness does not alter storage or execution. *)

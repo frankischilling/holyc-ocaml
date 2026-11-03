@@ -105,6 +105,7 @@ let representative =
     "subsequent calls register fresh exception frames";
     "named UndefExt source exception";
     "divide by zero becomes DivZero";
+    "narrow parameter compound division by zero becomes DivZero";
     "signed division overflow becomes DivZero";
     "throw retains earlier output and follows catch";
   ]

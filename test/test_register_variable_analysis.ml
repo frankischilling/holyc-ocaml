@@ -673,6 +673,51 @@ let source_controls () =
     [
       ("S", "-9223372036854775808"); ("U", "0"); ("SH", "-9223372036854775808");
     ];
+  List.iter
+    (fun (stem, expected) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, value) ->
+              Alcotest.(check string)
+                "parameter division" value
+                (List.assoc (prefix ^ name) fields))
+            expected)
+        [ "J_"; "A_" ])
+    [
+      ("div-byte", [ ("S", "128"); ("U", "127"); ("SN", "-128"); ("UN", "127") ]);
+      ("div-round", [ ("S", "-3"); ("U", "127"); ("SN", "-3"); ("UN", "127") ]);
+      ( "div-unsigned-neg",
+        [ ("S", "128"); ("U", "0"); ("SN", "-128"); ("UN", "0") ] );
+      ( "div-wide",
+        [
+          ("S16", "32768");
+          ("U16", "32767");
+          ("S32", "2147483648");
+          ("U32", "2147483647");
+        ] );
+      ( "div-wide-noreg",
+        [
+          ("S16", "-32768");
+          ("U16", "32767");
+          ("S32", "-2147483648");
+          ("U32", "2147483647");
+        ] );
+    ];
+  let div_zero = fixture "div-zero" in
+  List.iter
+    (fun name ->
+      Alcotest.(check string)
+        "original division fault" "1" (List.assoc name div_zero))
+    [ "J_CAUGHT"; "A_CAUGHT" ];
+  let div_default = fixture "div-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained parameter division" expected
+        (List.assoc name div_default))
+    [ ("SIGNED", "128"); ("UNSIGNED", "127") ];
   let bit_default = fixture "bit-default" in
   List.iter
     (fun (name, expected) ->
@@ -895,6 +940,7 @@ let unsupported_selection () =
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";
           "I64 F(){Bool x=1;x<<=1;return x;}42;";
+          "I64 F(){I8 x=255;x/=2;return x;}42;";
           "I64 F(){I8 x=1;x|=256;return x;}42;";
           "I64 F(){I8 x=1;x^=256;return x;}42;";
           "I64 F(){I8 x=1;x&=255;return x;}42;";
