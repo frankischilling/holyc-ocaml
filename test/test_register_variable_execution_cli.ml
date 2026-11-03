@@ -74,6 +74,29 @@ let () =
         "-2" );
     ]
   in
+  let widths =
+    [
+      ("I16", "32767", "65534", "-2", "65535", "-1");
+      ("U16", "65535", "131070", "65534", "65536", "0");
+      ("I32", "2147483647", "4294967294", "-2", "4294967295", "-1");
+      ("U32", "4294967295", "8589934590", "4294967294", "4294967296", "0");
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, wide, narrow, overflow, converted) ->
+          let source qualifier value count =
+            Printf.sprintf "I64 F(%s %s x,I8 c){x<<=c;return x;}F(%s,%d);" ty
+              qualifier value count
+          in
+          [
+            (source "" initial 1, wide);
+            (source "noreg" initial 1, narrow);
+            (source "" overflow 0, converted);
+          ])
+        widths
+  in
   List.iter
     (fun target ->
       List.iter

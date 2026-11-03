@@ -160,6 +160,20 @@ let () =
           ( "#exe {I64 F(U8 x,I8 c){x<<=c;return x;}I64 I(){return \
              F(255,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "510" );
+          ( "#exe {I64 F(I16 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(32767,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "65534" );
+          ( "#exe {I64 F(U16 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(65535,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "131070" );
+          ( "#exe {I64 F(I32 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(2147483647,1);}I64 S(I64 n=I()){return \
+             n;}StreamPrint(\"%d;\",S());}",
+            "4294967294" );
+          ( "#exe {I64 F(U32 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(4294967295,1);}I64 S(I64 n=I()){return \
+             n;}StreamPrint(\"%d;\",S());}",
+            "8589934590" );
           ( "#exe {I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}I64 I(){return \
              F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "-2" );

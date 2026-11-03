@@ -12517,11 +12517,11 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                [ Planned_instruction (Encoder.Load_context (Encoder.R9, 72)) ]
              else [])
           @ List.concat_map
-              (fun access ->
+              (fun (access, width) ->
                 [
                   Planned_instruction
                     (load_frame_scalar None Encoder.Rax
-                       { access with frame_bytes = 1 });
+                       { access with frame_bytes = width });
                   Planned_instruction
                     (store_frame_scalar None access Encoder.Rax);
                 ])
@@ -12685,9 +12685,10 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                        Int_map.find (16 + (8 * index)) info.frame_slots
                      in
                      if
-                       slot.slot_dimensions = [] && slot.slot_extent_bytes = 1
+                       slot.slot_dimensions = []
+                       && List.mem slot.slot_extent_bytes [ 1; 2; 4 ]
                        && slot.access.frame_bytes = 8
-                     then Some slot.access
+                     then Some (slot.access, slot.slot_extent_bytes)
                      else None)
                    info.parameter_types)
               |> List.filter_map Fun.id

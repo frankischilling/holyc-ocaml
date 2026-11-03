@@ -128,6 +128,53 @@ let source_controls () =
   Alcotest.(check string)
     "default unsigned register" "510"
     (List.assoc "UNSIGNED" default);
+  let widths = fixture "widths" in
+  let noreg_widths = fixture "widths-noreg" in
+  let entry_widths = fixture "widths-entry" in
+  let default_widths = fixture "widths-default" in
+  List.iter
+    (fun (name, wide, narrow, entry) ->
+      List.iter
+        (fun prefix ->
+          Alcotest.(check string)
+            "wide register result" wide
+            (List.assoc (prefix ^ name) widths);
+          Alcotest.(check string)
+            "noreg stored result" narrow
+            (List.assoc (prefix ^ name) noreg_widths);
+          Alcotest.(check string)
+            "wide parameter entry" entry
+            (List.assoc (prefix ^ name) entry_widths))
+        [ "J_"; "A_" ];
+      Alcotest.(check string)
+        "wide retained default" wide
+        (List.assoc name default_widths))
+    [
+      ("S16", "65534", "-2", "-1");
+      ("U16", "131070", "65534", "0");
+      ("S32", "4294967294", "-2", "-1");
+      ("U32", "8589934590", "4294967294", "0");
+    ];
+  let local = fixture "local-entry" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "local register initialization" expected
+            (List.assoc (prefix ^ name) local))
+        [ ("S", "255"); ("U", "256"); ("S16", "65535"); ("U16", "65536") ])
+    [ "J_"; "A_" ];
+  let local_noreg = fixture "local-noreg" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "local noreg initialization" expected
+            (List.assoc (prefix ^ name) local_noreg))
+        [ ("S", "-1"); ("U", "0"); ("S16", "-1"); ("U16", "0") ])
+    [ "J_"; "A_" ];
   let option = fixture "option" in
   Alcotest.(check string)
     "original option enabled" "1"
@@ -168,6 +215,14 @@ let simple_selection () =
           ("I8", "noreg", Analysis.Stack);
           ("U8", "", Analysis.Register_candidate);
           ("U8", "noreg", Analysis.Stack);
+          ("I16", "", Analysis.Register_candidate);
+          ("I16", "noreg", Analysis.Stack);
+          ("U16", "", Analysis.Register_candidate);
+          ("U16", "noreg", Analysis.Stack);
+          ("I32", "", Analysis.Register_candidate);
+          ("I32", "noreg", Analysis.Stack);
+          ("U32", "", Analysis.Register_candidate);
+          ("U32", "noreg", Analysis.Stack);
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 

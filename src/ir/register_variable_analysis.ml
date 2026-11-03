@@ -371,8 +371,10 @@ let analyze ~frame ~body =
                       Sema.Type.base
                         (Frame.location_checked_type target_location)
                     with
-                    | Sema.Type.Primitive (_, (Sema.Primitive_type.I8 | U8)) ->
-                        Some target_location
+                    | Sema.Type.Primitive
+                        ( _,
+                          (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32)
+                        ) -> Some target_location
                     | _ -> None)
                 | _ -> None)
             | _ -> None)
