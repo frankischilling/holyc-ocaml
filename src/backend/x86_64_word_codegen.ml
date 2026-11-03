@@ -5678,8 +5678,8 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
       register_proof
   in
   let narrow_update_result location =
-    (* The proof restricts stack-slot compound results to a direct return or
-       a discarded expression; direct returns use the narrowed stored value. *)
+    (* Proven stack-slot addition and subtraction return the stored narrow
+       value; multiplication and shift results retain their wider intermediate. *)
     Option.fold ~none:false
       ~some:(fun proof ->
         Ir.Register_variable_analysis.selection proof ~frame ~body
@@ -9738,7 +9738,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             update,
                             input,
                             old_result,
-                            slot.narrow_update_result,
+                            (slot.narrow_update_result
+                            &&
+                            match update with
+                            | Update_binary (Encoder.Add | Sub) -> true
+                            | _ -> false),
                             value,
                             slot.slot_word,
                             arithmetic_site ),

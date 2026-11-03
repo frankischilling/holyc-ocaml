@@ -1035,10 +1035,19 @@ let analyze_local ~frame ~body =
                 Typed.function_expression_statements source,
                 Typed.function_returns source )
             with
-            | [ initialization ], [], [ returned ] -> (
-                let local =
-                  initialization |> Typed.initializer_source
-                  |> Calls.initializer_local
+            | initializers, [], [ returned ] -> (
+                let initial_matches =
+                  match (initial, initializers) with
+                  | None, [] -> unary_parameter location
+                  | Some bits, [ initialization ] ->
+                      supported location
+                      && Sema.Local_type_resolution.local_symbol
+                           (initialization |> Typed.initializer_source
+                          |> Calls.initializer_local)
+                         == Frame.location_symbol location
+                      && literal (Typed.initializer_value initialization)
+                         = Some bits
+                  | _ -> false
                 in
                 match Typed.return_value returned with
                 | Some value -> (
@@ -1059,10 +1068,7 @@ let analyze_local ~frame ~body =
                           | "<<=", Ic_shl_equ
                           | ">>=", Ic_shr_equ -> true
                           | _ -> false)
-                        && Sema.Local_type_resolution.local_symbol local
-                           == Frame.location_symbol location
-                        && literal (Typed.initializer_value initialization)
-                           = Some initial
+                        && initial_matches
                         && literal right = Some count
                         && Option.fold ~none:false
                              ~some:(( == ) (Frame.location_binding location))
@@ -1074,6 +1080,35 @@ let analyze_local ~frame ~body =
       in
       let matched =
         match core with
+        | [ rbp; offset; address_; count; update; returned ]
+          when update.Seq.opcode = O.Ic_add_equ
+               || update.opcode = O.Ic_sub_equ
+               || update.opcode = O.Ic_mul_equ
+               || update.opcode = O.Ic_shl_equ
+               || update.opcode = O.Ic_shr_equ -> (
+            match (id address_, id count, integer count, id update) with
+            | Some addressid, Some countid, Some countbits, Some updateid ->
+                Option.is_none argument
+                && Option.is_none count_argument
+                && unary_parameter location
+                && address location rbp offset address_
+                && scalar_literal count
+                && (update.opcode <> O.Ic_add_equ
+                    && update.opcode <> O.Ic_sub_equ
+                   || countbits >= 0L
+                      && countbits <= Int64.of_int32 Int32.max_int)
+                && update.payload = None && same_type update
+                && update.operands = [ addressid; countid ]
+                && returned.Seq.opcode = O.Ic_return_val
+                && returned.payload = None && returned.result = None
+                && is_one returned updateid
+                && List.for_all
+                     (fun (item : Seq.description) ->
+                       Option.is_some (instruction_stamp item)
+                       && item.flags = 0L)
+                     code
+                && source_matches_compound_return None countbits update
+            | _ -> false)
         | [
          r1; o1; a1; initial; store; end1; r2; o2; a2; count; update; returned;
         ]
@@ -1125,7 +1160,8 @@ let analyze_local ~frame ~body =
                        Option.is_some (instruction_stamp item)
                        && (item.opcode = O.Ic_end_exp || item.flags = 0L))
                      code
-                && source_matches_compound_return initialbits countbits update
+                && source_matches_compound_return (Some initialbits) countbits
+                     update
             | _ -> false)
         | [ r1; o1; a1; update; returned ] -> (
             match (id a1, id update) with

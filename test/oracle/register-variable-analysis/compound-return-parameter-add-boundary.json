@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "428834407c5679d42c90d18646c3edbd0dc62fe55f203304c835deacc31b66b9",
+  "boot_payload_sha256": "4015a82d67aa5bb136afa09bd5b527129f314f662922ae100bf68928f1bb4fa6",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "f21bd03dabe50f258134c75299b05ffdeaac904634fd7f431e51c9e5b24d1611",
+  "boot_iso_sha256": "8b59056c6f33d1a760aa58e40917d6fe750b1808ee97c94d036eba7fe209a8ca",
+  "fields": {
+    "J_S": "2147483774",
+    "J_U": "2147483902",
+    "J_SN": "126",
+    "J_UN": "254",
+    "ERR": "0",
+    "A_S": "2147483774",
+    "A_U": "2147483902",
+    "A_SN": "126",
+    "A_UN": "254"
+  },
+  "scope": "Repeated original JIT and compiled observations at the signed-32-bit parameter compound immediate boundary."
+}

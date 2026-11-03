@@ -1237,6 +1237,119 @@ let source_controls () =
         [ "S"; "U"; "SN"; "UN" ]
         [ "511"; "512"; "-1"; "0" ])
     [ "J_"; "A_" ];
+  List.iter
+    (fun (width, bits) ->
+      let open Int64 in
+      let n = shift_left 1L bits in
+      let signed_max = sub (div n 2L) 1L and unsigned_max = sub n 1L in
+      List.iter
+        (fun (operation, values) ->
+          let fields =
+            fixture ("compound-return-parameter-" ^ operation ^ "-" ^ width)
+          in
+          List.iter
+            (fun prefix ->
+              List.iter2
+                (fun name expected ->
+                  Alcotest.(check string)
+                    "original parameter compound return" (to_string expected)
+                    (List.assoc (prefix ^ name) fields))
+                [ "S"; "U"; "SN"; "UN" ] values)
+            [ "J_"; "A_" ])
+        [
+          ("add", [ add signed_max 1L; add unsigned_max 1L; neg (div n 2L); 0L ]);
+          ( "sub",
+            [
+              sub signed_max 1L;
+              sub unsigned_max 1L;
+              sub signed_max 1L;
+              sub unsigned_max 1L;
+            ] );
+          ("mul", [ signed_max; unsigned_max; signed_max; unsigned_max ]);
+          ( "shl",
+            [
+              mul signed_max 2L;
+              mul unsigned_max 2L;
+              mul signed_max 2L;
+              mul unsigned_max 2L;
+            ] );
+          ( "shr",
+            [
+              div signed_max 2L;
+              div unsigned_max 2L;
+              div signed_max 2L;
+              div unsigned_max 2L;
+            ] );
+        ];
+      List.iter
+        (fun (operation, values) ->
+          let fields =
+            fixture ("compound-return-parameter-" ^ operation ^ "-edge-" ^ width)
+          in
+          List.iter
+            (fun prefix ->
+              List.iter2
+                (fun name expected ->
+                  Alcotest.(check string)
+                    "original parameter compound edge" (to_string expected)
+                    (List.assoc (prefix ^ name) fields))
+                [ "S"; "U"; "SN"; "UN" ] values)
+            [ "J_"; "A_" ])
+        [
+          ("sub", [ sub (neg (div n 2L)) 1L; -1L; signed_max; unsigned_max ]);
+          ( "mul",
+            [
+              mul signed_max 2L;
+              mul unsigned_max 2L;
+              mul signed_max 2L;
+              mul unsigned_max 2L;
+            ] );
+        ])
+    [ ("byte", 8); ("16", 16); ("32", 32) ];
+  List.iter
+    (fun (stem, values) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter2
+            (fun name expected ->
+              Alcotest.(check string)
+                "original compound return overflow" expected
+                (List.assoc (prefix ^ name) fields))
+            [ "S"; "U"; "SN"; "UN" ] values)
+        [ "J_"; "A_" ])
+    [
+      ("compound-return-local-mul-overflow", [ "254"; "510"; "254"; "510" ]);
+      ("compound-return-local-shl-overflow", [ "254"; "510"; "254"; "510" ]);
+      ( "compound-return-parameter-add-boundary",
+        [ "2147483774"; "2147483902"; "126"; "254" ] );
+      ( "compound-return-parameter-sub-boundary",
+        [ "-2147483520"; "-2147483392"; "-128"; "0" ] );
+    ];
+  let parameter_default = fixture "compound-param-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained original parameter compound return" expected
+        (List.assoc name parameter_default))
+    [
+      ("ADD", "128");
+      ("SUB", "-129");
+      ("MUL", "510");
+      ("SHL", "510");
+      ("SHR", "63");
+    ];
+  let parameter_narrow_type = fixture "compound-param-narrow-type" in
+  List.iter
+    (fun prefix ->
+      List.iter2
+        (fun name expected ->
+          Alcotest.(check string)
+            "original narrow parameter compound return" expected
+            (List.assoc (prefix ^ name) parameter_narrow_type))
+        [ "S"; "U"; "SN"; "UN" ]
+        [ "128"; "256"; "-128"; "0" ])
+    [ "J_"; "A_" ];
   let compound_default = fixture "compound-return-default" in
   List.iter
     (fun (name, expected) ->
@@ -1729,6 +1842,23 @@ let compound_return_selection () =
                     (Analysis.selection proof ~frame:fn.frame ~body:fn.body
                        ~symbol
                     = Some expected))
+                [ "+"; "-"; "*"; "<<"; ">>" ];
+              List.iter
+                (fun operator ->
+                  let source =
+                    Printf.sprintf "I64 F(%s %s x){return x%s=1;}42;" ty
+                      qualifier operator
+                  in
+                  let fn = compile mode source in
+                  let proof =
+                    Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+                  in
+                  let symbol = location fn.frame "x" |> Frame.location_symbol in
+                  Alcotest.(check bool)
+                    "parameter compound return selection" true
+                    (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                       ~symbol
+                    = Some expected))
                 [ "+"; "-"; "*"; "<<"; ">>" ])
             [ ("", Analysis.Register_candidate); ("noreg", Analysis.Stack) ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
@@ -1814,7 +1944,7 @@ let unsupported_selection () =
           "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
           "I64 F(){I8 x=255;x++;x++;return x;}42;";
           "I64 F(){I8 x=255;return x+=2147483648;}42;";
-          "I64 F(I8 x){return x+=1;}42;";
+          "I64 F(I8 x){return x+=2147483648;}42;";
           "I64 F(){I8 x=1,y=2;x<<=1;return x;}42;";
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";

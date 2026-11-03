@@ -6658,8 +6658,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
       register_proof
   in
   let narrow_update_result location =
-    (* A proven stack slot has no observable intermediate compound result
-       except a direct return, where TempleOS returns the narrowed value. *)
+    (* For a proven stack slot, directly returned addition and subtraction
+       use the narrowed stored value; other supported compound results stay wide. *)
     Option.fold ~none:false
       ~some:(fun proof ->
         Register_variable_analysis.selection proof ~frame ~body:function_
@@ -8285,6 +8285,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                      | Some context, Frame_slot (index, _) ->
                                          context.slots.(index).wide_register
                                      | _ -> false),
+                                     (operation = Add || operation = Subtract)
+                                     &&
                                      match (frame, location) with
                                      | Some context, Frame_slot (index, _) ->
                                          context.slots.(index)

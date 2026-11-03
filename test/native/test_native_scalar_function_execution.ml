@@ -248,6 +248,38 @@ let adjacent_storage_assignments_and_updates () =
         "I64 F(){I8 n=255;return n+=1;}\nF();",
         "I64",
         256L );
+      ( "returned parameter compound add keeps wide register value",
+        "I64 F(U8 n){return n+=1;}\nF(255);",
+        "I64",
+        256L );
+      ( "narrow function returns the wide parameter register value",
+        "U8 F(U8 n){return n+=1;}\nF(255);",
+        "U64",
+        256L );
+      ( "narrow function returns the narrowed noreg parameter value",
+        "U8 F(U8 noreg n){return n+=1;}\nF(255);",
+        "U64",
+        0L );
+      ( "returned parameter noreg add uses narrowed value",
+        "I64 F(U8 noreg n){return n+=1;}\nF(255);",
+        "I64",
+        0L );
+      ( "returned parameter noreg multiplication keeps wide intermediate",
+        "I64 F(U8 noreg n){return n*=2;}\nF(255);",
+        "I64",
+        510L );
+      ( "returned parameter noreg shift keeps wide intermediate",
+        "I64 F(U8 noreg n){return n<<=1;}\nF(255);",
+        "I64",
+        510L );
+      ( "returned noreg multiplication keeps the wide intermediate",
+        "I64 F(){U8 noreg n=255;return n*=2;}\nF();",
+        "I64",
+        510L );
+      ( "returned noreg shift keeps the wide intermediate",
+        "I64 F(){U8 noreg n=255;return n<<=1;}\nF();",
+        "I64",
+        510L );
       ( "returned compound noreg value is narrowed",
         "I64 F(){U8 noreg n=256;return n-=1;}\nF();",
         "I64",

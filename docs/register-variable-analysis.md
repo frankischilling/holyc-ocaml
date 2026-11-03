@@ -34,4 +34,6 @@ The analysis also covers a narrow parameter or literal-initialized local increme
 
 The same bounded parameter and local shapes may directly return a prefix or postfix increment or decrement. Prefix returns the updated value; postfix returns the previous value. Repeated original JIT and compiled captures cover each narrow width and `noreg` controls.
 
-A literal-initialized narrow local can also directly return a supported literal compound update. Original captures cover addition, subtraction, multiplication and shifts at each narrow width. For the proven `noreg` shape, the returned value comes from the narrowed storage rather than the intermediate arithmetic result. Addition and subtraction retain the signed-32-bit immediate bound described above.
+A literal-initialized narrow local can also directly return a supported literal compound update. Original captures cover addition, subtraction, multiplication and shifts at each narrow width. For the proven `noreg` shape, addition and subtraction return the narrowed stored value, while multiplication and shifts return the wider intermediate. Addition and subtraction retain the signed-32-bit immediate bound described above.
+
+The same directly returned literal updates are supported for a single narrow parameter. Parameter entry first converts the argument to its declared type. For `noreg`, addition and subtraction return the narrowed stored result; multiplication and shifts return the wider intermediate.

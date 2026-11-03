@@ -230,6 +230,21 @@ let () =
           ( "#exe {I64 F(){I8 x=255;return x>>=1;}I64 I(){return F();}I64 \
              S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "127" );
+          ( "#exe {I64 F(I8 x){return x+=1;}I64 I(){return F(127);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "128" );
+          ( "#exe {I64 F(I8 x){return x-=1;}I64 I(){return F(-128);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-129" );
+          ( "#exe {I64 F(U8 x){return x*=2;}I64 I(){return F(255);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(U8 x){return x<<=1;}I64 I(){return F(255);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(I8 x){return x>>=1;}I64 I(){return F(127);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "63" );
           ( "#exe {I64 F(){I8 x=255;x<<=0;return x;}I64 I(){return F();}I64 \
              S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "255" );

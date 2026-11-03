@@ -1129,6 +1129,68 @@ let () =
         ("I64 F(){U8 noreg x=256;return x+=256;}F();", "0");
       ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let minimum = if signed then neg (div n 2L) else 0L in
+          let add_narrow = if signed then minimum else 0L in
+          let sub_narrow = if signed then maximum else sub n 1L in
+          let twice_narrow = mul maximum 2L in
+          let rows =
+            [
+              ("+", maximum, add maximum 1L, add_narrow);
+              ("-", minimum, sub minimum 1L, sub_narrow);
+              ("*", maximum, mul maximum 2L, twice_narrow);
+              ("<<", maximum, mul maximum 2L, twice_narrow);
+              (">>", maximum, div maximum 2L, div maximum 2L);
+            ]
+          in
+          List.concat_map
+            (fun (operator, input, wide, memory) ->
+              let operand = if operator = "*" then "2" else "1" in
+              let source qualifier =
+                Printf.sprintf "I64 F(%s %s x){return x%s=%s;}F(%s);" ty
+                  qualifier operator operand (to_string input)
+              in
+              [
+                (source "", to_string wide); (source "noreg", to_string memory);
+              ])
+            rows)
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(){I8 noreg x=127;return x*=2;}F();", "254");
+        ("I64 F(){U8 noreg x=255;return x*=2;}F();", "510");
+        ("I64 F(){I8 noreg x=127;return x<<=1;}F();", "254");
+        ("I64 F(){U8 noreg x=255;return x<<=1;}F();", "510");
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I8 x){return x+=2147483647;}F(127);", "2147483774");
+        ("I64 F(U8 x){return x+=2147483647;}F(255);", "2147483902");
+        ("I64 F(I8 noreg x){return x+=2147483647;}F(127);", "126");
+        ("I64 F(U8 noreg x){return x+=2147483647;}F(255);", "254");
+        ("I64 F(I8 x){return x-=2147483647;}F(127);", "-2147483520");
+        ("I64 F(U8 x){return x-=2147483647;}F(255);", "-2147483392");
+        ("I64 F(I8 noreg x){return x-=2147483647;}F(127);", "-128");
+        ("I64 F(U8 noreg x){return x-=2147483647;}F(255);", "0");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
