@@ -92,6 +92,22 @@ let source_controls () =
         "unsigned disabled register" "254"
         (List.assoc (prefix ^ "NOREG") unsigned))
     [ "JIT_"; "AOT_" ];
+  let entry = fixture "entry" in
+  List.iter
+    (fun field ->
+      Alcotest.(check string) "signed entry" "-1" (List.assoc field entry))
+    [ "JS"; "AS" ];
+  List.iter
+    (fun field ->
+      Alcotest.(check string) "unsigned entry" "0" (List.assoc field entry))
+    [ "JU"; "AU" ];
+  let retained = fixture "retained" in
+  Alcotest.(check string)
+    "retained signed register" "254"
+    (List.assoc "SIGNED" retained);
+  Alcotest.(check string)
+    "retained unsigned register" "510"
+    (List.assoc "UNSIGNED" retained);
   let option = fixture "option" in
   Alcotest.(check string)
     "original option enabled" "1"

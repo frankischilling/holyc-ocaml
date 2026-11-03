@@ -6,4 +6,6 @@ Selection depends on more than the declared type. The original `Compiler/OptPass
 
 The current analysis covers only a default-option, straight-line function with two scalar integer parameters, one compound left or right shift on a byte parameter, and a direct return of that parameter. It declines address escapes, additional statements, control flow, locals, explicit register assignments, and larger graphs. It ties the result to the original typed source, frame, and instruction graph and rejects subsequent changes to the evidence. Explicit `noreg` is classified as stack storage; other unproved cases remain unknown.
 
-This is groundwork only. It does not change interpreter or native execution. The registered narrow-variable result described in issue #703 remains an execution gap.
+For this bounded class, the interpreter and native backends preserve the full register value through the update and return. Arguments are first converted to their declared byte type, as in the entry-conversion captures. Explicit `noreg` continues to use narrow memory storage. The native entry path normalizes the incoming byte before preserving its full-width register value.
+
+This does not implement general register allocation. More parameters, locals, aliases and other control flow remain outside the proof. The native source-task path handles this bounded case in retained initializers. The interpreter initializer guard still rejects it, and other unproved register-selected narrow left updates remain guarded. Issue #703 remains open.

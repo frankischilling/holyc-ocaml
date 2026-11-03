@@ -186,6 +186,7 @@ and frame_slot = {
   slot_type : Type.t;
   slot_callback : Sema.Function_type_resolution.function_pointer option;
   stored_type : stored_type;
+  wide_register : bool;
   initial : runtime_value option;
   object_count : int;
   strides : int64 list;
@@ -252,6 +253,7 @@ and prepared_operation =
       * bool
       * Value_id.t
       * stored_type
+      * bool
       * bool
   | Immediate of Value_id.t * word
   | Saved_data_address of Value_id.t * Saved_parameter_value.data * Type.t
@@ -6641,6 +6643,17 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
       ]
   in
   let locations = Frame.function_locations frame in
+  let register_proof =
+    Register_variable_analysis.analyze ~frame ~body:function_
+  in
+  let wide_register location =
+    Option.fold ~none:false
+      ~some:(fun proof ->
+        Register_variable_analysis.selection proof ~frame ~body:function_
+          ~symbol:(Frame.location_symbol location)
+        = Some Register_variable_analysis.Register_candidate)
+      register_proof
+  in
   let of_kind kind =
     List.filter (fun item -> Frame.location_kind item = kind) locations
   in
@@ -6975,6 +6988,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                     | None -> Frame.location_checked_type location);
                   slot_callback = callback;
                   stored_type;
+                  wide_register = wide_register location;
                   initial;
                   object_count = Int64.to_int count;
                   strides;
@@ -7018,6 +7032,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               slot_type = Function.return_type function_;
               slot_callback = None;
               stored_type = Stored_word I64;
+              wide_register = false;
               initial = None;
               object_count = 1;
               strides = [];
@@ -8246,7 +8261,11 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                      false,
                                      result.value_id,
                                      stored_type,
-                                     callback_word_type slot_type ))
+                                     callback_word_type slot_type,
+                                     match (frame, location) with
+                                     | Some context, Frame_slot (index, _) ->
+                                         context.slots.(index).wide_register
+                                     | _ -> false ))
                           | None ->
                               Error (invalid_type_matrix block_id description))
                       | Increment_slot_kind (operation, old_result), []
@@ -8261,7 +8280,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                  old_result,
                                  result.value_id,
                                  stored_type,
-                                 callback_word_type slot_type ))
+                                 callback_word_type slot_type,
+                                 false ))
                       | _ -> Error (malformed block_id description))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
@@ -12713,7 +12733,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     old_result,
                     result,
                     stored,
-                    callback ) -> (
+                    callback,
+                    wide_register ) -> (
                   let type_ =
                     match stored with
                     | Stored_word type_ -> type_
@@ -12779,6 +12800,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                   let computed = { type_; bits } in
                                   let word =
                                     match stored with
+                                    | Stored_narrow _ when wide_register ->
+                                        computed
                                     | Stored_narrow scalar ->
                                         {
                                           type_;
@@ -13539,7 +13562,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               (match (!failed, instruction.operation) with
               | ( Some error,
                   ( Binary ((Divide | Remainder), _, _, _, _)
-                  | Update_slot (_, (Divide | Remainder), _, _, _, _, _)
+                  | Update_slot (_, (Divide | Remainder), _, _, _, _, _, _)
                   | Internal_mod_u64 _ ) )
                 when (not constant_preparation)
                      && (error.code = "HCIRVM0009" || error.code = "HCIRVM0010")

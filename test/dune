@@ -5682,3 +5682,23 @@
  (libraries holyc_lib yojson digestif alcotest)
  (deps
   (glob_files oracle/register-variable-analysis/*)))
+
+(executable
+ (name test_register_variable_execution_cli)
+ (modules test_register_variable_execution_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run
+   %{exe:test_register_variable_execution_cli.exe}
+   %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_register_variable_execution_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))

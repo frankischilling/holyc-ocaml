@@ -11,12 +11,13 @@ function that shifts an I8 parameter containing 127 left by one and returns it
 produces 254 when the parameter stays in a register. Taking its address makes
 the update write back to a byte, and the same read produces -2. Repeated JIT
 and compiled BIN-load captures in
-`test/oracle/source-root-shifts/narrow-direct-gap.*` record both results. The hosted interpreter and native backend currently return
--2 in both cases, so the register case is not yet compatible. Reproducing the
-original optimizer's register allocation and full-width register values is still
-required; narrow left updates in retained initializer preparation remain guarded.
-See [narrow register variable analysis](register-variable-analysis.md) for the
-current bounded analysis and its reference evidence.
+`test/oracle/source-root-shifts/narrow-direct-gap.*` record both results. The
+interpreter and native backend reproduce this distinction for a small proven
+class of two-parameter functions. Other register allocation cases remain open,
+including locals and functions with more parameters. The native source-task path also handles this bounded case during retained
+initialization; the interpreter initializer guard still rejects it. See [narrow
+register variable analysis](register-variable-analysis.md) for the bounds and
+reference evidence.
 
 ## Stored values and register values
 

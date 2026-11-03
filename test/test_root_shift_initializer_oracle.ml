@@ -589,6 +589,13 @@ let original_narrow_left_gap () =
           Alcotest.(check string)
             "original direct register" "254"
             (List.assoc (prefix ^ "REG") direct);
+          let _, registered =
+            run native mode "I64 F(I8 x,I8 c){x<<=c;return x;}F(127,1);"
+          in
+          Alcotest.(check (option int64))
+            "original direct register result"
+            (Some (Int64.of_string (List.assoc (prefix ^ "REG") direct)))
+            (Result.get_ok registered);
           let _, result =
             run native mode
               "I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}F(127,1);"

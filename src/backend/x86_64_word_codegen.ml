@@ -5657,6 +5657,15 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
   let variadic_bindings =
     Headers.function_variadic_bindings (Frame.function_header frame)
   in
+  let register_proof = Ir.Register_variable_analysis.analyze ~frame ~body in
+  let wide_register location =
+    Option.fold ~none:false
+      ~some:(fun proof ->
+        Ir.Register_variable_analysis.selection proof ~frame ~body
+          ~symbol:(Frame.location_symbol location)
+        = Some Ir.Register_variable_analysis.Register_candidate)
+      register_proof
+  in
   let allowed_flags =
     (* PrsFunJoin retains Ff_DOT_DOT_DOT when a replacement header is fixed.
        The bound definition above authenticates these exact stored flags;
@@ -5832,7 +5841,8 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           access =
             {
               frame_offset = actual;
-              frame_bytes = storage_scalar.byte_size;
+              frame_bytes =
+                (if wide_register location then 8 else storage_scalar.byte_size);
               frame_word = storage_scalar.word_type;
               initialized_flag_offset = None;
             };
@@ -12333,7 +12343,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           (fun _ -> fresh_label supply)
       in
       let allocate_graph ~graph ~prepared ~rbp_bytes ~init_flag_offsets
-          ~parameter_owner_offsets ~variadic ~is_entry ~start_label =
+          ~parameter_owner_offsets ~register_entries ~variadic ~is_entry
+          ~start_label =
         let reference_service_label = fresh_label supply in
         let rbp_bytes = rbp_bytes + prepared.callable_reference_bytes in
         let reference_frame = -(rbp_bytes + 24) in
@@ -12505,6 +12516,16 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           @ (if is_entry && has_storage then
                [ Planned_instruction (Encoder.Load_context (Encoder.R9, 72)) ]
              else [])
+          @ List.concat_map
+              (fun access ->
+                [
+                  Planned_instruction
+                    (load_frame_scalar None Encoder.Rax
+                       { access with frame_bytes = 1 });
+                  Planned_instruction
+                    (store_frame_scalar None access Encoder.Rax);
+                ])
+              register_entries
           @ reference_service_plan 0
           @ List.concat_map
               (fun flag_offset ->
@@ -12627,8 +12648,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       in
       let entry_allocated =
         allocate_graph ~graph:entry_graph ~prepared:entry_prepared ~rbp_bytes:0
-          ~init_flag_offsets:[] ~parameter_owner_offsets:[] ~is_entry:true
-          ~variadic:None ~start_label:None
+          ~init_flag_offsets:[] ~parameter_owner_offsets:[] ~register_entries:[]
+          ~is_entry:true ~variadic:None ~start_label:None
       in
       let functions_allocated =
         Array.mapi
@@ -12656,11 +12677,26 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                    info.parameter_callbacks)
               |> List.filter_map Fun.id
             in
+            let register_entries =
+              Array.to_list
+                (Array.mapi
+                   (fun index _ ->
+                     let slot =
+                       Int_map.find (16 + (8 * index)) info.frame_slots
+                     in
+                     if
+                       slot.slot_dimensions = [] && slot.slot_extent_bytes = 1
+                       && slot.access.frame_bytes = 8
+                     then Some slot.access
+                     else None)
+                   info.parameter_types)
+              |> List.filter_map Fun.id
+            in
             allocate_graph
               ~graph:(Ir.X87_stack.graph (Function.x87 info.definition.body))
               ~prepared:function_prepared.(index) ~rbp_bytes:info.rbp_bytes
               ~init_flag_offsets:info.init_flag_offsets ~is_entry:false
-              ~parameter_owner_offsets ~variadic:info.variadic
+              ~parameter_owner_offsets ~register_entries ~variadic:info.variadic
               ~start_label:(Some function_labels.(index)))
           function_infos
       in
