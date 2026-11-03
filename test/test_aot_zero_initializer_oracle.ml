@@ -878,6 +878,44 @@ let direct_call_arithmetic_defaults () =
         (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
     [ false; true ]
 
+let direct_call_wide_argument_warnings () =
+  let fields = fixture "warnings-wide-arguments" in
+  List.iteri
+    (fun index count ->
+      let name = Printf.sprintf "ARGS%d" count in
+      Alcotest.(check int)
+        (name ^ " original warning count")
+        (index + 1) (List.assoc name fields);
+      let parameters =
+        List.init count (fun i -> Printf.sprintf "I64 p%d" i)
+        |> String.concat ","
+      in
+      let body =
+        List.init count (fun i -> Printf.sprintf "p%d" i) |> String.concat "+"
+      in
+      let arguments =
+        List.init count (fun i ->
+            if i = count - 1 then string_of_int (8 - count) else "1")
+        |> String.concat ","
+      in
+      let source =
+        Printf.sprintf
+          "I64 Get(%s){return %s;}class Box{U0 empty;I64 value;};Box \
+           object={Get(%s),42};I64 F(){return object.value;}F();"
+          parameters body arguments
+      in
+      List.iter
+        (fun native ->
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            (name ^ " hosted load value")
+            (Some 7L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            (name ^ " load warning") [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ false; true ])
+    [ 9; 16; 32; 64 ]
+
 let direct_call_warning_controls () =
   List.iter
     (fun native ->
@@ -1090,7 +1128,8 @@ let () =
               ignore (fixture "warnings-two-defaults");
               ignore (fixture "warnings-many-arguments");
               ignore (fixture "warnings-expression-default");
-              ignore (fixture "warnings-arithmetic-defaults"));
+              ignore (fixture "warnings-arithmetic-defaults");
+              ignore (fixture "warnings-wide-arguments"));
           Alcotest.test_case "AOT warning counts occur during parsing" `Quick
             warning_phases;
           Alcotest.test_case "direct AOT calls warn at a U0 destination" `Quick
@@ -1137,6 +1176,8 @@ let () =
             direct_call_many_argument_warnings;
           Alcotest.test_case "direct arithmetic default warnings" `Quick
             direct_call_arithmetic_defaults;
+          Alcotest.test_case "direct wide-argument warnings" `Quick
+            direct_call_wide_argument_warnings;
           Alcotest.test_case
             "patterned native stores retain their observed width" `Quick
             original_store_width;

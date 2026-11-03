@@ -63,18 +63,20 @@ call followed by its load assignment adds two, and a static load assignment
 adds one. These counts occur while parsing, before each following block. The
 compiler now counts the corresponding warnings for a direct call to a completed
 source-defined primitive function in a global or static scalar leaf, when the
-call has up to eight integer literals, selected closed integer expressions, or
+call has up to 64 integer literals, selected closed integer expressions, or
 completed nonzero numeric scalar globals supplied to nonzero numeric parameters.
-Up to eight nonzero numeric parameters can also use closed integer defaults,
-including omitted arguments between supplied values.
+Nonzero numeric parameters can also use closed integer defaults, including
+omitted arguments between supplied values. The reference probes cover up to
+three such parameters.
 Expressions include bounded nesting of unary minus, addition, subtraction,
 multiplication, bitwise operations, and shifts of integer literals or completed
-integer scalar globals. Constant shift counts are limited to 0 through 63; completed
-integer scalar globals can also supply a shift count.
+integer scalar globals. Constant shift counts are limited to 0 through 63;
+completed integer scalar globals can also supply a shift count. The 64-argument bound is
+this path's verified coverage, not a claimed TempleOS limit.
 The warning is counted at the original leaf callback, with single-use source
 authority. The compiler checks the current data-heap option before counting the
-load-assignment warning. `Compiler/OptPass012.HC` marks opcodes with the nonconstant flag and
-warns on a zero-sized assignment operand; the pinned intermediate-code table
+load-assignment warning. `Compiler/OptPass012.HC` marks opcodes with the
+nonconstant flag and warns on a zero-sized assignment operand; the pinned intermediate-code table
 marks `IC_CALL` nonconstant. Other call forms and general expressions remain
 unimplemented. Counting the warning does not make an unsupported F64 call frame,
 dynamic global shift, or missing U0 return word executable. The native path
@@ -83,7 +85,7 @@ currently rejects an F64 global before it reaches the later warning callback.
 ## Evidence and checks
 
 `test/oracle/aot-zero-initializers` retains five load source/capture pairs and
-twenty-five warning-phase pairs, each run twice. Every compiled probe reports zero
+twenty-six warning-phase pairs, each run twice. Every compiled probe reports zero
 errors. The load controls
 cover ordinary and U0 callees, globals, statics, constants, patterned storage,
 empty and three-byte classes, and expression-lookahead completion. The AOT

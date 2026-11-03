@@ -5946,10 +5946,11 @@ let proven_direct_arguments ledger header arguments =
         && supplied_or_default rest tail
     | [], _ :: _ -> false
   in
+  (* The bound is this path's verified coverage, not a TempleOS limit. *)
   header.variadic = None
   && header.empty_parameter_entries = []
-  && List.length parameters <= 8
-  && List.length arguments <= 8
+  && List.length parameters <= 64
+  && List.length arguments <= 64
   && supplied_or_default parameters arguments
 
 let emit_direct_call_warnings ledger ~context ~span ~value ~destination =
