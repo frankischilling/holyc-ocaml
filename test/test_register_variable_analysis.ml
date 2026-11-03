@@ -1182,6 +1182,74 @@ let source_controls () =
       ("parameter", "decrement", "32", "-2147483648", "0", "-2147483648", "0");
       ("narrow", "type", "", "255", "256", "-1", "0");
     ];
+  List.iter
+    (fun (width, bits) ->
+      let n = Int64.shift_left 1L bits in
+      let open Int64 in
+      List.iter
+        (fun (operation, values) ->
+          let fields =
+            fixture ("compound-return-local-" ^ operation ^ "-" ^ width)
+          in
+          List.iter
+            (fun prefix ->
+              List.iter2
+                (fun name expected ->
+                  Alcotest.(check string)
+                    "original returned compound update" (to_string expected)
+                    (List.assoc (prefix ^ name) fields))
+                [ "S"; "U"; "SN"; "UN" ] values)
+            [ "J_"; "A_" ])
+        [
+          ("add", [ n; add n 1L; 0L; 1L ]);
+          ("sub", [ sub n 2L; sub n 1L; -2L; sub n 1L ]);
+          ("mul", [ sub n 1L; n; -1L; 0L ]);
+          ("shl", [ mul (sub n 1L) 2L; mul n 2L; -2L; 0L ]);
+          ("shr", [ sub (div n 2L) 1L; div n 2L; -1L; 0L ]);
+        ])
+    [ ("byte", 8); ("16", 16); ("32", 32) ];
+  List.iter
+    (fun (operation, values) ->
+      let fields =
+        fixture ("compound-return-local-" ^ operation ^ "-boundary")
+      in
+      List.iter
+        (fun prefix ->
+          List.iter2
+            (fun name expected ->
+              Alcotest.(check string)
+                "original compound immediate boundary" expected
+                (List.assoc (prefix ^ name) fields))
+            [ "S"; "U"; "SN"; "UN" ] values)
+        [ "J_"; "A_" ])
+    [
+      ("add", [ "2147483902"; "2147483903"; "-2"; "255" ]);
+      ("sub", [ "-2147483392"; "-2147483391"; "0"; "1" ]);
+    ];
+  let add_256 = fixture "compound-return-local-add-256" in
+  List.iter
+    (fun prefix ->
+      List.iter2
+        (fun name expected ->
+          Alcotest.(check string)
+            "original compound return byte crossing" expected
+            (List.assoc (prefix ^ name) add_256))
+        [ "S"; "U"; "SN"; "UN" ]
+        [ "511"; "512"; "-1"; "0" ])
+    [ "J_"; "A_" ];
+  let compound_default = fixture "compound-return-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained original compound return" expected
+        (List.assoc name compound_default))
+    [
+      ("ADD", "256");
+      ("SUB", "254");
+      ("MUL", "255");
+      ("SHL", "510");
+      ("SHR", "127");
+    ];
   let postfix_default = fixture "postfix-return-default" in
   List.iter
     (fun (name, expected) ->
@@ -1638,6 +1706,34 @@ let local_selection () =
         [ ("", Analysis.Register_candidate); ("noreg", Analysis.Stack) ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let compound_return_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun (qualifier, expected) ->
+              List.iter
+                (fun operator ->
+                  let source =
+                    Printf.sprintf "I64 F(){%s %s x=255;return x%s=1;}42;" ty
+                      qualifier operator
+                  in
+                  let fn = compile mode source in
+                  let proof =
+                    Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+                  in
+                  let symbol = location fn.frame "x" |> Frame.location_symbol in
+                  Alcotest.(check bool)
+                    "compound return selection" true
+                    (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                       ~symbol
+                    = Some expected))
+                [ "+"; "-"; "*"; "<<"; ">>" ])
+            [ ("", Analysis.Register_candidate); ("noreg", Analysis.Stack) ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let local_return_selection () =
   List.iter
     (fun mode ->
@@ -1687,6 +1783,8 @@ let local_ownership () =
           "I64 F(){I8 x=255;x++;return x;}42;";
           "I64 F(){I8 x=255;return ++x;}42;";
           "I64 F(){I8 x=255;return x++;}42;";
+          "I64 F(){I8 x=255;return x+=1;}42;";
+          "I64 F(){I8 noreg x=255;return x+=1;}42;";
           "I64 F(){I8 x=255;return x;}42;";
           "I64 F(I64 c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=1;return x;}42;";
@@ -1715,6 +1813,8 @@ let unsupported_selection () =
           "I64 F(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}42;";
           "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
           "I64 F(){I8 x=255;x++;x++;return x;}42;";
+          "I64 F(){I8 x=255;return x+=2147483648;}42;";
+          "I64 F(I8 x){return x+=1;}42;";
           "I64 F(){I8 x=1,y=2;x<<=1;return x;}42;";
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";
@@ -1899,6 +1999,8 @@ let () =
             literal_parameter_selection;
           Alcotest.test_case "unary selection" `Quick unary_selection;
           Alcotest.test_case "bounded local selection" `Quick local_selection;
+          Alcotest.test_case "compound return selection" `Quick
+            compound_return_selection;
           Alcotest.test_case "local return selection" `Quick
             local_return_selection;
           Alcotest.test_case "local ownership" `Quick local_ownership;

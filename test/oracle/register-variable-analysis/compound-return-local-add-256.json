@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e0479e37653a9ccb8adb58dc2ea7c9fb592fff85d83de885847be051e68179ab",
+  "boot_payload_sha256": "f6f23d2022ec116228c331cdbc994059c3b22a0a17e35a93a4219ee1b103850d",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "63be5721e80336873e5837daa3e351a94371dbc040398d7e2e9164678c296de9",
+  "boot_iso_sha256": "f80b89f5bfccc634716aa635cf7cf72601afedb0621195e133fc77f791e71311",
+  "fields": {
+    "J_S": "511",
+    "J_U": "512",
+    "J_SN": "-1",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "511",
+    "A_U": "512",
+    "A_SN": "-1",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of a directly returned compound addition crossing byte storage width."
+}

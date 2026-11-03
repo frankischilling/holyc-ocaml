@@ -244,6 +244,14 @@ let adjacent_storage_assignments_and_updates () =
         "U8 F(){U8 n=250;n+=48;return n;}\nF();",
         "U64",
         298L );
+      ( "returned compound local keeps wide register value",
+        "I64 F(){I8 n=255;return n+=1;}\nF();",
+        "I64",
+        256L );
+      ( "returned compound noreg value is narrowed",
+        "I64 F(){U8 noreg n=256;return n-=1;}\nF();",
+        "I64",
+        255L );
       ( "prefix returns the full selected I8 register value",
         "I8 F(){I8 n=127;return ++n;}\nF();",
         "I64",

@@ -187,6 +187,7 @@ and frame_slot = {
   slot_callback : Sema.Function_type_resolution.function_pointer option;
   stored_type : stored_type;
   wide_register : bool;
+  narrow_update_result : bool;
   initial : runtime_value option;
   object_count : int;
   strides : int64 list;
@@ -254,6 +255,7 @@ and prepared_operation =
       * bool
       * Value_id.t
       * stored_type
+      * bool
       * bool
       * bool
   | Immediate of Value_id.t * word
@@ -6655,6 +6657,16 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
         = Some Register_variable_analysis.Register_candidate)
       register_proof
   in
+  let narrow_update_result location =
+    (* A proven stack slot has no observable intermediate compound result
+       except a direct return, where TempleOS returns the narrowed value. *)
+    Option.fold ~none:false
+      ~some:(fun proof ->
+        Register_variable_analysis.selection proof ~frame ~body:function_
+          ~symbol:(Frame.location_symbol location)
+        = Some Register_variable_analysis.Stack)
+      register_proof
+  in
   let of_kind kind =
     List.filter (fun item -> Frame.location_kind item = kind) locations
   in
@@ -6990,6 +7002,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                   slot_callback = callback;
                   stored_type;
                   wide_register = wide_register location;
+                  narrow_update_result = narrow_update_result location;
                   initial;
                   object_count = Int64.to_int count;
                   strides;
@@ -7034,6 +7047,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               slot_callback = None;
               stored_type = Stored_word I64;
               wide_register = false;
+              narrow_update_result = false;
               initial = None;
               object_count = 1;
               strides = [];
@@ -8267,9 +8281,14 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                      result.value_id,
                                      stored_type,
                                      callback_word_type slot_type,
-                                     match (frame, location) with
+                                     (match (frame, location) with
                                      | Some context, Frame_slot (index, _) ->
                                          context.slots.(index).wide_register
+                                     | _ -> false),
+                                     match (frame, location) with
+                                     | Some context, Frame_slot (index, _) ->
+                                         context.slots.(index)
+                                           .narrow_update_result
                                      | _ -> false ))
                           | None ->
                               Error (invalid_type_matrix block_id description))
@@ -8286,10 +8305,11 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                  result.value_id,
                                  stored_type,
                                  callback_word_type slot_type,
-                                 match (frame, location) with
+                                 (match (frame, location) with
                                  | Some context, Frame_slot (index, _) ->
                                      context.slots.(index).wide_register
-                                 | _ -> false ))
+                                 | _ -> false),
+                                 false ))
                       | _ -> Error (malformed block_id description))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
@@ -12755,7 +12775,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     result,
                     stored,
                     callback,
-                    wide_register ) -> (
+                    wide_register,
+                    narrow_update_result ) -> (
                   let type_ =
                     match stored with
                     | Stored_word type_ -> type_
@@ -12841,7 +12862,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                            (if old_result then old
                                             else if
                                               Option.is_some operand
-                                              && not instruction.locked
+                                              && (not instruction.locked)
+                                              && not narrow_update_result
                                             then computed
                                             else word))
                                         !values))))
@@ -13583,7 +13605,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               (match (!failed, instruction.operation) with
               | ( Some error,
                   ( Binary ((Divide | Remainder), _, _, _, _)
-                  | Update_slot (_, (Divide | Remainder), _, _, _, _, _, _)
+                  | Update_slot (_, (Divide | Remainder), _, _, _, _, _, _, _)
                   | Internal_mod_u64 _ ) )
                 when (not constant_preparation)
                      && (error.code = "HCIRVM0009" || error.code = "HCIRVM0010")

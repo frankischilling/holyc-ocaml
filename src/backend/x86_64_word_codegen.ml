@@ -410,6 +410,7 @@ type operation =
       * frame_update
       * value option
       * bool
+      * bool
       * value
       * word_type
       * fault_site option
@@ -3141,7 +3142,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
           owners.(scratch) <- None;
           assign position destination result
       | Update_frame_value
-          (access, update, input, old_result, result, word, arithmetic_site) ->
+          ( access,
+            update,
+            input,
+            old_result,
+            narrow_result,
+            result,
+            word,
+            arithmetic_site ) ->
           spill_all_registers instruction.span;
           Option.iter
             (fun flag_offset ->
@@ -3181,7 +3189,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
               (store_frame_scalar instruction.span access
                  registers.(computed_index));
             if
-              (not old_result) && Option.is_none input && access.frame_bytes < 8
+              (not old_result)
+              && (Option.is_none input || narrow_result)
+              && access.frame_bytes < 8
             then
               emit
                 (load_frame_scalar instruction.span registers.(computed_index)
@@ -5257,6 +5267,7 @@ let preflight_program graph =
 type callable_slot = {
   slot_type : Type.t;
   slot_word : word_type;
+  narrow_update_result : bool;
   slot_dimensions : int64 list;
   slot_element_size : int;
   slot_element_count : int;
@@ -5666,6 +5677,16 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         = Some Ir.Register_variable_analysis.Register_candidate)
       register_proof
   in
+  let narrow_update_result location =
+    (* The proof restricts stack-slot compound results to a direct return or
+       a discarded expression; direct returns use the narrowed stored value. *)
+    Option.fold ~none:false
+      ~some:(fun proof ->
+        Ir.Register_variable_analysis.selection proof ~frame ~body
+          ~symbol:(Frame.location_symbol location)
+        = Some Ir.Register_variable_analysis.Stack)
+      register_proof
+  in
   let allowed_flags =
     (* PrsFunJoin retains Ff_DOT_DOT_DOT when a replacement header is fixed.
        The bound definition above authenticates these exact stored flags;
@@ -5823,6 +5844,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         {
           slot_type = type_;
           slot_word = storage_scalar.word_type;
+          narrow_update_result = narrow_update_result location;
           slot_dimensions = [];
           slot_element_size = storage_scalar.byte_size;
           slot_element_count = (if Option.is_some aggregate then 8 else 1);
@@ -5913,6 +5935,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           {
             slot_type = argc_type;
             slot_word = I64;
+            narrow_update_result = false;
             slot_dimensions = [];
             slot_element_size = 8;
             slot_element_count = 1;
@@ -6104,6 +6127,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         {
           slot_type = type_;
           slot_word = scalar.word_type;
+          narrow_update_result = narrow_update_result location;
           slot_dimensions = counts;
           slot_element_size = scalar.byte_size;
           slot_element_count = elements;
@@ -9714,6 +9738,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             update,
                             input,
                             old_result,
+                            slot.narrow_update_result,
                             value,
                             slot.slot_word,
                             arithmetic_site ),
@@ -10467,7 +10492,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               (_, Update_division arithmetic_operation, _, _, _, _) ->
               Some (arithmetic_operation, true)
           | Update_frame_value
-              (_, Update_division arithmetic_operation, _, _, _, word, _) ->
+              (_, Update_division arithmetic_operation, _, _, _, _, word, _) ->
               Some (arithmetic_operation, word = I64)
           | Update_reference_value
               (_, Update_division arithmetic_operation, _, _, _, word, _)
@@ -10586,7 +10611,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 | Apply_logical (_, left, right, _) ->
                     Option.is_some left.code_owner_offset
                     || Option.is_some right.code_owner_offset
-                | Update_frame_value (_, _, input, _, _, _, _)
+                | Update_frame_value (_, _, input, _, _, _, _, _)
                 | Update_arena_value (_, _, input, _, _, _, _)
                 | Update_reference_value (_, _, input, _, _, _, _)
                 | Update_indexed_object_value (_, _, input, _, _, _, _)
@@ -10612,8 +10637,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Load_code_frame ({ initialized_flag_offset = Some _; _ }, _, _)
                 -> true
               | Update_frame_value
-                  ({ initialized_flag_offset = Some _; _ }, _, _, _, _, _, _) ->
-                  true
+                  ({ initialized_flag_offset = Some _; _ }, _, _, _, _, _, _, _)
+                -> true
               | Update_callback_value
                   ( Callback_frame ({ initialized_flag_offset = Some _; _ }, _),
                     _,
@@ -10693,7 +10718,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               (locked
               &&
               match operation with
-              | Update_frame_value (access, _, _, _, _, _, _) ->
+              | Update_frame_value (access, _, _, _, _, _, _, _) ->
                   access.frame_bytes > 1
               | Update_arena_value (access, _, _, _, _, _, _) ->
                   access.arena_bytes > 1

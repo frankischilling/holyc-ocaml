@@ -1030,6 +1030,105 @@ let () =
             [ ("++", pin); ("--", pdecin) ])
         unary_widths
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun ( ty,
+               initial,
+               wide_add,
+               memory_add,
+               wide_sub,
+               memory_sub,
+               wide_shift,
+               memory_shift,
+               wide_right,
+               memory_right,
+               memory_initial ) ->
+          List.concat_map
+            (fun (operator, wide, memory) ->
+              let source qualifier =
+                Printf.sprintf "I64 F(){%s %s x=%s;return x%s=1;}F();" ty
+                  qualifier initial operator
+              in
+              [ (source "", wide); (source "noreg", memory) ])
+            [
+              ("+", wide_add, memory_add);
+              ("-", wide_sub, memory_sub);
+              ("*", initial, memory_initial);
+              ("<<", wide_shift, memory_shift);
+              (">>", wide_right, memory_right);
+            ])
+        [
+          ("I8", "255", "256", "0", "254", "-2", "510", "-2", "127", "-1", "-1");
+          ("U8", "256", "257", "1", "255", "255", "512", "0", "128", "0", "0");
+          ( "I16",
+            "65535",
+            "65536",
+            "0",
+            "65534",
+            "-2",
+            "131070",
+            "-2",
+            "32767",
+            "-1",
+            "-1" );
+          ( "U16",
+            "65536",
+            "65537",
+            "1",
+            "65535",
+            "65535",
+            "131072",
+            "0",
+            "32768",
+            "0",
+            "0" );
+          ( "I32",
+            "4294967295",
+            "4294967296",
+            "0",
+            "4294967294",
+            "-2",
+            "8589934590",
+            "-2",
+            "2147483647",
+            "-1",
+            "-1" );
+          ( "U32",
+            "4294967296",
+            "4294967297",
+            "1",
+            "4294967295",
+            "4294967295",
+            "8589934592",
+            "0",
+            "2147483648",
+            "0",
+            "0" );
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(){I8 x=255;return x+=2147483647;}F();", "2147483902");
+        ("I64 F(){U8 x=256;return x+=2147483647;}F();", "2147483903");
+        ("I64 F(){I8 noreg x=255;return x+=2147483647;}F();", "-2");
+        ("I64 F(){U8 noreg x=256;return x+=2147483647;}F();", "255");
+        ("I64 F(){I8 x=255;return x-=2147483647;}F();", "-2147483392");
+        ("I64 F(){U8 x=256;return x-=2147483647;}F();", "-2147483391");
+        ("I64 F(){I8 noreg x=255;return x-=2147483647;}F();", "0");
+        ("I64 F(){U8 noreg x=256;return x-=2147483647;}F();", "1");
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(){I8 x=255;return x+=256;}F();", "511");
+        ("I64 F(){U8 x=256;return x+=256;}F();", "512");
+        ("I64 F(){I8 noreg x=255;return x+=256;}F();", "-1");
+        ("I64 F(){U8 noreg x=256;return x+=256;}F();", "0");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

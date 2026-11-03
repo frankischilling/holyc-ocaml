@@ -1027,8 +1027,106 @@ let analyze_local ~frame ~body =
             | _ -> false)
           (Function_body.definition_source body)
       in
+      let source_matches_compound_return initial count update =
+        Option.fold ~none:false
+          ~some:(fun source ->
+            match
+              ( Typed.function_initializers source,
+                Typed.function_expression_statements source,
+                Typed.function_returns source )
+            with
+            | [ initialization ], [], [ returned ] -> (
+                let local =
+                  initialization |> Typed.initializer_source
+                  |> Calls.initializer_local
+                in
+                match Typed.return_value returned with
+                | Some value -> (
+                    match
+                      ( Calls.argument_expression_source
+                          (Typed.result_source value),
+                        Typed.result_binary_operands value )
+                    with
+                    | ( Some (Frontend.Ast.Binary_expression binary),
+                        Some (left, right) ) ->
+                        (match
+                           ( binary.binary_operator_spec.spelling,
+                             update.Seq.opcode )
+                         with
+                          | "+=", O.Ic_add_equ
+                          | "-=", Ic_sub_equ
+                          | "*=", Ic_mul_equ
+                          | "<<=", Ic_shl_equ
+                          | ">>=", Ic_shr_equ -> true
+                          | _ -> false)
+                        && Sema.Local_type_resolution.local_symbol local
+                           == Frame.location_symbol location
+                        && literal (Typed.initializer_value initialization)
+                           = Some initial
+                        && literal right = Some count
+                        && Option.fold ~none:false
+                             ~some:(( == ) (Frame.location_binding location))
+                             (binding_of left)
+                    | _ -> false)
+                | None -> false)
+            | _ -> false)
+          (Function_body.definition_source body)
+      in
       let matched =
         match core with
+        | [
+         r1; o1; a1; initial; store; end1; r2; o2; a2; count; update; returned;
+        ]
+          when update.Seq.opcode = O.Ic_add_equ
+               || update.opcode = O.Ic_sub_equ
+               || update.opcode = O.Ic_mul_equ
+               || update.opcode = O.Ic_shl_equ
+               || update.opcode = O.Ic_shr_equ -> (
+            match
+              ( id a1,
+                id initial,
+                integer initial,
+                id store,
+                id a2,
+                id count,
+                integer count,
+                id update )
+            with
+            | ( Some a1id,
+                Some initialid,
+                Some initialbits,
+                Some storeid,
+                Some a2id,
+                Some countid,
+                Some countbits,
+                Some updateid ) ->
+                Option.is_none argument
+                && Option.is_none count_argument
+                && supported location && address location r1 o1 a1
+                && scalar_literal initial && address location r2 o2 a2
+                && scalar_literal count
+                && store.Seq.opcode = O.Ic_assign
+                && store.payload = None && same_type store
+                && store.operands = [ a1id; initialid ]
+                && end1.Seq.opcode = O.Ic_end_exp
+                && end1.payload = None && end1.result = None
+                && end1.flags = 0x200L && is_one end1 storeid
+                && (update.opcode <> O.Ic_add_equ
+                    && update.opcode <> O.Ic_sub_equ
+                   || countbits >= 0L
+                      && countbits <= Int64.of_int32 Int32.max_int)
+                && update.payload = None && same_type update
+                && update.operands = [ a2id; countid ]
+                && returned.Seq.opcode = O.Ic_return_val
+                && returned.payload = None && returned.result = None
+                && is_one returned updateid
+                && List.for_all
+                     (fun (item : Seq.description) ->
+                       Option.is_some (instruction_stamp item)
+                       && (item.opcode = O.Ic_end_exp || item.flags = 0L))
+                     code
+                && source_matches_compound_return initialbits countbits update
+            | _ -> false)
         | [ r1; o1; a1; update; returned ] -> (
             match (id a1, id update) with
             | Some a1id, Some updateid ->
