@@ -195,6 +195,7 @@ let analyze_parameter ~frame ~body =
       | Ic_shl_equ
       | Ic_shr_equ
       | Ic_add_equ
+      | Ic_sub_equ
       | Ic_end_exp
       | Ic_return_val
       | Ic_jmp
@@ -270,7 +271,7 @@ let analyze_parameter ~frame ~body =
         &&
         match (item.opcode, item.operands) with
         | O.Ic_deref, [ target ] -> Seq.Value_id.equal target id
-        | (Ic_shl_equ | Ic_shr_equ | Ic_add_equ), [ target; _ ] ->
+        | (Ic_shl_equ | Ic_shr_equ | Ic_add_equ | Ic_sub_equ), [ target; _ ] ->
             Seq.Value_id.equal target id
         | _ -> false
       in
@@ -303,7 +304,8 @@ let analyze_parameter ~frame ~body =
           (fun (item : Seq.description) ->
             match (item.opcode, item.operands) with
             | O.Ic_deref, [ target ]
-            | (Ic_shl_equ | Ic_shr_equ | Ic_add_equ), [ target; _ ] ->
+            | (Ic_shl_equ | Ic_shr_equ | Ic_add_equ | Ic_sub_equ), [ target; _ ]
+              ->
                 List.exists
                   (fun (id, _) -> Seq.Value_id.equal id target)
                   addresses
@@ -344,7 +346,7 @@ let analyze_parameter ~frame ~body =
           List.filter
             (fun (item : Seq.description) ->
               item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ
-              || item.opcode = O.Ic_add_equ)
+              || item.opcode = O.Ic_add_equ || item.opcode = O.Ic_sub_equ)
             code
         in
         let returns =
@@ -412,7 +414,8 @@ let analyze_parameter ~frame ~body =
                     List.filter
                       (fun (item : Seq.description) ->
                         item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ
-                        || item.opcode = O.Ic_add_equ)
+                        || item.opcode = O.Ic_add_equ
+                        || item.opcode = O.Ic_sub_equ)
                       code )
                 with
                 | ( Some (Frontend.Ast.Binary_expression binary),
@@ -425,7 +428,8 @@ let analyze_parameter ~frame ~body =
                       with
                       | "<<=", O.Ic_shl_equ
                       | ">>=", Ic_shr_equ
-                      | "+=", Ic_add_equ -> true
+                      | "+=", Ic_add_equ
+                      | "-=", Ic_sub_equ -> true
                       | _ -> false
                     in
                     let target_binding = Frame.location_binding target in
@@ -672,7 +676,8 @@ let analyze_local ~frame ~body =
                       with
                       | "<<=", O.Ic_shl_equ
                       | ">>=", Ic_shr_equ
-                      | "+=", Ic_add_equ -> true
+                      | "+=", Ic_add_equ
+                      | "-=", Ic_sub_equ -> true
                       | _ -> false
                     in
                     operator
@@ -799,9 +804,11 @@ let analyze_local ~frame ~body =
                 && end1.flags = 0x200L && is_one end1 storeid
                 && (update.Seq.opcode = O.Ic_shl_equ
                    || update.opcode = O.Ic_shr_equ
-                   || update.opcode = O.Ic_add_equ)
+                   || update.opcode = O.Ic_add_equ
+                   || update.opcode = O.Ic_sub_equ)
                 && update.payload = None && same_type update
                 && (update.opcode <> O.Ic_add_equ
+                    && update.opcode <> O.Ic_sub_equ
                    || countbits >= 0L
                       && countbits <= Int64.of_int32 Int32.max_int)
                 && update.operands = [ a2id; countid ]

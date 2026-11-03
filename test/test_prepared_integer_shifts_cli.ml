@@ -208,6 +208,15 @@ let () =
           ( "#exe {I64 F(){U8 x=256;x+=1;return x;}I64 I(){return F();}I64 \
              S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "257" );
+          ( "#exe {I64 F(I8 x,I8 c){x-=c;return x;}I64 I(){return \
+             F(-128,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-129" );
+          ( "#exe {I64 F(U8 x,I8 c){x-=c;return x;}I64 I(){return F(0,1);}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-1" );
+          ( "#exe {I64 F(){I8 x=255;x-=1;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
           ( "#exe {I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}I64 I(){return \
              F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "-2" );
