@@ -5573,3 +5573,25 @@
  (libraries holyc_lib yojson digestif alcotest)
  (deps
   (glob_files oracle/empty-arrays/*)))
+
+(executable
+ (name test_automatic_void_cli)
+ (modules test_automatic_void_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_automatic_void_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_automatic_void_cli.exe} %{exe:../bin/holyc.exe} --native)))
+
+(test
+ (name test_automatic_void_oracle)
+ (modules test_automatic_void_oracle)
+ (libraries yojson digestif alcotest)
+ (deps
+  (glob_files oracle/automatic-void/*)))

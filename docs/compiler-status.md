@@ -1,5 +1,9 @@
 # Compiler status and implementation notes
 
+[Uninitialized scalar U0 locals](automatic-void-declarations.md) retain their
+original zero-byte frames without runtime value storage. Automatic assignments
+and their original register aliases remain a separate, unsupported family.
+
 [Zero-sized arrays](empty-arrays.md) retain ordinary `[]` and evaluated-zero
 counts through global, static and automatic storage. Empty initializer and copy
 receipts remain source-owned without granting source bytes or repeating static

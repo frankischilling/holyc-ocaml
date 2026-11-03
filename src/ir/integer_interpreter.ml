@@ -6998,7 +6998,10 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               Some
                 "the checked frame contains an unsupported storage type or \
                  shape")
-      locations;
+      (List.filter
+         (fun location ->
+           not (Automatic_void_declaration.is_storage_free location))
+         locations);
     match !error with
     | Some message -> invalid message
     | None -> (

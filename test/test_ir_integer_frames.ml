@@ -496,6 +496,35 @@ let frame_boundaries () =
       "I64 Add(){static I64 c;}";
       "I64 Add(){I0 *c;}";
     ];
+  let void_frame, void_function = analyze "I64 Add(){U0 c;return 42;}" in
+  let void_location = Frame.function_locations void_frame |> List.hd in
+  Alcotest.(check bool)
+    "original uninitialized U0 is storage-free" true
+    (Holyc_lib__Ir.Automatic_void_declaration.is_storage_free void_location);
+  Alcotest.(check int64)
+    "U0 declaration has zero frame bytes" 0L
+    (Frame.function_frame_size void_frame);
+  ignore
+    (execute ~max_frame_bytes:1 void_frame []
+       (composed_body void_frame void_function)
+    |> expect_word 42L);
+  List.iter
+    (fun text ->
+      let other, _ = analyze text in
+      List.iter
+        (fun location ->
+          Alcotest.(check bool)
+            "other local consumers are not storage-free U0" false
+            (Holyc_lib__Ir.Automatic_void_declaration.is_storage_free location))
+        (Frame.function_locations other))
+    [
+      "I64 Add(){I64 c;}";
+      "I64 Add(){U0 c=42;}";
+      "I64 Add(){U0 c[1];}";
+      "I64 Add(){static U0 c;}";
+      "I64 Add(){U0 *c;}";
+      "I64 Add(){I0 c;}";
+    ];
   let empty_frame, empty_function = analyze "I64 Add(){I64 c[0];return 42;}" in
   Alcotest.(check int64)
     "zero-count array has no logical frame bytes" 0L

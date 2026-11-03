@@ -6112,7 +6112,17 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
               initialized_flag_offset = Some flag_offset;
             };
         })
-    locals;
+    (List.filter
+       (fun member ->
+         match Frame.find_location frame (Function.member_symbol member) with
+         | Some location ->
+             not
+               (Ir.Automatic_void_declaration.is_storage_free location
+               && Type.equal
+                    (Function.member_type member)
+                    (Frame.location_checked_type location))
+         | None -> true)
+       locals);
   let rbp_bytes = local_frame_bytes + (8 * !metadata_count) in
   if rbp_bytes > max_stack_bytes then
     reject ?span "HCBACK0004"

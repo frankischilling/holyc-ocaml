@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Admit original uninitialized scalar U0 locals without allocating value cells
+  or flags. Keep their assignment/register-alias behavior explicitly separate.
+  See [automatic U0 declarations](automatic-void-declarations.md).
+
 - Execute zero-count array declarations and empty initializers without inferring
   lengths, inventing source bytes or repeating static work. Preserve original
   empty-dimension witnesses, completion receipts and zero-copy arena checks.

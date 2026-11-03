@@ -1,5 +1,10 @@
 # Testing holyc-ocaml
 
+[Automatic U0 declaration](automatic-void-declarations.md) checks cover zero-byte
+frames, original local/type ownership, repeated calls, recursion, neighboring
+integers and exact execution limits. Separate repeated native captures preserve
+the unsupported initializer alias behavior rather than treating it as a no-op.
+
 Zero-count array tests cover all nine integer widths, class and callback-word
 arrays, global/static/automatic storage, nested zero counts, fractional bounds,
 forward completion, once-only JIT dimensions and zero-width string copies.

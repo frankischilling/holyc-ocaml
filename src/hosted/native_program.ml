@@ -295,6 +295,17 @@ let local_source_error (declaration : Ast.local_declaration) =
     Some (source_error declaration.local_declaration_location.span message)
   in
   let is_static = declaration.local_storage = Ast.Static_local in
+  let storage_free_void =
+    (not is_static)
+    && void_return_type declaration.local_type_specifier
+    && List.for_all
+         (fun (local : Ast.local_declarator) ->
+           local.local_pointer_layers = []
+           && local.local_array_dimensions = []
+           && Option.is_none local.local_function_pointer
+           && Option.is_none local.local_initializer)
+         declaration.local_declarators
+  in
   let aggregate_object =
     (match declaration.local_type_specifier with
       | Ast.Named_type_specifier _ -> true
@@ -312,12 +323,13 @@ let local_source_error (declaration : Ast.local_declaration) =
   if
     not
       (scalar_word_type declaration.local_type_specifier
-      || aggregate_object
+      || storage_free_void || aggregate_object
       || List.for_all
            (fun local -> Option.is_some local.Ast.local_function_pointer)
            declaration.local_declarators)
   then
-    reject "native locals require nonzero scalar integers or callback storage"
+    reject
+      "native locals require supported scalar, aggregate or callback storage"
   else
     List.find_map
       (fun (local : Ast.local_declarator) ->

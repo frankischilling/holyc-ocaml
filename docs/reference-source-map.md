@@ -2583,3 +2583,11 @@ multiplication, delimiter completion and an unchanged source byte cursor.
 Native empty copies check their arena lease but do not touch memory or flags.
 `test/oracle/empty-arrays` retains repeated successful observations separately
 from an unqualified automatic-address probe that faulted in the reference VM.
+
+## Automatic U0 declarations
+
+`PrsVarLst` retains zero-sized uninitialized scalar locals but reparses an
+initialized local as an assignment. Assignment warning, register selection and
+move lowering are separate consumers in `OptPass012`, `OptPass3`, `OptPass4`,
+`BackC` and `BackLib`. The declaration-only path preserves that separation; see
+[automatic U0 declarations](automatic-void-declarations.md).
