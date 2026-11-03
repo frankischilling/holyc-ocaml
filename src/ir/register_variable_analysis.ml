@@ -764,7 +764,7 @@ let analyze_local ~frame ~body =
                     && Sema.Local_type_resolution.local_symbol local
                        == Frame.location_symbol location
                     && (match (argument, initial) with
-                      | None, Some bits ->
+                      | _, Some bits ->
                           literal (Typed.initializer_value initialization)
                           = Some bits
                       | Some argument, None ->
@@ -843,6 +843,59 @@ let analyze_local ~frame ~body =
             | _ -> false)
           (Function_body.definition_source body)
       in
+      let source_matches_literal_parameter initial argument update =
+        Option.fold ~none:false
+          ~some:(fun source ->
+            match
+              ( Typed.function_initializers source,
+                Typed.function_expression_statements source,
+                Typed.function_returns source )
+            with
+            | [ initialization ], [ statement ], [ returned ] -> (
+                let local =
+                  initialization |> Typed.initializer_source
+                  |> Calls.initializer_local
+                in
+                let value = Typed.expression_statement_value statement in
+                match
+                  ( Calls.argument_expression_source (Typed.result_source value),
+                    Typed.result_binary_operands value,
+                    Typed.return_value returned )
+                with
+                | ( Some (Frontend.Ast.Binary_expression binary),
+                    Some (left, right),
+                    Some returned ) ->
+                    (match
+                       (binary.binary_operator_spec.spelling, update.Seq.opcode)
+                     with
+                      | "+=", O.Ic_add_equ
+                      | "-=", Ic_sub_equ
+                      | "*=", Ic_mul_equ
+                      | "/=", Ic_div_equ
+                      | "%=", Ic_mod_equ
+                      | "<<=", Ic_shl_equ
+                      | ">>=", Ic_shr_equ
+                      | "&=", Ic_and_equ
+                      | "|=", Ic_or_equ
+                      | "^=", Ic_xor_equ -> true
+                      | _ -> false)
+                    && Sema.Local_type_resolution.local_symbol local
+                       == Frame.location_symbol location
+                    && literal (Typed.initializer_value initialization)
+                       = Some initial
+                    && Option.fold ~none:false
+                         ~some:(( == ) (Frame.location_binding location))
+                         (binding_of left)
+                    && Option.fold ~none:false
+                         ~some:(( == ) (Frame.location_binding argument))
+                         (binding_of right)
+                    && Option.fold ~none:false
+                         ~some:(( == ) (Frame.location_binding location))
+                         (binding_of returned)
+                | _ -> false)
+            | _ -> false)
+          (Function_body.definition_source body)
+      in
       let matched =
         match core with
         | [
@@ -907,7 +960,8 @@ let analyze_local ~frame ~body =
          a3;
          load;
          returned;
-        ] -> (
+        ]
+          when rp.Seq.opcode = O.Ic_rbp -> (
             match
               ( argument,
                 id a1,
@@ -1074,6 +1128,103 @@ let analyze_local ~frame ~body =
                      code
                 && source_matches None None update
             | _ -> false)
+        | [
+         r1;
+         o1;
+         a1;
+         initial;
+         store;
+         end1;
+         r2;
+         o2;
+         a2;
+         rp;
+         op;
+         ap;
+         count;
+         update;
+         end2;
+         r3;
+         o3;
+         a3;
+         load;
+         returned;
+        ] -> (
+            match
+              ( argument,
+                count_argument,
+                id a1,
+                id initial,
+                integer initial,
+                id store,
+                id a2,
+                id ap,
+                id count,
+                id update,
+                id a3,
+                id load )
+            with
+            | ( Some argument,
+                None,
+                Some a1id,
+                Some initialid,
+                Some initialbits,
+                Some storeid,
+                Some a2id,
+                Some apid,
+                Some countid,
+                Some updateid,
+                Some a3id,
+                Some loadid ) ->
+                (match
+                   Sema.Type.base (Frame.location_checked_type argument)
+                 with
+                  | Sema.Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) ->
+                      true
+                  | _ -> false)
+                && address location r1 o1 a1 && scalar_literal initial
+                && address location r2 o2 a2 && address argument rp op ap
+                && address location r3 o3 a3
+                && store.Seq.opcode = O.Ic_assign
+                && store.payload = None && same_type store
+                && store.operands = [ a1id; initialid ]
+                && end1.Seq.opcode = O.Ic_end_exp
+                && end1.payload = None && end1.result = None
+                && end1.flags = 0x200L && is_one end1 storeid
+                && count.Seq.opcode = O.Ic_deref
+                && count.payload = None
+                && Option.fold ~none:false
+                     ~some:
+                       (Sema.Type.equal (Frame.location_checked_type argument))
+                     count.target_type
+                && is_one count apid
+                && (update.Seq.opcode = O.Ic_add_equ
+                   || update.opcode = O.Ic_sub_equ
+                   || update.opcode = O.Ic_mul_equ
+                   || update.opcode = O.Ic_div_equ
+                   || update.opcode = O.Ic_mod_equ
+                   || update.opcode = O.Ic_shl_equ
+                   || update.opcode = O.Ic_shr_equ
+                   || update.opcode = O.Ic_and_equ
+                   || update.opcode = O.Ic_or_equ
+                   || update.opcode = O.Ic_xor_equ)
+                && update.payload = None && same_type update
+                && update.operands = [ a2id; countid ]
+                && end2.Seq.opcode = O.Ic_end_exp
+                && end2.payload = None && end2.result = None
+                && end2.flags = 0x200L && is_one end2 updateid
+                && load.Seq.opcode = O.Ic_deref
+                && load.payload = None && same_type load && is_one load a3id
+                && returned.Seq.opcode = O.Ic_return_val
+                && returned.payload = None && returned.result = None
+                && is_one returned loadid
+                && List.for_all
+                     (fun (item : Seq.description) ->
+                       Option.is_some (instruction_stamp item)
+                       && (item.opcode = O.Ic_end_exp || item.flags = 0L))
+                     code
+                && source_matches_literal_parameter initialbits argument update
+            | _ -> false)
         | [ r1; o1; a1; initial; store; end1; r2; o2; a2; load; returned ] -> (
             match
               (id a1, id initial, id store, id a2, id load, integer initial)
@@ -1102,7 +1253,8 @@ let analyze_local ~frame ~body =
                        Option.is_some (instruction_stamp item)
                        && (item.opcode = O.Ic_end_exp || item.flags = 0L))
                      code
-                && Option.is_none argument && source_matches_direct bits
+                && Option.is_none count_argument
+                && source_matches_direct bits
             | _ -> false)
         | [
          r1;
@@ -1178,7 +1330,7 @@ let analyze_local ~frame ~body =
                        Option.is_some (instruction_stamp item)
                        && (item.opcode = O.Ic_end_exp || item.flags = 0L))
                      code
-                && Option.is_none argument
+                && Option.is_none count_argument
                 && source_matches (Some initialbits) (Some countbits) update
             | _ -> false)
         | _ -> false

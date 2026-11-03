@@ -697,6 +697,163 @@ let () =
         ("I64 F(U32 c,I8 n){I32 noreg x=c;x+=n;return x;}F(4294967295,1);", "0");
       ]
   in
+  let literal_parameter_locals =
+    [
+      ("I8", "255", "255", "-1", "510", "-2");
+      ("U8", "256", "256", "0", "512", "0");
+      ("I16", "65535", "65535", "-1", "131070", "-2");
+      ("U16", "65536", "65536", "0", "131072", "0");
+      ("I32", "4294967295", "4294967295", "-1", "8589934590", "-2");
+      ("U32", "4294967296", "4294967296", "0", "8589934592", "0");
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, wide, memory, updated, updated_memory) ->
+          let source qualifier update =
+            Printf.sprintf "I64 F(I64 c){%s %s x=%s;%sreturn x;}F(%s);" ty
+              qualifier input update input
+          in
+          [
+            (source "" "", wide);
+            (source "noreg" "", memory);
+            (source "" "x+=c;", updated);
+            (source "noreg" "x+=c;", updated_memory);
+          ])
+        literal_parameter_locals
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, _, _, _, _) ->
+          let source qualifier operation operand =
+            Printf.sprintf "I64 F(I64 c){%s %s x=%s;x%s=c;return x;}F(%s);" ty
+              qualifier input operation operand
+          in
+          let unsigned = String.starts_with ~prefix:"U" ty in
+          let integer = Int64.of_string input in
+          let sub = Int64.to_string (Int64.sub integer 1L) in
+          let mul = Int64.to_string (Int64.mul integer 3L) in
+          let or_value =
+            if unsigned then input
+            else Int64.to_string (Int64.logor integer (Int64.add integer 1L))
+          in
+          let xor_value = if unsigned then "0" else or_value in
+          let mask =
+            if unsigned then input else Int64.to_string (Int64.add integer 1L)
+          in
+          [
+            (source "" "-" "1", sub);
+            ( source "noreg" "-" "1",
+              if unsigned then Int64.to_string (Int64.sub integer 1L) else "-2"
+            );
+            (source "" "*" "3", mul);
+            (source "noreg" "*" "3", if unsigned then "0" else "-3");
+            (source "" "|" mask, or_value);
+            (source "noreg" "|" mask, if unsigned then "0" else "-1");
+            (source "" "^" mask, xor_value);
+            (source "noreg" "^" mask, if unsigned then "0" else "-1");
+          ])
+        literal_parameter_locals
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, _, _, updated, updated_memory) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(I64 c){%s %s x=%s;x<<=c;return x;}F(1);" ty
+              qualifier input
+          in
+          [ (source "", updated); (source "noreg", updated_memory) ])
+        literal_parameter_locals
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, _, _, _, _) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(I64 c){%s %s x=%s;x>>=c;return x;}F(1);" ty
+              qualifier input
+          in
+          [
+            ( source "",
+              Int64.to_string
+                (Int64.shift_right_logical (Int64.of_string input) 1) );
+            ( source "noreg",
+              if String.starts_with ~prefix:"U" ty then "0" else "-1" );
+          ])
+        literal_parameter_locals
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, _, _, _, _) ->
+          let unsigned = String.starts_with ~prefix:"U" ty in
+          let operand =
+            if unsigned then
+              Int64.to_string (Int64.sub (Int64.of_string input) 1L)
+            else input
+          in
+          let source qualifier =
+            Printf.sprintf "I64 F(I64 c){%s %s x=%s;x&=c;return x;}F(%s);" ty
+              qualifier input operand
+          in
+          [
+            (source "", if unsigned then "0" else input);
+            (source "noreg", if unsigned then "0" else "-1");
+          ])
+        literal_parameter_locals
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, _, _, _, _) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(I64 c){%s %s x=%s;x/=c;return x;}F(2);" ty
+              qualifier input
+          in
+          [
+            (source "", Int64.to_string (Int64.div (Int64.of_string input) 2L));
+            (source "noreg", "0");
+          ])
+        literal_parameter_locals
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, _, _, _, _) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(I64 c){%s %s x=%s;x%%=c;return x;}F(2);" ty
+              qualifier input
+          in
+          let unsigned = String.starts_with ~prefix:"U" ty in
+          [
+            (source "", if unsigned then "0" else "1");
+            (source "noreg", if unsigned then "0" else "-1");
+          ])
+        literal_parameter_locals
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(I64 c){I8 x=255;x+=c;return x;}F(0x8000000000000000);",
+          "-9223372036854775553" );
+        ( "I64 F(I64 c){U8 x=256;x+=c;return x;}F(0x8000000000000000);",
+          "-9223372036854775552" );
+        ( "I64 F(I64 c){I8 noreg x=255;x+=c;return x;}F(0x8000000000000000);",
+          "-1" );
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I64 c){I8 x=255;x/=c;return x;}F(-1);", "-255");
+        ("I64 F(I64 c){I8 noreg x=255;x/=c;return x;}F(-1);", "1");
+        ("I64 F(I64 c){U8 x=256;x%=c;return x;}F(-1);", "256");
+        ("I64 F(I64 c){U8 noreg x=256;x%=c;return x;}F(-1);", "0");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
@@ -824,6 +981,16 @@ let () =
             cases)
         [ "jit"; "aot" ])
     targets;
+  let literal_faults =
+    [
+      ("I64 F(I64 c){I8 x=1;x/=c;return x;}F(0);", "HCIRVM0009");
+      ("I64 F(I64 c){I8 x=1;x%=c;return x;}F(0);", "HCIRVM0009");
+      ( "I64 F(I64 c){I8 x=0x8000000000000000;x/=c;return x;}F(-1);",
+        "HCIRVM0010" );
+      ( "I64 F(I64 c){I8 x=0x8000000000000000;x%=c;return x;}F(-1);",
+        "HCIRVM0010" );
+    ]
+  in
   let faults =
     [
       ("I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(1,0);", "HCIRVM0009");
@@ -833,6 +1000,7 @@ let () =
       ( "I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(0x8000000000000000,-1);",
         "HCIRVM0010" );
     ]
+    @ literal_faults
   in
   List.iter
     (fun target ->

@@ -5,21 +5,16 @@ val analyze :
   frame:Sema.Function_frame_layout.function_layout ->
   body:Function_body.t ->
   t option
-(** Analyze a bound two-parameter function that updates an 8-, 16- or 32-bit
-    integer parameter using a shift, addition, subtraction, multiplication,
-    division or bitwise update by the other parameter, then returns it directly.
-    Also analyze a function that initializes one narrow local from an integer
-    literal or a full-word parameter and returns it directly, optionally after a
-    shift, addition, subtraction or multiplication by an integer literal.
-    Parameter-initialized locals also admit literal shifts, multiplication, or
-    bounded addition and subtraction before return. A second signed or unsigned
-    8-, 16-, 32- or 64-bit parameter may supply the operand for shifts,
-    addition, subtraction, multiplication, division, remainder or bitwise
-    updates. Division and remainder are proved only for parameter operands.
-    Local compound addition or subtraction requires a nonnegative signed-32-bit
-    literal. Both require default compiler options. Escapes, explicit hardware
-    registers, other control flow and all other shapes remain unproved. This
-    witness does not alter storage or execution. *)
+(** Analyze source-proven narrow register variables under default compiler
+    options. Supported shapes include a two-parameter function that updates a
+    narrow parameter, and a function that initializes one narrow local from a
+    literal or a signed or unsigned integer parameter before returning it. The
+    local may receive a supported literal or parameter update. Addition and
+    subtraction by a local literal are limited to nonnegative signed-32-bit
+    operands. Remainder is not proved for the two-parameter update of a narrow
+    parameter. Explicit hardware registers, escapes, extra locals and other
+    control flow remain unproved. The witness itself does not alter execution.
+*)
 
 val selection :
   t ->

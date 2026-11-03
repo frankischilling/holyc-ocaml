@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "0fe5548d372fd87b342fdc349333f8e5c60d96830495b3fa0bba5179664c64fc",
+  "boot_payload_sha256": "971379443573613f4d50202c9778b6cea82e36245e8e1597d3cf387fb584b94a",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ed350351eaf15befaf2c7ee78f174b1051f48f7590a9b7d3c6ce5afc8568d34a",
+  "boot_iso_sha256": "de186528768298a84cd6ad9fe38f7ca638a200e09f945c125dacfccd3a586a53",
+  "fields": {
+    "J_CAUGHT": "1",
+    "ERR": "0",
+    "A_CAUGHT": "1"
+  },
+  "scope": "Repeated original observations of remainder on a literal-initialized local by a parameter. Caught fault probes use original JIT callers. Stored source omits boot padding."
+}

@@ -534,7 +534,13 @@ let faults_and_loops () =
       ("I64 F(I64 x){return x%-1;}F(0x8000000000000000);", "HCIRVM0010");
       ("I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(1,0);", "HCIRVM0009");
       ("I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(1,0);", "HCIRVM0009");
+      ("I64 F(I64 c){I8 x=1;x/=c;return x;}F(0);", "HCIRVM0009");
+      ("I64 F(I64 c){I8 x=1;x%=c;return x;}F(0);", "HCIRVM0009");
+      ( "I64 F(I64 c){I8 x=0x8000000000000000;x/=c;return x;}F(-1);",
+        "HCIRVM0010" );
       ( "I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(0x8000000000000000,-1);",
+        "HCIRVM0010" );
+      ( "I64 F(I64 c){I8 x=0x8000000000000000;x%=c;return x;}F(-1);",
         "HCIRVM0010" );
       ( "I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(0x8000000000000000,-1);",
         "HCIRVM0010" );

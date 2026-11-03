@@ -941,6 +941,84 @@ let source_controls () =
         "retained narrow initializer" expected
         (List.assoc name narrow_default))
     [ ("DIRECT", "255"); ("UPDATE", "765") ];
+  List.iter
+    (fun (stem, signed, unsigned, signed_memory, unsigned_memory) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "literal local with parameter" expected
+                (List.assoc (prefix ^ name) fields))
+            [
+              ("S", signed);
+              ("U", unsigned);
+              ("SN", signed_memory);
+              ("UN", unsigned_memory);
+            ])
+        [ "J_"; "A_" ])
+    [
+      ("local-literal-param-direct", "255", "256", "-1", "0");
+      ("local-literal-param-constant-add", "256", "257", "0", "1");
+      ("local-literal-param-constant-shift", "510", "512", "-2", "0");
+      ("local-literal-param-direct-16", "65535", "65536", "-1", "0");
+      ("local-literal-param-direct-32", "4294967295", "4294967296", "-1", "0");
+      ("local-literal-param-update", "510", "512", "-2", "0");
+      ( "local-literal-param-update-high",
+        "-9223372036854775553",
+        "-9223372036854775552",
+        "-1",
+        "0" );
+      ("local-literal-param-sub-byte", "254", "255", "-2", "255");
+      ("local-literal-param-mul-byte", "765", "768", "-3", "0");
+      ("local-literal-param-left-byte", "510", "512", "-2", "0");
+      ("local-literal-param-right-byte", "127", "128", "-1", "0");
+      ("local-literal-param-xor-byte", "511", "0", "-1", "0");
+      ("local-literal-param-or-byte", "511", "256", "-1", "0");
+      ("local-literal-param-and-byte", "255", "0", "-1", "0");
+      ("local-literal-param-div-byte", "127", "128", "0", "0");
+      ("local-literal-param-mod-byte", "1", "0", "-1", "0");
+      ("local-literal-param-update-16", "131070", "131072", "-2", "0");
+      ("local-literal-param-update-32", "8589934590", "8589934592", "-2", "0");
+    ];
+  let literal_parameter_default = fixture "local-literal-param-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained literal local with parameter" expected
+        (List.assoc name literal_parameter_default))
+    [ ("DIRECT", "255"); ("UPDATE", "510") ];
+  List.iter
+    (fun stem ->
+      let fields = fixture stem in
+      List.iter
+        (fun name ->
+          Alcotest.(check string)
+            "original literal-local division fault" "1" (List.assoc name fields))
+        [ "J_CAUGHT"; "A_CAUGHT" ])
+    [
+      "local-literal-param-div-zero";
+      "local-literal-param-div-overflow";
+      "local-literal-param-mod-zero";
+      "local-literal-param-mod-overflow";
+    ];
+  let literal_more_default = fixture "local-literal-param-more-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained literal parameter update" expected
+        (List.assoc name literal_more_default))
+    [ ("SUB", "254"); ("MUL", "765"); ("OR", "511"); ("XOR", "511") ];
+  let literal_remaining_default =
+    fixture "local-literal-param-remaining-default"
+  in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained literal parameter arithmetic" expected
+        (List.assoc name literal_remaining_default))
+    [ ("DIV", "127"); ("MOD", "1"); ("SHL", "510"); ("AND", "255") ];
   let unsigned_parameter = fixture "local-param-unsigned" in
   List.iter
     (fun prefix ->
@@ -1229,6 +1307,47 @@ let narrow_initializer_selection () =
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let literal_parameter_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun (qualifier, expected) ->
+              List.iter
+                (fun update ->
+                  let source =
+                    Printf.sprintf "I64 F(I64 c){%s %s x=255;%sreturn x;}42;" ty
+                      qualifier update
+                  in
+                  let fn = compile mode source in
+                  let proof =
+                    Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+                  in
+                  let x = location fn.frame "x" |> Frame.location_symbol in
+                  Alcotest.(check bool)
+                    "literal parameter selection" true
+                    (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                       ~symbol:x
+                    = Some expected))
+                [
+                  "";
+                  "x<<=1;";
+                  "x+=c;";
+                  "x-=c;";
+                  "x*=c;";
+                  "x/=c;";
+                  "x%=c;";
+                  "x<<=c;";
+                  "x>>=c;";
+                  "x&=c;";
+                  "x|=c;";
+                  "x^=c;";
+                ])
+            [ ("", Analysis.Register_candidate); ("noreg", Analysis.Stack) ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let local_selection () =
   List.iter
     (fun mode ->
@@ -1334,7 +1453,7 @@ let unsupported_selection () =
           "I64 F(Bool c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x-=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=2147483648;return x;}42;";
-          "I64 F(I64 c){I8 x=255;return x;}42;";
+          "I64 F(I64 c){I8 x=255;c++;return x;}42;";
           "I64 F(){I8 x=255;x/=2;return x;}42;";
           "I64 F(){I8 x=1;x|=256;return x;}42;";
           "I64 F(){I8 x=1;x^=256;return x;}42;";
@@ -1503,6 +1622,8 @@ let () =
             dynamic_count_width_selection;
           Alcotest.test_case "narrow initializer selection" `Quick
             narrow_initializer_selection;
+          Alcotest.test_case "literal parameter selection" `Quick
+            literal_parameter_selection;
           Alcotest.test_case "bounded local selection" `Quick local_selection;
           Alcotest.test_case "local return selection" `Quick
             local_return_selection;

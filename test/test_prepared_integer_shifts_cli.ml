@@ -63,9 +63,14 @@ let invoke ?(target = "ir") ?(steps = 100_000) ?(preparation = 100_000) ~status
 let error report code =
   require (member "outcome" report = `String "error") "expected error outcome";
   require (member "final_value" report = `Null) "fault exposes a final value";
-  match member "diagnostics" report |> to_list with
-  | first :: _ -> require (member "code" first = `String code) "fault code"
-  | [] -> failwith "fault has no diagnostic"
+  match
+    member "diagnostics" report
+    |> to_list
+    |> List.find_opt (fun diagnostic ->
+        member "severity" diagnostic = `String "error")
+  with
+  | Some first -> require (member "code" first = `String code) "fault code"
+  | None -> failwith "fault has no error diagnostic"
 
 let () =
   require (Array.length Sys.argv = 4) "expected compiler, fixture and example";
@@ -230,6 +235,36 @@ let () =
              I(){return F();}I64 S(I64 n=I()){return \
              n;}StreamPrint(\"%d;\",S());}",
             "-9223372036854775808" );
+          ( "#exe {I64 F(I64 c){I8 x=255;return x;}I64 I(){return F(0);}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x/=c;return x;}I64 I(){return \
+             F(2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x%=c;return x;}I64 I(){return \
+             F(2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "1" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x<<=c;return x;}I64 I(){return \
+             F(1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x&=c;return x;}I64 I(){return \
+             F(255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x-=c;return x;}I64 I(){return \
+             F(1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x*=c;return x;}I64 I(){return \
+             F(3);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "765" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x|=c;return x;}I64 I(){return \
+             F(256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "511" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x^=c;return x;}I64 I(){return \
+             F(256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "511" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x+=c;return x;}I64 I(){return \
+             F(255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
           ( "#exe {I64 F(U8 c){I8 x=c;return x;}I64 I(){return F(255);}I64 \
              S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "255" );
