@@ -132,6 +132,35 @@ let () =
       error
         (invoke ~target:"host-jit" ~status:1 compiler mode example)
         "HCPP0008";
+      let variable =
+        "#exe {I64 XR=7,CR=65,NR=0;I64 FR(I64 x){NR++;return x<<CR;}I64 \
+         IR(){return FR(XR);}I64 SR(I64 n=IR()){return \
+         n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}"
+      in
+      List.iter
+        (fun target ->
+          let baseline = invoke ~target ~status:0 compiler mode variable in
+          let steps = member "executed_steps" baseline |> to_int in
+          let preparation =
+            member "compiled_initializer_steps" baseline |> to_int
+          in
+          require
+            (member "final_value" baseline |> member "value" = `String "14")
+            "retained variable shift result and single call";
+          let exact =
+            invoke ~target ~steps ~preparation ~status:0 compiler mode variable
+          in
+          require
+            (member "outcome" exact = `String "success")
+            "exact retained limits";
+          error
+            (invoke ~target ~steps:(steps - 1) ~status:1 compiler mode variable)
+            "HCIRVM0007";
+          error
+            (invoke ~target ~preparation:(preparation - 1) ~status:1 compiler
+               mode variable)
+            "HCIRVM0007")
+        [ "ir"; "host-jit-task" ];
       let fault = member "hosted_fault_projection" fixture in
       error
         (invoke ~status:1 compiler mode

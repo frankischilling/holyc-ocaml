@@ -218,7 +218,11 @@ let optimizer_guards () =
         "original shift stores its source value" expected (read task "A[1];");
       Alcotest.(check int64)
         "reached original call effects" 42L (read task "N;"))
-    [ ("return N<<2;", 168L); ("return N/2;", 21L) ];
+    [
+      ("return N<<2;", 168L);
+      ("return N<<N;", 184717953466368L);
+      ("return N/2;", 21L);
+    ];
   List.iter
     (fun body ->
       let parsed, task =
@@ -231,7 +235,7 @@ let optimizer_guards () =
         (read task "A[0];");
       Alcotest.(check int64)
         "guard runs before the rejected call has effects" 0L (read task "N;"))
-    [ "return N<<N;"; "return N/3;"; "return N%2;" ]
+    [ "return N/3;"; "return N%2;" ]
 
 let instruction_budget () =
   let text = {|I64 Add(I64 a,I64 b){return a+b;};77;I64 N=Add(20,22);N;|} in

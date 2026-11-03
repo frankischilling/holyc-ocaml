@@ -270,7 +270,15 @@ let pointer_difference_division produced (description : Seq.description) =
 
 let integer_reduction (description : Seq.description) =
   List.mem description.opcode
-    [ Opcode.Ic_shl_const; Ic_shr_const; Ic_and; Ic_and_equ; Ic_shr_equ ]
+    [
+      Opcode.Ic_shl_const;
+      Ic_shr_const;
+      Ic_shl;
+      Ic_shr;
+      Ic_and;
+      Ic_and_equ;
+      Ic_shr_equ;
+    ]
 
 let source_producers_match context =
   List.for_all
@@ -562,14 +570,9 @@ let is_original_pointer_difference_division divisions
 type preparation_shifts = Seq.description Instructions.t
 
 let original_preparation_shifts context ~owner =
-  let word (item : Seq.description) =
+  let scalar (item : Seq.description) =
     Option.fold ~none:false
-      ~some:(fun type_ ->
-        Type.pointer_depth type_ = 0
-        &&
-        match Type.base type_ with
-        | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
-        | _ -> false)
+      ~some:(fun type_ -> Option.is_some (Integer_scalar_storage.of_type type_))
       item.target_type
   in
   if not (source_producers_match context) then None
@@ -592,9 +595,16 @@ let original_preparation_shifts context ~owner =
             | ( (Opcode.Ic_shl_const | Ic_shr_const),
                 [ operand ],
                 Some (Seq.Integer _) ) ->
-                word item
-                && Option.fold ~none:false ~some:word
+                scalar item
+                && Option.fold ~none:false ~some:scalar
                      (Values.find_opt operand produced)
+            | (Opcode.Ic_shl | Ic_shr), [ left; right ], None ->
+                scalar item
+                && List.for_all
+                     (fun operand ->
+                       Option.fold ~none:false ~some:scalar
+                         (Values.find_opt operand produced))
+                     [ left; right ]
             | Opcode.Ic_shr_equ, [ _; count ], None ->
                 Option.is_some
                   (Option.bind item.target_type Integer_scalar_storage.of_type)

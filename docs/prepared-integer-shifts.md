@@ -1,7 +1,8 @@
 # Retained integer shift preparation
 
-Retained initializer calls prepare original full-word canonical constant shifts
-and supported scalar right-shift updates in both source modes. This includes
+Retained initializer calls prepare original supported scalar constant and
+variable-count shifts, and supported scalar right-shift updates, in both source
+modes. This includes
 the literal power-of-two division reductions described in
 [integer division](integer-division.md). For signed `x=-7`, a retained `x/2`
 default saves `-4`, while the constant expression `-7/2` saves `-3`.
@@ -41,8 +42,8 @@ one boot; they do not establish cross-boot or general compiler compatibility.
 
 `Runtime_call_context.original_preparation_shifts` first checks the current
 original source bundle and transitive producers. It collects only original
-zero-flag full-word `IC_SHL_CONST`/`IC_SHR_CONST` descriptions, or original
-scalar `IC_SHR_EQ` with an operand-free internal I64 constant count from 0 to
+zero-flag scalar integer `IC_SHL_CONST`/`IC_SHR_CONST` and `IC_SHL`/`IC_SHR`
+descriptions, or original scalar `IC_SHR_EQ` with an operand-free internal I64 constant count from 0 to
 63. Canonical shift payloads retain their complete 64-bit counts; the existing
 consumer masks them at execution.
 
@@ -68,8 +69,11 @@ invariants and exact/one-below resource limits. Public CLI regressions compare
 all 38 mode/field projections and the measured example. Existing native
 operation and source-authority tests remain required.
 
-Raw variable shifts, unsupported compound counts, unsealed preparation
-expressions and unproved narrow/numeric/flagged domains retain `HCRUN0006`.
+Unsupported compound counts, unsealed preparation expressions and unproved
+numeric or flagged domains retain `HCRUN0006`. Ordinary non-retained callee
+preparation remains a separate boundary. A repeated original compile-time
+capture in `test/oracle/source-root-shifts/retained-callee.*` checks a variable
+shift inside a retained default initializer and its once-only call.
 [Source global initializer shifts](source-root-initializer-shifts.md) describes
 the separate bounded direct-root path. General literal division and modulo admission is still guarded.
 Shared nonconstant power-of-two division and plain modulo-mask plans remain

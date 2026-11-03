@@ -64,6 +64,8 @@ let contexts () =
             (integer_program_report_output_bytes report))
         [
           retained "return X/2;";
+          retained "I64 n=1;return X>>n;";
+          retained "I8 x=-7;I8 n=1;return x>>n;";
           retained "I64 x=X;x/=2;return x;";
           retained "I8 x=-7;x/=2;return x;";
           retained "I8 x=-7;I8 *p=&x;*p/=2;return x;";
@@ -138,6 +140,7 @@ let authority () =
           ("I64 F(I64 x){return x/2;}F(-7);", Op.Ic_shr_const, -4L);
           ("I64 F(I64 x){return x<<1;}F(-7);", Op.Ic_shl_const, -14L);
           ("I64 F(I64 x){x/=2;return x;}F(-7);", Op.Ic_shr_equ, -4L);
+          ("I64 F(I64 x,I64 n){return x>>n;}F(-7,1);", Op.Ic_shr, -4L);
         ])
     modes
 
@@ -184,8 +187,18 @@ let transitive_authority () =
       let proof = Option.get (collected raw) in
       let cell, shift = S.find_cell raw Op.Ic_shr in
       Alcotest.(check bool)
-        "raw shift has no preparation authority" false
+        "original raw shift retains preparation authority" true
         (Calls.is_original_preparation_shift proof shift);
+      let changed = A.fixture ~source mode in
+      let _ = Option.get (collected changed) in
+      let input_cell, input = S.find_cell changed Op.Ic_deref in
+      Obj.set_field (Obj.repr input_cell) 0
+        (Obj.repr { input with operands = List.map Fun.id input.operands });
+      Alcotest.(check bool)
+        "copied raw shift input cannot collect" true
+        (Option.is_none (collected changed));
+      A.rejects "VM rejects changed raw shift input" (A.execute changed);
+      A.rejects "native rejects changed raw shift input" (A.compile changed);
       Obj.set_field (Obj.repr cell) 0
         (Obj.repr
            {
@@ -248,7 +261,6 @@ let ranges_and_boundaries () =
           retained "I8 x=-7;x*=3;x/=2;return x;";
           retained "I8 x=-7;x/=2;x=249;return x;";
           retained "I8 reg RAX x=-7;x/=2;return x;";
-          retained "I64 n=1;return X>>n;";
           retained "I64 x=X;x>>=64;return x;";
           "I64 F(I64 x){return x/2;}I64 G=F(-7);G;";
         ])

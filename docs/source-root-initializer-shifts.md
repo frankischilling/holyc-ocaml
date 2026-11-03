@@ -7,7 +7,7 @@ executes the update once and keeps the initialized result when that source later
 
 ## Original observations
 
-At pinned reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`, fifteen
+At pinned reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`, sixteen
 source/capture pairs in `test/oracle/source-root-shifts` record JIT and compiled
 BIN-load results twice in one boot. The original compiler reported no errors.
 They cover signed and unsigned right shifts, negative and large constant counts,
@@ -22,7 +22,8 @@ Narrow signed and unsigned captures cover 8-, 16- and 32-bit operands,
 including a static initializer with updates to both operands and left-shift
 results larger than their source storage width. A direct-call capture covers
 mixed-width and signed shifted arguments, plus the original argument evaluation
-order when both arguments have side effects.
+order when both arguments have side effects. A retained-callee capture checks a
+variable shift used during default preparation.
 
 `Compiler/PrsVar.HC` supplies initializer compilation and evaluation;
 `OptPass012.HC` and `BackA.HC` select and emit the shift operations. The

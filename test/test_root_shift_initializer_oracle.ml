@@ -450,6 +450,31 @@ let original_argument_order () =
         [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
     [ false; true ]
 
+let original_retained_callee () =
+  let fields = fixture ~stem:"retained-callee" () in
+  Alcotest.(check string)
+    "one original initializer call" "1"
+    (List.assoc "CALLS" fields);
+  let source =
+    "#exe {I64 XR=7,CR=65,NR=0;I64 FR(I64 x){NR++;return x<<CR;}I64 \
+     IR(){return FR(XR);}I64 SR(I64 n=IR()){return \
+     n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}"
+  in
+  List.iter
+    (fun native ->
+      List.iter
+        (fun mode ->
+          let diagnostics, result = run native mode source in
+          Alcotest.(check (option int64))
+            "original retained shift and single call"
+            (Some (Int64.of_string (List.assoc "VALUE" fields)))
+            (Result.get_ok result);
+          Alcotest.(check (list string))
+            "no retained shift diagnostics" []
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ Preprocessor.Jit; Preprocessor.Aot ])
+    [ false; true ]
+
 let static_owner_identity () =
   let module G = Ir_integer_globals in
   let module L = Ir_integer_program_lowering in
@@ -541,6 +566,8 @@ let () =
             original_argument_order;
           Alcotest.test_case "original shifted arguments" `Quick
             original_arguments;
+          Alcotest.test_case "original retained callee" `Quick
+            original_retained_callee;
           Alcotest.test_case "static owner identity" `Quick
             static_owner_identity;
           Alcotest.test_case "unsupported boundaries" `Quick boundaries;
