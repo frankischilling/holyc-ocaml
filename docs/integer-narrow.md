@@ -14,8 +14,8 @@ and compiled BIN-load captures in
 `test/oracle/source-root-shifts/narrow-direct-gap.*` record both results. The
 interpreter and native backend reproduce this distinction for a small proven
 class of two-parameter functions. Other register allocation cases remain open,
-including locals and functions with more parameters. The native source-task path also handles this bounded case during retained
-initialization; the interpreter initializer guard still rejects it. See [narrow
+including locals and functions with more parameters. Both the interpreter and native source-task paths handle this bounded case
+during retained initialization. See [narrow
 register variable analysis](register-variable-analysis.md) for the bounds and
 reference evidence.
 

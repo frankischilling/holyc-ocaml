@@ -25,6 +25,19 @@ let fixture stem =
         (metadata |> member key |> to_string)
         (Digestif.SHA256.digest_string (read name) |> Digestif.SHA256.to_hex))
     [ (stem ^ ".hc", "payload_sha256"); (stem ^ ".capture", "capture_sha256") ];
+  (match metadata |> member "boot_payload_sha256" with
+  | `String expected ->
+      let source = read (stem ^ ".hc") in
+      let size = metadata |> member "boot_payload_bytes" |> to_int in
+      Alcotest.(check bool)
+        "boot payload padding is nonnegative" true
+        (size >= String.length source);
+      let padded = source ^ String.make (size - String.length source) ' ' in
+      Alcotest.(check string)
+        "exact padded boot payload" expected
+        (Digestif.SHA256.digest_string padded |> Digestif.SHA256.to_hex)
+  | `Null -> ()
+  | _ -> failwith "invalid boot payload hash");
   let fields =
     metadata |> member "fields" |> to_assoc
     |> List.map (fun (k, v) -> (k, to_string v))
@@ -108,6 +121,13 @@ let source_controls () =
   Alcotest.(check string)
     "retained unsigned register" "510"
     (List.assoc "UNSIGNED" retained);
+  let default = fixture "default" in
+  Alcotest.(check string)
+    "default signed register" "254"
+    (List.assoc "SIGNED" default);
+  Alcotest.(check string)
+    "default unsigned register" "510"
+    (List.assoc "UNSIGNED" default);
   let option = fixture "option" in
   Alcotest.(check string)
     "original option enabled" "1"

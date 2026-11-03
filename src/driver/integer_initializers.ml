@@ -858,10 +858,10 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 check Values.empty code
               in
               let* () = guard ~constant value_code in
-              let guard_updates ~globals ~frame ~compiler_options ~terminal
-                  graph =
-                Updates.check_graph ~globals ~frame ~compiler_options ~terminal
-                  graph
+              let guard_updates ~globals ~frame ~function_body ~compiler_options
+                  ~terminal graph =
+                Updates.check_graph ~globals ~frame ~function_body
+                  ~compiler_options ~terminal graph
                 |> Result.map_error (fun (failure : Updates.failure) ->
                     [
                       Common.Diagnostic.make ~code:"HCRUN0006"
@@ -946,7 +946,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                       "initializer has no unique checked declaration value sink"
               in
               let* () =
-                guard_updates ~globals ~frame ~compiler_options ~terminal
+                guard_updates ~globals ~frame ~function_body:None
+                  ~compiler_options ~terminal
                   (Ir.X87_stack.graph value_graph_)
               in
               let called globals functions runtime code =
@@ -1099,6 +1100,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                         let* () =
                           guard_updates ~globals:owner_globals
                             ~frame:(Some function_.frame)
+                            ~function_body:(Some function_.body)
                             ~compiler_options:
                               (Ir.Function_body.compiler_options function_.body)
                             ~terminal:None

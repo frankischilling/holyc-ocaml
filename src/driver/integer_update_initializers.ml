@@ -174,7 +174,26 @@ let scalar_number target_type opcode operands =
       _ ) -> bounded (0L, 1L)
   | _ -> unknown
 
-let check_graph ~globals ~frame ~compiler_options ~terminal graph =
+let check_graph ~globals ~frame ~function_body ~compiler_options ~terminal graph
+    =
+  let register_proof =
+    match (frame, function_body) with
+    | Some frame, Some body
+      when Ir.Function_body.body body == graph
+           && Ir.Function_body.compiler_options body = compiler_options ->
+        Option.map
+          (fun proof -> (frame, body, proof))
+          (Ir.Register_variable_analysis.analyze ~frame ~body)
+    | _ -> None
+  in
+  let selected_register location =
+    Option.fold ~none:false
+      ~some:(fun (frame, body, proof) ->
+        Ir.Register_variable_analysis.selection proof ~frame ~body
+          ~symbol:(Frame.location_symbol location)
+        = Some Ir.Register_variable_analysis.Register_candidate)
+      register_proof
+  in
   let code =
     Ir.Block_graph.blocks graph
     |> List.concat_map (fun block ->
@@ -296,6 +315,15 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               | Error _ -> false)
           | _ -> false
         in
+        let exact_register id type_ =
+          match address id with
+          | Reference (pointer, [], Register_candidate location)
+            when selected_register location -> (
+              match T.dereference pointer with
+              | Ok actual -> T.equal actual type_
+              | Error _ -> false)
+          | _ -> false
+        in
         let invariant_narrow_read id type_ =
           match address id with
           | Reference (pointer, [], memory) -> (
@@ -304,9 +332,10 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                 | Memory -> true
                 | Explicit_register -> false
                 | Register_candidate location ->
-                    Locations.mem
-                      (Frame.location_symbol location |> Sema.Symbol.id)
-                      proven
+                    selected_register location
+                    || Locations.mem
+                         (Frame.location_symbol location |> Sema.Symbol.id)
+                         proven
               in
               bounded
               &&
@@ -469,6 +498,7 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
         in
         let exact_update target type_ =
           exact_memory target type_
+          || exact_register target type_
           || (preserving_shift type_ && invariant_narrow_read target type_)
         in
         let writes =
@@ -531,12 +561,12 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                 else if
                   increment item.opcode
                   || safe_compound scalar item right
-                  (* ICShiftEqu computes a full register result before its
-                     narrow memory write. The caller authenticates the original
-                     shift and scalar count; an exact memory target keeps the
-                     observable result distinct from the stored low bytes. *)
+                  (* ICShiftEqu computes a full result. A proven memory target
+                     stores the low bytes; a proven register target retains the
+                     full value. The caller authenticates the original shift. *)
                   || item.opcode = O.Ic_shl_equ && item.flags = 0L
-                     && exact_memory target type_
+                     && (exact_memory target type_
+                        || exact_register target type_)
                   || source_discard || narrow_sink
                 then None
                 else
@@ -557,6 +587,10 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               with
               | O.Ic_imm_i64, [], Some type_, Some (Seq.Integer bits)
                 when T.pointer_depth type_ = 0 -> known bits
+              | Ic_deref, [ target ], Some type_, None
+                when narrow_type type_ && exact_register target type_ ->
+                  (* A selected register may hold bits outside the object range. *)
+                  unknown
               | Ic_deref, [ target ], Some type_, None
                 when narrow_type type_ && invariant_narrow_read target type_ ->
                   storage_number type_

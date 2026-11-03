@@ -154,6 +154,12 @@ let () =
              FR(255,65);}I64 SR(I64 n=IR()){return \
              n;}StreamPrint(\"%d;\",SR());}",
             "127" );
+          ( "#exe {I64 F(I8 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(U8 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(255,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
           ( "#exe {I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}I64 I(){return \
              F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "-2" );
@@ -197,6 +203,11 @@ let () =
                   "HCIRVM0007")
             [ "ir"; "host-jit-task" ])
         sources;
+      error
+        (invoke ~target:"ir" ~status:1 compiler mode
+           "#exe {I64 F(I8 x,I8 c){x<<=c;c++;return x;}I64 I(){return \
+            F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}")
+        "HCRUN0006";
       let fault = member "hosted_fault_projection" fixture in
       error
         (invoke ~status:1 compiler mode
