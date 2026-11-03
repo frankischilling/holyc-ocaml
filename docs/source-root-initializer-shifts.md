@@ -7,7 +7,7 @@ executes the update once and keeps the initialized result when that source later
 
 ## Original observations
 
-At pinned reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`, thirteen
+At pinned reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`, fifteen
 source/capture pairs in `test/oracle/source-root-shifts` record JIT and compiled
 BIN-load results twice in one boot. The original compiler reported no errors.
 They cover signed and unsigned right shifts, negative and large constant counts,
@@ -20,7 +20,9 @@ Variable-count captures cover signed and unsigned results; negative, zero and
 word-boundary counts; and updates to both operands in a static initializer.
 Narrow signed and unsigned captures cover 8-, 16- and 32-bit operands,
 including a static initializer with updates to both operands and left-shift
-results larger than their source storage width.
+results larger than their source storage width. A direct-call capture covers
+mixed-width and signed shifted arguments, plus the original argument evaluation
+order when both arguments have side effects.
 
 `Compiler/PrsVar.HC` supplies initializer compilation and evaluation;
 `OptPass012.HC` and `BackA.HC` select and emit the shift operations. The
@@ -32,8 +34,10 @@ semantics in more detail.
 Preparation uses a graph freshly lowered from the exact retained global root or
 live initializer fragment. For static roots, the exact frame and static slot
 must also match. The lowering must still own that exact typed expression and
-global context. Only its original zero-flag `IC_SHL_CONST`, `IC_SHR_CONST`,
-`IC_SHL` and `IC_SHR` instructions qualify. The result and each operand producer
+global context. Only its original `IC_SHL_CONST`, `IC_SHR_CONST`, `IC_SHL`
+and `IC_SHR` instructions qualify. An argument-push flag is accepted only in a
+balanced single-block call scope; runtime call validation still checks the
+producer against the original argument and selected callee. The result and each operand producer
 must have supported non-pointer scalar integer types. The instruction identity
 must be the one selected from that graph. Unsupported or unproved shifts remain
 outside this path.

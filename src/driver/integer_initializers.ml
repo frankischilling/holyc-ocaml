@@ -708,9 +708,43 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                           | None -> map)
                         Values.empty value_code
                     in
+                    (* Source call arguments carry ICF_PUSH_RES. Accept that
+                       flag only on the original producer inside a balanced,
+                       single-block call scope; runtime call validation still
+                       joins it to the checked argument and callee. *)
+                    let push_scopes =
+                      match
+                        Ir.Block_graph.blocks (Ir.X87_stack.graph value_graph_)
+                      with
+                      | [ _ ] ->
+                          let rec scan depth pushed = function
+                            | [] -> if depth = 0 then pushed else []
+                            | (item : Seq.description) :: rest ->
+                                let depth =
+                                  match item.opcode with
+                                  | Ir.Opcode.Ic_call_start -> depth + 1
+                                  | Ic_call_end -> depth - 1
+                                  | _ -> depth
+                                in
+                                if depth < 0 then []
+                                else
+                                  let pushed =
+                                    if
+                                      depth > 0
+                                      && Ir.Lock_semantics.clear_flag item.flags
+                                         = 0x2000L
+                                    then item :: pushed
+                                    else pushed
+                                  in
+                                  scan depth pushed rest
+                          in
+                          scan 0 [] value_code
+                      | _ -> []
+                    in
                     List.filter
                       (fun (item : Seq.description) ->
-                        Ir.Lock_semantics.clear_flag item.flags = 0L
+                        (Ir.Lock_semantics.clear_flag item.flags = 0L
+                        || List.exists (( == ) item) push_scopes)
                         &&
                         match (item.opcode, item.operands, item.payload) with
                         | ( (Ir.Opcode.Ic_shl_const | Ic_shr_const),

@@ -105,6 +105,11 @@ let () =
          A=N,B=C,D=F();N=7;A*10000+B*100+D+F();",
         "-69908",
         34 );
+      ("U8 U=1;I64 N=7;I64 Get(I64 n){return n;}I64 O=Get(U<<N);O;", "128", 17);
+      ( "I64 N=3,C=1;I64 Pair(I64 a,I64 b){return a*100+b;}I64 \
+         R=Pair((++N)<<C,(++N)<<C);R*10+N;",
+        "10085",
+        24 );
     ]
   in
   List.iter

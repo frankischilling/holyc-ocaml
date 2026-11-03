@@ -1021,8 +1021,13 @@ let () =
             `Quick static_load_ownership;
           Alcotest.test_case "global root shifts retain original load authority"
             `Quick (fun () ->
-              ownership ~modes:[ Preprocessor.Aot ]
-                ~contents:"I64 N=7;I64 O=N<<1;O;" ());
+              List.iter
+                (fun contents ->
+                  ownership ~modes:[ Preprocessor.Aot ] ~contents ())
+                [
+                  "I64 N=7;I64 O=N<<1;O;";
+                  "U8 U=1;I64 N=7;I64 Get(I64 n){return n;}I64 O=Get(U<<N);O;";
+                ]);
           Alcotest.test_case
             "folded global leaves retain original preparation authority" `Quick
             (fun () ->

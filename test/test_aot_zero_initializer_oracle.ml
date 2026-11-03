@@ -547,20 +547,12 @@ let direct_call_mixed_global_warnings () =
           in
           let diagnostics, result, _ = run native Preprocessor.Aot source in
           let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
-          if name = "SHIFT" then (
-            Alcotest.(check bool)
-              "dynamic shift remains unsupported" true (Result.is_error result);
-            Alcotest.(check (list string))
-              "warning precedes shift boundary"
-              [ "HCSEMA0080"; "HCRUN0006" ]
-              codes)
-          else (
-            Alcotest.(check (option int64))
-              (name ^ " mixed-global load value")
-              (Some expected) (Result.get_ok result);
-            Alcotest.(check (list string))
-              (name ^ " mixed-global load warning")
-              [ "HCSEMA0080" ] codes))
+          Alcotest.(check (option int64))
+            (name ^ " mixed-global load value")
+            (Some expected) (Result.get_ok result);
+          Alcotest.(check (list string))
+            (name ^ " mixed-global load warning")
+            [ "HCSEMA0080" ] codes)
         [ false; true ])
     cases
 

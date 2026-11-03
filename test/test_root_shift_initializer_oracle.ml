@@ -400,6 +400,56 @@ let original_narrow_left () =
         [ false; true ])
     cases
 
+let original_arguments () =
+  let fields = fixture ~stem:"arguments" () in
+  let cases =
+    [
+      ("MIXED", "U8 U=1;I64 N=7;I64 Get(I64 n){return n;}I64 O=Get(U<<N);O;");
+      ("SIGNED", "I8 N=-8,C=1;I64 Get(I64 n){return n;}I64 O=Get(N>>C);O;");
+    ]
+  in
+  List.iter
+    (fun (name, source) ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun (mode, prefix) ->
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original shifted call argument"
+                (Some (Int64.of_string (List.assoc (prefix ^ name) fields)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no shifted argument diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+        [ false; true ])
+    cases
+
+let original_argument_order () =
+  let fields = fixture ~stem:"argument-order" () in
+  let source =
+    "I64 N=3,C=1;I64 Pair(I64 a,I64 b){return a*100+b;}I64 \
+     R=Pair((++N)<<C,(++N)<<C);R*10+N;"
+  in
+  List.iter
+    (fun native ->
+      List.iter
+        (fun (mode, prefix) ->
+          let number key = Int64.of_string (List.assoc (prefix ^ key) fields) in
+          let expected =
+            Int64.add (Int64.mul (number "RESULT") 10L) (number "N")
+          in
+          let diagnostics, result = run native mode source in
+          Alcotest.(check (option int64))
+            "original shifted argument order" (Some expected)
+            (Result.get_ok result);
+          Alcotest.(check (list string))
+            "no argument order diagnostics" []
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+    [ false; true ]
+
 let static_owner_identity () =
   let module G = Ir_integer_globals in
   let module L = Ir_integer_program_lowering in
@@ -487,6 +537,10 @@ let () =
           Alcotest.test_case "original narrow shifts" `Quick original_narrow;
           Alcotest.test_case "original narrow left shifts" `Quick
             original_narrow_left;
+          Alcotest.test_case "original shifted argument order" `Quick
+            original_argument_order;
+          Alcotest.test_case "original shifted arguments" `Quick
+            original_arguments;
           Alcotest.test_case "static owner identity" `Quick
             static_owner_identity;
           Alcotest.test_case "unsupported boundaries" `Quick boundaries;
