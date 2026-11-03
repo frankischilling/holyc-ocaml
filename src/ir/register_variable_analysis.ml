@@ -970,7 +970,7 @@ let analyze_local ~frame ~body =
             | _ -> false)
           (Function_body.definition_source body)
       in
-      let source_matches_prefix_return initial update =
+      let source_matches_unary_return initial update =
         Option.fold ~none:false
           ~some:(fun source ->
             match
@@ -1007,6 +1007,13 @@ let analyze_local ~frame ~body =
                              | Frontend.Ast.Pre_increment, O.Ic_pp_
                              | Frontend.Ast.Pre_decrement, Ic_mm_ -> true
                              | _ -> false)
+                         | Some (Frontend.Ast.Postfix_expression postfix) -> (
+                             match
+                               (postfix.postfix_operator_kind, update.Seq.opcode)
+                             with
+                             | Frontend.Ast.Post_increment, O.Ic__pp
+                             | Frontend.Ast.Post_decrement, Ic__mm -> true
+                             | _ -> false)
                          | _ -> false
                        in
                        operator_matches
@@ -1028,7 +1035,9 @@ let analyze_local ~frame ~body =
                 Option.is_none argument
                 && Option.is_none count_argument
                 && address location r1 o1 a1
-                && (update.Seq.opcode = O.Ic_pp_ || update.opcode = O.Ic_mm_)
+                && (update.Seq.opcode = O.Ic_pp_
+                   || update.opcode = O.Ic_mm_ || update.opcode = O.Ic__pp
+                   || update.opcode = O.Ic__mm)
                 && update.payload = None && same_type update
                 && is_one update a1id
                 && returned.Seq.opcode = O.Ic_return_val
@@ -1039,10 +1048,12 @@ let analyze_local ~frame ~body =
                        Option.is_some (instruction_stamp item)
                        && item.flags = 0L)
                      code
-                && source_matches_prefix_return None update
+                && source_matches_unary_return None update
             | _ -> false)
         | [ r1; o1; a1; initial; store; end1; r2; o2; a2; update; returned ]
-          when update.Seq.opcode = O.Ic_pp_ || update.opcode = O.Ic_mm_ -> (
+          when update.Seq.opcode = O.Ic_pp_
+               || update.opcode = O.Ic_mm_ || update.opcode = O.Ic__pp
+               || update.opcode = O.Ic__mm -> (
             match
               (id a1, id initial, integer initial, id store, id a2, id update)
             with
@@ -1062,7 +1073,9 @@ let analyze_local ~frame ~body =
                 && end1.Seq.opcode = O.Ic_end_exp
                 && end1.payload = None && end1.result = None
                 && end1.flags = 0x200L && is_one end1 storeid
-                && (update.Seq.opcode = O.Ic_pp_ || update.opcode = O.Ic_mm_)
+                && (update.Seq.opcode = O.Ic_pp_
+                   || update.opcode = O.Ic_mm_ || update.opcode = O.Ic__pp
+                   || update.opcode = O.Ic__mm)
                 && update.payload = None && same_type update
                 && is_one update a2id
                 && returned.Seq.opcode = O.Ic_return_val
@@ -1073,7 +1086,7 @@ let analyze_local ~frame ~body =
                        Option.is_some (instruction_stamp item)
                        && (item.opcode = O.Ic_end_exp || item.flags = 0L))
                      code
-                && source_matches_prefix_return (Some initialbits) update
+                && source_matches_unary_return (Some initialbits) update
             | _ -> false)
         | [ r1; o1; a1; update; end1; r2; o2; a2; load; returned ] -> (
             match (id a1, id update, id a2, id load) with

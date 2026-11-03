@@ -1006,6 +1006,30 @@ let () =
             ])
         unary_widths
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, pin, _, _, pdecin, _, _, initial, _, _, _, _) ->
+          let memory = if ty.[0] = 'I' then "-1" else "0" in
+          List.concat_map
+            (fun (operator, input) ->
+              let parameter qualifier =
+                Printf.sprintf "I64 F(%s %s x){return x%s;}F(%s);" ty qualifier
+                  operator input
+              in
+              let local qualifier =
+                Printf.sprintf "I64 F(){%s %s x=%s;return x%s;}F();" ty
+                  qualifier initial operator
+              in
+              [
+                (parameter "", input);
+                (parameter "noreg", input);
+                (local "", initial);
+                (local "noreg", memory);
+              ])
+            [ ("++", pin); ("--", pdecin) ])
+        unary_widths
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

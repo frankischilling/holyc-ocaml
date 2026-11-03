@@ -32,4 +32,4 @@ A one-parameter function can also return a literal-initialized narrow local, wit
 
 The analysis also covers a narrow parameter or literal-initialized local incremented or decremented as a standalone statement before direct return. The reference captures cover prefix and postfix forms, explicit `noreg` storage and signed and unsigned widths. Other uses of the update expression remain outside the proof.
 
-The same bounded parameter and local shapes may directly return a prefix increment or decrement. Repeated original JIT and compiled captures cover each narrow width and `noreg` controls. Postfix expressions returned directly remain outside this proof.
+The same bounded parameter and local shapes may directly return a prefix or postfix increment or decrement. Prefix returns the updated value; postfix returns the previous value. Repeated original JIT and compiled captures cover each narrow width and `noreg` controls.

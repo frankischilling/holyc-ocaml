@@ -264,6 +264,22 @@ let adjacent_storage_assignments_and_updates () =
         "U8 F(){U8 noreg n=255;return ++n;}\nF();",
         "U64",
         0L );
+      ( "postfix returns a wide old I8 register value",
+        "I8 F(){I8 n=255;return n++;}\nF();",
+        "I64",
+        255L );
+      ( "postfix returns the narrow old I8 noreg value",
+        "I8 F(){I8 noreg n=255;return n++;}\nF();",
+        "I64",
+        -1L );
+      ( "postfix returns a wide old U8 register value",
+        "U8 F(){U8 n=256;return n++;}\nF();",
+        "U64",
+        256L );
+      ( "postfix returns the narrow old U8 noreg value",
+        "U8 F(){U8 noreg n=256;return n++;}\nF();",
+        "U64",
+        0L );
       ( "U8 postfix returns the old value across storage wrap",
         "U8 F(){U8 n=255;return n++;}\nF();",
         "U64",

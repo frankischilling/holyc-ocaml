@@ -1134,6 +1134,61 @@ let source_controls () =
       ( "prefix-return-narrow-edge",
         [ ("S", "128"); ("U", "256"); ("SN", "-128"); ("UN", "0") ] );
     ];
+  List.iter
+    (fun ( shape,
+           operation,
+           width,
+           signed,
+           unsigned,
+           signed_memory,
+           unsigned_memory ) ->
+      let fields =
+        fixture
+          (if shape = "narrow" then "postfix-return-narrow-type"
+           else "postfix-return-" ^ shape ^ "-" ^ operation ^ "-" ^ width)
+      in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original returned postfix update" expected
+                (List.assoc (prefix ^ name) fields))
+            [
+              ("S", signed);
+              ("U", unsigned);
+              ("SN", signed_memory);
+              ("UN", unsigned_memory);
+            ])
+        [ "J_"; "A_" ])
+    [
+      ("local", "increment", "byte", "255", "256", "-1", "0");
+      ("local", "decrement", "byte", "255", "256", "-1", "0");
+      ("local", "increment", "16", "65535", "65536", "-1", "0");
+      ("local", "decrement", "16", "65535", "65536", "-1", "0");
+      ("local", "increment", "32", "4294967295", "4294967296", "-1", "0");
+      ("local", "decrement", "32", "4294967295", "4294967296", "-1", "0");
+      ("parameter", "increment", "byte", "127", "255", "127", "255");
+      ("parameter", "decrement", "byte", "-128", "0", "-128", "0");
+      ("parameter", "increment", "16", "32767", "65535", "32767", "65535");
+      ("parameter", "decrement", "16", "-32768", "0", "-32768", "0");
+      ( "parameter",
+        "increment",
+        "32",
+        "2147483647",
+        "4294967295",
+        "2147483647",
+        "4294967295" );
+      ("parameter", "decrement", "32", "-2147483648", "0", "-2147483648", "0");
+      ("narrow", "type", "", "255", "256", "-1", "0");
+    ];
+  let postfix_default = fixture "postfix-return-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained original postfix return" expected
+        (List.assoc name postfix_default))
+    [ ("PIN", "127"); ("PDEC", "-128"); ("LIN", "255"); ("LDEC", "255") ];
   let prefix_default = fixture "prefix-return-default" in
   List.iter
     (fun (name, expected) ->
@@ -1533,6 +1588,31 @@ let unary_selection () =
                            ~symbol:x
                         = Some expected))
                     [ false; true ])
+                [ "++"; "--" ];
+              List.iter
+                (fun op ->
+                  List.iter
+                    (fun local ->
+                      let source =
+                        if local then
+                          Printf.sprintf "I64 F(){%s %s x=255;return x%s;}42;"
+                            ty qualifier op
+                        else
+                          Printf.sprintf "I64 F(%s %s x){return x%s;}42;" ty
+                            qualifier op
+                      in
+                      let fn = compile mode source in
+                      let proof =
+                        Option.get
+                          (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+                      in
+                      let x = location fn.frame "x" |> Frame.location_symbol in
+                      Alcotest.(check bool)
+                        "postfix return selection" true
+                        (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                           ~symbol:x
+                        = Some expected))
+                    [ false; true ])
                 [ "++"; "--" ])
             [ ("", Analysis.Register_candidate); ("noreg", Analysis.Stack) ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
@@ -1606,6 +1686,7 @@ let local_ownership () =
           "I64 F(){I8 x=255;x<<=0;return x;}42;";
           "I64 F(){I8 x=255;x++;return x;}42;";
           "I64 F(){I8 x=255;return ++x;}42;";
+          "I64 F(){I8 x=255;return x++;}42;";
           "I64 F(){I8 x=255;return x;}42;";
           "I64 F(I64 c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=1;return x;}42;";
@@ -1634,8 +1715,6 @@ let unsupported_selection () =
           "I64 F(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}42;";
           "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
           "I64 F(){I8 x=255;x++;x++;return x;}42;";
-          "I64 F(){I8 x=255;return x++;}42;";
-          "I64 F(I8 x){return x++;}42;";
           "I64 F(){I8 x=1,y=2;x<<=1;return x;}42;";
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";

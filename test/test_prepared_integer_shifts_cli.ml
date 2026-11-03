@@ -203,6 +203,18 @@ let () =
           ( "#exe {I64 F(){I8 x=255;return --x;}I64 I(){return F();}I64 S(I64 \
              n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "254" );
+          ( "#exe {I64 F(I8 x){return x++;}I64 I(){return F(127);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(I8 x){return x--;}I64 I(){return F(-128);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-128" );
+          ( "#exe {I64 F(){I8 x=255;return x++;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(){I8 x=255;return x--;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
           ( "#exe {I64 F(){I8 x=255;x<<=0;return x;}I64 I(){return F();}I64 \
              S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "255" );

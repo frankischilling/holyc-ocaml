@@ -11,12 +11,12 @@ val analyze :
     literal or a signed or unsigned integer parameter before returning it. The
     local may receive a supported literal or parameter update. A single narrow
     parameter or literal-initialized local may also be incremented or
-    decremented before return, or returned with a prefix update. Addition and
-    subtraction by a local literal are limited to nonnegative signed-32-bit
-    operands. Remainder is not proved for the two-parameter update of a narrow
-    parameter. Explicit hardware registers, escapes, extra locals and other
-    control flow remain unproved. The witness itself does not alter execution.
-*)
+    decremented before return, or returned with a prefix or postfix update.
+    Addition and subtraction by a local literal are limited to nonnegative
+    signed-32-bit operands. Remainder is not proved for the two-parameter update
+    of a narrow parameter. Explicit hardware registers, escapes, extra locals
+    and other control flow remain unproved. The witness itself does not alter
+    execution. *)
 
 val selection :
   t ->
