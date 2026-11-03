@@ -74,6 +74,43 @@ let () =
         "-2" );
     ]
   in
+  let local_cases =
+    [
+      ("I8", "255", "255", "-1");
+      ("U8", "256", "256", "0");
+      ("I16", "65535", "65535", "-1");
+      ("U16", "65536", "65536", "0");
+      ("I32", "4294967295", "4294967295", "-1");
+      ("U32", "4294967296", "4294967296", "0");
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, wide, narrow) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(){%s %s x=%s;x<<=0;return x;}F();" ty
+              qualifier initial
+          in
+          [ (source "", wide); (source "noreg", narrow) ])
+        local_cases
+    @ [
+        ("I64 F(){I8 x=127;x<<=1;return x;}F();", "254");
+        ("I64 F(){I8 noreg x=127;x<<=1;return x;}F();", "-2");
+        ("I64 F(){I8 x=255;x>>=1;return x;}F();", "127");
+        ("I64 F(){U8 x=256;x>>=1;return x;}F();", "128");
+        ("I64 F(){I8 noreg x=255;x>>=1;return x;}F();", "-1");
+        ("I64 F(){U8 noreg x=256;x>>=1;return x;}F();", "0");
+        ("I64 F(){I16 x=65535;x>>=1;return x;}F();", "32767");
+        ("I64 F(){U16 x=65536;x>>=1;return x;}F();", "32768");
+        ("I64 F(){I32 x=4294967295;x>>=1;return x;}F();", "2147483647");
+        ("I64 F(){U32 x=4294967296;x>>=1;return x;}F();", "2147483648");
+        ("I64 F(){I16 noreg x=65535;x>>=1;return x;}F();", "-1");
+        ("I64 F(){U16 noreg x=65536;x>>=1;return x;}F();", "0");
+        ("I64 F(){I32 noreg x=4294967295;x>>=1;return x;}F();", "-1");
+        ("I64 F(){U32 noreg x=4294967296;x>>=1;return x;}F();", "0");
+      ]
+  in
   let widths =
     [
       ("I16", "32767", "65534", "-2", "65535", "-1");

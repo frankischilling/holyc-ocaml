@@ -148,7 +148,7 @@ let matches_blocks expected actual =
       && same_list Seq.Block_id.equal successors other_successors)
     expected actual
 
-let analyze ~frame ~body =
+let analyze_parameter ~frame ~body =
   let locations = Frame.function_locations frame in
   let ordinary =
     Option.is_some (Function_body.definition_declaration body)
@@ -483,6 +483,315 @@ let analyze ~frame ~body =
                 code;
             selections_ = selections;
           }
+
+let analyze_local ~frame ~body =
+  let module Typed = Sema.Function_call_expression_result in
+  let module Calls = Sema.Function_call_resolution in
+  let module Bind = Sema.Module_expression_binding in
+  let locations = Frame.function_locations frame in
+  let supported location =
+    Frame.location_kind location = Frame.Automatic_local
+    && Frame.location_value_shape location = Frame.Scalar
+    && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
+    && (match Sema.Type.base (Frame.location_checked_type location) with
+      | Sema.Type.Primitive
+          (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32)) -> true
+      | _ -> false)
+    && Option.is_some (Frame.location_frame_slot location)
+    &&
+    match Frame.location_register_selection location with
+    | Request.Unspecified | Allocatable | Disabled -> true
+    | Explicit _ -> false
+  in
+  let ordinary =
+    Option.is_some (Function_body.definition_declaration body)
+    && Function_body.definition_matches_frame body frame
+    && Function_body.compiler_options body = Sema.Compiler_option.initial_mask
+    && Int64.logand
+         (Function_body.stored_flags body)
+         (Int64.lognot Function_body.ordinary_calling_flag_mask)
+       = 0L
+  in
+  match locations with
+  | [ location ] when ordinary && supported location ->
+      let blocks = snapshot body in
+      let code =
+        List.concat_map (fun (_, instructions, _) -> instructions) blocks
+      in
+      let entry =
+        Block_graph.block_id (Block_graph.entry (Function_body.body body))
+      in
+      let valid_terminator (item : Seq.description) successors =
+        item.operands = [] && item.result = None
+        &&
+        match (item.opcode, item.payload, successors) with
+        | O.Ic_jmp, Some (Seq.Block target), [ successor ] ->
+            Seq.Block_id.equal target successor
+        | O.Ic_ret, None, [] -> true
+        | _ -> false
+      in
+      let valid_block (id, instructions, successors) =
+        if Seq.Block_id.equal id entry then true
+        else
+          match instructions with
+          | [ item ] -> valid_terminator item successors
+          | _ -> false
+      in
+      let core =
+        List.filter
+          (fun (item : Seq.description) ->
+            item.opcode <> O.Ic_jmp && item.opcode <> O.Ic_ret)
+          code
+      in
+      let entry_sequence =
+        List.find_map
+          (fun (id, instructions, successors) ->
+            if Seq.Block_id.equal id entry then Some (instructions, successors)
+            else None)
+          blocks
+      in
+      let exact_entry =
+        Option.fold ~none:false
+          ~some:(fun (instructions, successors) ->
+            match List.rev instructions with
+            | jump :: reversed when valid_terminator jump successors ->
+                same_list ( == ) core (List.rev reversed)
+            | _ -> false)
+          entry_sequence
+      in
+      let unique values =
+        List.length values = List.length (List.sort_uniq Int.compare values)
+      in
+      let unique_ids =
+        unique
+          (List.map
+             (fun (item : Seq.description) ->
+               Seq.Instruction_id.to_int item.instruction_id)
+             code)
+        && unique
+             (List.filter_map
+                (fun (item : Seq.description) ->
+                  Option.map
+                    (fun (result : Seq.value_definition) ->
+                      Seq.Value_id.to_int result.value_id)
+                    item.result)
+                code)
+      in
+      let id (item : Seq.description) =
+        Option.map (fun (v : Seq.value_definition) -> v.value_id) item.result
+      in
+      let is_one item operand = item.Seq.operands = [ operand ] in
+      let integer (item : Seq.description) =
+        match (item.opcode, item.payload, item.operands) with
+        | O.Ic_imm_i64, Some (Seq.Integer value), [] -> Some value
+        | _ -> None
+      in
+      let address rbp offset add =
+        rbp.Seq.opcode = O.Ic_rbp && rbp.operands = [] && rbp.payload = None
+        && offset.Seq.opcode = O.Ic_imm_i64
+        && Option.fold ~none:false
+             ~some:(fun slot ->
+               integer offset = Some (Frame.frame_slot_displacement slot))
+             (Frame.location_frame_slot location)
+        && add.Seq.opcode = O.Ic_add && add.payload = None
+        && (match (id rbp, id offset) with
+          | Some r, Some o -> add.operands = [ r; o ] || add.operands = [ o; r ]
+          | _ -> false)
+        && Option.fold ~none:false
+             ~some:(fun pointer ->
+               Option.fold ~none:false ~some:(Sema.Type.equal pointer)
+                 rbp.target_type
+               && Option.fold ~none:false ~some:(Sema.Type.equal pointer)
+                    offset.target_type
+               &&
+               match Sema.Type.dereference pointer with
+               | Ok actual ->
+                   Sema.Type.equal actual (Frame.location_checked_type location)
+               | Error _ -> false)
+             add.target_type
+      in
+      let scalar_literal (item : Seq.description) =
+        Option.fold ~none:false
+          ~some:(fun type_ ->
+            Sema.Type.pointer_depth type_ = 0
+            &&
+            match Sema.Type.base type_ with
+            | Sema.Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+            | _ -> false)
+          item.target_type
+      in
+      let same_type (item : Seq.description) =
+        Option.fold ~none:false
+          ~some:(Sema.Type.equal (Frame.location_checked_type location))
+          item.target_type
+      in
+      let binding_of value =
+        match Calls.argument_expression_kind (Typed.result_source value) with
+        | Calls.Bound_identifier_expression bound -> (
+            match
+              Bind.occurrence_resolution
+                (Calls.bound_identifier_occurrence bound)
+            with
+            | Bind.Local_binding binding -> Some binding
+            | _ -> None)
+        | _ -> None
+      in
+      let literal value =
+        match Calls.argument_expression_kind (Typed.result_source value) with
+        | Calls.Integer_literal bits -> Some bits
+        | _ -> None
+      in
+      let source_matches initial count shift =
+        Option.fold ~none:false
+          ~some:(fun source ->
+            match
+              ( Typed.function_initializers source,
+                Typed.function_expression_statements source,
+                Typed.function_returns source )
+            with
+            | [ initialization ], [ statement ], [ returned ] -> (
+                let initial_source = Typed.initializer_source initialization in
+                let local = Calls.initializer_local initial_source in
+                let value = Typed.expression_statement_value statement in
+                match
+                  ( Calls.argument_expression_source (Typed.result_source value),
+                    Typed.result_binary_operands value,
+                    Typed.return_value returned )
+                with
+                | ( Some (Frontend.Ast.Binary_expression binary),
+                    Some (left, right),
+                    Some returned ) ->
+                    let operator =
+                      match
+                        (binary.binary_operator_spec.spelling, shift.Seq.opcode)
+                      with
+                      | "<<=", O.Ic_shl_equ | ">>=", Ic_shr_equ -> true
+                      | _ -> false
+                    in
+                    operator
+                    && Sema.Local_type_resolution.local_symbol local
+                       == Frame.location_symbol location
+                    && literal (Typed.initializer_value initialization)
+                       = Some initial
+                    && literal right = Some count
+                    && Option.fold ~none:false
+                         ~some:(( == ) (Frame.location_binding location))
+                         (binding_of left)
+                    && Option.fold ~none:false
+                         ~some:(( == ) (Frame.location_binding location))
+                         (binding_of returned)
+                | _ -> false)
+            | _ -> false)
+          (Function_body.definition_source body)
+      in
+      let matched =
+        match core with
+        | [
+         r1;
+         o1;
+         a1;
+         initial;
+         store;
+         end1;
+         r2;
+         o2;
+         a2;
+         count;
+         shift;
+         end2;
+         r3;
+         o3;
+         a3;
+         load;
+         returned;
+        ] -> (
+            match
+              ( id a1,
+                id initial,
+                id store,
+                id a2,
+                id count,
+                id shift,
+                id a3,
+                id load,
+                integer initial,
+                integer count )
+            with
+            | ( Some a1id,
+                Some initialid,
+                Some storeid,
+                Some a2id,
+                Some countid,
+                Some shiftid,
+                Some a3id,
+                Some loadid,
+                Some initialbits,
+                Some countbits ) ->
+                address r1 o1 a1 && address r2 o2 a2 && address r3 o3 a3
+                && scalar_literal initial && scalar_literal count
+                && store.Seq.opcode = O.Ic_assign
+                && store.payload = None && same_type store
+                && store.operands = [ a1id; initialid ]
+                && end1.Seq.opcode = O.Ic_end_exp
+                && end1.payload = None && end1.result = None
+                && end1.flags = 0x200L && is_one end1 storeid
+                && (shift.Seq.opcode = O.Ic_shl_equ
+                   || shift.opcode = O.Ic_shr_equ)
+                && shift.payload = None && same_type shift
+                && shift.operands = [ a2id; countid ]
+                && end2.Seq.opcode = O.Ic_end_exp
+                && end2.payload = None && end2.result = None
+                && end2.flags = 0x200L && is_one end2 shiftid
+                && load.Seq.opcode = O.Ic_deref
+                && load.payload = None && same_type load && is_one load a3id
+                && returned.Seq.opcode = O.Ic_return_val
+                && returned.payload = None && returned.result = None
+                && is_one returned loadid
+                && List.for_all
+                     (fun (item : Seq.description) ->
+                       Option.is_some (instruction_stamp item)
+                       && (item.opcode = O.Ic_end_exp || item.flags = 0L))
+                     code
+                && source_matches initialbits countbits shift
+            | _ -> false)
+        | _ -> false
+      in
+      if
+        List.length code > 64
+        || (not (List.for_all valid_block blocks))
+        || (not exact_entry) || (not unique_ids) || not matched
+      then None
+      else
+        Some
+          {
+            frame_ = frame;
+            body_ = body;
+            definition_ = Function_body.definition_declaration body;
+            source_ = Function_body.definition_source body;
+            options_ = Function_body.compiler_options body;
+            flags_ = Function_body.stored_flags body;
+            locations_ = [ Option.get (location_stamp location) ];
+            blocks_ = blocks;
+            stamps_ =
+              List.map
+                (fun item -> (item, Option.get (instruction_stamp item)))
+                code;
+            selections_ =
+              [
+                ( Frame.location_symbol location,
+                  if
+                    Frame.location_register_selection location
+                    = Request.Disabled
+                  then Stack
+                  else Register_candidate );
+              ];
+          }
+  | _ -> None
+
+let analyze ~frame ~body =
+  match analyze_parameter ~frame ~body with
+  | Some proof -> Some proof
+  | None -> analyze_local ~frame ~body
 
 let selection t ~frame ~body ~symbol =
   if

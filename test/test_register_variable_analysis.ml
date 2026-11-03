@@ -175,6 +175,56 @@ let source_controls () =
             (List.assoc (prefix ^ name) local_noreg))
         [ ("S", "-1"); ("U", "0"); ("S16", "-1"); ("U16", "0") ])
     [ "J_"; "A_" ];
+  let local_wide = fixture "local-wide" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "32-bit local initialization" expected
+            (List.assoc (prefix ^ name) local_wide))
+        [ ("S", "4294967295"); ("U", "4294967296"); ("SN", "-1"); ("UN", "0") ])
+    [ "J_"; "A_" ];
+  let local_default = fixture "local-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "local retained default" expected
+        (List.assoc name local_default))
+    [ ("S", "255"); ("U", "256"); ("SH", "254") ];
+  let local_right = fixture "local-right" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "local right shift" expected
+            (List.assoc (prefix ^ name) local_right))
+        [ ("S", "127"); ("U", "128"); ("SN", "-1"); ("UN", "0") ])
+    [ "J_"; "A_" ];
+  List.iter
+    (fun (stem, signed, unsigned) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "wider local right shift" expected
+                (List.assoc (prefix ^ name) fields))
+            [ ("S", signed); ("U", unsigned); ("SN", "-1"); ("UN", "0") ])
+        [ "J_"; "A_" ])
+    [
+      ("local-mid-right", "32767", "32768");
+      ("local-wide-right", "2147483647", "2147483648");
+    ];
+  let local_default_right = fixture "local-default-right" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "local retained default right shift" expected
+        (List.assoc name local_default_right))
+    [ ("S", "127"); ("U", "128"); ("SH", "63") ];
   let option = fixture "option" in
   Alcotest.(check string)
     "original option enabled" "1"
@@ -226,6 +276,51 @@ let simple_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let local_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (qualifier, expected) ->
+          let source =
+            "I64 F(){I8 " ^ qualifier ^ " x=255;x<<=0;return x;}42;"
+          in
+          let fn = compile mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let x = location fn.frame "x" |> Frame.location_symbol in
+          Alcotest.(check bool)
+            "bounded local selection" true
+            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x
+            = Some expected))
+        [ ("", Analysis.Register_candidate); ("noreg", Analysis.Stack) ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let local_ownership () =
+  List.iter
+    (fun mode ->
+      let source = "I64 F(){I8 x=255;x<<=0;return x;}42;" in
+      let fn = compile mode source in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let x = location fn.frame "x" |> Frame.location_symbol in
+      let store =
+        Body.body fn.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+        |> List.find (fun (item : Seq.description) ->
+            item.opcode = Holyc_lib__Ir.Opcode.Ic_assign)
+      in
+      Obj.set_field (Obj.repr store) 5 (Obj.repr (Some (Seq.Integer 1L)));
+      Alcotest.(check bool)
+        "changed local store invalidates proof" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x));
+      Alcotest.(check bool)
+        "changed local store cannot be reproved" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_selection () =
   List.iter
     (fun mode ->
@@ -237,6 +332,11 @@ let unsupported_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}42;";
+          "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
+          "I64 F(){I8 x=1,y=2;x<<=1;return x;}42;";
+          "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
+          "I64 F(){I8 x;x<<=1;return x;}42;";
+          "I64 F(){Bool x=1;x<<=1;return x;}42;";
           "I64 F(I8 x,I64 c,I64 a,I64 b,I64 d,I64 e,I64 f){x<<=c;return \
            x+a+b+d+e+f;}42;";
           "I64 F(I8 x,I64 c){if(c)x<<=c;return x;}42;";
@@ -389,6 +489,8 @@ let () =
         [
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
+          Alcotest.test_case "bounded local selection" `Quick local_selection;
+          Alcotest.test_case "local ownership" `Quick local_ownership;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;
           Alcotest.test_case "original ownership" `Quick ownership;
         ] );

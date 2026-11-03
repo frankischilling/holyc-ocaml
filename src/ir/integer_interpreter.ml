@@ -245,7 +245,8 @@ and prepared_operation =
       * Sema.Function_type_resolution.function_pointer option
   | Materialize_address of storage_location * Value_id.t * Type.t
   | Load_slot of storage_location * Value_id.t
-  | Store_slot of storage_location * prepared_value * Value_id.t * stored_type
+  | Store_slot of
+      storage_location * prepared_value * Value_id.t * stored_type * bool
   | Update_slot of
       storage_location
       * binary_operation
@@ -8244,7 +8245,11 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                    ( location,
                                      operand,
                                      result.value_id,
-                                     stored_type ))
+                                     stored_type,
+                                     match (frame, location) with
+                                     | Some context, Frame_slot (index, _) ->
+                                         context.slots.(index).wide_register
+                                     | _ -> false ))
                           | _ ->
                               Error (invalid_type_matrix block_id description))
                       | Update_slot_kind operation, [ operand ]
@@ -12695,7 +12700,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   with
                   | None -> ()
                   | Some value -> values := Value_map.add result value !values)
-              | Store_slot (location, operand, result, type_) -> (
+              | Store_slot (location, operand, result, type_, wide_register)
+                -> (
                   match require_value block instruction operand with
                   | None -> ()
                   | Some operand -> (
@@ -12703,11 +12709,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                         ( coerce_value type_ operand,
                           resolve_location block instruction location )
                       with
-                      | Some value, Some location
-                        when write_location block instruction location value ->
-                          let expression_value =
-                            match (type_, operand) with
-                            | Stored_narrow scalar, Runtime_word word ->
+                      | Some value, Some location ->
+                          let stored_value =
+                            match (wide_register, type_, operand) with
+                            | true, Stored_narrow scalar, Runtime_word word ->
                                 Runtime_word
                                   {
                                     type_ = scalar_runtime_type scalar;
@@ -12715,9 +12720,22 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                   }
                             | _ -> value
                           in
-                          values :=
-                            Value_map.add result expression_value !values
-                      | Some _, Some _ -> ()
+                          if
+                            write_location block instruction location
+                              stored_value
+                          then
+                            let expression_value =
+                              match (type_, operand) with
+                              | Stored_narrow scalar, Runtime_word word ->
+                                  Runtime_word
+                                    {
+                                      type_ = scalar_runtime_type scalar;
+                                      bits = word.bits;
+                                    }
+                              | _ -> value
+                            in
+                            values :=
+                              Value_map.add result expression_value !values
                       | _, None -> ()
                       | None, _ ->
                           failed :=

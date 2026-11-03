@@ -354,8 +354,13 @@ let local_source_error (declaration : Ast.local_declaration) =
           reject
             "native automatic arrays require scalar elements without \
              initializers"
-        else if local.local_register_qualifiers <> [] then
-          reject "native locals do not admit explicit registers"
+        else if
+          List.exists
+            (fun (qualifier : Ast.register_qualifier) ->
+              qualifier.kind <> Ast.Noreg
+              || Option.is_some qualifier.explicit_register)
+            local.local_register_qualifiers
+        then reject "native locals do not admit explicit registers"
         else
           match local.local_initializer with
           | None -> None

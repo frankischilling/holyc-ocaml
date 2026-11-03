@@ -594,6 +594,8 @@ let check_graph ~globals ~frame ~function_body ~compiler_options ~terminal graph
               | Ic_deref, [ target ], Some type_, None
                 when narrow_type type_ && invariant_narrow_read target type_ ->
                   storage_number type_
+              | _, target :: _, Some type_, _
+                when is_narrow_update && exact_register target type_ -> unknown
               | _, _, Some type_, _
                 when is_narrow_update
                      && (match (item.operands, item.target_type) with

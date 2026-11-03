@@ -6080,6 +6080,11 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         reject
           ?span:(Function.member_span member)
           "HCBACK0003" "native automatic local has an invalid RBP displacement";
+      (* A selected local has a private full-width home; its source byte slot
+         can be smaller than eight bytes and must not overlap the saved frame. *)
+      let register_offset =
+        if wide_register location then Some (reserve_metadata ()) else None
+      in
       let flag_offset = reserve_metadata () in
       init_flag_offsets_rev := flag_offset :: !init_flag_offsets_rev;
       for _ = 2 to elements do
@@ -6115,9 +6120,11 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           owned_targets = Option.map (fun _ -> ref []) callback;
           access =
             {
-              frame_offset = actual;
+              frame_offset = Option.value register_offset ~default:actual;
               frame_bytes =
-                (if Option.is_some aggregate then 1 else scalar.byte_size);
+                (if Option.is_some register_offset then 8
+                 else if Option.is_some aggregate then 1
+                 else scalar.byte_size);
               frame_word = scalar.word_type;
               initialized_flag_offset = Some flag_offset;
             };
