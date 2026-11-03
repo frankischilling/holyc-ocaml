@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "50be6d7558e2154bf59976789df53a454127d63894d0c43035e5fd57c24d6e8d",
+  "boot_payload_sha256": "097c3c404299281ace78aa9635826b8a07ac95a579ab8a86343fb65a66b4e8eb",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "2d9c4bbfca09e7a8bcb1b9987a896adb92a61832ea2f07d6693ede5c778e736a",
+  "boot_iso_sha256": "3cd9ac3ab1a1250532c383caeb61659b8ea4bde775886a503f3edb84b9018f48",
+  "fields": {
+    "J_S": "128",
+    "J_U": "256",
+    "J_SN": "-128",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "128",
+    "A_U": "256",
+    "A_SN": "-128",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of register and noreg compound addition. The stored source omits trailing spaces used to pad the boot payload."
+}

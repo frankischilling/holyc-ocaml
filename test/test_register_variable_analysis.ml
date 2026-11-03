@@ -288,6 +288,168 @@ let source_controls () =
   Alcotest.(check string)
     "hidden callee stored value" "0"
     (List.assoc "STORED" hidden);
+  let add_byte = fixture "add-byte" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "byte compound addition" expected
+            (List.assoc (prefix ^ name) add_byte))
+        [ ("S", "128"); ("U", "256"); ("SN", "-128"); ("UN", "0") ])
+    [ "J_"; "A_" ];
+  let add_wide = fixture "add-wide" and add_noreg = fixture "add-wide-noreg" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, wide, narrow) ->
+          Alcotest.(check string)
+            "wide compound addition" wide
+            (List.assoc (prefix ^ name) add_wide);
+          Alcotest.(check string)
+            "noreg compound addition" narrow
+            (List.assoc (prefix ^ name) add_noreg))
+        [
+          ("S16", "32768", "-32768");
+          ("U16", "65536", "0");
+          ("S32", "2147483648", "-2147483648");
+          ("U32", "4294967296", "0");
+        ])
+    [ "J_"; "A_" ];
+  let add_default = fixture "add-default" in
+  Alcotest.(check string)
+    "signed retained addition" "128"
+    (List.assoc "SIGNED" add_default);
+  Alcotest.(check string)
+    "unsigned retained addition" "256"
+    (List.assoc "UNSIGNED" add_default);
+  let add_wide_default = fixture "add-wide-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "wide retained addition" expected
+        (List.assoc name add_wide_default))
+    [
+      ("S16", "32768");
+      ("U16", "65536");
+      ("S32", "2147483648");
+      ("U32", "4294967296");
+    ];
+  let local_add = fixture "local-add"
+  and local_add_noreg = fixture "local-add-noreg" in
+  let local_add_wide = fixture "local-add-wide" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, wide, narrow) ->
+          Alcotest.(check string)
+            "local addition" wide
+            (List.assoc (prefix ^ name) local_add);
+          Alcotest.(check string)
+            "noreg local addition" narrow
+            (List.assoc (prefix ^ name) local_add_noreg))
+        [
+          ("S", "256", "0");
+          ("U", "257", "1");
+          ("S16", "65536", "0");
+          ("U16", "65537", "1");
+        ];
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "wide local addition" expected
+            (List.assoc (prefix ^ name) local_add_wide))
+        [ ("S", "4294967296"); ("U", "4294967297"); ("SN", "0"); ("UN", "1") ])
+    [ "J_"; "A_" ];
+  let local_add_default = fixture "local-add-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "local retained addition" expected
+        (List.assoc name local_add_default))
+    [ ("S", "256"); ("U", "257"); ("SH", "128") ];
+  let add_overflow = fixture "local-add-overflow" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "local addition crossing byte bounds" expected
+            (List.assoc (prefix ^ name) add_overflow))
+        [ ("S", "175"); ("U", "298"); ("SN", "-81"); ("UN", "42") ])
+    [ "J_"; "A_" ];
+  let add_count = fixture "local-add-count" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "local addition wider literal" expected
+            (List.assoc (prefix ^ name) add_count))
+        [ ("S", "511"); ("U", "512"); ("S16", "65791"); ("U16", "65792") ])
+    [ "J_"; "A_" ];
+  let incomplete = Yojson.Safe.from_string (read "local-add-high-fault.json") in
+  Alcotest.(check string)
+    "incomplete high literal reference"
+    "incomplete: invalid opcode observed in JIT before compiled controls"
+    (incomplete |> member "status" |> to_string);
+  List.iter
+    (fun (name, key) ->
+      Alcotest.(check string)
+        "incomplete probe evidence hash"
+        (incomplete |> member key |> to_string)
+        (Digestif.SHA256.digest_string (read name) |> Digestif.SHA256.to_hex))
+    [
+      ("local-add-high-fault.hc", "payload_sha256");
+      ("local-add-high-fault.capture", "capture_sha256");
+      ("local-add-high-fault.png", "screenshot_sha256");
+    ];
+  let incomplete_source = read "local-add-high-fault.hc" in
+  let incomplete_size = incomplete |> member "boot_payload_bytes" |> to_int in
+  Alcotest.(check bool)
+    "incomplete boot payload padding" true
+    (incomplete_size >= String.length incomplete_source);
+  let incomplete_boot =
+    incomplete_source
+    ^ String.make (incomplete_size - String.length incomplete_source) ' '
+  in
+  Alcotest.(check string)
+    "incomplete boot payload hash"
+    (incomplete |> member "boot_payload_sha256" |> to_string)
+    (Digestif.SHA256.digest_string incomplete_boot |> Digestif.SHA256.to_hex);
+  Alcotest.(check string)
+    "incomplete JIT output" "J_S=255\nJ_U=256\n"
+    (read "local-add-high-fault.capture");
+  let add_param_high = fixture "add-param-high" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "high-bit parameter addition" expected
+            (List.assoc (prefix ^ name) add_param_high))
+        [
+          ("S", "-9223372036854775681");
+          ("U", "-9223372036854775553");
+          ("SN", "127");
+          ("UN", "255");
+        ])
+    [ "J_"; "A_" ];
+  let add_max = fixture "local-add-max32" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "maximum proven local add literal" expected
+            (List.assoc (prefix ^ name) add_max))
+        [
+          ("S", "2147483902");
+          ("U", "2147483903");
+          ("S16", "2147549182");
+          ("U16", "2147549183");
+        ])
+    [ "J_"; "A_" ];
   let option = fixture "option" in
   Alcotest.(check string)
     "original option enabled" "1"
@@ -426,6 +588,8 @@ let unsupported_selection () =
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";
           "I64 F(){Bool x=1;x<<=1;return x;}42;";
+          "I64 F(){I8 x=255;x+=0x8000000000000000;return x;}42;";
+          "I64 F(){I8 x=255;x+=2147483648;return x;}42;";
           "I64 F(I8 x,I64 c,I64 a,I64 b,I64 d,I64 e,I64 f){x<<=c;return \
            x+a+b+d+e+f;}42;";
           "I64 F(I8 x,I64 c){if(c)x<<=c;return x;}42;";

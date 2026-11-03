@@ -236,10 +236,14 @@ let adjacent_storage_assignments_and_updates () =
         "U8 F(){U8 n=250;return (n+=48);}\nF();",
         "U64",
         298L );
-      ( "compound assignment stores the normalized payload",
-        "U8 F(){U8 n=250;n+=48;return n;}\nF();",
+      ( "compound assignment stores the normalized noreg payload",
+        "U8 F(){U8 noreg n=250;n+=48;return n;}\nF();",
         "U64",
         42L );
+      ( "compound assignment retains the register payload",
+        "U8 F(){U8 n=250;n+=48;return n;}\nF();",
+        "U64",
+        298L );
       ( "prefix returns the normalized new stored I8 value",
         "I8 F(){I8 n=127;return ++n;}\nF();",
         "I64",

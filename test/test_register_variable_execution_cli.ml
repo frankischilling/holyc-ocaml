@@ -149,6 +149,73 @@ let () =
             "-9223372036854775766" ))
         [ "I8"; "I16"; "U16"; "I32"; "U32" ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, wide, narrow) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(%s %s x,I8 c){x+=c;return x;}F(%s,1);" ty
+              qualifier initial
+          in
+          [ (source "", wide); (source "noreg", narrow) ])
+        [
+          ("I8", "127", "128", "-128");
+          ("U8", "255", "256", "0");
+          ("I16", "32767", "32768", "-32768");
+          ("U16", "65535", "65536", "0");
+          ("I32", "2147483647", "2147483648", "-2147483648");
+          ("U32", "4294967295", "4294967296", "0");
+        ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, wide, narrow) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(){%s %s x=%s;x+=1;return x;}F();" ty qualifier
+              initial
+          in
+          [ (source "", wide); (source "noreg", narrow) ])
+        [
+          ("I8", "255", "256", "0");
+          ("U8", "256", "257", "1");
+          ("I16", "65535", "65536", "0");
+          ("U16", "65536", "65537", "1");
+          ("I32", "4294967295", "4294967296", "0");
+          ("U32", "4294967296", "4294967297", "1");
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(){I8 x=255;x+=256;return x;}F();", "511");
+        ("I64 F(){U8 x=256;x+=256;return x;}F();", "512");
+        ("I64 F(){I16 x=65535;x+=256;return x;}F();", "65791");
+        ("I64 F(){U16 x=65536;x+=256;return x;}F();", "65792");
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(I8 x,I64 c){x+=c;return x;}F(127,0x8000000000000000);",
+          "-9223372036854775681" );
+        ( "I64 F(U8 x,I64 c){x+=c;return x;}F(255,0x8000000000000000);",
+          "-9223372036854775553" );
+        ( "I64 F(I8 noreg x,I64 c){x+=c;return x;}F(127,0x8000000000000000);",
+          "127" );
+        ( "I64 F(U8 noreg x,I64 c){x+=c;return x;}F(255,0x8000000000000000);",
+          "255" );
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(){I8 x=255;x+=2147483647;return x;}F();", "2147483902");
+        ("I64 F(){U8 x=256;x+=2147483647;return x;}F();", "2147483903");
+        ("I64 F(){I16 x=65535;x+=2147483647;return x;}F();", "2147549182");
+        ("I64 F(){U16 x=65536;x+=2147483647;return x;}F();", "2147549183");
+      ]
+  in
   let widths =
     [
       ("I16", "32767", "65534", "-2", "65535", "-1");
