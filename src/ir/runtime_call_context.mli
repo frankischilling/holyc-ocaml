@@ -244,11 +244,11 @@ type preparation_shifts
 
 val original_preparation_shifts : t -> owner:owner -> preparation_shifts option
 (** Validate original/transitive records, then collect supported scalar integer
-    constant and variable shifts, and scalar right-shift updates with original
-    internal I64 counts from 0 through 63. Constant payloads retain their
-    complete count; execution masks it at the existing consumer. The query does
-    not construct or reseal a context. Execution still requires its original
-    bundle. *)
+    constant and variable shifts, full-word compound shifts, and narrow scalar
+    right-shift updates with original internal I64 counts from 0 through 63.
+    Constant payloads retain their complete count; execution masks it at the
+    existing consumer. The query does not construct or reseal a context.
+    Execution still requires its original bundle. *)
 
 val is_original_preparation_shift :
   preparation_shifts -> Instruction_sequence.description -> bool

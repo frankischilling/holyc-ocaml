@@ -475,6 +475,39 @@ let original_retained_callee () =
         [ Preprocessor.Jit; Preprocessor.Aot ])
     [ false; true ]
 
+let original_retained_compound () =
+  List.iter
+    (fun (stem, initial, op) ->
+      let fields = fixture ~stem () in
+      Alcotest.(check string)
+        "one original compound call" "1"
+        (List.assoc "CALLS" fields);
+      let source =
+        Printf.sprintf
+          "#exe {I64 XR=%s,CR=65,NR=0;I64 FR(I64 x,I64 c){NR++;x%s=c;return \
+           x;}I64 IR(){return FR(XR,CR);}I64 SR(I64 n=IR()){return \
+           n;}StreamPrint(\"%%d;\",SR()+(NR!=1)*1000);}"
+          initial op
+      in
+      List.iter
+        (fun native ->
+          List.iter
+            (fun mode ->
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original retained compound result"
+                (Some (Int64.of_string (List.assoc "VALUE" fields)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no compound diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ Preprocessor.Jit; Preprocessor.Aot ])
+        [ false; true ])
+    [
+      ("retained-compound-left", "7", "<<");
+      ("retained-compound-right", "-8", ">>");
+    ]
+
 let static_owner_identity () =
   let module G = Ir_integer_globals in
   let module L = Ir_integer_program_lowering in
@@ -568,6 +601,8 @@ let () =
             original_arguments;
           Alcotest.test_case "original retained callee" `Quick
             original_retained_callee;
+          Alcotest.test_case "original retained compound" `Quick
+            original_retained_compound;
           Alcotest.test_case "static owner identity" `Quick
             static_owner_identity;
           Alcotest.test_case "unsupported boundaries" `Quick boundaries;

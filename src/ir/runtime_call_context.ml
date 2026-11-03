@@ -277,6 +277,7 @@ let integer_reduction (description : Seq.description) =
       Ic_shr;
       Ic_and;
       Ic_and_equ;
+      Ic_shl_equ;
       Ic_shr_equ;
     ]
 
@@ -605,6 +606,17 @@ let original_preparation_shifts context ~owner =
                        Option.fold ~none:false ~some:scalar
                          (Values.find_opt operand produced))
                      [ left; right ]
+            | (Opcode.Ic_shl_equ | Ic_shr_equ), [ target; count ], None
+              when Option.fold ~none:false
+                     ~some:(fun type_ ->
+                       Option.fold ~none:false
+                         ~some:(fun scalar ->
+                           Integer_scalar_storage.byte_size scalar = 8)
+                         (Integer_scalar_storage.of_type type_))
+                     item.target_type ->
+                Option.is_some (Values.find_opt target produced)
+                && Option.fold ~none:false ~some:scalar
+                     (Values.find_opt count produced)
             | Opcode.Ic_shr_equ, [ _; count ], None ->
                 Option.is_some
                   (Option.bind item.target_type Integer_scalar_storage.of_type)

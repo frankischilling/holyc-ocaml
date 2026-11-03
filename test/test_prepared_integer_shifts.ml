@@ -141,6 +141,8 @@ let authority () =
           ("I64 F(I64 x){return x<<1;}F(-7);", Op.Ic_shl_const, -14L);
           ("I64 F(I64 x){x/=2;return x;}F(-7);", Op.Ic_shr_equ, -4L);
           ("I64 F(I64 x,I64 n){return x>>n;}F(-7,1);", Op.Ic_shr, -4L);
+          ("I64 F(I64 x,I64 n){x<<=n;return x;}F(7,1);", Op.Ic_shl_equ, 14L);
+          ("I64 F(I64 x,I64 n){x>>=n;return x;}F(-8,1);", Op.Ic_shr_equ, -4L);
         ])
     modes
 
@@ -249,6 +251,12 @@ let ranges_and_boundaries () =
             "bounded narrow right shift" (Some 42L)
             (Option.map (fun w -> w.VM.bits) (VM.final_value e)))
         [ "I8 x=-7;x/=2;return x;"; "I8 x=-7;I8 y=x;y>>=1;return y;" ];
+      let _, shifted =
+        success mode (retained ~expected:"-7" "I64 x=X;x>>=64;return x;")
+      in
+      Alcotest.(check (option int64))
+        "masked retained update count" (Some 39L)
+        (Option.map (fun w -> w.VM.bits) (VM.final_value shifted));
       List.iter
         (fun source ->
           match integer_program_report_outcome (run mode source) with
@@ -261,7 +269,6 @@ let ranges_and_boundaries () =
           retained "I8 x=-7;x*=3;x/=2;return x;";
           retained "I8 x=-7;x/=2;x=249;return x;";
           retained "I8 reg RAX x=-7;x/=2;return x;";
-          retained "I64 x=X;x>>=64;return x;";
           "I64 F(I64 x){return x/2;}I64 G=F(-7);G;";
         ])
     modes

@@ -931,7 +931,7 @@ let retained_initializer_guard () =
     (run session task
        "I64 RawStatic(){static I64 N=RawWrap();return N;}RawStatic();");
   ignore
-    (run session task "I64 Block(I64 n,I64 count){n<<=count;return n;}"
+    (run session task "I64 Block(I8 n,I8 count){n<<=count;return n;}"
     |> Test_integer_program.checked);
   List.iter
     (fun text ->
