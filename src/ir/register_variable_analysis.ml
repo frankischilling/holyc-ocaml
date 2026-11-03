@@ -560,7 +560,9 @@ let analyze_local ~frame ~body =
     && Frame.location_value_shape location = Frame.Scalar
     && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
     && (match Sema.Type.base (Frame.location_checked_type location) with
-      | Sema.Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+      | Sema.Type.Primitive
+          (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64))
+        -> true
       | _ -> false)
     && Option.is_some (Frame.location_frame_slot location)
     &&

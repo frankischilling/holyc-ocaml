@@ -904,6 +904,43 @@ let source_controls () =
         "retained dynamic division" expected
         (List.assoc name divmod_default))
     [ ("DIV", "127"); ("MOD", "1"); ("MUL", "765") ];
+  List.iter
+    (fun (stem, signed_value, unsigned_value, signed_memory, unsigned_memory) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "narrow parameter local" expected
+                (List.assoc (prefix ^ name) fields))
+            [
+              ("S", signed_value);
+              ("U", unsigned_value);
+              ("SN", signed_memory);
+              ("UN", unsigned_memory);
+            ])
+        [ "J_"; "A_" ])
+    [
+      ("local-init-i8-8", "-1", "255", "-1", "-1");
+      ("local-init-u8-8", "-1", "255", "255", "255");
+      ("local-init-i8-16", "-1", "65535", "-1", "-1");
+      ("local-init-u8-16", "-1", "65535", "255", "255");
+      ("local-init-i8-32", "-1", "4294967295", "-1", "-1");
+      ("local-init-u8-32", "-1", "4294967295", "255", "255");
+      ("local-init-i16-32", "-1", "4294967295", "-1", "-1");
+      ("local-init-u16-32", "-1", "4294967295", "65535", "65535");
+      ("local-init-i32-32", "-1", "4294967295", "-1", "-1");
+      ("local-init-u32-32", "-1", "4294967295", "4294967295", "4294967295");
+      ("local-init-narrow-update", "128", "256", "-128", "0");
+    ];
+  let narrow_default = fixture "local-init-narrow-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained narrow initializer" expected
+        (List.assoc name narrow_default))
+    [ ("DIRECT", "255"); ("UPDATE", "765") ];
   let unsigned_parameter = fixture "local-param-unsigned" in
   List.iter
     (fun prefix ->
@@ -1156,6 +1193,42 @@ let dynamic_count_width_selection () =
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let narrow_initializer_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun arg ->
+          List.iter
+            (fun target ->
+              List.iter
+                (fun (qualifier, expected) ->
+                  List.iter
+                    (fun dynamic ->
+                      let parameters =
+                        if dynamic then arg ^ " c,I8 n" else arg ^ " c"
+                      in
+                      let update = if dynamic then "x+=n;" else "" in
+                      let source =
+                        Printf.sprintf "I64 F(%s){%s %s x=c;%sreturn x;}42;"
+                          parameters target qualifier update
+                      in
+                      let fn = compile mode source in
+                      let proof =
+                        Option.get
+                          (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+                      in
+                      let x = location fn.frame "x" |> Frame.location_symbol in
+                      Alcotest.(check bool)
+                        "narrow initializer selection" true
+                        (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                           ~symbol:x
+                        = Some expected))
+                    [ false; true ])
+                [ ("", Analysis.Register_candidate); ("noreg", Analysis.Stack) ])
+            [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let local_selection () =
   List.iter
     (fun mode ->
@@ -1258,7 +1331,7 @@ let unsupported_selection () =
           "I64 F(I64 c,Bool n){I8 x=c;x+=n;return x;}42;";
           "I64 F(I64 c,I8 n){I8 x=c;x+=c;return x;}42;";
           "I64 F(I64 c,I8 n){I8 x=c;x/=2;return x;}42;";
-          "I64 F(I8 c){I8 x=c;return x;}42;";
+          "I64 F(Bool c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x-=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=255;return x;}42;";
@@ -1428,6 +1501,8 @@ let () =
             dynamic_parameter_local_selection;
           Alcotest.test_case "dynamic count width selection" `Quick
             dynamic_count_width_selection;
+          Alcotest.test_case "narrow initializer selection" `Quick
+            narrow_initializer_selection;
           Alcotest.test_case "bounded local selection" `Quick local_selection;
           Alcotest.test_case "local return selection" `Quick
             local_return_selection;

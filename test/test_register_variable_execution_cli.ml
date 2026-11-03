@@ -644,6 +644,59 @@ let () =
         ("I64 F(I64 c,U64 n){U8 noreg x=c;x%=n;return x;}F(256,-1);", "0");
       ]
   in
+  let narrow_initializers =
+    [
+      ("I8", "255", "-1", "0");
+      ("U8", "255", "255", "256");
+      ("I16", "65535", "-1", "0");
+      ("U16", "65535", "65535", "65536");
+      ("I32", "4294967295", "-1", "0");
+      ("U32", "4294967295", "4294967295", "4294967296");
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (argument_type, input, wide, updated) ->
+          List.concat_map
+            (fun (target, memory) ->
+              let source qualifier dynamic =
+                if dynamic then
+                  Printf.sprintf
+                    "I64 F(%s c,I8 n){%s %s x=c;x+=n;return x;}F(%s,1);"
+                    argument_type target qualifier input
+                else
+                  Printf.sprintf "I64 F(%s c){%s %s x=c;return x;}F(%s);"
+                    argument_type target qualifier input
+              in
+              [
+                (source "" false, wide);
+                (source "noreg" false, memory);
+                (source "" true, updated);
+                (source "noreg" true, "0");
+              ])
+            [ ("I8", "-1"); ("U8", "255") ])
+        narrow_initializers
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(U32 c){I16 x=c;return x;}F(4294967295);", "4294967295");
+        ("I64 F(U32 c){I16 noreg x=c;return x;}F(4294967295);", "-1");
+        ("I64 F(I32 c){U16 x=c;return x;}F(4294967295);", "-1");
+        ("I64 F(I32 c){U16 noreg x=c;return x;}F(4294967295);", "65535");
+        ("I64 F(U32 c){I32 x=c;return x;}F(4294967295);", "4294967295");
+        ("I64 F(U32 c){I32 noreg x=c;return x;}F(4294967295);", "-1");
+        ("I64 F(I32 c){U32 x=c;return x;}F(4294967295);", "-1");
+        ("I64 F(I32 c){U32 noreg x=c;return x;}F(4294967295);", "4294967295");
+        ( "I64 F(U32 c,I8 n){I16 x=c;x+=n;return x;}F(4294967295,1);",
+          "4294967296" );
+        ("I64 F(U32 c,I8 n){I16 noreg x=c;x+=n;return x;}F(4294967295,1);", "0");
+        ( "I64 F(U32 c,I8 n){I32 x=c;x+=n;return x;}F(4294967295,1);",
+          "4294967296" );
+        ("I64 F(U32 c,I8 n){I32 noreg x=c;x+=n;return x;}F(4294967295,1);", "0");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
