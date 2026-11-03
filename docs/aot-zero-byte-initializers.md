@@ -65,7 +65,7 @@ compiler now counts the corresponding warnings for a direct call to a completed
 source-defined primitive function in a global or static scalar leaf, when the
 call has up to eight integer literals, selected closed integer expressions, or
 completed nonzero numeric scalar globals supplied to nonzero numeric parameters.
-Up to eight nonzero numeric parameters can also use integer-literal defaults,
+Up to eight nonzero numeric parameters can also use closed integer defaults,
 including omitted arguments between supplied values.
 Expressions include bounded nesting of unary minus, addition, subtraction,
 multiplication, bitwise operations, and shifts of integer literals or completed
@@ -83,7 +83,7 @@ currently rejects an F64 global before it reaches the later warning callback.
 ## Evidence and checks
 
 `test/oracle/aot-zero-initializers` retains five load source/capture pairs and
-twenty-three warning-phase pairs, each run twice. Every compiled probe reports zero
+twenty-five warning-phase pairs, each run twice. Every compiled probe reports zero
 errors. The load controls
 cover ordinary and U0 callees, globals, statics, constants, patterned storage,
 empty and three-byte classes, and expression-lookahead completion. The AOT

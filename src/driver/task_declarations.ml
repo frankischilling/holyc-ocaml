@@ -5908,18 +5908,20 @@ let proven_direct_arguments ledger header arguments =
     && parameter.function_pointer = None
     && parameter.register_qualifiers = []
   in
-  let literal_numeric_default (parameter : A.function_parameter) =
+  let closed_numeric_default (parameter : A.function_parameter) =
     parameter_shape parameter
     &&
     match (parameter.type_specifier, parameter.default) with
     | ( A.Primitive_type_specifier { primitive; _ },
-        Some { value = A.Expression_default (A.Integer_literal _); _ } ) ->
+        Some { value = A.Expression_default expression; _ } ) ->
         (Sema.Primitive_type.info primitive).byte_size > 0
+        && Sema.Initializer_source.expression_identifier_nodes expression = []
+        && proven_numeric 16 expression
     | _ -> false
   in
   let provided (parameter : A.function_parameter) (argument : A.call_argument) =
     parameter_shape parameter
-    && (parameter.default = None || literal_numeric_default parameter)
+    && (parameter.default = None || closed_numeric_default parameter)
     &&
     match (parameter.type_specifier, argument.call_argument_value) with
     | ( A.Primitive_type_specifier { primitive; _ },
@@ -5936,10 +5938,10 @@ let proven_direct_arguments ledger header arguments =
     match (parameters, arguments) with
     | [], [] -> true
     | parameter :: rest, [] ->
-        literal_numeric_default parameter && supplied_or_default rest []
+        closed_numeric_default parameter && supplied_or_default rest []
     | parameter :: rest, (argument : A.call_argument) :: tail ->
         (if argument.call_argument_value = A.Omitted_call_argument then
-           literal_numeric_default parameter
+           closed_numeric_default parameter
          else provided parameter argument)
         && supplied_or_default rest tail
     | [], _ :: _ -> false

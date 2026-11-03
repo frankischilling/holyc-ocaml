@@ -821,6 +821,63 @@ let direct_call_many_argument_warnings () =
         (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
     [ false; true ]
 
+let direct_call_arithmetic_defaults () =
+  let fields = fixture "warnings-arithmetic-defaults" in
+  let cases =
+    [
+      ("ADD", "3+4", 7L);
+      ("SUB", "8-1", 7L);
+      ("MUL", "7*1", 7L);
+      ("AND", "15&7", 7L);
+      ("OR", "3|4", 7L);
+      ("XOR", "3^4", 7L);
+      ("SHL", "1<<2", 4L);
+      ("SHR", "8>>1", 4L);
+      ("NEG", "-7", 4294967289L);
+      ("NEST", "(3+4)*1", 7L);
+    ]
+  in
+  List.iteri
+    (fun index (name, expression, expected) ->
+      Alcotest.(check int)
+        (name ^ " original default warning count")
+        (index + 1) (List.assoc name fields);
+      List.iter
+        (fun native ->
+          let source =
+            Printf.sprintf
+              "I64 Get(I64 n=%s){return n;}class Box{U0 empty;I64 value;};Box \
+               object={Get(),42};I64 F(){return object.value;}F();"
+              expression
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            (name ^ " default load value")
+            (Some expected) (Result.get_ok result);
+          Alcotest.(check (list string))
+            (name ^ " default load warning")
+            [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ false; true ])
+    cases;
+  let fields = fixture "warnings-expression-default" in
+  Alcotest.(check int)
+    "original static expression default warning" 1
+    (List.assoc "STATIC" fields - List.assoc "VOID" fields);
+  List.iter
+    (fun native ->
+      let source =
+        "I64 Get(I64 n=3+4){return n;}class Box{U0 empty;I64 value;};I64 \
+         F(){static Box object={Get(),42};return object.value;}F();"
+      in
+      let diagnostics, result, _ = run native Preprocessor.Aot source in
+      Alcotest.(check (option int64))
+        "static expression default value" (Some 7L) (Result.get_ok result);
+      Alcotest.(check (list string))
+        "static expression default warning" [ "HCSEMA0080" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+    [ false; true ]
+
 let direct_call_warning_controls () =
   List.iter
     (fun native ->
@@ -1031,7 +1088,9 @@ let () =
               ignore (fixture "warnings-void-default");
               ignore (fixture "warnings-numeric-defaults");
               ignore (fixture "warnings-two-defaults");
-              ignore (fixture "warnings-many-arguments"));
+              ignore (fixture "warnings-many-arguments");
+              ignore (fixture "warnings-expression-default");
+              ignore (fixture "warnings-arithmetic-defaults"));
           Alcotest.test_case "AOT warning counts occur during parsing" `Quick
             warning_phases;
           Alcotest.test_case "direct AOT calls warn at a U0 destination" `Quick
@@ -1076,6 +1135,8 @@ let () =
             direct_call_two_defaults;
           Alcotest.test_case "direct many-argument warnings" `Quick
             direct_call_many_argument_warnings;
+          Alcotest.test_case "direct arithmetic default warnings" `Quick
+            direct_call_arithmetic_defaults;
           Alcotest.test_case
             "patterned native stores retain their observed width" `Quick
             original_store_width;
