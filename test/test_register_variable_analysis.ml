@@ -1,6 +1,7 @@
 open Holyc_lib
 open Yojson.Safe.Util
 module Analysis = Holyc_lib__Ir.Register_variable_analysis
+module Global = Holyc_lib__Ir.Global_immediate_update_analysis
 module Frame = Semantic_function_frame_layout
 module Body = Ir_function_body
 module Graph = Ir_block_graph
@@ -1363,6 +1364,124 @@ let source_controls () =
       ("SHL", "510");
       ("SHR", "127");
     ];
+  List.iter
+    (fun (width, bits) ->
+      let open Int64 in
+      let n = shift_left 1L bits in
+      List.iter
+        (fun (operation, signed, unsigned) ->
+          let fields =
+            fixture ("global-immediate-" ^ operation ^ "-" ^ width)
+          in
+          List.iter
+            (fun prefix ->
+              List.iter
+                (fun (name, expected) ->
+                  Alcotest.(check string)
+                    "original global immediate update" (to_string expected)
+                    (List.assoc (prefix ^ name) fields))
+                [
+                  ("S", signed);
+                  ("U", unsigned);
+                  ("SN", signed);
+                  ("UN", unsigned);
+                ])
+            [ "J_"; "A_" ])
+        [ ("add", neg (div n 2L), 0L); ("sub", sub (div n 2L) 1L, sub n 1L) ])
+    [ ("byte", 8); ("16", 16); ("32", 32) ];
+  List.iter
+    (fun (stem, values) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original global compound context" expected
+                (List.assoc (prefix ^ name) fields))
+            values)
+        [ "J_"; "A_" ])
+    [
+      ( "global-compound-edge",
+        [
+          ("ADD", "0");
+          ("SUB", "255");
+          ("A256", "0");
+          ("MUL", "510");
+          ("SHL", "510");
+        ] );
+      ("global-compound-context", [ ("NEST", "0"); ("ARG", "0") ]);
+      ( "global-compound-variants",
+        [ ("DYN", "256"); ("PTR", "256"); ("EXPR", "256") ] );
+    ];
+  List.iter
+    (fun (width, bits) ->
+      let open Int64 in
+      let n = shift_left 1L bits in
+      List.iter
+        (fun (label, amount) ->
+          List.iter
+            (fun operation ->
+              let initial_s =
+                if operation = "add" then sub (div n 2L) 1L else neg (div n 2L)
+              in
+              let initial_u = if operation = "add" then sub n 1L else 0L in
+              let apply x =
+                if operation = "add" then add x amount else sub x amount
+              in
+              let unsigned x = logand (apply x) (sub n 1L) in
+              let signed x =
+                let value = unsigned x in
+                if value >= div n 2L then sub value n else value
+              in
+              let fields =
+                fixture
+                  ("global-immediate-" ^ operation ^ "-" ^ width ^ "-" ^ label)
+              in
+              List.iter
+                (fun prefix ->
+                  List.iter
+                    (fun (name, expected) ->
+                      Alcotest.(check string)
+                        "original global literal boundary" (to_string expected)
+                        (List.assoc (prefix ^ name) fields))
+                    [
+                      ("S", signed initial_s);
+                      ("U", unsigned initial_u);
+                      ("SN", signed initial_s);
+                      ("UN", unsigned initial_u);
+                    ])
+                [ "J_"; "A_" ])
+            [ "add"; "sub" ])
+        [ ("mid", 256L); ("max", 2147483647L) ])
+    [ ("byte", 8); ("16", 16); ("32", 32) ];
+  List.iter
+    (fun (operation, amount, signed, unsigned) ->
+      let fields =
+        fixture ("global-immediate-" ^ operation ^ "-byte-imm" ^ amount)
+      in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original byte immediate encoding boundary" expected
+                (List.assoc (prefix ^ name) fields))
+            [ ("S", signed); ("U", unsigned); ("SN", signed); ("UN", unsigned) ])
+        [ "J_"; "A_" ])
+    [
+      ("add", "127", "-2", "126");
+      ("add", "128", "-1", "127");
+      ("sub", "127", "1", "129");
+      ("sub", "128", "0", "128");
+    ];
+  let global_exe = fixture "global-immediate-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original global update in compile-time execution" expected
+        (List.assoc name global_exe))
+    [ ("ADD", "0"); ("SUB", "255") ];
   let postfix_default = fixture "postfix-return-default" in
   List.iter
     (fun (name, expected) ->
@@ -1799,6 +1918,124 @@ let unary_selection () =
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let global_immediate_proof () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun op ->
+              let fn =
+                compile mode
+                  (Printf.sprintf "%s G=0;I64 F(){return G%s=1;}42;" ty op)
+              in
+              let proof =
+                Option.get (Global.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let descriptions =
+                Body.body fn.body |> Graph.blocks
+                |> List.concat_map (fun block ->
+                    Graph.instructions block |> Seq.instructions
+                    |> List.map Seq.description)
+              in
+              let address =
+                List.find
+                  (fun (item : Seq.description) ->
+                    match item.payload with
+                    | Some (Seq.Symbol _) -> true
+                    | _ -> false)
+                  descriptions
+              in
+              let symbol =
+                match address.payload with
+                | Some (Seq.Symbol symbol) -> symbol
+                | _ -> assert false
+              in
+              let update =
+                List.find
+                  (fun (item : Seq.description) ->
+                    item.opcode
+                    =
+                    if op = "+" then Holyc_lib__Ir.Opcode.Ic_add_equ
+                    else Ic_sub_equ)
+                  descriptions
+              in
+              Alcotest.(check bool)
+                "global proof matches" true
+                (Global.matches proof ~frame:fn.frame ~body:fn.body
+                   ~instruction:update ~symbol);
+              let foreign =
+                compile mode
+                  (Printf.sprintf "%s G=0;I64 F(){return G%s=1;}42;" ty op)
+              in
+              Alcotest.(check bool)
+                "foreign function cannot use proof" false
+                (Global.matches proof ~frame:foreign.frame ~body:foreign.body
+                   ~instruction:update ~symbol);
+              let cloned =
+                { update with operands = List.map Fun.id update.operands }
+              in
+              Alcotest.(check bool)
+                "equivalent lowered instruction" true
+                (Global.matches proof ~frame:fn.frame ~body:fn.body
+                   ~instruction:cloned ~symbol);
+              let wrong_span = { cloned with span = None } in
+              Alcotest.(check bool)
+                "changed lowered origin rejected" false
+                (Global.matches proof ~frame:fn.frame ~body:fn.body
+                   ~instruction:wrong_span ~symbol);
+              Obj.set_field (Obj.repr update) 6 (Obj.repr 1L);
+              Alcotest.(check bool)
+                "changed update invalidates global proof" false
+                (Global.matches proof ~frame:fn.frame ~body:fn.body
+                   ~instruction:update ~symbol);
+              Obj.set_field (Obj.repr update) 6 (Obj.repr 0L);
+              let literal =
+                List.find
+                  (fun (item : Seq.description) ->
+                    item.payload = Some (Seq.Integer 1L))
+                  descriptions
+              in
+              Obj.set_field (Obj.repr literal) 5
+                (Obj.repr (Some (Seq.Integer 2L)));
+              Alcotest.(check bool)
+                "changed literal invalidates global proof" false
+                (Global.matches proof ~frame:fn.frame ~body:fn.body
+                   ~instruction:update ~symbol);
+              Obj.set_field (Obj.repr literal) 5
+                (Obj.repr (Some (Seq.Integer 1L)));
+              Obj.set_field (Obj.repr literal) 4 (Obj.repr update.target_type);
+              Alcotest.(check bool)
+                "changed literal type invalidates proof" false
+                (Global.matches proof ~frame:fn.frame ~body:fn.body
+                   ~instruction:update ~symbol))
+            [ "+"; "-" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun literal ->
+          let fn =
+            compile mode ("U8 G=255;I64 F(){return G+=" ^ literal ^ ";}42;")
+          in
+          Alcotest.(check bool)
+            "global literal boundary proved" true
+            (Option.is_some (Global.analyze ~frame:fn.frame ~body:fn.body)))
+        [ "0"; "256"; "2147483647" ];
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "unproved global shape" true
+            (Option.is_none (Global.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "U8 G=255;I64 N=1;I64 F(){return G+=N;}42;";
+          "U8 G=255;I64 F(){U8 *p=&G;return *p+=1;}42;";
+          "U8 G=255;I64 F(){return (G+=1)+0;}42;";
+          "U8 G=255;I64 F(){return G+=2147483648;}42;";
+          "U8 G=255;I64 F(){return G*=1;}42;";
+          "U8 G=255;I64 F(I64 x){return G+=1;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let local_selection () =
   List.iter
     (fun mode ->
@@ -2128,6 +2365,8 @@ let () =
           Alcotest.test_case "literal parameter selection" `Quick
             literal_parameter_selection;
           Alcotest.test_case "unary selection" `Quick unary_selection;
+          Alcotest.test_case "global immediate proof" `Quick
+            global_immediate_proof;
           Alcotest.test_case "bounded local selection" `Quick local_selection;
           Alcotest.test_case "compound return selection" `Quick
             compound_return_selection;

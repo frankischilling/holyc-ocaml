@@ -1191,6 +1191,72 @@ let () =
         ("I64 F(U8 noreg x){return x-=2147483647;}F(255);", "0");
       ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, maximum, minimum, add_result, sub_result) ->
+          [
+            ( Printf.sprintf "%s G=%s;I64 F(){return G+=1;}F();" ty maximum,
+              add_result );
+            ( Printf.sprintf "%s G=%s;I64 F(){return G-=1;}F();" ty minimum,
+              sub_result );
+          ])
+        [
+          ("I8", "127", "-128", "-128", "127");
+          ("U8", "255", "0", "0", "255");
+          ("I16", "32767", "-32768", "-32768", "32767");
+          ("U16", "65535", "0", "0", "65535");
+          ("I32", "2147483647", "-2147483648", "-2147483648", "2147483647");
+          ("U32", "4294967295", "0", "0", "4294967295");
+        ]
+    @ [
+        ("U8 G=255;I64 N=1;I64 F(){return G+=N;}F();", "256");
+        ("U8 G=255;I64 F(){U8 *p=&G;return *p+=1;}F();", "256");
+        ("U8 G=255;I64 F(){return G*=2;}F();", "510");
+        ("U8 G=255;I64 F(){return G<<=1;}F();", "510");
+      ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let minimum = if signed then neg (div n 2L) else 0L in
+          let normalize value =
+            let value = logand value (sub n 1L) in
+            if signed && value >= div n 2L then sub value n else value
+          in
+          List.concat_map
+            (fun amount ->
+              [
+                ( Printf.sprintf "%s G=%s;I64 F(){return G+=%s;}F();" ty
+                    (to_string maximum) (to_string amount),
+                  to_string (normalize (add maximum amount)) );
+                ( Printf.sprintf "%s G=%s;I64 F(){return G-=%s;}F();" ty
+                    (to_string minimum) (to_string amount),
+                  to_string (normalize (sub minimum amount)) );
+              ])
+            [ 256L; 2147483647L ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I8 G=127;I64 F(){return G+=127;}F();", "-2");
+        ("U8 G=255;I64 F(){return G+=128;}F();", "127");
+        ("I8 G=-128;I64 F(){return G-=127;}F();", "1");
+        ("U8 G=0;I64 F(){return G-=128;}F();", "128");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

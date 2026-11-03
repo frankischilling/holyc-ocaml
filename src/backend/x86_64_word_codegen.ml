@@ -423,6 +423,7 @@ type operation =
       * frame_update
       * value option
       * bool
+      * bool
       * value
       * word_type
       * fault_site option
@@ -3340,7 +3341,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
                 ]
           | _ -> ())
       | Update_arena_value
-          (access, update, input, old_result, result, word, arithmetic_site) ->
+          ( access,
+            update,
+            input,
+            old_result,
+            narrow_result,
+            result,
+            word,
+            arithmetic_site ) ->
           spill_all_registers instruction.span;
           let site = Option.get instruction.site in
           let uninitialized = fresh_label supply in
@@ -3374,7 +3382,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
               (store_arena_scalar instruction.span access
                  registers.(computed_index));
             if
-              (not old_result) && Option.is_none input && access.arena_bytes < 8
+              (not old_result)
+              && (Option.is_none input || narrow_result)
+              && access.arena_bytes < 8
             then
               emit
                 (load_arena_scalar instruction.span registers.(computed_index)
@@ -5304,6 +5314,7 @@ type callable_function_info = {
   rbp_bytes : int;
   activation_bytes : int;
   frame_slots : callable_slot Int_map.t;
+  global_immediate_proof : Ir.Global_immediate_update_analysis.t option;
   empty_frame_roots : (Frame.location * callable_slot) list;
   init_flag_offsets : int list;
 }
@@ -5669,6 +5680,9 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
     Headers.function_variadic_bindings (Frame.function_header frame)
   in
   let register_proof = Ir.Register_variable_analysis.analyze ~frame ~body in
+  let global_immediate_proof =
+    Ir.Global_immediate_update_analysis.analyze ~frame ~body
+  in
   let wide_register location =
     Option.fold ~none:false
       ~some:(fun proof ->
@@ -6201,6 +6215,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
       + (8 * List.length parameters)
       + if Option.is_some variadic then 8 else 0);
     frame_slots = !slots;
+    global_immediate_proof;
     empty_frame_roots = !empty_frame_roots;
     init_flag_offsets = List.rev !init_flag_offsets_rev;
   }
@@ -6347,9 +6362,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     ~slot_bindings ~task_snapshot ~parameter_defaults ~functions
     ~provider_entries ~code_edges ~indirect_code_edges ~arena_code_cells
     ~global_storage ~literal_storage ~runtime_owner ~owner
-    ~(frame_slots : callable_slot Int_map.t) ~empty_frame_roots ~variadic
-    ~expected_return ~source_item_index ~is_entry ~rbp_bytes ~max_stack_bytes
-    ~next_site graph =
+    ~(frame_slots : callable_slot Int_map.t) ~global_immediate_proof
+    ~empty_frame_roots ~variadic ~expected_return ~source_item_index ~is_entry
+    ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let lock_validation = Lock_validation.of_graph graph in
   let function_addresses =
     match
@@ -9798,6 +9813,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             update,
                             input,
                             old_result,
+                            Option.fold ~none:false
+                              ~some:(fun (frame, body, proof) ->
+                                Ir.Global_immediate_update_analysis.matches
+                                  proof ~frame ~body ~instruction:description
+                                  ~symbol:(Global_storage.symbol slot))
+                              global_immediate_proof,
                             value,
                             access.arena_word,
                             arithmetic_site ),
@@ -10501,9 +10522,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
           | Update_reference_value
               (_, Update_division arithmetic_operation, _, _, _, word, _)
           | Update_indexed_object_value
-              (_, Update_division arithmetic_operation, _, _, _, word, _)
-          | Update_arena_value
               (_, Update_division arithmetic_operation, _, _, _, word, _) ->
+              Some (arithmetic_operation, word = I64)
+          | Update_arena_value
+              (_, Update_division arithmetic_operation, _, _, _, _, word, _) ->
               Some (arithmetic_operation, word = I64)
           | _ -> None
         in
@@ -10616,7 +10638,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     Option.is_some left.code_owner_offset
                     || Option.is_some right.code_owner_offset
                 | Update_frame_value (_, _, input, _, _, _, _, _)
-                | Update_arena_value (_, _, input, _, _, _, _)
+                | Update_arena_value (_, _, input, _, _, _, _, _)
                 | Update_reference_value (_, _, input, _, _, _, _)
                 | Update_indexed_object_value (_, _, input, _, _, _, _)
                 | Update_callback_value (_, _, input, _, _, _) ->
@@ -10724,7 +10746,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               match operation with
               | Update_frame_value (access, _, _, _, _, _, _, _) ->
                   access.frame_bytes > 1
-              | Update_arena_value (access, _, _, _, _, _, _) ->
+              | Update_arena_value (access, _, _, _, _, _, _, _) ->
                   access.arena_bytes > 1
               | Update_indexed_object_value (access, _, _, _, _, _, _) ->
                   (reference_scalar access.origin).byte_size > 1
@@ -12284,9 +12306,10 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
           ~functions:function_infos ~provider_entries ~global_storage
           ~literal_storage ~runtime_owner:Runtime.Entry ~owner:Entry_owner
-          ~frame_slots:Int_map.empty ~empty_frame_roots:[] ~variadic:None
-          ~expected_return:None ~source_item_index:None ~is_entry:true
-          ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
+          ~frame_slots:Int_map.empty ~global_immediate_proof:None
+          ~empty_frame_roots:[] ~variadic:None ~expected_return:None
+          ~source_item_index:None ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes
+          ~next_site entry_graph
       in
       let function_prepared =
         Array.map
@@ -12303,6 +12326,10 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ~provider_entries ~global_storage ~literal_storage
               ~runtime_owner:(Runtime.Function body) ~owner:info.owner
               ~frame_slots:info.frame_slots
+              ~global_immediate_proof:
+                (Option.map
+                   (fun proof -> (info.definition.frame, body, proof))
+                   info.global_immediate_proof)
               ~empty_frame_roots:info.empty_frame_roots ~variadic:info.variadic
               ~expected_return:(Some (Function.return_value_type body))
               ~source_item_index:

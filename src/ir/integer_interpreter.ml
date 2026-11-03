@@ -196,6 +196,8 @@ and frame_slot = {
 
 and frame_context = {
   layout : Frame.function_layout;
+  proof_body : Function_body.t;
+  global_immediate_proof : Global_immediate_update_analysis.t option;
   slots : frame_slot array;
   parameter_slots : (int * int * stored_type) array;
   offsets : int Offset_map.t;
@@ -7087,6 +7089,10 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             Ok
               {
                 layout = frame;
+                proof_body = function_;
+                global_immediate_proof =
+                  Global_immediate_update_analysis.analyze ~frame
+                    ~body:function_;
                 slots;
                 parameter_slots = Array.of_list (List.rev !parameter_slots_rev);
                 offsets = !offsets;
@@ -8291,6 +8297,18 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                      | Some context, Frame_slot (index, _) ->
                                          context.slots.(index)
                                            .narrow_update_result
+                                     | Some context, Global_slot slot ->
+                                         Option.fold ~none:false
+                                           ~some:(fun proof ->
+                                             Global_immediate_update_analysis
+                                             .matches proof
+                                               ~frame:context.layout
+                                               ~body:context.proof_body
+                                               ~instruction:description
+                                               ~symbol:
+                                                 (Integer_globals.storage_symbol
+                                                    slot))
+                                           context.global_immediate_proof
                                      | _ -> false ))
                           | None ->
                               Error (invalid_type_matrix block_id description))
