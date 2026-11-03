@@ -435,6 +435,41 @@ let () =
         ("I64 F(I64 c){U8 x=c;x*=0x8000000000000000;return x;}F(256);", "0");
       ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, input, add, add_memory, shift, shift_memory) ->
+          let source qualifier op =
+            Printf.sprintf
+              "I64 F(I64 c,I8 n){%s %s x=c;x%s=n;return x;}F(%s,1);" ty
+              qualifier op input
+          in
+          [
+            (source "" "+", add);
+            (source "noreg" "+", add_memory);
+            (source "" "<<", shift);
+            (source "noreg" "<<", shift_memory);
+          ])
+        parameter_local_updates
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I64 c,I8 n){I8 x=c;x+=n;return x;}F(255,255);", "254");
+        ("I64 F(I64 c,I8 n){I8 noreg x=c;x+=n;return x;}F(255,255);", "-2");
+        ("I64 F(I64 c,I8 n){U8 x=c;x+=n;return x;}F(256,255);", "255");
+        ("I64 F(I64 c,I8 n){U8 noreg x=c;x+=n;return x;}F(256,255);", "255");
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(I64 c,I8 n){I8 x=c;x<<=n;return x;}F(255,255);",
+          "-9223372036854775808" );
+        ("I64 F(I64 c,I8 n){I8 noreg x=c;x<<=n;return x;}F(255,255);", "0");
+        ("I64 F(I64 c,I8 n){U8 x=c;x<<=n;return x;}F(256,255);", "0");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

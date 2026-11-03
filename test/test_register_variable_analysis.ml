@@ -773,6 +773,44 @@ let source_controls () =
         "retained parameter local update" expected
         (List.assoc name more_default))
     [ ("SUB", "254"); ("RIGHT", "127"); ("MUL", "765") ];
+  List.iter
+    (fun (stem, signed, unsigned, signed_memory, unsigned_memory) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "dynamic parameter local" expected
+                (List.assoc (prefix ^ name) fields))
+            [
+              ("S", signed);
+              ("U", unsigned);
+              ("SN", signed_memory);
+              ("UN", unsigned_memory);
+            ])
+        [ "J_"; "A_" ])
+    [
+      ("local-param-dynamic-add-byte", "256", "257", "0", "1");
+      ("local-param-dynamic-negative", "254", "255", "-2", "255");
+      ("local-param-dynamic-add-16", "65536", "65537", "0", "1");
+      ("local-param-dynamic-add-32", "4294967296", "4294967297", "0", "1");
+      ("local-param-dynamic-shift-byte", "510", "512", "-2", "0");
+      ( "local-param-dynamic-shift-negative",
+        "-9223372036854775808",
+        "0",
+        "0",
+        "0" );
+      ("local-param-dynamic-shift-16", "131070", "131072", "-2", "0");
+      ("local-param-dynamic-shift-32", "8589934590", "8589934592", "-2", "0");
+    ];
+  let dynamic_default = fixture "local-param-dynamic-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained dynamic local" expected
+        (List.assoc name dynamic_default))
+    [ ("SIGNED", "256"); ("UNSIGNED", "512") ];
   let unsigned_parameter = fixture "local-param-unsigned" in
   List.iter
     (fun prefix ->
@@ -969,6 +1007,37 @@ let local_parameter_selection () =
            [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ]))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let dynamic_parameter_local_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (ty, qualifier, expected) ->
+          List.iter
+            (fun operation ->
+              let source =
+                Printf.sprintf "I64 F(I64 c,I8 n){%s %s x=c;x%s=n;return x;}42;"
+                  ty qualifier operation
+              in
+              let fn = compile mode source in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let x = location fn.frame "x" |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "dynamic local selection" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                   ~symbol:x
+                = Some expected))
+            [ "+"; "<<" ])
+        (List.concat_map
+           (fun ty ->
+             [
+               (ty, "", Analysis.Register_candidate);
+               (ty, "noreg", Analysis.Stack);
+             ])
+           [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ]))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let local_selection () =
   List.iter
     (fun mode ->
@@ -1042,6 +1111,8 @@ let local_ownership () =
           "I64 F(I64 c){I8 x=c;x-=1;return x;}42;";
           "I64 F(I64 c){I8 x=c;x>>=1;return x;}42;";
           "I64 F(I64 c){I8 x=c;x*=3;return x;}42;";
+          "I64 F(I64 c,I8 n){I8 x=c;x+=n;return x;}42;";
+          "I64 F(I64 c,I8 n){I8 x=c;x<<=n;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -1062,6 +1133,10 @@ let unsupported_selection () =
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";
           "I64 F(){Bool x=1;x<<=1;return x;}42;";
+          "I64 F(I64 c,I8 n){I8 x=c;return x;}42;";
+          "I64 F(I64 c,U8 n){I8 x=c;x+=n;return x;}42;";
+          "I64 F(I64 c,I8 n){I8 x=c;x+=c;return x;}42;";
+          "I64 F(I64 c,I8 n){I8 x=c;x-=n;return x;}42;";
           "I64 F(I8 c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x-=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=2147483648;return x;}42;";
@@ -1228,6 +1303,8 @@ let () =
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
           Alcotest.test_case "parameter-initialized local selection" `Quick
             local_parameter_selection;
+          Alcotest.test_case "dynamic parameter local selection" `Quick
+            dynamic_parameter_local_selection;
           Alcotest.test_case "bounded local selection" `Quick local_selection;
           Alcotest.test_case "local return selection" `Quick
             local_return_selection;

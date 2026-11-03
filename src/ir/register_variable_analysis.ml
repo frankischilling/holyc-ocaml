@@ -568,15 +568,31 @@ let analyze_local ~frame ~body =
     | Request.Explicit _ -> false
     | Unspecified | Allocatable | Disabled -> true
   in
+  let count_parameter location =
+    Frame.location_kind location = Frame.Named_parameter
+    && Frame.location_value_shape location = Frame.Scalar
+    && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
+    && (match Sema.Type.base (Frame.location_checked_type location) with
+      | Sema.Type.Primitive (_, Sema.Primitive_type.I8) -> true
+      | _ -> false)
+    && Option.is_some (Frame.location_frame_slot location)
+    &&
+    match Frame.location_register_selection location with
+    | Request.Explicit _ -> false
+    | Unspecified | Allocatable | Disabled -> true
+  in
   let shape =
     match locations with
-    | [ location ] when supported location -> Some (None, location)
+    | [ location ] when supported location -> Some (None, None, location)
     | [ argument; location ] when parameter argument && supported location ->
-        Some (Some argument, location)
+        Some (Some argument, None, location)
+    | [ argument; count; location ]
+      when parameter argument && count_parameter count && supported location ->
+        Some (Some argument, Some count, location)
     | _ -> None
   in
   match shape with
-  | Some (argument, location) when ordinary ->
+  | Some (argument, count_argument, location) when ordinary ->
       let blocks = snapshot body in
       let code =
         List.concat_map (fun (_, instructions, _) -> instructions) blocks
@@ -748,7 +764,13 @@ let analyze_local ~frame ~body =
                             (binding_of
                                (Typed.initializer_value initialization))
                       | _ -> false)
-                    && literal right = Some count
+                    && (match (count_argument, count) with
+                      | None, Some bits -> literal right = Some bits
+                      | Some argument, None ->
+                          Option.fold ~none:false
+                            ~some:(( == ) (Frame.location_binding argument))
+                            (binding_of right)
+                      | _ -> false)
                     && Option.fold ~none:false
                          ~some:(( == ) (Frame.location_binding location))
                          (binding_of left)
@@ -852,6 +874,7 @@ let analyze_local ~frame ~body =
                        Option.is_some (instruction_stamp item)
                        && (item.opcode = O.Ic_end_exp || item.flags = 0L))
                      code
+                && Option.is_none count_argument
                 && source_matches_parameter argument
             | _ -> false)
         | [
@@ -937,7 +960,102 @@ let analyze_local ~frame ~body =
                        Option.is_some (instruction_stamp item)
                        && (item.opcode = O.Ic_end_exp || item.flags = 0L))
                      code
-                && source_matches None countbits update
+                && source_matches None (Some countbits) update
+            | _ -> false)
+        | [
+         r1;
+         o1;
+         a1;
+         rp;
+         op;
+         ap;
+         input;
+         store;
+         end1;
+         r2;
+         o2;
+         a2;
+         rc;
+         oc;
+         ac;
+         count;
+         update;
+         end2;
+         r3;
+         o3;
+         a3;
+         load;
+         returned;
+        ] -> (
+            match
+              ( argument,
+                count_argument,
+                id a1,
+                id ap,
+                id input,
+                id store,
+                id a2,
+                id ac,
+                id count,
+                id update,
+                id a3,
+                id load )
+            with
+            | ( Some argument,
+                Some count_argument,
+                Some a1id,
+                Some apid,
+                Some inputid,
+                Some storeid,
+                Some a2id,
+                Some acid,
+                Some countid,
+                Some updateid,
+                Some a3id,
+                Some loadid ) ->
+                address location r1 o1 a1 && address argument rp op ap
+                && address location r2 o2 a2
+                && address count_argument rc oc ac
+                && address location r3 o3 a3
+                && input.Seq.opcode = O.Ic_deref
+                && input.payload = None
+                && Option.fold ~none:false
+                     ~some:
+                       (Sema.Type.equal (Frame.location_checked_type argument))
+                     input.target_type
+                && is_one input apid
+                && store.Seq.opcode = O.Ic_assign
+                && store.payload = None && same_type store
+                && store.operands = [ a1id; inputid ]
+                && end1.Seq.opcode = O.Ic_end_exp
+                && end1.payload = None && end1.result = None
+                && end1.flags = 0x200L && is_one end1 storeid
+                && count.Seq.opcode = O.Ic_deref
+                && count.payload = None
+                && Option.fold ~none:false
+                     ~some:
+                       (Sema.Type.equal
+                          (Frame.location_checked_type count_argument))
+                     count.target_type
+                && is_one count acid
+                && (update.Seq.opcode = O.Ic_shl_equ
+                   || update.opcode = O.Ic_add_equ)
+                && update.payload = None && same_type update
+                && update.operands = [ a2id; countid ]
+                && end2.Seq.opcode = O.Ic_end_exp
+                && end2.payload = None && end2.result = None
+                && end2.flags = 0x200L && is_one end2 updateid
+                && load.Seq.opcode = O.Ic_deref
+                && load.payload = None && same_type load && is_one load a3id
+                && returned.Seq.opcode = O.Ic_return_val
+                && returned.payload = None && returned.result = None
+                && is_one returned loadid
+                && List.for_all
+                     (fun (item : Seq.description) ->
+                       Option.is_some (instruction_stamp item)
+                       && (item.opcode = O.Ic_end_exp || item.flags = 0L))
+                     code
+                && source_matches None None update
             | _ -> false)
         | [ r1; o1; a1; initial; store; end1; r2; o2; a2; load; returned ] -> (
             match
@@ -1044,7 +1162,7 @@ let analyze_local ~frame ~body =
                        && (item.opcode = O.Ic_end_exp || item.flags = 0L))
                      code
                 && Option.is_none argument
-                && source_matches (Some initialbits) countbits update
+                && source_matches (Some initialbits) (Some countbits) update
             | _ -> false)
         | _ -> false
       in
