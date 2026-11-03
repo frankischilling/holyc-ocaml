@@ -230,6 +230,15 @@ let () =
              I(){return F();}I64 S(I64 n=I()){return \
              n;}StreamPrint(\"%d;\",S());}",
             "-9223372036854775808" );
+          ( "#exe {I64 F(I8 x,I64 c){x|=c;return x;}I64 I(){return \
+             F(127,256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "383" );
+          ( "#exe {I64 F(I8 x,I64 c){x^=c;return x;}I64 I(){return \
+             F(127,256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "383" );
+          ( "#exe {I64 F(I8 x,I64 c){x&=c;return x;}I64 I(){return \
+             F(-1,255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
           ( "#exe {I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}I64 I(){return \
              F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "-2" );

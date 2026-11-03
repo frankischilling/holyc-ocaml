@@ -673,6 +673,90 @@ let source_controls () =
     [
       ("S", "-9223372036854775808"); ("U", "0"); ("SH", "-9223372036854775808");
     ];
+  let bit_default = fixture "bit-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained bitwise" expected
+        (List.assoc name bit_default))
+    [ ("OR", "383"); ("XOR", "383"); ("AND", "255") ];
+  List.iter
+    (fun (operation, byte_values, narrow_values, wide_values, memory_values) ->
+      let byte = fixture ("bit-" ^ operation ^ "-byte") in
+      let narrow_count = fixture ("bit-" ^ operation ^ "-narrow-count") in
+      let wide = fixture ("bit-" ^ operation ^ "-wide") in
+      let noreg = fixture ("bit-" ^ operation ^ "-wide-noreg") in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "byte bitwise" expected
+                (List.assoc (prefix ^ name) byte))
+            byte_values;
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "narrow RHS bitwise" expected
+                (List.assoc (prefix ^ name) narrow_count))
+            narrow_values;
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "wide bitwise" expected
+                (List.assoc (prefix ^ name) wide))
+            wide_values;
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "noreg wide bitwise" expected
+                (List.assoc (prefix ^ name) noreg))
+            memory_values)
+        [ "J_"; "A_" ])
+    [
+      ( "or",
+        [ ("S", "383"); ("U", "511"); ("SN", "127"); ("UN", "255") ],
+        [ ("S", "127"); ("U", "255"); ("SN", "127"); ("UN", "255") ],
+        [
+          ("S16", "98303");
+          ("U16", "131071");
+          ("S32", "6442450943");
+          ("U32", "8589934591");
+        ],
+        [
+          ("S16", "32767");
+          ("U16", "65535");
+          ("S32", "2147483647");
+          ("U32", "4294967295");
+        ] );
+      ( "xor",
+        [ ("S", "383"); ("U", "511"); ("SN", "127"); ("UN", "255") ],
+        [ ("S", "127"); ("U", "255"); ("SN", "127"); ("UN", "255") ],
+        [
+          ("S16", "98303");
+          ("U16", "131071");
+          ("S32", "6442450943");
+          ("U32", "8589934591");
+        ],
+        [
+          ("S16", "32767");
+          ("U16", "65535");
+          ("S32", "2147483647");
+          ("U32", "4294967295");
+        ] );
+      ( "and",
+        [ ("S", "255"); ("U", "255"); ("SN", "-1"); ("UN", "255") ],
+        [ ("S", "-1"); ("U", "255"); ("SN", "-1"); ("UN", "255") ],
+        [
+          ("S16", "65535");
+          ("U16", "65535");
+          ("S32", "4294967295");
+          ("U32", "4294967295");
+        ],
+        [
+          ("S16", "-1"); ("U16", "65535"); ("S32", "-1"); ("U32", "4294967295");
+        ] );
+    ];
   let option = fixture "option" in
   Alcotest.(check string)
     "original option enabled" "1"
@@ -811,6 +895,9 @@ let unsupported_selection () =
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";
           "I64 F(){Bool x=1;x<<=1;return x;}42;";
+          "I64 F(){I8 x=1;x|=256;return x;}42;";
+          "I64 F(){I8 x=1;x^=256;return x;}42;";
+          "I64 F(){I8 x=1;x&=255;return x;}42;";
           "I64 F(){I8 x=255;x+=0x8000000000000000;return x;}42;";
           "I64 F(){I8 x=255;x+=2147483648;return x;}42;";
           "I64 F(){I8 x=255;x-=0x8000000000000000;return x;}42;";

@@ -310,6 +310,74 @@ let () =
           "0" );
       ]
   in
+  let bitwise_widths =
+    [
+      ("I8", "127", "256", "383", "127", "-1", "255", "255", "-1");
+      ("U8", "255", "256", "511", "255", "255", "255", "255", "255");
+      ("I16", "32767", "65536", "98303", "32767", "-1", "65535", "65535", "-1");
+      ( "U16",
+        "65535",
+        "65536",
+        "131071",
+        "65535",
+        "65535",
+        "65535",
+        "65535",
+        "65535" );
+      ( "I32",
+        "2147483647",
+        "4294967296",
+        "6442450943",
+        "2147483647",
+        "-1",
+        "4294967295",
+        "4294967295",
+        "-1" );
+      ( "U32",
+        "4294967295",
+        "4294967296",
+        "8589934591",
+        "4294967295",
+        "4294967295",
+        "4294967295",
+        "4294967295",
+        "4294967295" );
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun ( ty,
+               initial,
+               mask,
+               wide,
+               narrow,
+               and_initial,
+               and_mask,
+               and_wide,
+               and_narrow ) ->
+          let source qualifier op x y =
+            Printf.sprintf "I64 F(%s %s x,I64 c){x%s=c;return x;}F(%s,%s);" ty
+              qualifier op x y
+          in
+          List.concat_map
+            (fun op ->
+              [
+                (source "" op initial mask, wide);
+                (source "noreg" op initial mask, narrow);
+              ])
+            [ "|"; "^" ]
+          @ [
+              (source "" "&" and_initial and_mask, and_wide);
+              (source "noreg" "&" and_initial and_mask, and_narrow);
+            ])
+        bitwise_widths
+    @ [
+        ("I64 F(I8 x,I8 c){x|=c;return x;}F(127,256);", "127");
+        ("I64 F(I8 x,I8 c){x^=c;return x;}F(127,256);", "127");
+        ("I64 F(I8 x,I8 c){x&=c;return x;}F(-1,255);", "-1");
+      ]
+  in
   let widths =
     [
       ("I16", "32767", "65534", "-2", "65535", "-1");

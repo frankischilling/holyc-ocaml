@@ -197,6 +197,9 @@ let analyze_parameter ~frame ~body =
       | Ic_add_equ
       | Ic_sub_equ
       | Ic_mul_equ
+      | Ic_and_equ
+      | Ic_or_equ
+      | Ic_xor_equ
       | Ic_end_exp
       | Ic_return_val
       | Ic_jmp
@@ -272,7 +275,14 @@ let analyze_parameter ~frame ~body =
         &&
         match (item.opcode, item.operands) with
         | O.Ic_deref, [ target ] -> Seq.Value_id.equal target id
-        | ( (Ic_shl_equ | Ic_shr_equ | Ic_add_equ | Ic_sub_equ | Ic_mul_equ),
+        | ( ( Ic_shl_equ
+            | Ic_shr_equ
+            | Ic_add_equ
+            | Ic_sub_equ
+            | Ic_mul_equ
+            | Ic_and_equ
+            | Ic_or_equ
+            | Ic_xor_equ ),
             [ target; _ ] ) -> Seq.Value_id.equal target id
         | _ -> false
       in
@@ -305,7 +315,14 @@ let analyze_parameter ~frame ~body =
           (fun (item : Seq.description) ->
             match (item.opcode, item.operands) with
             | O.Ic_deref, [ target ]
-            | ( (Ic_shl_equ | Ic_shr_equ | Ic_add_equ | Ic_sub_equ | Ic_mul_equ),
+            | ( ( Ic_shl_equ
+                | Ic_shr_equ
+                | Ic_add_equ
+                | Ic_sub_equ
+                | Ic_mul_equ
+                | Ic_and_equ
+                | Ic_or_equ
+                | Ic_xor_equ ),
                 [ target; _ ] ) ->
                 List.exists
                   (fun (id, _) -> Seq.Value_id.equal id target)
@@ -348,7 +365,8 @@ let analyze_parameter ~frame ~body =
             (fun (item : Seq.description) ->
               item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ
               || item.opcode = O.Ic_add_equ || item.opcode = O.Ic_sub_equ
-              || item.opcode = O.Ic_mul_equ)
+              || item.opcode = O.Ic_mul_equ || item.opcode = O.Ic_and_equ
+              || item.opcode = O.Ic_or_equ || item.opcode = O.Ic_xor_equ)
             code
         in
         let returns =
@@ -418,7 +436,10 @@ let analyze_parameter ~frame ~body =
                         item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ
                         || item.opcode = O.Ic_add_equ
                         || item.opcode = O.Ic_sub_equ
-                        || item.opcode = O.Ic_mul_equ)
+                        || item.opcode = O.Ic_mul_equ
+                        || item.opcode = O.Ic_and_equ
+                        || item.opcode = O.Ic_or_equ
+                        || item.opcode = O.Ic_xor_equ)
                       code )
                 with
                 | ( Some (Frontend.Ast.Binary_expression binary),
@@ -433,7 +454,10 @@ let analyze_parameter ~frame ~body =
                       | ">>=", Ic_shr_equ
                       | "+=", Ic_add_equ
                       | "-=", Ic_sub_equ
-                      | "*=", Ic_mul_equ -> true
+                      | "*=", Ic_mul_equ
+                      | "&=", Ic_and_equ
+                      | "|=", Ic_or_equ
+                      | "^=", Ic_xor_equ -> true
                       | _ -> false
                     in
                     let target_binding = Frame.location_binding target in
