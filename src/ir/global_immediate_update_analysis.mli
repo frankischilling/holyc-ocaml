@@ -4,10 +4,10 @@ val analyze :
   frame:Sema.Function_frame_layout.function_layout ->
   body:Function_body.t ->
   t option
-(** Prove a direct literal update of a narrow global in a zero-argument,
-    zero-local function using its checked source and exact instruction graph.
-    Addition and subtraction literals are limited to nonnegative signed-32-bit
-    values. *)
+(** Prove a literal update of a narrow global in a zero-argument, zero-local
+    function using its checked source and exact instruction graph. The update
+    may be returned directly or added to another literal. Addition and
+    subtraction literals are limited to nonnegative signed-32-bit values. *)
 
 val matches :
   t ->

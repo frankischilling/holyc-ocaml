@@ -1475,6 +1475,53 @@ let source_controls () =
       ("sub", "127", "1", "129");
       ("sub", "128", "0", "128");
     ];
+  let check_nested stem direct_stem outer =
+    let fields = fixture stem and direct = fixture direct_stem in
+    List.iter
+      (fun prefix ->
+        List.iter
+          (fun name ->
+            let expected =
+              Int64.add
+                (Int64.of_string (List.assoc (prefix ^ name) direct))
+                outer
+              |> Int64.to_string
+            in
+            Alcotest.(check string)
+              "original nested global update" expected
+              (List.assoc (prefix ^ name) fields))
+          [ "S"; "U"; "SN"; "UN" ])
+      [ "J_"; "A_" ]
+  in
+  List.iter
+    (fun op ->
+      List.iter
+        (fun width ->
+          let nested = "global-nested-" ^ op ^ "-" ^ width in
+          let direct = "global-immediate-" ^ op ^ "-" ^ width in
+          check_nested nested direct 0L;
+          check_nested (nested ^ "-outermax") direct 2147483647L;
+          check_nested (nested ^ "-innermid") (direct ^ "-mid") 0L;
+          check_nested (nested ^ "-innermax") (direct ^ "-max") 0L)
+        [ "byte"; "16"; "32" ])
+    [ "add"; "sub" ];
+  List.iter
+    (fun width ->
+      List.iter
+        (fun (suffix, amount) ->
+          check_nested
+            ("global-nested-add-" ^ width ^ "-outer" ^ suffix)
+            ("global-immediate-add-" ^ width)
+            amount)
+        [ ("1", 1L); ("256", 256L) ])
+    [ "byte"; "32" ];
+  let global_nested_exe = fixture "global-nested-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original nested global update in compile-time execution" expected
+        (List.assoc name global_nested_exe))
+    [ ("ADD", "1"); ("SUB", "511") ];
   let global_exe = fixture "global-immediate-exe" in
   List.iter
     (fun (name, expected) ->
@@ -2012,6 +2059,74 @@ let global_immediate_proof () =
             [ "+"; "-" ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
       List.iter
+        (fun ty ->
+          List.iter
+            (fun operation ->
+              List.iter
+                (fun (inner, outer) ->
+                  let source =
+                    Printf.sprintf "%s G=0;I64 F(){return (G%s=%s)+%s;}42;" ty
+                      operation inner outer
+                  in
+                  let fn = compile mode source in
+                  Alcotest.(check bool)
+                    "nested global immediate proved" true
+                    (Option.is_some
+                       (Global.analyze ~frame:fn.frame ~body:fn.body)))
+                [
+                  ("1", "0");
+                  ("1", "1");
+                  ("1", "256");
+                  ("1", "2147483647");
+                  ("256", "0");
+                  ("2147483647", "0");
+                ])
+            [ "+"; "-" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      let nested = compile mode "U8 G=255;I64 F(){return (G+=1)+0;}42;" in
+      let nested_proof =
+        Option.get (Global.analyze ~frame:nested.frame ~body:nested.body)
+      in
+      let descriptions =
+        Body.body nested.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+      in
+      let address =
+        List.find
+          (fun (item : Seq.description) ->
+            match item.payload with
+            | Some (Seq.Symbol _) -> true
+            | _ -> false)
+          descriptions
+      in
+      let symbol =
+        match address.payload with
+        | Some (Seq.Symbol symbol) -> symbol
+        | _ -> assert false
+      in
+      let update =
+        List.find
+          (fun (item : Seq.description) ->
+            item.opcode = Holyc_lib__Ir.Opcode.Ic_add_equ)
+          descriptions
+      in
+      Alcotest.(check bool)
+        "nested proof matches" true
+        (Global.matches nested_proof ~frame:nested.frame ~body:nested.body
+           ~instruction:update ~symbol);
+      let outer =
+        List.find
+          (fun (item : Seq.description) -> item.payload = Some (Seq.Integer 0L))
+          descriptions
+      in
+      Obj.set_field (Obj.repr outer) 5 (Obj.repr (Some (Seq.Integer 1L)));
+      Alcotest.(check bool)
+        "changed outer literal invalidates nested proof" false
+        (Global.matches nested_proof ~frame:nested.frame ~body:nested.body
+           ~instruction:update ~symbol);
+      List.iter
         (fun literal ->
           let fn =
             compile mode ("U8 G=255;I64 F(){return G+=" ^ literal ^ ";}42;")
@@ -2029,7 +2144,10 @@ let global_immediate_proof () =
         [
           "U8 G=255;I64 N=1;I64 F(){return G+=N;}42;";
           "U8 G=255;I64 F(){U8 *p=&G;return *p+=1;}42;";
-          "U8 G=255;I64 F(){return (G+=1)+0;}42;";
+          "U8 G=255;I64 F(){return (G+=1)*1;}42;";
+          "U8 G=255;I64 F(){return (G+=1)+2147483648;}42;";
+          "U8 G=255;I64 F(){return 1+(G+=1);}42;";
+          "U8 G=255;I64 N=1;I64 F(){return (G+=1)+N;}42;";
           "U8 G=255;I64 F(){return G+=2147483648;}42;";
           "U8 G=255;I64 F(){return G*=1;}42;";
           "U8 G=255;I64 F(I64 x){return G+=1;}42;";

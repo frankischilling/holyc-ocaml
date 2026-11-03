@@ -97,7 +97,7 @@ let analyze ~frame ~body =
         | _ -> false)
     | _ -> false
   in
-  let valid_source ~retained symbol target operation count =
+  let valid_source ~retained ~outer symbol target operation count =
     Option.fold ~none:false
       ~some:(fun source ->
         match
@@ -106,7 +106,38 @@ let analyze ~frame ~body =
             Typed.function_returns source )
         with
         | [], [], [ returned ] -> (
-            match Typed.return_value returned with
+            let selected =
+              Option.bind (Typed.return_value returned) (fun value ->
+                  match outer with
+                  | None -> Some value
+                  | Some (expected, sum_type) -> (
+                      match
+                        ( Calls.argument_expression_source
+                            (Typed.result_source value),
+                          Typed.result_binary_operands value )
+                      with
+                      | ( Some (Frontend.Ast.Binary_expression binary),
+                          Some (left, right) )
+                        when Option.fold ~none:false
+                               ~some:(Sema.Type.equal sum_type)
+                               (Typed.result_type value)
+                             && binary.binary_operator_spec.spelling = "+"
+                             && (match
+                                   Calls.argument_expression_kind
+                                     (Typed.result_source right)
+                                 with
+                               | Calls.Integer_literal bits -> bits = expected
+                               | _ -> false)
+                             &&
+                             match
+                               Calls.argument_expression_kind
+                                 (Typed.result_source left)
+                             with
+                             | Calls.Parenthesized_expression _ -> true
+                             | _ -> false -> Typed.result_operand left
+                      | _ -> None))
+            in
+            match selected with
             | Some value -> (
                 match
                   ( Calls.argument_expression_source (Typed.result_source value),
@@ -191,11 +222,70 @@ let analyze ~frame ~body =
               Seq.Block_id.equal target successor
           | _ -> false
         in
-        match items with
-        | [ address; literal; update; returned; jump ]
-          when valid_terminator jump -> (
+        let word_literal item expected =
+          item.Seq.opcode = O.Ic_imm_i64
+          && item.payload = Some (Seq.Integer expected)
+          && item.operands = []
+          && Option.fold ~none:false
+               ~some:(fun type_ ->
+                 Sema.Type.pointer_depth type_ = 0
+                 &&
+                 match Sema.Type.base type_ with
+                 | Sema.Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) ->
+                     true
+                 | _ -> false)
+               item.target_type
+        in
+        let shape =
+          match items with
+          | [ address; literal; update; returned; jump ]
+            when valid_terminator jump ->
+              Option.map
+                (fun result ->
+                  (address, literal, update, returned, result, None))
+                (id update)
+          | [ address; literal; update; outer; sum; returned; jump ]
+            when valid_terminator jump -> (
+              match
+                ( id update,
+                  id outer,
+                  outer.Seq.payload,
+                  id sum,
+                  sum.Seq.target_type )
+              with
+              | ( Some update_id,
+                  Some outer_id,
+                  Some (Seq.Integer outer_bits),
+                  Some sum_id,
+                  Some sum_type )
+                when outer_bits >= 0L
+                     && outer_bits <= Int64.of_int32 Int32.max_int
+                     && word_literal outer outer_bits
+                     && sum.opcode = O.Ic_add && sum.payload = None
+                     && sum.operands = [ update_id; outer_id ]
+                     && Option.fold ~none:false
+                          ~some:(fun type_ ->
+                            Sema.Type.pointer_depth type_ = 0
+                            &&
+                            match Sema.Type.base type_ with
+                            | Sema.Type.Primitive
+                                (_, (Sema.Primitive_type.I64 | U64)) -> true
+                            | _ -> false)
+                          sum.target_type ->
+                  Some
+                    ( address,
+                      literal,
+                      update,
+                      returned,
+                      sum_id,
+                      Some (outer_bits, sum_type) )
+              | _ -> None)
+          | _ -> None
+        in
+        match shape with
+        | Some (address, literal, update, returned, return_id, outer) -> (
             let address_symbol =
-              match address.payload with
+              match address.Seq.payload with
               | Some (Seq.Symbol symbol) -> Some (symbol, false)
               | Some (Seq.Retained_global reference) ->
                   Some (Retained_global.symbol reference, true)
@@ -220,18 +310,7 @@ let analyze ~frame ~body =
                    && Sema.Symbol.kind symbol = Sema.Symbol.Global_variable
                    && (address.opcode = O.Ic_imm_i64
                       || address.opcode = O.Ic_abs_addr)
-                   && address.operands = []
-                   && literal.opcode = O.Ic_imm_i64
-                   && literal.operands = []
-                   && Option.fold ~none:false
-                        ~some:(fun type_ ->
-                          Sema.Type.pointer_depth type_ = 0
-                          &&
-                          match Sema.Type.base type_ with
-                          | Sema.Type.Primitive
-                              (_, (Sema.Primitive_type.I64 | U64)) -> true
-                          | _ -> false)
-                        literal.target_type
+                   && address.operands = [] && word_literal literal count
                    && List.length
                         (List.sort_uniq Int.compare
                            (List.map
@@ -239,18 +318,19 @@ let analyze ~frame ~body =
                                 Seq.Instruction_id.to_int item.instruction_id)
                               all_items))
                       = List.length all_items
-                   && List.length
-                        (List.sort_uniq Int.compare
-                           (List.map Seq.Value_id.to_int
-                              [ address_id; literal_id; update_id ]))
-                      = 3
+                   && (let ids =
+                         List.filter_map id all_items
+                         |> List.map Seq.Value_id.to_int
+                       in
+                       List.length (List.sort_uniq Int.compare ids)
+                       = List.length ids)
                    && (update.opcode = O.Ic_add_equ
                       || update.opcode = O.Ic_sub_equ)
                    && update.payload = None
                    && update.operands = [ address_id; literal_id ]
                    && returned.opcode = O.Ic_return_val
                    && returned.payload = None && returned.result = None
-                   && returned.operands = [ update_id ]
+                   && returned.operands = [ return_id ]
                    && List.for_all
                         (fun (item : Seq.description) -> item.flags = 0L)
                         items
@@ -267,8 +347,9 @@ let analyze ~frame ~body =
                           | Ok actual -> Sema.Type.equal actual target
                           | Error _ -> false)
                         address.target_type
-                   && valid_source ~retained symbol target update.opcode count
-              ->
+                   && valid_source ~retained ~outer symbol target update.opcode
+                        count ->
+                ignore update_id;
                 Some
                   {
                     frame;
