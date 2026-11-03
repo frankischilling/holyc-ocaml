@@ -329,6 +329,9 @@ let preparation_limits_and_domain () =
           ("I64 G=(2+3)*8+2;G;", 42L);
           ("I64 G=(1<2<3);G;", 1L);
           ("I64 G=1;I64 H=(G=7)+1;(G*10+H);", 78L);
+          ("I64 G=1;I64 H=G<<3;H;", 8L);
+          ("I64 G=-3;I64 H=G/2;H;", -2L);
+          ("I64 G=1;I64 H=(G<<63)<<1;H;", 1L);
         ];
       List.iter
         (fun text ->
@@ -336,12 +339,10 @@ let preparation_limits_and_domain () =
             "optimizer boundary remains explicit" "HCRUN0006"
             (F.first_error (G.run ~mode text)).code)
         [
-          "I64 G=-3;I64 H=G/2;H;";
           "I64 Half(I64 n){return n/2;}I64 G=Half(-3);G;";
           "I64 Half(I64 n){return n/2;}I64 Outer(I64 n){return Half(n);}I64 \
            G=Outer(-3);G;";
-          "I64 G=1;I64 H=G<<3;H;";
-          "I64 G=1;I64 H=(G<<63)<<1;H;";
+          "I64 G=1,C=3;I64 H=G<<C;H;";
         ];
       let error = F.first_error (G.run ~mode "I64 G=1/0;G;") in
       Alcotest.(check string)

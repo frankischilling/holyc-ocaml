@@ -68,9 +68,10 @@ invariants and exact/one-below resource limits. Public CLI regressions compare
 all 38 mode/field projections and the measured example. Existing native
 operation and source-authority tests remain required.
 
-Raw variable shifts, unsupported compound counts, direct or unsealed
-preparation expressions and unproved narrow/numeric/flagged domains retain
-`HCRUN0006`. General literal division and modulo admission is still guarded.
+Raw variable shifts, unsupported compound counts, unsealed preparation
+expressions and unproved narrow/numeric/flagged domains retain `HCRUN0006`.
+[Source global initializer shifts](source-root-initializer-shifts.md) describes
+the separate bounded direct-root path. General literal division and modulo admission is still guarded.
 Shared nonconstant power-of-two division and plain modulo-mask plans remain
 raw under #585/#696/#697. Native retained frontend publication retains
 `HCPP0008` under #704. Broader declaration preparation remains under #685;

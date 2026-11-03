@@ -287,7 +287,7 @@ let unsupported_neighbors_stay_outside_native_gate () =
       "I0 F(I0 n){return n;} F(1);";
       "F64 F(F64 n){return n;} F(1.0);";
       "I64 F(I64 **p){return **p;} 42;";
-      "I64 n=1;I8 G=n<<2; I64 F(){return G;} F();";
+      "I8 n=1;I8 G=n>>1; I64 F(){return G;} F();";
       "I64 F(){static I8 n={42};return n;} F();";
       "I64 F(I64 n,...){return n;} F(42,1.0);";
       "I64 F(I64 n,...){return n;} F(42,&F);";

@@ -676,6 +676,49 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                     else Ok ()
                 | _ -> Ok ()
               in
+              (* This graph is freshly lowered from the exact retained global
+                 root or live fragment. It may authorize only the same full-word
+                 canonical constant shifts qualified for retained callees. *)
+              let root_shifts =
+                match root_ with
+                | (Global _ | Fragment _)
+                  when Option.is_none frame
+                       && Ir.Integer_program_lowering.owns_expression
+                            value_lowered ~globals ~value ->
+                    let word (item : Seq.description) =
+                      Option.fold ~none:false
+                        ~some:(fun type_ ->
+                          Sema.Type.pointer_depth type_ = 0
+                          &&
+                          match Sema.Type.base type_ with
+                          | Sema.Type.Primitive
+                              (_, (Sema.Primitive_type.I64 | U64)) -> true
+                          | _ -> false)
+                        item.target_type
+                    in
+                    let produced =
+                      List.fold_left
+                        (fun map (item : Seq.description) ->
+                          match item.result with
+                          | Some result -> Values.add result.value_id item map
+                          | None -> map)
+                        Values.empty value_code
+                    in
+                    List.filter
+                      (fun (item : Seq.description) ->
+                        Ir.Lock_semantics.clear_flag item.flags = 0L
+                        &&
+                        match (item.opcode, item.operands, item.payload) with
+                        | ( (Ir.Opcode.Ic_shl_const | Ic_shr_const),
+                            [ operand ],
+                            Some (Seq.Integer _) ) ->
+                            word item
+                            && Option.fold ~none:false ~some:word
+                                 (Values.find_opt operand produced)
+                        | _ -> false)
+                      value_code
+                | _ -> []
+              in
               let guard ?runtime ~constant code =
                 let divisions =
                   Option.bind runtime (fun (context, owner) ->
@@ -721,11 +764,12 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                             | Ic_shr_equ ),
                             _ ) ->
                             not
-                              (Option.fold ~none:false
-                                 ~some:(fun shifts ->
-                                   Runtime.is_original_preparation_shift shifts
-                                     item)
-                                 shifts)
+                              (List.exists (( == ) item) root_shifts
+                              || Option.fold ~none:false
+                                   ~some:(fun shifts ->
+                                     Runtime.is_original_preparation_shift
+                                       shifts item)
+                                   shifts)
                         | ( (Ir.Opcode.Ic_div | Ic_mod | Ic_div_equ | Ic_mod_equ),
                             [ _; right ] )
                           when not constant ->

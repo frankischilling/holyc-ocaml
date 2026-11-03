@@ -5650,3 +5650,28 @@
    %{exe:test_aot_load_assignment_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(test
+ (name test_root_shift_initializer_oracle)
+ (modules test_root_shift_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/source-root-shifts/*)))
+
+(executable
+ (name test_root_shift_initializer_cli)
+ (modules test_root_shift_initializer_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_root_shift_initializer_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_root_shift_initializer_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
