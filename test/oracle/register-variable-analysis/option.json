@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "0a65640350750d6997435013aac7aa2e76f8903833cbc70c3249561d6a013e8d",
+  "capture_sha256": "ca54a5c554b669a6ef28d200eefdc60b645cad6bd284ed618cb823a7ab6fe42c",
+  "boot_iso_sha256": "0e651db69ca74dbfb1a6322732401688ef7949f2a0da15cbecd14b1826fceacb",
+  "fields": {
+    "BEFORE": "0",
+    "SET": "1",
+    "AFTER": "1",
+    "COMPILE_ERRORS": "0",
+    "AOT_NOOPT": "254"
+  },
+  "scope": "Repeated original AOT observation of an option bit and narrow result; the option propagation into the function requires further investigation."
+}

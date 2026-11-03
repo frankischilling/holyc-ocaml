@@ -5675,3 +5675,10 @@
    %{exe:test_root_shift_initializer_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(test
+ (name test_register_variable_analysis)
+ (modules test_register_variable_analysis)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/register-variable-analysis/*)))

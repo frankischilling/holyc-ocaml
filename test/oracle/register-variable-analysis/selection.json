@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "b4535486cab342c392e2aa333c6d84164e47e552a9a8c7e4be11e6bd9585645d",
+  "capture_sha256": "35a8a09baab8806ad66f9912e8419cef95e6130fee038d8055b12b0a13208483",
+  "boot_iso_sha256": "bd91ec60eb7cbcf8ea7c891f97cdfaadb7ed2f7df5a8c80251c07b08e0d04c9b",
+  "fields": {
+    "JIT_REG": "254",
+    "JIT_NOREG": "-2",
+    "JIT_ADDR": "-2",
+    "JIT_LOCAL": "254",
+    "JIT_NOLOCAL": "-2",
+    "COMPILE_ERRORS": "0",
+    "AOT_REG": "254",
+    "AOT_NOREG": "-2",
+    "AOT_ADDR": "-2",
+    "AOT_LOCAL": "254",
+    "AOT_NOLOCAL": "-2"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of narrow register candidate selection."
+}

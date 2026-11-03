@@ -80,6 +80,10 @@ val callable_symbol : t -> Sema.Symbol.t
 val definition_declaration :
   t -> Sema.Function_resolution.resolved_declaration option
 
+val definition_source :
+  t -> Sema.Function_call_expression_result.resolved_function option
+(** The exact typed source retained by the original bound definition. *)
+
 val definition_matches_frame :
   t -> Sema.Function_frame_layout.function_layout -> bool
 (** A bound body requires its exact associated frame. A raw body retains the

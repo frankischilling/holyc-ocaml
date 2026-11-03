@@ -66,6 +66,7 @@ type member = member_description
 
 type definition_binding = {
   declaration : Sema.Function_resolution.resolved_declaration;
+  source : Sema.Function_call_expression_result.resolved_function;
   frame : Sema.Function_frame_layout.function_layout;
   aggregate_parameters : (Symbol.t * Sema.Type.t) list;
   aggregate_return : Sema.Type.t option;
@@ -310,6 +311,9 @@ let callable_symbol function_ =
 let definition_declaration function_ =
   Option.map (fun binding -> binding.declaration) function_.definition_
 
+let definition_source function_ =
+  Option.map (fun binding -> binding.source) function_.definition_
+
 let definition_matches_frame function_ frame =
   Option.fold ~none:true
     ~some:(fun binding -> binding.frame == frame)
@@ -443,6 +447,7 @@ let with_definition ~records ~sources ~frames ~definition ~frame function_ =
         Some
           {
             declaration;
+            source;
             frame;
             aggregate_return =
               Typed.aggregate_integer_value_type sources

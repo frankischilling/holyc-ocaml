@@ -15,6 +15,8 @@ and compiled BIN-load captures in
 -2 in both cases, so the register case is not yet compatible. Reproducing the
 original optimizer's register allocation and full-width register values is still
 required; narrow left updates in retained initializer preparation remain guarded.
+See [narrow register variable analysis](register-variable-analysis.md) for the
+current bounded analysis and its reference evidence.
 
 ## Stored values and register values
 
