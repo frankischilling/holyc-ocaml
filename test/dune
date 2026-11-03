@@ -5343,6 +5343,7 @@
  (modules
   automatic_aggregate_cases
   empty_array_cases
+  zero_reference_initializer_cases
   aggregate_member_cases
   callback_field_cases
   reference_return_cases
@@ -5595,3 +5596,10 @@
  (libraries yojson digestif alcotest)
  (deps
   (glob_files oracle/automatic-void/*)))
+
+(test
+ (name test_zero_reference_initializer_oracle)
+ (modules test_zero_reference_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/zero-reference-initializers/*)))

@@ -24,9 +24,10 @@ let reference value = value.reference_
 let span value = value.span_
 
 let discards_value value =
-  Initializer_value.discards
-    ~scalar:(Layout.scalar value.layout_)
-    (Typed.top_level_root_value value.root_)
+  let scalar = Layout.scalar value.layout_ in
+  let expression = Typed.top_level_root_value value.root_ in
+  Initializer_value.discards ~scalar expression
+  || Initializer_value.discards_reference ~scalar expression
 
 let stores_pointer value =
   Initializer_value.stores_pointer
@@ -87,6 +88,8 @@ let create ~task_view ~reference ~slot ~layout typed =
     | Layout.Scalar_store ->
         if
           Initializer_value.discards ~scalar:(Layout.scalar layout) value
+          || Initializer_value.discards_reference ~scalar:(Layout.scalar layout)
+               value
           || Initializer_value.stores_pointer ~scalar:(Layout.scalar layout)
                value
         then Ok ()

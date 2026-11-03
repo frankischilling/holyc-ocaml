@@ -43,9 +43,9 @@ observations. Standalone calls produce no warning; aggregate and static U0
 leaves produce one each, and later calls leave the static count unchanged.
 A second capture records six callback-word, function-address and integer-leaf
 controls twice. Those values produce no U0 warning and do not call the selected
-function. Direct function-address leaves remain a reference-only boundary in
-this fixture; their execution is not implemented. Tests compare supported
-warning counts and values through both executors,
+function. Live JIT function-address leaves now use the checked
+[zero-byte reference initializer path](zero-byte-reference-initializers.md).
+Tests compare supported warning counts and values through both executors,
 check source spans, and preserve a warning before a later division failure.
 The live-parser test also checks duplicate and expired preparation attempts.
 

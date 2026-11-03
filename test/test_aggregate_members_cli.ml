@@ -807,3 +807,70 @@ let () =
           Empty_array_cases.jit_values)
     (if native then [ "ir"; "host-jit-task"; "host-jit" ] else [ "ir" ]);
   Printf.printf "Aggregate member CLI checks passed (%d reports).\n" !reports
+
+let () =
+  List.iter
+    (fun target ->
+      let options = [ "--code-byte-limit=524288" ] in
+      List.iter
+        (fun (_, source, expected, output) ->
+          value expected output (invoke ~options target "jit" source))
+        Zero_reference_initializer_cases.values;
+      List.iter
+        (fun (_, source, code, output) ->
+          error ~code output (invoke ~status:1 ~options target "jit" source))
+        Zero_reference_initializer_cases.faults;
+      let source = Zero_reference_initializer_cases.quota_source in
+      let baseline = invoke ~options target "jit" source in
+      value 42L "" baseline;
+      let steps = baseline |> member "executed_steps" |> to_int in
+      let preparation =
+        baseline |> member "compiled_initializer_steps" |> to_int
+      in
+      require
+        (steps > 1 && preparation > 1)
+        "discarded references require actual execution";
+      value 42L ""
+        (invoke
+           ~options:
+             (options
+             @ [
+                 "--global-byte-limit=8";
+                 "--step-limit=" ^ string_of_int steps;
+                 "--initializer-step-limit=" ^ string_of_int preparation;
+               ])
+           target "jit" source);
+      error ~code:"HCIRVM0016" ""
+        (invoke ~status:1
+           ~options:(options @ [ "--global-byte-limit=7" ])
+           target "jit" source);
+      error ~code:"HCIRVM0007" ""
+        (invoke ~status:1
+           ~options:(options @ [ "--step-limit=" ^ string_of_int (steps - 1) ])
+           target "jit" source);
+      error ~code:"HCIRVM0007" ""
+        (invoke ~status:1
+           ~options:
+             (options
+             @ [ "--initializer-step-limit=" ^ string_of_int (preparation - 1) ]
+             )
+           target "jit" source);
+      let _, source, _, _ =
+        List.find
+          (fun (name, _, _, _) -> name = "string")
+          Zero_reference_initializer_cases.values
+      in
+      value 42L ""
+        (invoke
+           ~options:(options @ [ "--literal-byte-limit=3" ])
+           target "jit" source);
+      error
+        ~code:(if target = "ir" then "HCIRVM0021" else "HCBACK0004")
+        ""
+        (invoke ~status:1
+           ~options:(options @ [ "--literal-byte-limit=2" ])
+           target "jit" source))
+    (if native then [ "ir"; "host-jit-task" ] else [ "ir" ]);
+  Printf.printf
+    "Aggregate CLI including zero-byte references passed (%d reports).\n"
+    !reports

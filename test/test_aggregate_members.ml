@@ -565,6 +565,18 @@ let () =
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
           Persistent.pointer_initializer_values );
+      ( "zero-byte reference initializers",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                ignore (value expected output (run Preprocessor.Jit source))))
+          Zero_reference_initializer_cases.values );
+      ( "zero-byte reference boundaries",
+        List.map
+          (fun (name, source, code, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                failure code output (run Preprocessor.Jit source)))
+          Zero_reference_initializer_cases.faults );
       ( "U0 initializer effects",
         List.map
           (fun (name, source, expected, output) ->

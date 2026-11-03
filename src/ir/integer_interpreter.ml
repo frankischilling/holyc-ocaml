@@ -3728,7 +3728,10 @@ let prepare_native_static_initializer_copy task program capture ~work =
       | None
         when Static_initializer_destination.discards_value destination
              && Sema.Initializer_type.scalar_byte_size scalar = 0 -> Ok ""
-      | None -> Error "HCRUN0006: a U0 initializer cannot copy nonzero storage"
+      | None ->
+          Error
+            "HCRUN0006: an initializer without a scalar word cannot copy \
+             nonzero storage"
     in
     if String.length bytes > task_initializer_remaining task then
       Error "HCIRVM0007: native static scalar copy work limit was exhausted"
@@ -5646,7 +5649,10 @@ let prepare_native_initializer_copy task attempt execution program capture ~work
         when Initializer_fragment_destination.discards_value
                (Initializer_fragment_program.destination program)
              && Sema.Initializer_type.scalar_byte_size scalar = 0 -> Ok ""
-      | None -> Error "HCRUN0006: a U0 initializer cannot copy nonzero storage"
+      | None ->
+          Error
+            "HCRUN0006: an initializer without a scalar word cannot copy \
+             nonzero storage"
     in
     if String.length bytes > task_initializer_remaining task then
       Error
@@ -14577,7 +14583,9 @@ let execute_task_static_initializer ?(use_active_stream = true)
             when Destination.discards_value destination
                  && Sema.Initializer_type.scalar_byte_size scalar = 0 -> Ok ""
           | None ->
-              Error "HCRUN0006: a U0 initializer cannot copy nonzero storage"
+              Error
+                "HCRUN0006: an initializer without a scalar word cannot copy \
+                 nonzero storage"
         in
         let count = String.length bytes in
         let* () =
@@ -14760,7 +14768,9 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
                   Sema.Initializer_type.scalar_byte_size scalar = 0)
                 (Integer_initializer_layout.scalar layout)
       then Ok ()
-      else invalid "HCRUN0006" "a U0 initializer cannot copy nonzero storage"
+      else
+        invalid "HCRUN0006"
+          "an initializer without a scalar word cannot copy nonzero storage"
     in
     let* payload =
       match (payload, Integer_initializer_layout.scalar layout) with

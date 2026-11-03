@@ -237,15 +237,17 @@ let warning_controls () =
         ];
       let diagnostics, result, output =
         warning_run native
-          "U0 Effect(){}class Box{U0 empty;U8 value;};Box object={&Effect,42};"
+          "I64 count=0;U0 Effect(){count++;}class Box{U0 empty;U8 value;};Box \
+           object={&Effect,42};I64 F(){if(count)return -1;return \
+           object.value;}F();"
       in
-      Alcotest.(check bool)
-        "direct function-address leaf remains unsupported" true
-        (Result.is_error result);
       Alcotest.(check (list string))
-        "no invented U0 warning for an unsupported address" [ "HCRUN0001" ]
+        "a function address retains its physical pointer class" []
         (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
-      Alcotest.(check string) "unsupported address does not execute" "" output)
+      Alcotest.(check (option int64))
+        "zero-byte function-address leaf executes without a call" (Some 42L)
+        (Result.get_ok result);
+      Alcotest.(check string) "function address produces no output" "" output)
     [ false; true ]
 
 let () =

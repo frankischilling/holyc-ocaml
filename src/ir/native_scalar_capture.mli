@@ -8,8 +8,8 @@ val consume :
   program:'program ->
   work:int ->
   (int64, string) result
-(** Require an actual word; an executed U0 result cannot satisfy this consumer.
-*)
+(** Require an actual word. Executed U0 and discarded owned references cannot
+    satisfy this consumer. *)
 
 val consume_value :
   ?scope:Native_source_suspension.t ->
@@ -17,5 +17,6 @@ val consume_value :
   program:'program ->
   work:int ->
   (int64 option, string) result
-(** Consume the actual result, retaining U0 as absence rather than inventing a
-    word. *)
+(** Consume the actual scalar result. U0 and discarded owned references retain
+    their checked absence of a scalar word rather than fabricating address bits.
+*)

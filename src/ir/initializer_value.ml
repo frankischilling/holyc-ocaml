@@ -51,3 +51,16 @@ let stores_pointer ~scalar value =
       && (Sema.Type.equal target source
          || Sema.Type.compatible_u8_pointer target source)
   | _ -> false
+
+let discards_reference ~scalar value =
+  Option.fold ~none:false
+    ~some:(fun scalar -> Sema.Initializer_type.scalar_byte_size scalar = 0)
+    scalar
+  && Typed.result_class value = Typed.Integer_result
+  && (Option.fold ~none:false
+        ~some:Aggregate_member_projection.pointer_member_type
+        (source_pointer_type value)
+     || Typed.result_array_rank value = 0
+        && (Typed.result_is_callback_storage value
+           || Typed.result_category value = Typed.Address_value
+              && Option.is_some (Typed.result_function_address_path value)))

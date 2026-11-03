@@ -744,6 +744,22 @@ let () =
                   modes;
                 ignore (value expected output (run Preprocessor.Aot source))))
           Persistent.pointer_initializer_values );
+      ( "zero-byte reference initializers",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                task_value expected output (run_task source)))
+          Zero_reference_initializer_cases.values );
+      ( "zero-byte reference boundaries",
+        List.map
+          (fun (name, source, code, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                let report = run_task source in
+                task_failure code report;
+                Alcotest.(check string)
+                  "earlier effects" output
+                  (Native_source_execution.output_bytes report)))
+          Zero_reference_initializer_cases.faults );
       ( "U0 initializer effects",
         List.map
           (fun (name, source, expected, output) ->

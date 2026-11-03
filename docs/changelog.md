@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Evaluate supported reference values in zero-byte JIT initializer leaves
+  without inventing scalar words or writing neighboring bytes. Keep actual
+  execution, once-only receipts, literal charges and arena ownership checks.
+
 - Emit original JIT U0 initializer warnings before execution, with once-only
   preparation ownership and active compiler warning counts. See
   [U0 initializer warnings](void-initializer-warnings.md) for scope and evidence.

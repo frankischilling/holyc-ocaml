@@ -1,5 +1,9 @@
 # Testing holyc-ocaml
 
+[Zero-byte reference initializer tests](zero-byte-reference-initializers.md)
+compare ten repeated native observations, check actual no-scalar captures and
+empty-copy receipts, and retain exact/one-below work, storage and literal limits.
+
 [U0 initializer warning tests](void-initializer-warnings.md) compare repeated
 native counts, diagnostic order and source spans. Live parser checks retain the
 original counter across replay rejection; runtime failure preserves earlier

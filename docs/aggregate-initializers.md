@@ -444,3 +444,10 @@ input to the task table and JIT flags before restoring the enclosing context.
 
 Allocation, byte roots and persistent lifetimes are described in
 [persistent aggregate storage](persistent-aggregates.md).
+
+## Zero-byte reference values
+
+Live JIT leaves can evaluate a function address, callback word or supported data
+reference without copying pointer bits into a zero-byte destination. Evaluation,
+settlement and completion remain separate. See
+[references in zero-byte initializers](zero-byte-reference-initializers.md).

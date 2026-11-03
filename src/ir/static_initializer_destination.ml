@@ -39,8 +39,9 @@ let scalar t =
   scalar
 
 let discards_value t =
-  Initializer_value.discards ~scalar:t.scalar_
-    (Typed.top_level_root_value t.root_)
+  let expression = Typed.top_level_root_value t.root_ in
+  Initializer_value.discards ~scalar:t.scalar_ expression
+  || Initializer_value.discards_reference ~scalar:t.scalar_ expression
 
 let stores_pointer value =
   Initializer_value.stores_pointer ~scalar:value.scalar_
@@ -145,6 +146,7 @@ let create ~allocation ~task_view ~cursor typed =
         let callback = Option.is_some (Fragment.callback_source fragment_) in
         if
           Initializer_value.discards ~scalar:scalar_ value
+          || Initializer_value.discards_reference ~scalar:scalar_ value
           || Initializer_value.stores_pointer ~scalar:scalar_ value
         then Ok ()
         else if

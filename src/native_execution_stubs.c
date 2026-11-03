@@ -3895,8 +3895,9 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
     value scope_option = Field(Field(task, 3), 0);
     capture->scope = scope_option == Val_none ? Val_unit : Field(scope_option, 0);
     capture->bits = (uint64_t)Int64_val(Field(status, 4));
-    /* Negative sites retain checked U0 completion, not an integer zero.
-       The image decoder validates the original site before publication. */
+    /* Negative sites retain checked non-scalar completion: U0 or a discarded
+       owned reference, never an invented integer zero. The image decoder
+       validates the original site before publication. */
     capture->value_site = Int64_val(Field(status, 3));
     capture->work = (intnat)(steps - Long_val(Field(consumed, 0)));
     atomic_init(&capture->consumed, 0);
@@ -3935,7 +3936,7 @@ static value native_consume_binding_capture(value handle, value request,
       capture->work != Long_val(Field(request, 1)))
     caml_invalid_argument("native internal binding has another program or actual work");
   if (!optional && capture->value_site < 0)
-    caml_invalid_argument("native scalar capture contains U0 rather than a word");
+    caml_invalid_argument("native scalar capture contains no scalar word");
   arena = native_task_arena_get(capture->arena);
   struct native_source_scope *source_scope = native_source_scope_option(scope_option);
   if ((source_scope == NULL ? Val_unit : Field(scope_option, 0)) != capture->scope)
