@@ -146,6 +146,14 @@ let () =
              x;}I64 IR(){return FR(XR,CR);}I64 SR(I64 n=IR()){return \
              n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}",
             "-4" );
+          ( "#exe {I64 NR=0;I64 FR(I8 x,I64 c){NR++;x>>=c;return x;}I64 \
+             IR(){return FR(-7,65);}I64 SR(I64 n=IR()){return \
+             n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}",
+            "-4" );
+          ( "#exe {I64 FR(U8 x,I64 c){x>>=c;return x;}I64 IR(){return \
+             FR(255,65);}I64 SR(I64 n=IR()){return \
+             n;}StreamPrint(\"%d;\",SR());}",
+            "127" );
         ]
       in
       List.iter
@@ -162,8 +170,11 @@ let () =
                 |> member "value" = `String expected)
                 "retained variable shift result and single call";
               let exact =
-                invoke ~target ~steps ~preparation ~status:0 compiler mode
-                  variable
+                if preparation = 0 then
+                  invoke ~target ~steps ~status:0 compiler mode variable
+                else
+                  invoke ~target ~steps ~preparation ~status:0 compiler mode
+                    variable
               in
               require
                 (member "outcome" exact = `String "success")
@@ -172,10 +183,11 @@ let () =
                 (invoke ~target ~steps:(steps - 1) ~status:1 compiler mode
                    variable)
                 "HCIRVM0007";
-              error
-                (invoke ~target ~preparation:(preparation - 1) ~status:1
-                   compiler mode variable)
-                "HCIRVM0007")
+              if preparation > 1 then
+                error
+                  (invoke ~target ~preparation:(preparation - 1) ~status:1
+                     compiler mode variable)
+                  "HCIRVM0007")
             [ "ir"; "host-jit-task" ])
         sources;
       let fault = member "hosted_fault_projection" fixture in

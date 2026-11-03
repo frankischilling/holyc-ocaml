@@ -617,26 +617,10 @@ let original_preparation_shifts context ~owner =
                 Option.is_some (Values.find_opt target produced)
                 && Option.fold ~none:false ~some:scalar
                      (Values.find_opt count produced)
-            | Opcode.Ic_shr_equ, [ _; count ], None ->
-                Option.is_some
-                  (Option.bind item.target_type Integer_scalar_storage.of_type)
-                && Option.fold ~none:false
-                     ~some:(fun (right : Seq.description) ->
-                       right.opcode = Opcode.Ic_imm_i64
-                       && Lock_semantics.clear_flag right.flags = 0L
-                       && right.operands = []
-                       && Option.fold ~none:false
-                            ~some:(fun type_ ->
-                              Type.pointer_depth type_ = 0
-                              && Type.base type_
-                                 = Type.Primitive
-                                     ( Type.Internal_storage,
-                                       Sema.Primitive_type.I64 ))
-                            right.target_type
-                       &&
-                       match right.payload with
-                       | Some (Seq.Integer bits) -> bits >= 0L && bits <= 63L
-                       | _ -> false)
+            | Opcode.Ic_shr_equ, [ target; count ], None ->
+                scalar item
+                && Option.is_some (Values.find_opt target produced)
+                && Option.fold ~none:false ~some:scalar
                      (Values.find_opt count produced)
             | _ -> false)
           graph.source_producers)

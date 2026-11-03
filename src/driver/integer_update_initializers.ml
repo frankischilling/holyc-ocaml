@@ -99,9 +99,10 @@ let safe_compound scalar (item : Seq.description) right =
   | O.Ic_and_equ -> Scalar.is_unsigned scalar || fits scalar right
   | Ic_div_equ -> Scalar.is_unsigned scalar || excludes (-1L) right
   | Ic_mod_equ -> true
-  | Ic_shr_equ ->
-      item.flags = 0L
-      && option_exists (fun bits -> bits >= 0L && bits <= 63L) right.constant
+  (* A native right shift masks its count. Signed and unsigned right shifts
+     preserve a value already within the destination's narrow range. The
+     initializer guard separately authenticates the scalar count producer. *)
+  | Ic_shr_equ -> item.flags = 0L
   | Ic_or_equ | Ic_xor_equ -> fits scalar right
   | Ic_add_equ | Ic_sub_equ -> right.constant = Some 0L
   | Ic_mul_equ -> right.constant = Some 0L || right.constant = Some 1L

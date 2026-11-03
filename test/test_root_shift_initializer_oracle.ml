@@ -508,6 +508,98 @@ let original_retained_compound () =
       ("retained-compound-right", "-8", ">>");
     ]
 
+let original_narrow_right_update () =
+  let fields = fixture ~stem:"retained-narrow-right" () in
+  Alcotest.(check string)
+    "one original narrow call" "1"
+    (List.assoc "CALLS" fields);
+  let cases =
+    [
+      ( "SIGNED",
+        "#exe {I64 NR=0;I64 FR(I8 x,I64 c){NR++;x>>=c;return x;}I64 \
+         IR(){return FR(-7,65);}I64 SR(I64 n=IR()){return \
+         n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}" );
+      ( "UNSIGNED",
+        "#exe {I64 FR(U8 x,I64 c){x>>=c;return x;}I64 IR(){return \
+         FR(255,65);}I64 SR(I64 n=IR()){return n;}StreamPrint(\"%d;\",SR());}"
+      );
+    ]
+  in
+  List.iter
+    (fun (key, source) ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun mode ->
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original narrow compound right shift"
+                (Some (Int64.of_string (List.assoc key fields)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no narrow update diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ Preprocessor.Jit; Preprocessor.Aot ])
+        [ false; true ])
+    cases;
+  let counts = fixture ~stem:"narrow-right-counts" () in
+  List.iter
+    (fun (key, count) ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun mode ->
+              let source =
+                Printf.sprintf
+                  "#exe {I64 F(I8 x,I64 c){x>>=c;return x;}I64 I(){return \
+                   F(-7,%s);}I64 S(I64 n=I()){return \
+                   n;}StreamPrint(\"%%d;\",S());}"
+                  count
+              in
+              let _, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original masked narrow count"
+                (Some (Int64.of_string (List.assoc key counts)))
+                (Result.get_ok result))
+            [ Preprocessor.Jit; Preprocessor.Aot ])
+        [ false; true ])
+    [
+      ("NEG", "-1");
+      ("ZERO", "0");
+      ("C63", "63");
+      ("C64", "64");
+      ("C65", "65");
+      ("C128", "128");
+    ]
+
+let original_narrow_left_gap () =
+  let register = fixture ~stem:"narrow-left-register-gap" () in
+  let addressed = fixture ~stem:"narrow-left-addressed" () in
+  let direct = fixture ~stem:"narrow-direct-gap" () in
+  Alcotest.(check string)
+    "original register result" "254"
+    (List.assoc "SIGNED" register);
+  Alcotest.(check string)
+    "original addressed result" "-2"
+    (List.assoc "SIGNED" addressed);
+  List.iter
+    (fun native ->
+      List.iter
+        (fun (mode, prefix) ->
+          Alcotest.(check string)
+            "original direct register" "254"
+            (List.assoc (prefix ^ "REG") direct);
+          let _, result =
+            run native mode
+              "I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}F(127,1);"
+          in
+          Alcotest.(check (option int64))
+            "original direct addressed result"
+            (Some (Int64.of_string (List.assoc (prefix ^ "MEM") direct)))
+            (Result.get_ok result))
+        [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+    [ false; true ]
+
 let static_owner_identity () =
   let module G = Ir_integer_globals in
   let module L = Ir_integer_program_lowering in
@@ -603,6 +695,10 @@ let () =
             original_retained_callee;
           Alcotest.test_case "original retained compound" `Quick
             original_retained_compound;
+          Alcotest.test_case "original narrow right update" `Quick
+            original_narrow_right_update;
+          Alcotest.test_case "original narrow left gap" `Quick
+            original_narrow_left_gap;
           Alcotest.test_case "static owner identity" `Quick
             static_owner_identity;
           Alcotest.test_case "unsupported boundaries" `Quick boundaries;
