@@ -664,6 +664,80 @@ I64 F(){static Box saved={3,"EF"};return first.text[1]+second.text[0]+saved.text
   reject "equal-source foreign pointer load bundle"
     (emit ~global_initializers:sealed foreign)
 
+let empty_array_ownership () =
+  let contents =
+    {|U8 A[]="AB",B[]="CD";I64 Empty[]={};
+I64 F(){static U8 C[]="EF",D[]="GH";static I64 words[]={};
+return sizeof(A)+sizeof(B)+sizeof(C)+sizeof(D)+sizeof(Empty)+sizeof(words);}F();|}
+  in
+  List.iter
+    (fun mode ->
+      let make () = fixture ~contents ~isolated:true mode in
+      let span, prepared, compile = make () in
+      let globals = Preparation.initializers prepared in
+      let statics = Preparation.static_initializers prepared in
+      Alcotest.(check int)
+        "two original global empty copies" 2 (List.length globals);
+      Alcotest.(check int)
+        "two original static empty copies" 2 (List.length statics);
+      Alcotest.(check int)
+        "empty copies charge no invented work" 0
+        (Preparation.work prepared);
+      let compile globals statics =
+        compile ~native_initializers:globals ~native_static_initializers:statics
+          ()
+      in
+      let unit_ = compile globals statics |> diagnostics in
+      let seal ?(completions = Preparation.initializer_completions prepared)
+          ?(static_completions = Preparation.static_completions prepared) unit_
+          =
+        proof ~static_completions span completions unit_
+      in
+      let sealed = seal unit_ |> checked in
+      List.iter
+        (fun status_abi ->
+          ignore
+            (emit ~global_initializers:sealed ~status_abi unit_
+            |> Result.map_error (fun _ -> "empty array ABI encoding failed")
+            |> checked))
+        [ Image.Windows_x64; Image.System_v_x64 ];
+      reject "empty global copies still require their completion receipts"
+        (seal ~completions:[] unit_);
+      reject "empty static copies still require their completion receipts"
+        (seal ~static_completions:[] unit_);
+      List.iter
+        (fun mutation ->
+          let change values =
+            match mutation with
+            | `Missing -> []
+            | `Reverse -> List.rev values
+            | `Repeat -> List.hd values :: values
+          in
+          reject "empty global copy order and count"
+            (compile (change globals) statics);
+          reject "empty static copy order and count"
+            (compile globals (change statics)))
+        [ `Missing; `Reverse; `Repeat ];
+      let copied =
+        compile
+          (List.map (fun p -> Obj.obj (Obj.dup (Obj.repr p))) globals)
+          statics
+        |> diagnostics
+      in
+      reject "copied empty preparation cannot replace original completion"
+        (seal copied);
+      let _, other, other_compile = make () in
+      let foreign =
+        other_compile
+          ~native_initializers:(Preparation.initializers other)
+          ~native_static_initializers:(Preparation.static_initializers other)
+          ()
+        |> diagnostics
+      in
+      reject "foreign empty array bundle"
+        (emit ~global_initializers:sealed foreign))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let array_ownership () =
   let contents =
     "I16 G[2][2]={{40,0},{0,2}};I64 F(){static U8 \
@@ -954,6 +1028,8 @@ let () =
                 ());
           Alcotest.test_case "owned pointer load source and bundle ownership"
             `Quick pointer_load_ownership;
+          Alcotest.test_case "empty arrays retain original zero-work ownership"
+            `Quick empty_array_ownership;
           Alcotest.test_case "numeric and copied array leaf ownership" `Quick
             array_ownership;
           Alcotest.test_case "prepared arrays publish before native entry"

@@ -7360,8 +7360,14 @@ let complete_initializer_runtime ledger ~runtime event =
             | leaf :: _ ->
                 (Option.get (Sema.Initializer_source.leaf_parser_receipt leaf))
                   .leaf_initializer
-            | [] ->
-                fail span "initializer completion has no reached source leaf"
+            | [] -> (
+                match Sema.Initializer_source.last_parser_delimiter source with
+                | Some delimiter
+                  when delimiter.Parser.delimiter_initializer.initializer_owner
+                       == publication -> delimiter.delimiter_initializer
+                | _ ->
+                    fail span
+                      "initializer completion has no original source boundary")
           in
           VM.complete_task_initializer runtime ~namespace:ledger.namespace start
             source

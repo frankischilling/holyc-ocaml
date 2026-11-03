@@ -12,6 +12,8 @@ let declared_size_queries () =
   cases
     [
       ("U8 A[3];sizeof A+39;", 42L);
+      ("I64 A[0];sizeof A+42;", 42L);
+      ("I64 A[];sizeof A+42;", 42L);
       ("U16 A[2][3];sizeof A+30;", 42L);
       ("I64 A[1+2];sizeof A+18;", 42L);
       ("U8 A[3],B[sizeof A];sizeof B+39;", 42L);
@@ -147,9 +149,7 @@ let invalid_extents () =
       List.iter
         (fun source -> ignore (F.first_error (G.run ~mode source)))
         [
-          "I64 A[0];42;";
           "I64 A[-1];42;";
-          "I64 A[];42;";
           "I64 A[9223372036854775807][2];42;";
           "U8 A[9223372036854775807];42;";
           "I64 A[1152921504606846976];42;";

@@ -36,8 +36,9 @@ let of_location location =
             let count = Frame.dimension_value dimension in
             if
               Frame.dimension_kind dimension <> Frame.Source_extent
-              || count <= 0L
-              || count > Int64.div (Int64.of_int Int.max_int) elements
+              || count < 0L
+              || elements > 0L
+                 && count > Int64.div (Int64.of_int Int.max_int) elements
             then None
             else Some (Int64.mul elements count)))
       (Some 1L) dimensions
@@ -49,7 +50,7 @@ let of_location location =
             let count = Frame.dimension_value dimension in
             if
               Frame.dimension_kind dimension <> Frame.Source_extent
-              || bytes < 0L || count <= 0L
+              || bytes < 0L || count < 0L
               || bytes <> 0L
                  && count > Int64.div (Int64.of_int Int.max_int) bytes
             then None

@@ -3404,6 +3404,26 @@ CAMLprim value holyc_native_bind_task_default_string(value handle, value request
   CAMLreturn(Val_unit);
 }
 
+#if HOLYC_NATIVE_PLATFORM != 0
+static void native_validate_empty_task_copy(struct native_task_arena *arena, value handle,
+                                           intnat prefix, value scope_option)
+{
+  int expected = 0;
+  if (prefix < 0 || (uintnat)prefix > HOLYC_NATIVE_MAX_ARENA_BYTES)
+    caml_invalid_argument("empty byte copy has an invalid arena prefix");
+  int borrowed_arena = native_source_borrows_arena(scope_option, handle);
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_invalid_argument("native task arena is already active");
+  if ((size_t)prefix != arena->used || arena->used > arena->capacity
+      || arena->closing || arena->mapping == NULL) {
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
+    caml_invalid_argument("empty byte copy has another original arena");
+  }
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
+}
+
+#endif
+
 CAMLprim value holyc_native_task_static_copy(value handle, value descriptor, value scope_option)
 {
   CAMLparam3(handle, descriptor, scope_option);
@@ -3429,6 +3449,12 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor, val
   flag = Long_val(Field(descriptor, 2));
   payload = Field(descriptor, 3);
   count = caml_string_length(payload);
+  /* Zero-width copies claim the original arena scope without touching data
+     or flag addresses. They do not create a scalar result or source byte. */
+  if (count == 0) {
+    native_validate_empty_task_copy(arena, handle, prefix, scope_option);
+    CAMLreturn(Val_long(0));
+  }
   if (prefix <= 0 || (uintnat)prefix > HOLYC_NATIVE_MAX_ARENA_BYTES
       || data < 0 || data >= prefix || count == 0
       || count > (uintnat)(prefix - data)
@@ -3511,16 +3537,8 @@ CAMLprim value holyc_native_task_initializer_copy(value handle, value descriptor
       || !Is_block(Field(descriptor, 3)) || Tag_val(Field(descriptor, 3)) != String_tag)
     caml_invalid_argument("native initializer copy descriptor is malformed");
   if (caml_string_length(Field(descriptor, 3)) == 0) {
-    struct native_task_arena *arena = native_task_arena_get(handle);
-    if (!Is_long(Field(descriptor, 0)) || Long_val(Field(descriptor, 0)) < 0
-        || (size_t)Long_val(Field(descriptor, 0)) != arena->used
-        || arena->closing || arena->mapping == NULL)
-      caml_invalid_argument("empty initializer copy has another original arena");
-    int borrowed_arena = native_source_borrows_arena(scope_option, handle);
-    int expected = 0;
-    if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
-      caml_invalid_argument("native task arena is already active");
-    if (!borrowed_arena) atomic_store(&arena->active, 0);
+    native_validate_empty_task_copy(native_task_arena_get(handle), handle,
+        Long_val(Field(descriptor, 0)), scope_option);
     copied = Val_long(0);
   } else {
     copied = holyc_native_task_static_copy(handle, descriptor, scope_option);

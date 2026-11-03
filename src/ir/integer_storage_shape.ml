@@ -43,11 +43,11 @@ let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
     let rec collect = function
       | [] -> Ok (1L, Int64.of_int width, [])
       | count :: rest ->
-          if count <= 0L then Error Invalid_extent
+          if count < 0L then Error Invalid_extent
           else
             let* elements, bytes, strides = collect rest in
             if
-              count > Int64.div limit elements
+              (elements > 0L && count > Int64.div limit elements)
               || (bytes > 0L && count > Int64.div limit bytes)
             then Error Overflow
             else

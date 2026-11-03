@@ -493,10 +493,17 @@ let frame_boundaries () =
       "I64 Add(){I0 c;}";
       "I64 Add(){F64 c;}";
       "I64 Add(){I64 *c[2];}";
-      "I64 Add(){I64 c[0];}";
       "I64 Add(){static I64 c;}";
       "I64 Add(){I0 *c;}";
     ];
+  let empty_frame, empty_function = analyze "I64 Add(){I64 c[0];return 42;}" in
+  Alcotest.(check int64)
+    "zero-count array has no logical frame bytes" 0L
+    (Frame.function_frame_size empty_frame);
+  ignore
+    (execute ~max_frame_bytes:1 empty_frame []
+       (composed_body empty_frame empty_function)
+    |> expect_word 42L);
   let malformed =
     body frame H.public_i64
       [

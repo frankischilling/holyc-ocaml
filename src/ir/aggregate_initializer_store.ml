@@ -196,8 +196,7 @@ let lower_copy ~bytes ~byte_offset ~root_type ~root ~span ~instruction_id
   and value = ref (Sequence.Value_id.to_int value_id) in
   let* () =
     if
-      count > 0
-      && count <= (Int.max_int - 2) / 6
+      count <= (Int.max_int - 2) / 6
       && byte_offset >= 0
       && byte_offset <= Int.max_int - count
       && Type.pointer_depth root_type = 0
@@ -208,8 +207,7 @@ let lower_copy ~bytes ~byte_offset ~root_type ~root ~span ~instruction_id
           {
             Sequence.code = "HCIRL0004";
             message =
-              "initializer copy requires its original nonempty source byte \
-               window";
+              "initializer copy requires its original source byte window";
             instruction_id = None;
             span;
           };
@@ -299,7 +297,7 @@ let lower_copy ~bytes ~byte_offset ~root_type ~root ~span ~instruction_id
     {
       descriptions_ = List.rev !descriptions;
       result_;
-      type_ = byte_type;
+      type_ = (if count = 0 then byte_pointer else byte_type);
       next_instruction_;
       next_value_;
     }

@@ -869,6 +869,16 @@ let local_location table aggregate_layouts ~parent ~function_symbol
                         input.dimension )
                   with
                   | (Closed_expression _ | Prepared_dimension _), Some _ -> true
+                  | (Empty_dimension | Prepared_dimension _), None ->
+                      Local_type_resolution.array_dimension_index
+                        input.dimension
+                      = 0
+                      && Option.fold ~none:false
+                           ~some:(fun original ->
+                             Option.is_none
+                               original.Frontend.Ast.dimension_expression)
+                           (Local_type_resolution.array_dimension_source
+                              input.dimension)
                   | _ -> false)
                 input.dimensions
             in

@@ -4357,12 +4357,12 @@ let validate_global_dimension_owner ~table ~record ~dimension =
     | Some original when original == dimension -> Ok ()
     | _ -> Error "checked global extent has a foreign dimension or index"
 
-let positive_extent value =
-  if Int64.compare value 0L > 0 then Ok ()
+let nonnegative_extent value =
+  if Int64.compare value 0L >= 0 then Ok ()
   else
     Error
       (Printf.sprintf
-         "has nonpositive extent %Ld; persistent arrays require a positive \
+         "has negative extent %Ld; persistent arrays require a nonnegative \
           fixed extent"
          value)
 
@@ -4419,7 +4419,7 @@ let reuse_global_dimension ~table ~record ~dimension ~queries checked =
     in
     let* () = validate_dimension ~table ~dimension:original checked in
     let* () = validate_dimension_queries checked queries in
-    let* () = positive_extent checked.prepared.count in
+    let* () = nonnegative_extent checked.prepared.count in
     Ok
       {
         extent_table = table;
@@ -4432,60 +4432,70 @@ let reuse_global_dimension ~table ~record ~dimension ~queries checked =
 let evaluate_global_dimension ~table ~record ~dimension ~queries =
   let module Numeric = Closed_numeric_expression in
   let* () = validate_global_dimension_owner ~table ~record ~dimension in
-  let* source =
-    match
-      Global_type_resolution.array_dimension_source_expression dimension
-    with
-    | Some expression -> Ok expression
-    | None ->
-        Error "has an empty extent; inferred persistent arrays are unresolved"
-  in
-  let* () =
-    match queries with
-    | None -> Ok ()
-    | Some queries -> validate_query_manifest ~table ~expression:source queries
-  in
-  let expression =
-    Numeric.of_ast ~query_expression
-      ~queries:(Option.value queries ~default:[])
-      source
-  in
-  let rec closed = function
-    | Numeric.Selected_query_expression query ->
-        if Option.is_some (query_constant query) then Ok ()
-        else Error "requires the selected query's checked constant metadata"
-    | Numeric.Integer_expression _
-    | Numeric.Unsigned_integer_expression _
-    | Numeric.Floating_expression _ -> Ok ()
-    | Numeric.Current_position_expression _
-    | Numeric.Captured_position_expression _ ->
-        Error "requires unresolved current-position layout evidence"
-    | Numeric.Dependency_expression { detail; _ } ->
-        Error ("requires unresolved closed layout evidence: " ^ detail)
-    | Numeric.Unsupported_expression { description; _ } ->
-        Error ("has an unsupported closed layout expression: " ^ description)
-    | Numeric.Unary_expression { operand; _ } -> closed operand
-    | Numeric.Binary_expression { left; right; _ } ->
-        let* () = closed left in
-        closed right
-  in
-  let* () = closed expression in
-  let* count =
-    Numeric.evaluate_expression
-      ~query_origin:(fun query -> query.origin)
-      ~query_value:query_constant ~context:Numeric.Array_dimension
-      ~current_position:0L expression
-    |> Result.map_error (fun error -> ": " ^ Numeric.error_to_string error)
-  in
-  let* () = positive_extent count in
-  Ok
-    {
-      extent_table = table;
-      extent_record = record;
-      extent_dimension = dimension;
-      extent_evaluation = Legacy_extent queries;
-      extent_count = count;
-    }
+  match Global_type_resolution.array_dimension_source_expression dimension with
+  | None -> (
+      match Global_type_resolution.array_dimension_source dimension with
+      | Some original
+        when Global_type_resolution.array_dimension_index dimension = 0
+             && Option.is_none original.Frontend.Ast.dimension_expression
+             && Option.fold ~none:true ~some:(( = ) []) queries ->
+          Ok
+            {
+              extent_table = table;
+              extent_record = record;
+              extent_dimension = dimension;
+              extent_evaluation = Legacy_extent queries;
+              extent_count = 0L;
+            }
+      | _ -> Error "empty extent requires its original first AST dimension")
+  | Some source ->
+      let* () =
+        match queries with
+        | None -> Ok ()
+        | Some queries ->
+            validate_query_manifest ~table ~expression:source queries
+      in
+      let expression =
+        Numeric.of_ast ~query_expression
+          ~queries:(Option.value queries ~default:[])
+          source
+      in
+      let rec closed = function
+        | Numeric.Selected_query_expression query ->
+            if Option.is_some (query_constant query) then Ok ()
+            else Error "requires the selected query's checked constant metadata"
+        | Numeric.Integer_expression _
+        | Numeric.Unsigned_integer_expression _
+        | Numeric.Floating_expression _ -> Ok ()
+        | Numeric.Current_position_expression _
+        | Numeric.Captured_position_expression _ ->
+            Error "requires unresolved current-position layout evidence"
+        | Numeric.Dependency_expression { detail; _ } ->
+            Error ("requires unresolved closed layout evidence: " ^ detail)
+        | Numeric.Unsupported_expression { description; _ } ->
+            Error ("has an unsupported closed layout expression: " ^ description)
+        | Numeric.Unary_expression { operand; _ } -> closed operand
+        | Numeric.Binary_expression { left; right; _ } ->
+            let* () = closed left in
+            closed right
+      in
+      let* () = closed expression in
+      let* count =
+        Numeric.evaluate_expression
+          ~query_origin:(fun query -> query.origin)
+          ~query_value:query_constant ~context:Numeric.Array_dimension
+          ~current_position:0L expression
+        |> Result.map_error (fun error -> ": " ^ Numeric.error_to_string error)
+      in
+      let* () = nonnegative_extent count in
+      Ok
+        {
+          extent_table = table;
+          extent_record = record;
+          extent_dimension = dimension;
+          extent_evaluation = Legacy_extent queries;
+          extent_count = count;
+        }
 
 let make_global_extent ~table ~record dimensions =
   let rec loop predecessor count expected dimensions =
@@ -4527,9 +4537,11 @@ let make_global_extent ~table ~record dimensions =
                   Error
                     "global extent has a substituted preparation predecessor"
           in
-          let* () = positive_extent value.extent_count in
+          let* () = nonnegative_extent value.extent_count in
           if
-            Int64.compare count (Int64.div Int64.max_int value.extent_count) > 0
+            value.extent_count > 0L
+            && Int64.compare count (Int64.div Int64.max_int value.extent_count)
+               > 0
           then Error "global extent overflows the declared element count"
           else
             loop

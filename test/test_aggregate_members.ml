@@ -527,6 +527,28 @@ let class_default_boundaries () =
 let () =
   Alcotest.run "aggregate members"
     [
+      ( "zero-sized arrays",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                List.iter
+                  (fun mode -> ignore (value expected output (run mode source)))
+                  modes))
+          Empty_array_cases.values );
+      ( "zero-sized array runtime dimensions",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                ignore (value expected output (run Preprocessor.Jit source))))
+          Empty_array_cases.jit_values );
+      ( "zero-sized array bounds and grammar",
+        List.map
+          (fun (name, source, code, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                List.iter
+                  (fun mode -> failure code output (run mode source))
+                  modes))
+          Empty_array_cases.faults );
       ( "pointer initializer lifetime boundaries",
         List.map
           (fun (name, source, code, output) ->

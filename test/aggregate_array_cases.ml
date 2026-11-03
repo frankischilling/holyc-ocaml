@@ -130,8 +130,6 @@ let faults =
 
 let unsupported =
   [
-    ( "zero array extent",
-      {|class Box{U8 byte;};I64 F(){Box a[0];return 42;}F();|} );
     ( "negative array extent",
       {|class Box{U8 byte;};I64 F(){Box a[-1];return 42;}F();|} );
     ( "aggregate extent multiplication overflow",

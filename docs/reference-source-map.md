@@ -887,8 +887,9 @@ for literal signedness and final F64 truncation, `Compiler/OptLib.HC:96-179`
 for operand classes, and `Compiler/OptPass012.HC:153-191,211-217,403-445,809-822`
 for unary results, unsigned operations and the explicit comparison-chain
 boundary. Ordinary first `[]` remains zero metadata, while the inferred-size
-branches require negative counts; inference and pass-count parity are still
-unresolved. AOT sparse prepared images, exact JIT publication receipts,
+branches require negative counts. [Zero-sized array execution](empty-arrays.md)
+now retains that ordinary syntax boundary. Negative-sentinel mutation and full
+replay parity remain outside this path. AOT sparse prepared images, exact JIT publication receipts,
 execution-private mutable cells and separate resource limits are the hosted
 implementation of the supported phase behavior. The reference remains
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`; no new native capture is claimed.
@@ -2569,3 +2570,16 @@ selection reaches it. The checked callback alias preserves that cancellation
 and the actual update producer's call-argument origin without creating an
 owned address. [Prefix update tests](prefix-updates.md) record the supported
 native observations and the remaining flag-combination boundaries.
+
+## Zero-count arrays and initializer completion
+
+Complete `Compiler/PrsVar.HC:123-283` distinguishes ordinary zero counts from
+negative inference sentinels, traverses zero-count rows without scalar leaves,
+and copies exactly the declared string count. Complete `PrsGlblVarLst` at
+`Compiler/PrsStmt.HC:209-463` and `PrsVarLst` at `Compiler/PrsVar.HC:405-742`
+allocate from the reached product and retain declaration-time static work.
+The hosted shape keeps original empty AST witnesses, zero-aware checked
+multiplication, delimiter completion and an unchanged source byte cursor.
+Native empty copies check their arena lease but do not touch memory or flags.
+`test/oracle/empty-arrays` retains repeated successful observations separately
+from an unqualified automatic-address probe that faulted in the reference VM.

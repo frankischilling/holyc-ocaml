@@ -833,7 +833,11 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
             List.memq symbol seen
             || Option.is_none
                  (Sema.Compiler_record.declared_global_completion declaration)
-            || not (Symbols.mem (Symbol.id symbol) roots)
+            || (not (Symbols.mem (Symbol.id symbol) roots))
+               && (Integer_initializer_layout.entries source_layout <> []
+                  || Sema.Initializer_source.leaves
+                       (Integer_initializer_layout.source source_layout)
+                     <> [])
           then invalid "initializer layout is duplicate, incomplete or unowned"
           else
             match
@@ -1031,11 +1035,35 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
                         = dimensions -> Shape.create_declared_global declaration
               | Some _ -> Error Shape.Unsupported_type
               | None -> (
-                  match members with
-                  | Some members when Option.is_none callback ->
-                      Shape.create_global ?headers ~members ~global ~dimensions
-                        ()
-                  | _ -> Shape.create ~type_:shape_type ~dimensions)
+                  let empty_retained =
+                    Option.bind task_view (fun view ->
+                        List.find_map
+                          (fun (_, reference, storage) ->
+                            match storage with
+                            | Declared prior
+                              when Retained_global.symbol reference == symbol
+                                   && prior.initializer_status = Complete
+                                   && Shape.element_count prior.declared_shape
+                                      = 0
+                                   && Shape.dimensions prior.declared_shape
+                                      = dimensions
+                                   && Type.equal
+                                        (Sema.Compiler_record
+                                         .declared_global_type prior.declaration
+                                        |> Sema.Type_reference.resolved_type)
+                                        declared_type ->
+                                Some prior.declared_shape
+                            | _ -> None)
+                          view.entries)
+                  in
+                  match empty_retained with
+                  | Some shape -> Ok shape
+                  | None -> (
+                      match members with
+                      | Some members when Option.is_none callback ->
+                          Shape.create_global ?headers ~members ~global
+                            ~dimensions ()
+                      | _ -> Shape.create ~type_:shape_type ~dimensions))
             with
             | Ok shape -> Ok shape
             | Error Shape.Overflow ->
@@ -1064,6 +1092,27 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
             else
               match (Global.global_initializer global, owned) with
               | None, None -> Ok None
+              | Some initial, None
+                when Shape.element_count shape = 0 && dimensions <> [] -> (
+                  match Global.initializer_source initial with
+                  | Some source when Sema.Initializer_source.leaves source = []
+                    ->
+                      Arrays.create ~shape ~source ~roots:[]
+                        ~source_leaf:(fun root ->
+                          root |> Typed.top_level_root_source
+                          |> Sema.Top_level_expression_tree
+                             .root_initializer_leaf)
+                      |> Result.map Option.some
+                      |> Result.map_error (fun message ->
+                          [
+                            Common.Diagnostic.make ~code:"HCRUN0006"
+                              ~severity:Common.Diagnostic.Error ~message
+                              ~primary:(Option.value span ~default:unit_span)
+                              ();
+                          ])
+                  | _ ->
+                      fail "HCIRL0004"
+                        "empty array initializer lacks its original source")
               | Some initial, Some (owner, owned_roots) ->
                   if
                     Initial.global_record owner != source

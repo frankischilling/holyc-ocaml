@@ -5342,6 +5342,7 @@
  (wrapped false)
  (modules
   automatic_aggregate_cases
+  empty_array_cases
   aggregate_member_cases
   callback_field_cases
   reference_return_cases
@@ -5565,3 +5566,10 @@
  (libraries holyc_lib yojson digestif alcotest automatic_aggregate_fixture)
  (deps
   (glob_files oracle/prefix-updates/*)))
+
+(test
+ (name test_empty_array_oracle)
+ (modules test_empty_array_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/empty-arrays/*)))

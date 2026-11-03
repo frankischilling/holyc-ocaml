@@ -407,6 +407,14 @@ values and lifetimes, not original AOT relocation bytes or identical preparation
 work. Numeric addresses, owned callback initializer leaves and general aggregate
 copies remain outside this feature.
 
+## Zero-count array leaves
+
+The first empty `[]` retains count zero, rather than inferring a size from its
+initializer. Empty braces consume no scalar leaves; a direct string can copy
+zero bytes without changing the following member. Original completions and
+work receipts still apply. See [zero-sized arrays](empty-arrays.md) for the
+supported modes, native observations and the automatic-address boundary.
+
 ## TempleOS source
 
 Automatic scalar declaration initializers use `PrsExpression`, through the

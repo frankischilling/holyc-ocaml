@@ -1,5 +1,12 @@
 # Compiler status and implementation notes
 
+[Zero-sized arrays](empty-arrays.md) retain ordinary `[]` and evaluated-zero
+counts through global, static and automatic storage. Empty initializer and copy
+receipts remain source-owned without granting source bytes or repeating static
+work. Original native observations cover sizes and dimension effects. Automatic
+zero-array address materialization and broader inference replay remain explicit
+boundaries under #686 and #690.
+
 [Aggregate assignment observations](backed-aggregate-values.md) retain the
 original lvalue endpoint, lookahead gate and reached index stride in function
 bodies and top-level source tasks. Initializers, statics, saved defaults,

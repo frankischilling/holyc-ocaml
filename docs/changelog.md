@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Execute zero-count array declarations and empty initializers without inferring
+  lengths, inventing source bytes or repeating static work. Preserve original
+  empty-dimension witnesses, completion receipts and zero-copy arena checks.
+  See [zero-sized arrays](empty-arrays.md) for native observations and boundaries.
+
 - Match original pending-prefix binding: `++*p` advances the pointer before
   dereferencing it, while `++(*p)` updates the pointee. Preserve callback-star
   cancellation, indexed side effects and operator provenance. See

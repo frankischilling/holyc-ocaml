@@ -1795,11 +1795,14 @@ let native_static_copy_host_bounds () =
           (40, 39, 32, "AB");
           (40, 0, 40, "AB");
           (40, 0, 0, "AB");
-          (40, 0, 32, "");
+          (39, 0, 32, "");
           (40, 0, 32, String.make 40 'A');
           (max_int, 0, 32, "AB");
         ];
       invalid (fun () -> raw_static_copy handle (Obj.magic 0));
+      Alcotest.(check int)
+        "empty copy validates the arena without writing" 0
+        (raw_static_copy handle (40, 0, 32, ""));
       Alcotest.(check int)
         "real original flags remain available after malformed copies" 1
         (raw_static_copy handle (40, 1, 31, "B"));
@@ -1813,7 +1816,8 @@ let native_static_copy_host_bounds () =
         "remaining original array elements stay available" 2
         (raw_static_copy handle (40, 2, 30, "CD"));
       raw_arena_release handle;
-      invalid (fun () -> raw_static_copy handle (40, 0, 32, "A")));
+      invalid (fun () -> raw_static_copy handle (40, 0, 32, "A"));
+      invalid (fun () -> raw_static_copy handle (40, 0, 32, "")));
   let corrupt = raw_arena_create 40 in
   Fun.protect
     ~finally:(fun () -> raw_arena_release corrupt)

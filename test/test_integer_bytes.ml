@@ -159,6 +159,8 @@ let unsupported_domains () =
   List.iter
     (fun mode ->
       ignore (G.run ~mode "U8 *F(){U8 n=42;return &n;}42;" |> F.expect 42L);
+      ignore
+        (G.run ~mode "I64 F(){U8 a[0];return sizeof(a)+42;}F();" |> F.expect 42L);
       List.iter
         (fun source -> ignore (F.first_error (G.run ~mode source)))
         [
@@ -166,7 +168,7 @@ let unsupported_domains () =
           "I64 F(){U8 a[2];U8 *p=&a;return 42;}F();";
           "I64 F(){U8 a[2][3];U8 *p=&a[1];return 42;}F();";
           "I64 F(){U8 a[2];return a[1.0];}F();";
-          "I64 F(){U8 a[0];return 42;}F();";
+          "I64 F(){U8 a[0];U8 *p=a;return *p;}F();";
           "I64 F(){U8 a[2]={40,2};return a[0]+a[1];}F();";
           "I64 F(){U8 n=42;return n(I64);}F();";
           "I64 F(){U8 n=42;return n(U64);}F();";

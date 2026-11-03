@@ -2036,6 +2036,15 @@ let rec prepare_index_address ?frame ?globals result =
                                   |> Result.get_ok)
                                 <> Some (F.location_element_size location)
                           then Ok None
+                          else if
+                            List.exists
+                              (fun dimension ->
+                                F.dimension_value dimension = 0L)
+                              (F.location_dimensions location)
+                          then
+                            (* Empty arrays retain storage metadata, but their automatic
+                               address path is not qualified by the native reference probe. *)
+                            Ok None
                           else
                             let rec strides = function
                               | [] -> Ok (F.location_element_size location, [])
@@ -2043,12 +2052,12 @@ let rec prepare_index_address ?frame ?globals result =
                                   let* bytes, tail = strides rest in
                                   let count = F.dimension_value dimension in
                                   if
-                                    count <= 0L
+                                    count < 0L
                                     || bytes <> 0L
                                        && count > Int64.div Int64.max_int bytes
                                   then
                                     invalid
-                                      "array dimensions require positive \
+                                      "array dimensions require nonnegative \
                                        representable storage"
                                   else Ok (Int64.mul count bytes, bytes :: tail)
                             in

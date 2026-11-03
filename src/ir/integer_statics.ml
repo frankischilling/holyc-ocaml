@@ -351,6 +351,27 @@ let create ~initializer_snapshots ~allocations ~span ~mode ~start ~frames
                         Ok None
                       else
                         match owned with
+                        | [] when Shape.element_count shape = 0 -> (
+                            match
+                              Option.bind (Frame.location_local_source location)
+                                (fun local ->
+                                  Option.bind
+                                    (Local.local_initializer local)
+                                    Local.initializer_source)
+                            with
+                            | None -> Ok None
+                            | Some source ->
+                                Arrays.create ~shape ~source ~roots:[]
+                                  ~source_leaf:(fun root ->
+                                    root |> Typed.initializer_source
+                                    |> Source.initializer_leaf)
+                                |> Result.map Option.some
+                                |> Result.map_error (fun message ->
+                                    [
+                                      Common.Diagnostic.make ~code:"HCRUN0006"
+                                        ~severity:Common.Diagnostic.Error
+                                        ~message ~primary:at ();
+                                    ]))
                         | [] -> Ok None
                         | root :: _ ->
                             let local =

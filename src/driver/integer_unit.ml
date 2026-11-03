@@ -652,6 +652,49 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       "switch case does not own its original checked endpoint \
                        roots"
             in
+            let empty_static_initializer (declarator : Ast.local_declarator)
+                (ast_initial : Ast.local_initializer) =
+              Option.fold ~none:false
+                ~some:(fun owner ->
+                  List.exists
+                    (fun slot ->
+                      let location = Ir.Integer_globals.static_location slot in
+                      Frame.function_symbol
+                        (Ir.Integer_globals.static_frame slot)
+                      == owner
+                      && Frame.location_kind location = Frame.Static_local
+                      && Frame.location_dimensions location <> []
+                      && Frame.location_allocated_size location = 0L
+                      && Frame.location_source_dimensions_checked location
+                      && Ir.Integer_globals.static_initializers slot = []
+                      && Option.fold ~none:false
+                           ~some:(fun initializers ->
+                             Ir.Integer_array_initializers.entries initializers
+                             = [])
+                           (Ir.Integer_globals.static_array_initializers slot)
+                      && Option.fold ~none:false
+                           ~some:(fun local ->
+                             Sema.Local_type_resolution.local_storage local
+                             = Sema.Local_type_resolution.Static
+                             && source_span
+                                  (Sema.Local_type_resolution
+                                   .local_declarator_origin local)
+                                = declarator.local_declarator_location.span
+                             && Option.fold ~none:false
+                                  ~some:(fun manifest ->
+                                    Sema.Initializer_source.matches_ast manifest
+                                      ast_initial.local_initializer_value
+                                    && Sema.Initializer_source.leaves manifest
+                                       = [])
+                                  (Option.bind
+                                     (Sema.Local_type_resolution
+                                      .local_initializer local)
+                                     Sema.Local_type_resolution
+                                     .initializer_source))
+                           (Frame.location_local_source location))
+                    (Ir.Integer_globals.statics globals_))
+                function_symbol
+            in
             let rec statement source_statement =
               match source_statement with
               | Ast.Empty_statement empty ->
@@ -695,6 +738,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                        (fun (declarator : Ast.local_declarator) ->
                          match declarator.local_initializer with
                          | None -> None
+                         | Some ast_initial
+                           when empty_static_initializer declarator ast_initial
+                           -> None
                          | Some ast_initial ->
                              let batch =
                                consume initializers

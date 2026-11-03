@@ -696,4 +696,88 @@ let () =
                target "jit" source))
         Persistent.void_jit_faults)
     (if native then [ "ir"; "host-jit-task" ] else [ "ir" ]);
+  List.iter
+    (fun target ->
+      List.iter
+        (fun mode ->
+          let options = [ "--code-byte-limit=524288" ] in
+          List.iter
+            (fun (_, source, expected, output) ->
+              value expected output (invoke ~options target mode source))
+            Empty_array_cases.values;
+          List.iter
+            (fun (_, source, code, output) ->
+              error ~code output (invoke ~status:1 ~options target mode source))
+            Empty_array_cases.faults;
+          List.iter
+            (fun source ->
+              if mode = "aot" then
+                value 0L "" (invoke ~options target mode source)
+              else
+                error
+                  ~code:
+                    (if target = "host-jit" then "HCRUN0006" else "HCIRVM0012")
+                  ""
+                  (invoke ~status:1 ~options target mode source))
+            [
+              Empty_array_cases.copy_unknown;
+              Empty_array_cases.static_copy_unknown;
+            ];
+          let zero =
+            invoke
+              ~options:
+                (options
+                @ [ "--initializer-step-limit=1"; "--global-byte-limit=1" ])
+              target mode {|U8 empty[]="AB";sizeof(empty);|}
+          in
+          value 0L "" zero;
+          require
+            (zero |> member "compiled_initializer_steps" |> to_int = 0)
+            "empty byte copies must not fabricate preparation work";
+          let source = Empty_array_cases.quota_source in
+          let baseline = invoke ~options target mode source in
+          value 42L "" baseline;
+          let steps = baseline |> member "executed_steps" |> to_int in
+          let preparation =
+            baseline |> member "compiled_initializer_steps" |> to_int
+          in
+          require
+            (steps > 1 && preparation > 1)
+            "neighbor controls retain real work";
+          value 42L ""
+            (invoke
+               ~options:
+                 (options
+                 @ [
+                     "--global-byte-limit=8";
+                     "--step-limit=" ^ string_of_int steps;
+                     "--initializer-step-limit=" ^ string_of_int preparation;
+                   ])
+               target mode source);
+          List.iter
+            (fun (code, option) ->
+              error ~code ""
+                (invoke ~status:1 ~options:(options @ [ option ]) target mode
+                   source))
+            [
+              ( (if
+                   target = "host-jit"
+                   || (target = "host-jit-task" && mode = "aot")
+                 then "HCBACK0001"
+                 else "HCIRVM0016"),
+                "--global-byte-limit=7" );
+              ("HCIRVM0007", "--step-limit=" ^ string_of_int (steps - 1));
+              ( "HCIRVM0007",
+                "--initializer-step-limit=" ^ string_of_int (preparation - 1) );
+            ])
+        [ "jit"; "aot" ];
+      if target <> "host-jit" then
+        List.iter
+          (fun (_, source, expected, output) ->
+            value expected output
+              (invoke
+                 ~options:[ "--code-byte-limit=524288" ]
+                 target "jit" source))
+          Empty_array_cases.jit_values)
+    (if native then [ "ir"; "host-jit-task"; "host-jit" ] else [ "ir" ]);
   Printf.printf "Aggregate member CLI checks passed (%d reports).\n" !reports

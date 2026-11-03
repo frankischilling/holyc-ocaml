@@ -97,7 +97,12 @@ let publish initializers updates =
     | (root, payload, steps) :: rest ->
         begin match find initializers root with
         | Some entry
-          when entry.prepared = None && steps > 0
+          when entry.prepared = None && steps >= 0
+               && (steps > 0
+                  ||
+                  match (Layout.operation entry.destination, payload) with
+                  | Layout.Copy_bytes "", Bytes "" -> true
+                  | _ -> false)
                && steps <= Int.max_int - total
                && not (List.exists (( == ) root) seen) ->
             let* () =

@@ -133,8 +133,8 @@ val location_aggregate_allocation :
   location -> Compiler_record.automatic_aggregate_allocation option
 
 val location_source_dimensions_checked : location -> bool
-(** Every local array dimension was evaluated from a closed expression checked
-    against its retained original source witness. Legacy dimensions without
+(** Every local array dimension retains its original source witness, including a
+    checked empty first dimension with count zero. Legacy dimensions without
     witnesses and synthetic parameter arrays return [false]. Locations without
     dimensions return [true]. *)
 

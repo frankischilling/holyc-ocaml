@@ -692,6 +692,35 @@ let pointer_field_boundaries () =
 let () =
   Alcotest.run "native aggregate members"
     [
+      ( "zero-sized arrays",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                List.iter
+                  (fun mode ->
+                    task_value expected output (run_task ~mode source);
+                    ignore (value expected output (run mode source)))
+                  modes))
+          Empty_array_cases.values );
+      ( "zero-sized array runtime dimensions",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                task_value expected output (run_task source)))
+          Empty_array_cases.jit_values );
+      ( "zero-sized array bounds and grammar",
+        List.map
+          (fun (name, source, code, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                List.iter
+                  (fun mode ->
+                    let report = run_task ~mode source in
+                    task_failure code report;
+                    Alcotest.(check string)
+                      "reached output" output
+                      (Native_source_execution.output_bytes report))
+                  modes))
+          Empty_array_cases.faults );
       ( "pointer initializer lifetime boundaries",
         List.map
           (fun (name, source, code, output) ->

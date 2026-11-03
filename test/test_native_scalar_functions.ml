@@ -591,6 +591,7 @@ let automatic_array_layout () =
           ignore (compile_source ~mode contents |> require_ok diagnostics_text))
         [
           "I64 F(){static I8 a[2];return 42;}F();";
+          "I64 F(){I8 a[0];return sizeof(a)+42;}F();";
           "I8 G[2];42;";
           "I8 *F(){I8 a[2];return a;}42;";
         ];
@@ -601,7 +602,7 @@ let automatic_array_layout () =
         [
           "I64 F(){I8 a[2]={1,2};return 42;}F();";
           "I64 F(){I8 *a[2];return 42;}F();";
-          "I64 F(){I8 a[0];return 42;}F();";
+          "I64 F(){I8 a[0];I8 *p=a;return p==a;}F();";
           "I64 F(){I8 a[1000000000];return 42;}F();";
           "I64 F(){I8 a[9223372036854775807][2];return 42;}F();";
           "I64 Count(){return 2;}I64 F(){I8 a[Count()];return 42;}F();";

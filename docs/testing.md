@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+Zero-count array tests cover all nine integer widths, class and callback-word
+arrays, global/static/automatic storage, nested zero counts, fractional bounds,
+forward completion, once-only JIT dimensions and zero-width string copies.
+Original native captures retain eighteen repeated observations. Zero-work
+completion bundles remain source-owned, and neighboring storage and exact
+limits detect invented bytes or initialization flags. A separate faulting
+address probe is retained as an explicit boundary, not a value oracle. See
+[zero-sized arrays](empty-arrays.md).
+
 Owned pointer initializer tests cover all nine integer pointees, class pointees,
 array decay, string offsets, embedded NULs, returned aliases and once-only static
 stores. Bounds, retired activations, overwritten ownership and original native

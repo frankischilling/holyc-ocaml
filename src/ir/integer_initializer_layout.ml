@@ -203,7 +203,7 @@ let advance_tokens ~shape ~final ~expression_of_leaf ~make_entry progress input
             match expression_of_leaf leaf with
             | Frontend.Ast.String_literal
                 { literal_value = Frontend.Ast.Bytes_value bytes; _ } ->
-                if count <= 0L || count > Int64.of_int Int.max_int then
+                if count < 0L || count > Int64.of_int Int.max_int then
                   invalid "has an invalid string count"
                 else
                   let count = Int64.to_int count in
@@ -223,7 +223,7 @@ let advance_tokens ~shape ~final ~expression_of_leaf ~make_entry progress input
                       input
             | _ -> invalid "has inconsistent string source evidence")
         | _ ->
-            if count <= 0L || count > Int64.of_int Int.max_int then
+            if count < 0L || count > Int64.of_int Int.max_int then
               invalid "has an invalid fixed array count"
             else
               run
@@ -315,7 +315,7 @@ let rec select_prepared_kind ~(first : Frontend.Token.t) = function
       Ok (Prepared_scalar phase, rest)
   | Consume (type_, count :: tail) :: rest -> (
       let* type_ = Initializer_type.select_forwarding type_ in
-      if count <= 0L || count > Int64.of_int Int.max_int then
+      if count < 0L || count > Int64.of_int Int.max_int then
         invalid "has an invalid fixed array count"
       else
         let byte_string =

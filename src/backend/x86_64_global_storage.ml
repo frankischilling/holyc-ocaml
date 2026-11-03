@@ -307,7 +307,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           Ok total
         else
           let elements = Globals.storage_cell_count storage in
-          if elements <= 0 || elements > (hard_max_arena_bytes - total) / 8 then
+          if elements < 0 || elements > (hard_max_arena_bytes - total) / 8 then
             resource
               "private callback ownership exceeds the arena allocation bound"
           else Ok (total + (elements * 8)))
@@ -1315,7 +1315,7 @@ let prepare_static_copy layout request ~admitted_arena_bytes =
     Scalar.byte_size slot.scalar <> 1
     || slot.dimensions = []
        && not (Shape.is_aggregate (Globals.storage_shape slot.source_slot))
-    || cell < 0 || byte <> cell || count <= 0 || cell > slot.element_count
+    || cell < 0 || byte <> cell || cell > slot.element_count
     || count > slot.element_count - cell
     || byte > slot.extent_bytes
     || count > slot.extent_bytes - byte

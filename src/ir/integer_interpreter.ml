@@ -6802,6 +6802,9 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             | Some storage
               when Automatic_aggregate_storage.byte_size storage = 0 ->
                 count + 1
+            | _
+              when Frame.location_allocated_size location = 0L
+                   && Frame.location_dimensions location <> [] -> count + 1
             | _ -> count)
           0 locations
       in
@@ -6881,7 +6884,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               | Some (bytes, strides) ->
                   let count = Frame.dimension_value dimension in
                   if
-                    count <= 0L
+                    count < 0L
                     || (bytes <> 0L && count > Int64.div Int64.max_int bytes)
                   then None
                   else Some (Int64.mul count bytes, bytes :: strides)
