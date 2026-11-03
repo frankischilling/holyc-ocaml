@@ -111,6 +111,44 @@ let () =
         ("I64 F(){U32 noreg x=4294967296;x>>=1;return x;}F();", "0");
       ]
   in
+  let returns =
+    [
+      ("I8", "255", "255", "-1");
+      ("U8", "256", "256", "0");
+      ("I16", "65535", "65535", "-1");
+      ("U16", "65536", "65536", "0");
+      ("I32", "4294967295", "4294967295", "-1");
+      ("U32", "4294967296", "4294967296", "0");
+    ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, wide, narrow) ->
+          let source qualifier =
+            Printf.sprintf "I64 F(){%s %s x=%s;return x;}F();" ty qualifier
+              initial
+          in
+          [ (source "", wide); (source "noreg", narrow) ])
+        returns
+  in
+  let cases =
+    cases
+    @ [
+        ("I8 F(){I8 x=255;return x;}F();", "255");
+        ("U8 F(){U8 x=256;return x;}F();", "256");
+        ("I16 F(){I16 x=65535;return x;}F();", "65535");
+        ("U16 F(){U16 x=65536;return x;}F();", "65536");
+      ]
+  in
+  let cases =
+    cases
+    @ List.map
+        (fun ty ->
+          ( Printf.sprintf "I64 F(){%s x=0x800000000000002A;return x;}F();" ty,
+            "-9223372036854775766" ))
+        [ "I8"; "I16"; "U16"; "I32"; "U32" ]
+  in
   let widths =
     [
       ("I16", "32767", "65534", "-2", "65535", "-1");

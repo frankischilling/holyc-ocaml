@@ -684,8 +684,63 @@ let analyze_local ~frame ~body =
             | _ -> false)
           (Function_body.definition_source body)
       in
+      let source_matches_direct initial =
+        Option.fold ~none:false
+          ~some:(fun source ->
+            match
+              ( Typed.function_initializers source,
+                Typed.function_expression_statements source,
+                Typed.function_returns source )
+            with
+            | [ initialization ], [], [ returned ] ->
+                let local =
+                  initialization |> Typed.initializer_source
+                  |> Calls.initializer_local
+                in
+                Sema.Local_type_resolution.local_symbol local
+                == Frame.location_symbol location
+                && literal (Typed.initializer_value initialization)
+                   = Some initial
+                && Option.fold ~none:false
+                     ~some:(fun returned ->
+                       Option.fold ~none:false
+                         ~some:(( == ) (Frame.location_binding location))
+                         (binding_of returned))
+                     (Typed.return_value returned)
+            | _ -> false)
+          (Function_body.definition_source body)
+      in
       let matched =
         match core with
+        | [ r1; o1; a1; initial; store; end1; r2; o2; a2; load; returned ] -> (
+            match
+              (id a1, id initial, id store, id a2, id load, integer initial)
+            with
+            | ( Some a1id,
+                Some initialid,
+                Some storeid,
+                Some a2id,
+                Some loadid,
+                Some bits ) ->
+                address r1 o1 a1 && address r2 o2 a2 && scalar_literal initial
+                && store.Seq.opcode = O.Ic_assign
+                && store.payload = None && same_type store
+                && store.operands = [ a1id; initialid ]
+                && end1.Seq.opcode = O.Ic_end_exp
+                && end1.payload = None && end1.result = None
+                && end1.flags = 0x200L && is_one end1 storeid
+                && load.Seq.opcode = O.Ic_deref
+                && load.payload = None && same_type load && is_one load a2id
+                && returned.Seq.opcode = O.Ic_return_val
+                && returned.payload = None && returned.result = None
+                && is_one returned loadid
+                && List.for_all
+                     (fun (item : Seq.description) ->
+                       Option.is_some (instruction_stamp item)
+                       && (item.opcode = O.Ic_end_exp || item.flags = 0L))
+                     code
+                && source_matches_direct bits
+            | _ -> false)
         | [
          r1;
          o1;

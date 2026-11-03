@@ -5,13 +5,13 @@ val analyze :
   frame:Sema.Function_frame_layout.function_layout ->
   body:Function_body.t ->
   t option
-(** Analyze only a bound two-parameter function whose entry block updates an
-    I8/U8/I16/U16/I32/U32 parameter by the other parameter and directly returns
-    it, or initializes one narrow local from an integer literal, shifts it left
-    by an integer literal (right shifts are also supported for byte locals), and
-    directly returns it. Both require default compiler options. Escapes,
-    explicit registers, other control flow and all other shapes remain unproved.
-    This witness does not alter storage or execution. *)
+(** Analyze a bound two-parameter function that shifts an 8-, 16- or 32-bit
+    integer parameter by the other parameter and returns it directly, or a
+    function that initializes one narrow local from an integer literal and
+    returns it directly, optionally after shifting it by an integer literal.
+    Both require default compiler options. Escapes, explicit hardware registers,
+    other control flow and all other shapes remain unproved. This witness does
+    not alter storage or execution. *)
 
 val selection :
   t ->

@@ -14,7 +14,7 @@ let gates =
     ( "sum",
       "I64 Sum(U8 *p){return p[0]+p[1];}I64 F(){U8 \
        a[3];a[0]=40;a[1]=2;a[2]=0;return Sum(a);}F();" );
-    ("scalar", "I64 F(){U8 n=298;return n;}F();");
+    ("scalar", "I64 F(){U8 noreg n=298;return n;}F();");
     ("local-elements", "I64 F(){U8 a[3];a[0]=40;a[1]=2;return a[0]+a[1];}F();");
     ( "caller-scalar",
       "I64 Set(U8 *p){*p=298;return 0;}I64 F(){U8 n;Set(&n);return n;}F();" );
@@ -34,7 +34,7 @@ let byte_storage () =
     [
       ("I64 F(){U8 n=128;return n;}F();", 128L);
       ("I64 F(){U8 n=255;return n;}F();", 255L);
-      ("I64 F(){U8 n=256;return n;}F();", 0L);
+      ("I64 F(){U8 noreg n=256;return n;}F();", 0L);
       ("I64 F(){U8 n=-1;return n;}F();", 255L);
       ( "I64 F(){U8 a[5];a[0]=128;a[1]=255;a[2]=256;a[3]=298;a[4]=-1;return \
          a[0]*1000000000000+a[1]*1000000000+a[2]*1000000+a[3]*1000+a[4];}F();",

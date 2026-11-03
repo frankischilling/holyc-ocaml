@@ -31,11 +31,13 @@ let families =
 let entry_values (name, _, maximum, expected, modulus) () =
   B.cases
     [
-      ("I64 F(){" ^ name ^ " n=" ^ maximum ^ ";return n;}F();", expected);
+      ( "I64 F(){" ^ name ^ " n=" ^ maximum ^ ";return n;}F();",
+        Int64.of_string maximum );
       ("I64 F(" ^ name ^ " n){return n;}F(" ^ maximum ^ ");", expected);
       ("I64 F(){" ^ name ^ " n=" ^ modulus ^ "+42;return n;}F();", 42L);
       ("I64 F(" ^ name ^ " n){return n;}F(" ^ modulus ^ "+42);", 42L);
-      ("I64 F(){" ^ name ^ " n=0x800000000000002A;return n;}F();", 42L);
+      ( "I64 F(){" ^ name ^ " n=0x800000000000002A;return n;}F();",
+        Int64.add Int64.min_int 42L );
       ( "I64 F(){" ^ name ^ " n=0;" ^ name ^ " *p=&n;*p=" ^ maximum
         ^ ";return n;}F();",
         expected );
@@ -80,7 +82,6 @@ let persistent_values (name, type_, maximum, expected, modulus) () =
 
 let unsafe_initializers =
   [
-    ("signed wide local", "I64 F(){I8 n=255;return n;}I64 N=F();N;");
     ("signed AND result", "I8 A=-1;I64 N=(A&=255);N;");
     ( "signed DIV result",
       "I8 A=-128;I64 D=-1;I64 F(){I8 n=(A/=D);return n;}I64 N=F();N;" );
@@ -90,9 +91,6 @@ let unsafe_initializers =
       "I64 F(U8 a){I8 n=a;return n;}I64 N=F(255);N;" );
     ( "later signed wide assignment",
       "I64 F(I16 n){I64 a=n;n=65578;return n+a;}I64 N=F(0);N;" );
-    ( "transitive signed wide read",
-      "I64 F(){I32 n=4294967338;return n;}I64 Outer(){return F();}I64 \
-       N=Outer();N;" );
     ("explicit signed register", "I64 F(I16 reg RAX n){return n;}I64 N=F(42);N;");
     ( "unproved signed call result",
       "I8 V(){return 255;}I64 F(){I8 n=V();return n;}I64 N=F();N;" );
@@ -646,3 +644,14 @@ let tests =
                   (List.mem "initializer=N" error.notes))
               G.modes))
       unsafe_initializers
+  @ List.map
+      (fun (name, source, expected) ->
+        Alcotest.test_case name `Quick (fun () ->
+            B.cases [ (source, expected) ]))
+      [
+        ("signed wide local", "I64 F(){I8 n=255;return n;}I64 N=F();N;", 255L);
+        ( "transitive signed wide read",
+          "I64 F(){I32 n=4294967338;return n;}I64 Outer(){return F();}I64 \
+           N=Outer();N;",
+          4294967338L );
+      ]
