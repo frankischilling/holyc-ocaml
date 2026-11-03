@@ -624,6 +624,203 @@ let direct_call_nested_argument_warnings () =
         [ false; true ])
     cases
 
+let direct_call_default_argument_warnings () =
+  let fields = fixture "warnings-default-argument" in
+  Alcotest.(check int)
+    "original default call warning" 1
+    (List.assoc "INTEGER" fields - List.assoc "CONSTANT" fields);
+  Alcotest.(check int)
+    "original static default call warning" 1
+    (List.assoc "STATIC" fields - List.assoc "VOID" fields);
+  List.iter
+    (fun native ->
+      List.iter
+        (fun source ->
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            "default argument load value" (Some 7L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "default argument load warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [
+          "I64 Get(I64 n=7){return n;}class Box{U0 empty;I64 value;};Box \
+           object={Get(),42};I64 F(){return object.value;}F();";
+          "I64 Get(I64 n=7){return n;}class Box{U0 empty;I64 value;};I64 \
+           F(){static Box object={Get(),42};return object.value;}F();";
+        ])
+    [ false; true ]
+
+let direct_call_default_variants () =
+  List.iter
+    (fun stem ->
+      let fields = fixture stem in
+      Alcotest.(check int)
+        (stem ^ " original call warning")
+        1
+        (List.assoc "INTEGER" fields - List.assoc "CONSTANT" fields);
+      Alcotest.(check int)
+        (stem ^ " original U0 warnings")
+        2
+        (List.assoc "VOID" fields - List.assoc "INTEGER" fields))
+    [
+      "warnings-provided-default";
+      "warnings-u8-default";
+      "warnings-void-default";
+    ];
+  List.iter
+    (fun native ->
+      List.iter
+        (fun source ->
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            "default variant value" (Some 7L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "default variant warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [
+          "I64 Get(I64 n=7){return n;}class Box{U0 empty;I64 value;};Box \
+           object={Get(7),42};I64 F(){return object.value;}F();";
+          "I64 Get(U8 n=7){return n;}class Box{U0 empty;I64 value;};Box \
+           object={Get(),42};I64 F(){return object.value;}F();";
+        ];
+      let diagnostics, result, _ =
+        run native Preprocessor.Aot
+          "U0 Get(I64 n=7){}class Box{U0 empty;I64 value;};Box \
+           object={Get(),42};42;"
+      in
+      Alcotest.(check bool)
+        "void default result remains unsupported" true (Result.is_error result);
+      Alcotest.(check (list string))
+        "void default warnings precede boundary"
+        [ "HCSEMA0079"; "HCSEMA0080"; "HCRUN0006" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+    [ false; true ]
+
+let direct_call_numeric_defaults () =
+  let fields = fixture "warnings-numeric-defaults" in
+  let types =
+    [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64"; "F64"; "Bool" ]
+  in
+  List.iteri
+    (fun index type_ ->
+      Alcotest.(check int)
+        (type_ ^ " original default warning count")
+        (index + 1) (List.assoc type_ fields);
+      List.iter
+        (fun native ->
+          let source =
+            Printf.sprintf
+              "I64 Get(%s n=7){return 7;}class Box{U0 empty;I64 value;};Box \
+               object={Get(),42};I64 F(){return object.value;}F();"
+              type_
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
+          if type_ = "F64" then
+            Alcotest.(check bool)
+              "F64 default path remains unsupported" true
+              (Result.is_error result)
+          else (
+            Alcotest.(check (option int64))
+              (type_ ^ " default load value")
+              (Some 7L) (Result.get_ok result);
+            Alcotest.(check bool)
+              (type_ ^ " default load warning")
+              true
+              (List.mem "HCSEMA0080" codes)))
+        [ false; true ])
+    types
+
+let direct_call_two_defaults () =
+  let fields = fixture "warnings-two-defaults" in
+  let cases =
+    [
+      ("BOTH", "I64 n=3,I64 m=4", "");
+      ("LAST", "I64 n,I64 m=4", "3");
+      ("FIRST", "I64 n=3,I64 m=4", ",4");
+      ("TRAIL", "I64 n=3,I64 m=4", "3,");
+      ("FULL", "I64 n=3,I64 m=4", "3,4");
+    ]
+  in
+  List.iteri
+    (fun index (name, parameters, arguments) ->
+      Alcotest.(check int)
+        (name ^ " original default warning count")
+        (index + 1) (List.assoc name fields);
+      List.iter
+        (fun native ->
+          let source =
+            Printf.sprintf
+              "I64 Get(%s){return n+m;}class Box{U0 empty;I64 value;};Box \
+               object={Get(%s),42};I64 F(){return object.value;}F();"
+              parameters arguments
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            (name ^ " default load value")
+            (Some 7L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            (name ^ " default load warning")
+            [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ false; true ])
+    cases
+
+let direct_call_many_argument_warnings () =
+  let fields = fixture "warnings-many-arguments" in
+  let cases = [ ("THREE", 3); ("FOUR", 4); ("SIX", 6); ("EIGHT", 8) ] in
+  List.iteri
+    (fun index (name, count) ->
+      Alcotest.(check int)
+        (name ^ " original many-argument warning count")
+        (index + 1) (List.assoc name fields);
+      let parameters =
+        List.init count (fun i -> Printf.sprintf "I64 p%d" i)
+        |> String.concat ","
+      in
+      let body =
+        List.init count (fun i -> Printf.sprintf "p%d" i) |> String.concat "+"
+      in
+      let arguments =
+        List.init count (fun i ->
+            if i = count - 1 then string_of_int (8 - count) else "1")
+        |> String.concat ","
+      in
+      let source =
+        Printf.sprintf
+          "I64 Get(%s){return %s;}class Box{U0 empty;I64 value;};Box \
+           object={Get(%s),42};I64 F(){return object.value;}F();"
+          parameters body arguments
+      in
+      List.iter
+        (fun native ->
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            (name ^ " many-argument value")
+            (Some 7L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            (name ^ " many-argument warning")
+            [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ false; true ])
+    cases;
+  Alcotest.(check int)
+    "original mixed default warning count" 5
+    (List.assoc "DEFAULT" fields);
+  List.iter
+    (fun native ->
+      let source =
+        "I64 Get(I64 a=3,I64 b=2,I64 c=2){return a+b+c;}class Box{U0 empty;I64 \
+         value;};Box object={Get(,2,),42};I64 F(){return object.value;}F();"
+      in
+      let diagnostics, result, _ = run native Preprocessor.Aot source in
+      Alcotest.(check (option int64))
+        "mixed defaults value" (Some 7L) (Result.get_ok result);
+      Alcotest.(check (list string))
+        "mixed defaults warning" [ "HCSEMA0080" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+    [ false; true ]
+
 let direct_call_warning_controls () =
   List.iter
     (fun native ->
@@ -827,7 +1024,14 @@ let () =
               ignore (fixture "warnings-global-type-arithmetic");
               ignore (fixture "warnings-two-globals");
               ignore (fixture "warnings-mixed-globals");
-              ignore (fixture "warnings-nested-arguments"));
+              ignore (fixture "warnings-nested-arguments");
+              ignore (fixture "warnings-default-argument");
+              ignore (fixture "warnings-provided-default");
+              ignore (fixture "warnings-u8-default");
+              ignore (fixture "warnings-void-default");
+              ignore (fixture "warnings-numeric-defaults");
+              ignore (fixture "warnings-two-defaults");
+              ignore (fixture "warnings-many-arguments"));
           Alcotest.test_case "AOT warning counts occur during parsing" `Quick
             warning_phases;
           Alcotest.test_case "direct AOT calls warn at a U0 destination" `Quick
@@ -862,6 +1066,16 @@ let () =
             direct_call_mixed_global_warnings;
           Alcotest.test_case "direct nested argument warnings" `Quick
             direct_call_nested_argument_warnings;
+          Alcotest.test_case "direct default argument warnings" `Quick
+            direct_call_default_argument_warnings;
+          Alcotest.test_case "direct default argument variants" `Quick
+            direct_call_default_variants;
+          Alcotest.test_case "direct numeric default warnings" `Quick
+            direct_call_numeric_defaults;
+          Alcotest.test_case "direct two-parameter default warnings" `Quick
+            direct_call_two_defaults;
+          Alcotest.test_case "direct many-argument warnings" `Quick
+            direct_call_many_argument_warnings;
           Alcotest.test_case
             "patterned native stores retain their observed width" `Quick
             original_store_width;

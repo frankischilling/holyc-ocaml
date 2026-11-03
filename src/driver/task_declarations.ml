@@ -5903,28 +5903,52 @@ let proven_direct_arguments ledger header arguments =
           | _ -> false)
       | _ -> false
   in
+  let parameter_shape (parameter : A.function_parameter) =
+    parameter.pointer_layers = []
+    && parameter.function_pointer = None
+    && parameter.register_qualifiers = []
+  in
+  let literal_numeric_default (parameter : A.function_parameter) =
+    parameter_shape parameter
+    &&
+    match (parameter.type_specifier, parameter.default) with
+    | ( A.Primitive_type_specifier { primitive; _ },
+        Some { value = A.Expression_default (A.Integer_literal _); _ } ) ->
+        (Sema.Primitive_type.info primitive).byte_size > 0
+    | _ -> false
+  in
+  let provided (parameter : A.function_parameter) (argument : A.call_argument) =
+    parameter_shape parameter
+    && (parameter.default = None || literal_numeric_default parameter)
+    &&
+    match (parameter.type_specifier, argument.call_argument_value) with
+    | ( A.Primitive_type_specifier { primitive; _ },
+        A.Provided_call_argument (A.Identifier_expression name) ) ->
+        (Sema.Primitive_type.info primitive).byte_size > 0
+        && completed_numeric_global name
+    | ( A.Primitive_type_specifier { primitive; _ },
+        A.Provided_call_argument expression )
+      when proven_numeric 16 expression ->
+        (Sema.Primitive_type.info primitive).byte_size > 0
+    | _ -> false
+  in
+  let rec supplied_or_default parameters arguments =
+    match (parameters, arguments) with
+    | [], [] -> true
+    | parameter :: rest, [] ->
+        literal_numeric_default parameter && supplied_or_default rest []
+    | parameter :: rest, (argument : A.call_argument) :: tail ->
+        (if argument.call_argument_value = A.Omitted_call_argument then
+           literal_numeric_default parameter
+         else provided parameter argument)
+        && supplied_or_default rest tail
+    | [], _ :: _ -> false
+  in
   header.variadic = None
   && header.empty_parameter_entries = []
-  && List.length parameters = List.length arguments
-  && List.length arguments <= 2
-  && List.for_all2
-       (fun (parameter : A.function_parameter) (argument : A.call_argument) ->
-         parameter.pointer_layers = []
-         && parameter.function_pointer = None
-         && parameter.default = None
-         && parameter.register_qualifiers = []
-         &&
-         match (parameter.type_specifier, argument.call_argument_value) with
-         | ( A.Primitive_type_specifier { primitive; _ },
-             A.Provided_call_argument (A.Identifier_expression name) ) ->
-             (Sema.Primitive_type.info primitive).byte_size > 0
-             && completed_numeric_global name
-         | ( A.Primitive_type_specifier { primitive; _ },
-             A.Provided_call_argument expression )
-           when proven_numeric 16 expression ->
-             (Sema.Primitive_type.info primitive).byte_size > 0
-         | _ -> false)
-       parameters arguments
+  && List.length parameters <= 8
+  && List.length arguments <= 8
+  && supplied_or_default parameters arguments
 
 let emit_direct_call_warnings ledger ~context ~span ~value ~destination =
   match (value, destination) with

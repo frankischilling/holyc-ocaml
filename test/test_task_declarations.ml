@@ -3582,16 +3582,22 @@ let aot_initializer_warning_authority () =
   let source =
     Session.add_source session ~path:"aot-warning-authority.hc"
       ~contents:
-        "I64 N=7;U8 U=7;I64 Get(){return 7;}I64 Arg(I64 n){return n;}I64 \
-         Tiny(U8 n){return n;}I64 Add(I64 a,I64 b){return a+b;}class Box{U0 \
-         empty;I64 value;};Box heap_probe={Get(),42};Box object={Get(),42};Box \
+        "I64 N=7;U8 U=7;I64 Get(){return 7;}I64 Def(I64 n=7){return n;}I64 \
+         Def2(I64 a=3,I64 b=4){return a+b;}I64 Def3(I64 a=3,I64 b=2,I64 \
+         c=2){return a+b+c;}I64 Many(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 \
+         g,I64 h){return a+b+c+d+e+f+g+h;}I64 Arg(I64 n){return n;}I64 Tiny(U8 \
+         n){return n;}I64 Add(I64 a,I64 b){return a+b;}class Box{U0 empty;I64 \
+         value;};Box heap_probe={Get(),42};Box object={Get(),42};Box \
          argument={Arg(7),42};Box pair={Add(3,4),42};Box named={Arg(N),42};Box \
          small={Tiny(7),42};Box smallnamed={Tiny(N),42};Box \
          sum={Arg(3+4),42};Box diff={Arg(8-1),42};Box neg={Arg(-7),42};Box \
          sumN={Arg(N+0),42};Box negN={Arg(-N),42};Box uarg={Arg(U),42};Box \
          narrow={Arg(U+0),42};Box both={Arg(N+U),42};Box \
-         nested={Arg((N+1)*2),42};Box doubleNeg={Arg(-(-N)),42};I64 F(){static \
-         Box x={Get(),42};return x.value;}I64 after;"
+         nested={Arg((N+1)*2),42};Box doubleNeg={Arg(-(-N)),42};Box \
+         defaultObject={Def(),42};Box def2={Def2(,4),42};Box \
+         defboth={Def2(),42};Box def3={Def3(,2,),42};Box \
+         many={Many(1,1,1,1,1,1,1,0),42};I64 F(){static Box \
+         x={Get(),42};return x.value;}I64 after;"
   in
   let ledger = D.create_source session ~source |> checked in
   let foreign = D.create_source session ~source |> checked in
@@ -3685,7 +3691,7 @@ let aot_initializer_warning_authority () =
     ([ 0L; 0L; 0L; 0L ]
     @ List.concat_map
         (fun n -> [ Int64.of_int n; Int64.of_int n ])
-        (List.init 17 (fun n -> n + 1)))
+        (List.init 22 (fun n -> n + 1)))
     (List.rev !counts);
   Option.iter
     (fun receipt ->
