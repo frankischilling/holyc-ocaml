@@ -1374,6 +1374,50 @@ let () =
         ("U8 G=0;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G-=1)+N;}F();", "254");
       ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let minimum = if signed then neg (div n 2L) else 0L in
+          let normalize value =
+            let value = logand value (sub n 1L) in
+            if signed && value >= div n 2L then sub value n else value
+          in
+          List.concat_map
+            (fun parameter ->
+              List.concat_map
+                (fun (op, initial) ->
+                  List.map
+                    (fun amount ->
+                      let updated =
+                        if op = "+" then add initial amount
+                        else sub initial amount
+                      in
+                      ( Printf.sprintf
+                          "%s G=%s;I64 ID(%s x){return x;}I64 F(){return \
+                           ID(G%s=%s);}F();"
+                          ty (to_string initial) parameter op (to_string amount),
+                        to_string (normalize updated) ))
+                    [ 1L; 256L; 2147483647L ])
+                [ ("+", maximum); ("-", minimum) ])
+            [ "I64"; "U64" ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+    @ [
+        ( "I8 G=127;I64 ID(I64 x){return x*2;}I64 F(){return ID(G+=1);}F();",
+          "-256" );
+        ("U8 G=255;I64 ID(I64 x){return x*2;}I64 F(){return ID(G+=1);}F();", "0");
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

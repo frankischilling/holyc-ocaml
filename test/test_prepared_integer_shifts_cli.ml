@@ -245,6 +245,12 @@ let () =
           ( "#exe {I64 F(I8 x){return x>>=1;}I64 I(){return F(127);}I64 S(I64 \
              n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "63" );
+          ( "#exe {U8 G=255;I64 ID(I64 x){return x;}I64 F(){return \
+             ID(G+=1);}StreamPrint(\"%d;\",F());}",
+            "0" );
+          ( "#exe {U8 G=0;I64 ID(I64 x){return x;}I64 F(){return \
+             ID(G-=1);}StreamPrint(\"%d;\",F());}",
+            "255" );
           ("#exe {U8 G=255;I64 F(){return G+=1;}StreamPrint(\"%d;\",F());}", "0");
           ("#exe {U8 G=0;I64 F(){return G-=1;}StreamPrint(\"%d;\",F());}", "255");
           ( "#exe {U8 G=255;I64 F(){return (G+=1)+1;}StreamPrint(\"%d;\",F());}",

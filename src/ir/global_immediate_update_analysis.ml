@@ -11,6 +11,7 @@ type block_stamp = Seq.Block_id.t * stamp list * Seq.Block_id.t list
 type outer =
   | Literal of int64 * Sema.Type.t
   | Global of Sema.Symbol.t * bool * Sema.Type.t * Sema.Type.t
+  | Call of Sema.Symbol.t * Sema.Type.t
 
 type t = {
   frame : Frame.function_layout;
@@ -124,6 +125,56 @@ let analyze ~frame ~body =
         | None -> false)
     | _ -> false
   in
+  let call_argument source value callee call_type =
+    match (Typed.result_call_resolution value, Typed.function_calls source) with
+    | Some (Calls.Direct_call direct), [ Typed.Direct_call_result typed ] -> (
+        let typed_direct =
+          typed |> Typed.direct_source
+          |> Sema.Function_call_conversion_policy.direct_source
+        in
+        let call = Calls.direct_source direct in
+        let typed_call = Calls.direct_source typed_direct in
+        match (Typed.direct_fixed_results typed, Calls.call_arguments call) with
+        | [ fixed ], [ argument ] -> (
+            match
+              (Typed.fixed_path fixed, Calls.argument_expression argument)
+            with
+            | Typed.Provided_result result, Some raw ->
+                let parameter =
+                  fixed |> Typed.fixed_source
+                  |> Sema.Function_call_conversion_policy.fixed_source
+                  |> Calls.fixed_parameter
+                in
+                let parameter_type =
+                  parameter
+                  |> Sema.Function_type_resolution.parameter_type_reference
+                  |> Sema.Type_reference.resolved_type
+                in
+                if
+                  call == typed_call
+                  && Calls.direct_target_symbol direct == callee
+                  && Calls.direct_target_symbol typed_direct == callee
+                  && Calls.call_callee_form call = Calls.Identifier_callee
+                  && Calls.argument_kind argument = Calls.Provided
+                  && Typed.result_source result == raw
+                  && Typed.direct_variadic_results typed = []
+                  && Option.is_none
+                       (Sema.Function_type_resolution.function_variadic_bindings
+                          (Calls.direct_active_header direct))
+                  && Sema.Type.pointer_depth parameter_type = 0
+                  && (match Sema.Type.base parameter_type with
+                    | Sema.Type.Primitive (_, (Sema.Primitive_type.I64 | U64))
+                      -> true
+                    | _ -> false)
+                  && Option.fold ~none:false
+                       ~some:(Sema.Type.equal call_type)
+                       (Typed.result_type value)
+                then Some result
+                else None
+            | _ -> None)
+        | _ -> None)
+    | _ -> None
+  in
   let valid_source ~retained ~outer symbol target operation count =
     Option.fold ~none:false
       ~some:(fun source ->
@@ -137,11 +188,14 @@ let analyze ~frame ~body =
               Option.bind (Typed.return_value returned) (fun value ->
                   match outer with
                   | None -> Some value
+                  | Some (Call (callee, call_type)) ->
+                      call_argument source value callee call_type
                   | Some outer -> (
                       let sum_type =
                         match outer with
                         | Literal (_, sum_type) | Global (_, _, _, sum_type) ->
                             sum_type
+                        | Call _ -> assert false
                       in
                       match
                         ( Calls.argument_expression_source
@@ -170,7 +224,8 @@ let analyze ~frame ~body =
                                      ~retained:right_retained right_symbol right
                                    && Option.fold ~none:false
                                         ~some:(Sema.Type.equal right_type)
-                                        (Typed.result_type right))
+                                        (Typed.result_type right)
+                               | Call _ -> false)
                              &&
                              match
                                Calls.argument_expression_kind
@@ -353,6 +408,55 @@ let analyze ~frame ~body =
                            (right_symbol, right_retained, right_type, sum_type))
                     )
               | _ -> None)
+          | [
+           call_start;
+           address;
+           literal;
+           update;
+           call;
+           cleanup;
+           call_end;
+           returned;
+           jump;
+          ]
+            when valid_terminator jump -> (
+              match
+                ( call_start.Seq.payload,
+                  call.payload,
+                  call_end.payload,
+                  id call_end,
+                  call_end.target_type )
+              with
+              | ( Some (Seq.Symbol callee),
+                  Some (Seq.Symbol called),
+                  Some (Seq.Symbol finished),
+                  Some result,
+                  Some call_type )
+                when callee == called && callee == finished
+                     && Sema.Symbol.kind callee = Sema.Symbol.Function
+                     && call_start.opcode = O.Ic_call_start
+                     && call_start.operands = [] && call_start.result = None
+                     && call_start.target_type = None
+                     && call.opcode = O.Ic_call && call.operands = []
+                     && call.result = None
+                     && cleanup.opcode = O.Ic_add_rsp1
+                     && cleanup.operands = [] && cleanup.result = None
+                     && cleanup.payload = Some (Seq.Integer 8L)
+                     && call_end.opcode = O.Ic_call_end
+                     && call_end.operands = []
+                     && Option.equal Sema.Type.equal call.target_type
+                          (Some call_type)
+                     && Option.equal Sema.Type.equal cleanup.target_type
+                          (Some call_type)
+                     && word_type call_type ->
+                  Some
+                    ( address,
+                      literal,
+                      update,
+                      returned,
+                      result,
+                      Some (Call (callee, call_type)) )
+              | _ -> None)
           | _ -> None
         in
         match shape with
@@ -399,7 +503,15 @@ let analyze ~frame ~body =
                    && returned.payload = None && returned.result = None
                    && returned.operands = [ return_id ]
                    && List.for_all
-                        (fun (item : Seq.description) -> item.flags = 0L)
+                        (fun (item : Seq.description) ->
+                          if
+                            item == update
+                            &&
+                            match outer with
+                            | Some (Call _) -> true
+                            | _ -> false
+                          then item.flags = 0x2000L
+                          else item.flags = 0L)
                         items
                    && Sema.Type.pointer_depth target = 0
                    && (match Sema.Type.base target with
@@ -444,7 +556,8 @@ let matches proof ~frame ~body ~(instruction : Seq.description) ~symbol =
   && original.result = instruction.result
   && Option.equal Sema.Type.equal original.target_type instruction.target_type
   && original.payload = None && instruction.payload = None
-  && original.flags = instruction.flags
+  && (original.flags = instruction.flags
+     || (original.flags = 0x2000L && instruction.flags = 0L))
   && original.span = instruction.span
   &&
   match analyze ~frame ~body with

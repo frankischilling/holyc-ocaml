@@ -53,7 +53,7 @@ let fixture stem =
     "two complete original observations" (one @ one) actual;
   fields
 
-let compile mode contents =
+let compile ?name mode contents =
   let session = Session.create () in
   let source = Session.add_source session ~path:"register-proof.hc" ~contents in
   let config =
@@ -70,7 +70,14 @@ let compile mode contents =
                  (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
                  diagnostics))
   in
-  List.hd (integer_program_functions program.value)
+  let functions = integer_program_functions program.value in
+  match name with
+  | None -> List.hd functions
+  | Some name ->
+      List.find
+        (fun (fn : Ir_integer_interpreter.function_definition) ->
+          Symbol.name (Body.symbol fn.body) = name)
+        functions
 
 let location frame name =
   Frame.function_locations frame
@@ -1581,6 +1588,46 @@ let source_controls () =
         "original global update in compile-time execution" expected
         (List.assoc name global_exe))
     [ ("ADD", "0"); ("SUB", "255") ];
+  let check_global_call stem direct multiplier =
+    let observed = fixture stem and expected = fixture direct in
+    List.iter
+      (fun prefix ->
+        List.iter
+          (fun name ->
+            let value =
+              Int64.mul
+                (Int64.of_string (List.assoc (prefix ^ name) expected))
+                multiplier
+              |> Int64.to_string
+            in
+            Alcotest.(check string)
+              "original global update argument" value
+              (List.assoc (prefix ^ name) observed))
+          [ "S"; "U"; "SN"; "UN" ])
+      [ "J_"; "A_" ]
+  in
+  List.iter
+    (fun op ->
+      List.iter
+        (fun width ->
+          List.iter
+            (fun suffix ->
+              let direct_suffix = if suffix = "-unsigned" then "" else suffix in
+              check_global_call
+                ("global-call-" ^ op ^ "-" ^ width ^ suffix)
+                ("global-immediate-" ^ op ^ "-" ^ width ^ direct_suffix)
+                1L)
+            [ ""; "-mid"; "-max"; "-unsigned" ])
+        [ "byte"; "16"; "32" ])
+    [ "add"; "sub" ];
+  check_global_call "global-call-double" "global-immediate-add-byte" 2L;
+  let call_exe = fixture "global-call-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original global call in compile-time execution" expected
+        (List.assoc name call_exe))
+    [ ("ADD", "0"); ("SUB", "255") ];
   let postfix_default = fixture "postfix-return-default" in
   List.iter
     (fun (name, expected) ->
@@ -2153,6 +2200,103 @@ let global_immediate_proof () =
                 [ "+"; "-" ])
             [ "I64"; "U64" ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun parameter_type ->
+              List.iter
+                (fun operation ->
+                  List.iter
+                    (fun literal ->
+                      let source =
+                        Printf.sprintf
+                          "%s G=0;I64 ID(%s x){return x;}I64 F(){return \
+                           ID(G%s=%s);}42;"
+                          ty parameter_type operation literal
+                      in
+                      let fn = compile ~name:"F" mode source in
+                      Alcotest.(check bool)
+                        "global update call proved" true
+                        (Option.is_some
+                           (Global.analyze ~frame:fn.frame ~body:fn.body)))
+                    [ "1"; "256"; "2147483647" ])
+                [ "+"; "-" ])
+            [ "I64"; "U64" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "unproved global update call" true
+            (Option.is_none (Global.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "U8 G=255;I64 ID(I8 x){return x;}I64 F(){return ID(G+=1);}42;";
+          "U8 G=255;I64 ID(I64 x,...){return x;}I64 F(){return ID(G+=1);}42;";
+          "U8 G=255;I64 ID(I64 x,I64 y){return x+y;}I64 F(){return \
+           ID(G+=1,1);}42;";
+          "U8 G=255;I64 ID(I64 x){return x;}I64 F(){return ID((G+=1)+0);}42;";
+          "U8 G=255;I64 ID(I64 x){return x;}I64 F(){return \
+           ID(G+=2147483648);}42;";
+          "U8 G=255;I64 N=1;I64 ID(I64 x){return x;}I64 F(){return \
+           ID(G+=N);}42;";
+        ];
+      let called =
+        compile ~name:"F" mode
+          "U8 G=255;I64 ID(I64 x){return x;}I64 F(){return ID(G+=1);}42;"
+      in
+      let call_proof =
+        Option.get (Global.analyze ~frame:called.frame ~body:called.body)
+      in
+      let call_descriptions =
+        Body.body called.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+      in
+      let global_address =
+        List.find
+          (fun (item : Seq.description) ->
+            match item.payload with
+            | Some (Seq.Symbol symbol) -> Symbol.name symbol = "G"
+            | _ -> false)
+          call_descriptions
+      in
+      let symbol =
+        match global_address.payload with
+        | Some (Seq.Symbol symbol) -> symbol
+        | _ -> assert false
+      in
+      let update =
+        List.find
+          (fun (item : Seq.description) ->
+            item.opcode = Holyc_lib__Ir.Opcode.Ic_add_equ)
+          call_descriptions
+      in
+      Alcotest.(check bool)
+        "pushed update proof matches" true
+        (Global.matches call_proof ~frame:called.frame ~body:called.body
+           ~instruction:update ~symbol);
+      let lowered = { update with flags = 0L } in
+      Alcotest.(check bool)
+        "normalized push instruction matches" true
+        (Global.matches call_proof ~frame:called.frame ~body:called.body
+           ~instruction:lowered ~symbol);
+      let invalid = { update with flags = 0x4000L } in
+      Alcotest.(check bool)
+        "unrelated call flag rejected" false
+        (Global.matches call_proof ~frame:called.frame ~body:called.body
+           ~instruction:invalid ~symbol);
+      let call =
+        List.find
+          (fun (item : Seq.description) ->
+            item.opcode = Holyc_lib__Ir.Opcode.Ic_call)
+          call_descriptions
+      in
+      Obj.set_field (Obj.repr call) 5 (Obj.repr (Some (Seq.Symbol symbol)));
+      Alcotest.(check bool)
+        "mutated callee invalidates proof" false
+        (Global.matches call_proof ~frame:called.frame ~body:called.body
+           ~instruction:update ~symbol);
       let dynamic =
         compile mode "U8 G=255;I64 N=7;I64 F(){return (G+=1)+N;}42;"
       in
