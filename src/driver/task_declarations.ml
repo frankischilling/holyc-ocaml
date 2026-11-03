@@ -5868,13 +5868,13 @@ let proven_direct_arguments ledger header arguments =
          && parameter.register_qualifiers = []
          &&
          match (parameter.type_specifier, argument.call_argument_value) with
-         | ( A.Primitive_type_specifier
-               { primitive = Sema.Primitive_type.I64; _ },
-             A.Provided_call_argument (A.Integer_literal _) ) -> true
-         | ( A.Primitive_type_specifier
-               { primitive = Sema.Primitive_type.I64; _ },
+         | ( A.Primitive_type_specifier { primitive; _ },
+             A.Provided_call_argument (A.Integer_literal _) ) ->
+             (Sema.Primitive_type.info primitive).byte_size > 0
+         | ( A.Primitive_type_specifier { primitive; _ },
              A.Provided_call_argument (A.Identifier_expression name) ) ->
-             completed_i64_global name
+             (Sema.Primitive_type.info primitive).byte_size > 0
+             && completed_i64_global name
          | _ -> false)
        parameters arguments
 
