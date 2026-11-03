@@ -98,6 +98,9 @@ let () =
          First=F();N=20;First*100+F()+Before;",
         "1624",
         32 );
+      ( "I64 N=7,C=65;I64 F(){static I64 O=N<<C;return O;}I64 A=F();C=1;A+F();",
+        "28",
+        32 );
     ]
   in
   List.iter

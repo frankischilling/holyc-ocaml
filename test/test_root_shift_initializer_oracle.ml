@@ -216,10 +216,85 @@ let original_static () =
                (fun (d : Diagnostic.t) -> d.code = "HCRUN0006")
                diagnostics))
         [
-          "I64 N=7,C=1;I64 F(){static I64 O=N<<C;return O;}F();";
+          "I64 N=7;I8 C=1;I64 F(){static I64 O=N<<C;return O;}F();";
           "I8 N=-8;I64 F(){static I64 O=N>>1;return O;}F();";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let original_dynamic () =
+  let fields = fixture ~stem:"dynamic" () in
+  let cases =
+    [
+      ("LEFT", "I64 N=7,C=65;I64 O=N<<C;O;");
+      ("RIGHT", "I64 N=-8,C=65;I64 O=N>>C;O;");
+      ("UNSIGNED", "U64 N=-8;I64 C=65;U64 O=N>>C;O;");
+      ("SAVED", "I64 N=7,C=65;I64 O=N<<C;C=1;O;");
+    ]
+  in
+  List.iter
+    (fun (field, source) ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun (mode, prefix) ->
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original dynamic shift"
+                (Some (Int64.of_string (List.assoc (prefix ^ field) fields)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no dynamic shift diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+        [ false; true ])
+    cases;
+  let fields = fixture ~stem:"static-dynamic" () in
+  let source =
+    "I64 N=7,C=64;I64 F(){static I64 O=(++N)<<(++C);return O;}I64 \
+     A=N,B=C,D=F();C=1;A*10000+B*100+D+F();"
+  in
+  List.iter
+    (fun native ->
+      List.iter
+        (fun (mode, prefix) ->
+          let number key = Int64.of_string (List.assoc (prefix ^ key) fields) in
+          let expected =
+            Int64.add
+              (Int64.mul (number "N") 10000L)
+              (Int64.add
+                 (Int64.mul (number "C") 100L)
+                 (Int64.add (number "FIRST") (number "SAVED")))
+          in
+          let diagnostics, result = run native mode source in
+          Alcotest.(check (option int64))
+            "original dynamic static effects" (Some expected)
+            (Result.get_ok result);
+          Alcotest.(check (list string))
+            "no static dynamic diagnostics" []
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+    [ false; true ]
+
+let original_dynamic_counts () =
+  let fields = fixture ~stem:"dynamic-counts" () in
+  List.iter
+    (fun (name, count) ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun (mode, prefix) ->
+              let source = Printf.sprintf "I64 N=7,C=%s;I64 O=N<<C;O;" count in
+              let diagnostics, result = run native mode source in
+              Alcotest.(check (option int64))
+                "original variable count"
+                (Some (Int64.of_string (List.assoc (prefix ^ name) fields)))
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "no variable count diagnostics" []
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ (Preprocessor.Jit, "JIT_"); (Preprocessor.Aot, "AOT_") ])
+        [ false; true ])
+    [ ("ZERO", "0"); ("NEG", "-1"); ("63", "63"); ("64", "64"); ("128", "128") ]
 
 let static_owner_identity () =
   let module G = Ir_integer_globals in
@@ -283,7 +358,7 @@ let boundaries () =
                 (List.exists
                    (fun (d : Diagnostic.t) -> d.code = "HCRUN0006")
                    diagnostics))
-            [ "I64 N=7,C=1;I64 O=N<<C;O;"; "I8 N=-8;I64 O=N>>1;O;" ])
+            [ "I64 N=7;I8 C=1;I64 O=N<<C;O;"; "I8 N=-8;I64 O=N>>1;O;" ])
         [ Preprocessor.Jit; Preprocessor.Aot ])
     [ false; true ]
 
@@ -299,6 +374,9 @@ let () =
           Alcotest.test_case "original full-width counts" `Quick original_counts;
           Alcotest.test_case "original static initializer" `Quick
             original_static;
+          Alcotest.test_case "original dynamic shifts" `Quick original_dynamic;
+          Alcotest.test_case "original dynamic counts" `Quick
+            original_dynamic_counts;
           Alcotest.test_case "static owner identity" `Quick
             static_owner_identity;
           Alcotest.test_case "unsupported boundaries" `Quick boundaries;

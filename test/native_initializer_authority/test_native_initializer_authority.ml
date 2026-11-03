@@ -899,7 +899,7 @@ let failed_preparation () =
            ("I64 A=40;I64 F(I64 n=1/0){return n;}42;", "HCIRVM0009");
            ("I64 A=40;I64 B=0&&(1/0);42;", "HCIRVM0009");
            ("I64 A=40;I64 B=1/0;I64 C=1<<2;42;", "HCIRVM0009");
-           ("I64 A=40,C=2;I64 B=A<<C;42;", "HCRUN0006");
+           ("I8 A=40;I64 C=2;I64 B=A<<C;42;", "HCRUN0006");
            ("I64 A=40;42;I64 B=2;", "HCRUN0001");
            ("I64 A=40;I64 F(){static I8 n=1/0;return n;}42;", "HCIRVM0009");
            ("I64 F(){static I8 n=40;return n;}I64 B=1/0;42;", "HCIRVM0009");

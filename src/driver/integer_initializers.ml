@@ -677,8 +677,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | _ -> Ok ()
               in
               (* This graph is freshly lowered from the exact retained global
-                 or static root, or live fragment. It may authorize only the same full-word
-                 canonical constant shifts qualified for retained callees. *)
+                 or static root, or live fragment. It may authorize full-word
+                 shifts whose original operand producers belong to that graph. *)
               let root_shifts =
                 match root_ with
                 | (Global _ | Fragment _ | Static _)
@@ -723,6 +723,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                             word item
                             && Option.fold ~none:false ~some:word
                                  (Values.find_opt operand produced)
+                        | (Ir.Opcode.Ic_shl | Ic_shr), [ left; right ], None ->
+                            word item
+                            && List.for_all
+                                 (fun operand ->
+                                   Option.fold ~none:false ~some:word
+                                     (Values.find_opt operand produced))
+                                 [ left; right ]
                         | _ -> false)
                       value_code
                 | _ -> []
