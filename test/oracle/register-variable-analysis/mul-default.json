@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "057c4935e4afbceaf63e04250dc2ff6c9d20239864b30435bb5fe11bb78deb7c",
+  "boot_payload_sha256": "92e572059722929c7937ca99208ddeaab6f226d7e120e18978a0291ad2bd76de",
+  "boot_payload_bytes": 720,
+  "capture_sha256": "bc75499792620ef4e430afe2ec301fcefee70483c8758041674ae89b6b14a977",
+  "boot_iso_sha256": "46c092cbbca3a9f095fab63a2c1e0eb1e170fd1074b9abab37cac909c46d18f9",
+  "fields": {
+    "SIGNED": "254",
+    "UNSIGNED": "510",
+    "ERR": "0"
+  },
+  "scope": "Repeated original observations of register-selected compound multiplication. The stored source omits trailing spaces used to pad the boot payload."
+}

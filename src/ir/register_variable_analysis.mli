@@ -6,14 +6,14 @@ val analyze :
   body:Function_body.t ->
   t option
 (** Analyze a bound two-parameter function that updates an 8-, 16- or 32-bit
-    integer parameter using a shift or compound addition or subtraction by the
-    other parameter, then returns it directly. Also analyze a function that
-    initializes one narrow local from an integer literal and returns it
-    directly, optionally after the same kind of update by an integer literal.
-    Local compound addition or subtraction requires a nonnegative signed-32-bit
-    literal. Both require default compiler options. Escapes, explicit hardware
-    registers, other control flow and all other shapes remain unproved. This
-    witness does not alter storage or execution. *)
+    integer parameter using a shift or compound addition, subtraction or
+    multiplication by the other parameter, then returns it directly. Also
+    analyze a function that initializes one narrow local from an integer literal
+    and returns it directly, optionally after the same kind of update by an
+    integer literal. Local compound addition or subtraction requires a
+    nonnegative signed-32-bit literal. Both require default compiler options.
+    Escapes, explicit hardware registers, other control flow and all other
+    shapes remain unproved. This witness does not alter storage or execution. *)
 
 val selection :
   t ->

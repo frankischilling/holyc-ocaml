@@ -547,6 +547,132 @@ let source_controls () =
         "retained subtraction" expected
         (List.assoc name sub_default))
     [ ("SIGNED", "-129"); ("UNSIGNED", "-1"); ("LOCAL", "254") ];
+  let mul_byte = fixture "mul-byte" and mul_wide = fixture "mul-wide" in
+  let mul_noreg = fixture "mul-wide-noreg"
+  and mul_high = fixture "mul-param-high" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "byte multiplication" expected
+            (List.assoc (prefix ^ name) mul_byte))
+        [ ("S", "254"); ("U", "510"); ("SN", "-2"); ("UN", "254") ];
+      List.iter
+        (fun (name, wide, narrow) ->
+          Alcotest.(check string)
+            "wide multiplication" wide
+            (List.assoc (prefix ^ name) mul_wide);
+          Alcotest.(check string)
+            "noreg multiplication" narrow
+            (List.assoc (prefix ^ name) mul_noreg))
+        [
+          ("S16", "65534", "-2");
+          ("U16", "131070", "65534");
+          ("S32", "4294967294", "-2");
+          ("U32", "8589934590", "4294967294");
+        ];
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "high parameter multiplication" expected
+            (List.assoc (prefix ^ name) mul_high))
+        [
+          ("S", "-9223372036854775808");
+          ("U", "-9223372036854775808");
+          ("SN", "0");
+          ("UN", "0");
+        ])
+    [ "J_"; "A_" ];
+  let mul_default = fixture "mul-default"
+  and mul_wide_default = fixture "mul-wide-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "retained multiplication" expected
+        (List.assoc name mul_default))
+    [ ("SIGNED", "254"); ("UNSIGNED", "510") ];
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "wide retained multiplication" expected
+        (List.assoc name mul_wide_default))
+    [
+      ("S16", "65534");
+      ("U16", "131070");
+      ("S32", "4294967294");
+      ("U32", "8589934590");
+    ];
+  let local_mul = fixture "local-mul"
+  and local_noreg_mul = fixture "local-mul-noreg" in
+  let local_mul_wide = fixture "local-mul-wide"
+  and local_mul_max = fixture "local-mul-max32" in
+  let local_mul_high = fixture "local-mul-high"
+  and local_noreg_high = fixture "local-mul-noreg-high" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, wide, narrow) ->
+          Alcotest.(check string)
+            "local multiplication" wide
+            (List.assoc (prefix ^ name) local_mul);
+          Alcotest.(check string)
+            "noreg local multiplication" narrow
+            (List.assoc (prefix ^ name) local_noreg_mul))
+        [
+          ("S", "510", "-2");
+          ("U", "512", "0");
+          ("S16", "131070", "-2");
+          ("U16", "131072", "0");
+        ];
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "wide local multiplication" expected
+            (List.assoc (prefix ^ name) local_mul_wide))
+        [ ("S", "8589934590"); ("U", "8589934592"); ("SN", "-2"); ("UN", "0") ];
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "large local multiplication" expected
+            (List.assoc (prefix ^ name) local_mul_max))
+        [
+          ("S", "547608329985");
+          ("U", "549755813632");
+          ("S16", "140735340806145");
+          ("U16", "140737488289792");
+        ];
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "high local multiplication" expected
+            (List.assoc (prefix ^ name) local_mul_high);
+          Alcotest.(check string)
+            "high noreg multiplication" "0"
+            (List.assoc (prefix ^ name) local_noreg_high))
+        [
+          ("S", "-9223372036854775808");
+          ("U", "0");
+          ("S16", "-9223372036854775808");
+          ("U16", "0");
+        ])
+    [ "J_"; "A_" ];
+  let local_mul_default = fixture "local-mul-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "local retained multiplication" expected
+        (List.assoc name local_mul_default))
+    [ ("S", "510"); ("U", "512"); ("SH", "254") ];
+  let high_mul_default = fixture "local-mul-high-default" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "high retained local multiplication" expected
+        (List.assoc name high_mul_default))
+    [
+      ("S", "-9223372036854775808"); ("U", "0"); ("SH", "-9223372036854775808");
+    ];
   let option = fixture "option" in
   Alcotest.(check string)
     "original option enabled" "1"
