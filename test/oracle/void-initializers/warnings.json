@@ -1,0 +1,17 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "c5ea8f84af5d8db89d5ab54d09619e80bbe9f0401db0d9e2a2e845489b832003",
+  "boot_iso_sha256": "cc68e50009521b702b5f23b153e8883d96025fd9d4e7c667a437ab1e1bcef617",
+  "capture_sha256": "fea42ecb835af43b3f73f8037b608242c464da2d82835f1b2f950bd63dcaf006",
+  "fields": {
+    "STATEMENT_WARNINGS": 0,
+    "GLOBAL_WARNINGS": 1,
+    "AGGREGATE_WARNINGS": 1,
+    "AGGREGATE_VALUE": 42,
+    "STATIC_WARNINGS": 1,
+    "STATIC_SUM": 84,
+    "WARNINGS_AFTER_CALLS": 1,
+    "CALLS": 4
+  },
+  "scope": "Original JIT warnings. Plain scalar U0 globals and original AOT warning phases are not claimed as implemented."
+}

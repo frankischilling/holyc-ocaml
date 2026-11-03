@@ -162,7 +162,11 @@ let error ?code output report =
     "expected rejected aggregate report";
   Option.iter
     (fun code ->
-      let first = report |> member "diagnostics" |> to_list |> List.hd in
+      let first =
+        report |> member "diagnostics" |> to_list
+        |> List.find (fun diagnostic ->
+            member "severity" diagnostic = `String "error")
+      in
       require
         (member "code" first = `String code)
         (Yojson.Safe.to_string report))
@@ -614,8 +618,23 @@ let () =
           List.iter
             (fun (_, source, expected, output) ->
               value expected output (invoke ~options target mode source))
-            (Persistent.pointer_initializer_values
-           @ Persistent.void_initializer_values);
+            Persistent.pointer_initializer_values;
+          List.iter
+            (fun (name, source, expected, output) ->
+              let count =
+                if mode <> "jit" then 0
+                else
+                  match name with
+                  | "empty root array executes every U0 leaf"
+                  | "nested zero-byte leaves keep the next byte cursor" -> 2
+                  | _ -> 1
+              in
+              value
+                ~warnings:
+                  (List.init count (fun _ -> ("HCSEMA0079", "U0 Expression")))
+                expected output
+                (invoke ~options target mode source))
+            Persistent.void_initializer_values;
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 ~options target mode source))
@@ -655,7 +674,14 @@ let () =
                target mode source);
           let source = Persistent.void_quota_source in
           let baseline = invoke ~options target mode source in
-          value 42L "AA" baseline;
+          let warnings =
+            if mode = "jit" then
+              [
+                ("HCSEMA0079", "U0 Expression"); ("HCSEMA0079", "U0 Expression");
+              ]
+            else []
+          in
+          value ~warnings 42L "AA" baseline;
           let steps = baseline |> member "executed_steps" |> to_int in
           let preparation =
             baseline |> member "compiled_initializer_steps" |> to_int
@@ -663,7 +689,7 @@ let () =
           require
             (steps > 1 && preparation > 1)
             "U0 effects retain charged work";
-          value 42L "AA"
+          value ~warnings 42L "AA"
             (invoke
                ~options:
                  (options

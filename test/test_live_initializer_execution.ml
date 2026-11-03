@@ -261,6 +261,76 @@ let instruction_budget () =
        (fun word -> word.VM.bits)
        (Task.progress task).runtime.final_value)
 
+let void_warning_phase () =
+  let seen = ref [] and expected = ref 0L in
+  let on_observed task event =
+    let context =
+      match event with
+      | Parser.Global_initializer_leaf_completed receipt
+        when receipt.leaf_initializer.initializer_owner.global_name.spelling
+             = "object"
+             && receipt.leaf_index = 0 ->
+          expected := Int64.succ !expected;
+          Some
+            receipt.leaf_initializer.initializer_owner.global_header
+              .declaration_command
+              .command_context
+      | Parser.Static_initializer_preparing receipt ->
+          if receipt.static_leaf_index = 0 then expected := Int64.succ !expected;
+          (* Both static leaves are checked; only the U0 leaf advances the count. *)
+          Some
+            receipt.static_allocation.allocation_function.function_header
+              .declaration_command
+              .command_context
+      | _ -> None
+    in
+    Option.iter
+      (fun context ->
+        Alcotest.(check int64)
+          "warning reaches its current original control" !expected
+          (Parser.context_warning_count context |> checked);
+        let before = Task.progress task in
+        Alcotest.(check bool)
+          "warning-bearing preparation cannot replay" true
+          (Result.is_error (Task.observe_initializer task event));
+        Alcotest.(check int64)
+          "replay cannot increment warning count" !expected
+          (Parser.context_warning_count context |> checked);
+        Alcotest.(check bool)
+          "replay keeps runtime progress" true
+          (before = Task.progress task);
+        seen := (event, context) :: !seen)
+      context
+  in
+  let parsed, task =
+    run_result ~on_observed
+      {|I64 count=0;U0 Effect(){count++;}class Box{U0 empty;U8 value;};
+Box object={Effect(),20};I64 F(){static Box saved={Effect(),22};return saved.value;}
+I64 Check(){return object.value+F();}Check();|}
+  in
+  ignore (Test_parser.expect_ast parsed);
+  let warnings =
+    List.filter
+      (fun (d : Diagnostic.t) -> d.code = "HCSEMA0079")
+      parsed.diagnostics
+  in
+  Alcotest.(check int)
+    "one warning per compiled U0 leaf" 2 (List.length warnings);
+  Alcotest.(check int)
+    "global and both static leaf checkpoints" 3 (List.length !seen);
+  Alcotest.(check int64) "calls do not repeat declaration warnings" 2L !expected;
+  List.iter
+    (fun (event, context) ->
+      Alcotest.(check bool)
+        "closed parser control has no warning authority" true
+        (Result.is_error (Parser.context_warning_count context));
+      Alcotest.(check bool)
+        "expired leaf cannot emit a warning" true
+        (Result.is_error (Task.observe_initializer task event)))
+    !seen;
+  Alcotest.(check int64)
+    "declaration effects remain once-only" 2L (read task "count;")
+
 let tests =
   [
     Alcotest.test_case "default effects precede the next parameter directive"
@@ -280,6 +350,8 @@ let tests =
       `Quick instruction_budget;
     Alcotest.test_case "current stale and foreign replay rejection" `Quick
       replay;
+    Alcotest.test_case "U0 warnings retain original preparation phase" `Quick
+      void_warning_phase;
     Alcotest.test_case "reached failure preserves writes and capture" `Quick
       failure_effects;
     Alcotest.test_case "copied rows share exact preparation allowance" `Quick

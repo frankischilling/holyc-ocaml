@@ -364,9 +364,10 @@ observations twice in one boot: the global call count is one, its following byte
 is 42, two calls to the static owner return a total of 84, and the total effect
 count remains two. Tests verify the complete repeated capture and its payload
 hash, then compare IR and native JIT execution with those observations. The
-original compiler also reports `U0 Expression`; that warning is not yet part of
-this execution feature's diagnostics. The capture does not establish native AOT
-or emitted-byte parity.
+original compiler also reports `U0 Expression`. JIT source tasks now preserve
+that [warning and its original preparation count](void-initializer-warnings.md).
+AOT warning phases remain separate and unfinished. The capture does not establish
+native AOT or emitted-byte parity.
 
 The source is pinned at `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 `PrsVar.HC:1-120` calls the compiled initializer and copies exactly the reached

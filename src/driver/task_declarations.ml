@@ -8273,6 +8273,10 @@ let emit_compiler_warnings ledger ~runtime diagnostics =
                   Parser.context_emit_compiler_warning context diagnostic))
             (Ok ()) diagnostics)
 
+let emit_counted_compiler_warning ledger ~runtime diagnostic =
+  Result.bind (compiler_control_context ledger ~runtime) (fun context ->
+      Parser.context_emit_counted_compiler_warning context diagnostic)
+
 type header_default =
   | Header_word of int64
   | Header_saved of VM.task_state * Ir.Saved_parameter_value.t

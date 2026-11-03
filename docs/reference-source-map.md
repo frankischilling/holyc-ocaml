@@ -2591,3 +2591,10 @@ initialized local as an assignment. Assignment warning, register selection and
 move lowering are separate consumers in `OptPass012`, `OptPass3`, `OptPass4`,
 `BackC` and `BackLib`. The declaration-only path preserves that separation; see
 [automatic U0 declarations](automatic-void-declarations.md).
+
+## U0 initializer warning phase
+
+`PrsExpression`, `LexExpression2Bin`, `ICAdd` and `LexWarn` distinguish an original
+U0 initializer result from a discarded statement. JIT source tasks emit the
+warning through their active compiler control after the one-use initializer
+claim, before execution. See [U0 initializer warnings](void-initializer-warnings.md).

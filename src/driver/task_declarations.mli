@@ -1012,6 +1012,15 @@ val emit_compiler_warnings :
 (** Emit reached warnings through this runtime's original fully observed active
     parser control. Nested source contexts use their enclosing warning sink. *)
 
+val emit_counted_compiler_warning :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Common.Diagnostic.t ->
+  (unit, string) result
+(** Emit one reached LexWarn diagnostic through this runtime's current original
+    compiler control, including its warning counter. The caller must retain its
+    original once-only preparation attempt. *)
+
 val saved_compiler_context :
   t ->
   session:Session.t ->

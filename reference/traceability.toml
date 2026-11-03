@@ -14986,3 +14986,16 @@ issue = 690
 execution = "Uninitialized scalar U0 automatic declarations must retain their exact original local/type references and checked zero-byte slots before storage is omitted. No address, runtime cell, initialized flag or parameter value is created."
 verification = "Command checks cover both modes and three executors, repeated calls, recursion, neighbors and exact/one-below limits. Original repeated JIT observations establish the plain declaration result. Separate bounded disassembly and value captures retain initialized-U0 register alias behavior as an unsupported boundary, not a no-op."
 evidence_limit = "Automatic U0 initializers and assignments, their warnings and original register/address behavior remain unsupported. Arrays, addresses, reads, parameters and explicit register allocation are not admitted by this declaration-only feature. Original AOT execution and emitted-byte equality are not claimed."
+
+[[feature]]
+id = "HC-JIT-U0-INITIALIZER-WARNINGS"
+description = "Reached U0 initializer results emit the original JIT warning before execution and increment the original compiler control once."
+sources = ["Compiler/PrsExp.HC:263-301 PrsExpression and 1117-1133 LexExpression2Bin", "Compiler/PrsLib.HC:79-97 ICAdd", "Compiler/PrsVar.HC:1-120 PrsVarInit and 209-246 global/static traversal", "Compiler/PrsVar.HC:313-368 callback RT_PTR storage", "Compiler/CExcept.HC:65-79 LexWarn"]
+implementation = ["src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/frontend/parser.ml"]
+tests = ["test/test_live_initializer_execution.ml", "test/test_void_initializer_oracle.ml", "test/test_aggregate_members_cli.ml", "test/oracle/void-initializers/warnings.hc", "test/oracle/void-initializers/warnings.capture", "test/oracle/void-initializers/warnings.json", "test/oracle/void-initializers/warning-controls.hc", "test/oracle/void-initializers/warning-controls.capture", "test/oracle/void-initializers/warning-controls.json"]
+documentation = ["docs/void-initializer-warnings.md", "docs/aggregate-initializers.md", "docs/testing.md"]
+status = "partial"
+issue = 690
+execution = "Original global attempts and static preparation claims precede warning emission. Exact typed U0 results produce HCSEMA0079 through the current original parser control before compiled execution. Replay cannot duplicate a warning or initializer effect. Earlier warnings remain visible when execution later fails."
+verification = "The primary native JIT fixture records eight fields twice; six additional controls retain non-warning callback words, function addresses and integer leaves. Supported aggregate/static warning counts, no-warning statements, values and unchanged counts after calls are compared through IR and native source execution. Live parser tests check original counter ownership, repeated and expired receipts; fault cases retain warning order and earlier output."
+evidence_limit = "Plain scalar U0 globals and direct function-address leaves in the fixtures remain reference-only evidence. AOT and isolated native warning phases, automatic U0 assignment warnings/register behavior and complete diagnostic parity remain unfinished. No successful initializer receipt is inferred from warning emission."

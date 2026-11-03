@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Emit original JIT U0 initializer warnings before execution, with once-only
+  preparation ownership and active compiler warning counts. See
+  [U0 initializer warnings](void-initializer-warnings.md) for scope and evidence.
+
 - Admit original uninitialized scalar U0 locals without allocating value cells
   or flags. Keep their assignment/register-alias behavior explicitly separate.
   See [automatic U0 declarations](automatic-void-declarations.md).

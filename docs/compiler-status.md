@@ -1,5 +1,9 @@
 # Compiler status and implementation notes
 
+[JIT U0 initializer warnings](void-initializer-warnings.md) now increment their
+original compiler control before expression execution. AOT warning phases remain
+unimplemented; this is not a complete warning-parity claim.
+
 [Uninitialized scalar U0 locals](automatic-void-declarations.md) retain their
 original zero-byte frames without runtime value storage. Automatic assignments
 and their original register aliases remain a separate, unsupported family.

@@ -1908,6 +1908,30 @@ let lower_initializer_fragment task ~destination receipt =
   in
   Initializer_fragment_lowering.lower ~context ~authority destination
 
+let emit_void_initializer_warning task ~span value =
+  let module Typed = Sema.Function_call_expression_result in
+  (* Callback words retain a nominal return type, but PrsType gives their
+     expression the physical RT_PTR class. They are not U0 call results. *)
+  if
+    (not (Ir.Initializer_value.is_void value))
+    || Typed.result_is_callback_storage value
+    || Option.is_some (Typed.result_callback_pointer value)
+    || Option.is_some (Typed.result_function_address_path value)
+    || Typed.result_is_numeric_callback value
+  then Ok ()
+  else
+    let warning =
+      Common.Diagnostic.make ~severity:Common.Diagnostic.Warning
+        ~code:"HCSEMA0079" ~message:"U0 Expression" ~primary:span ()
+    in
+    Task_declarations.emit_counted_compiler_warning task.declarations
+      ~runtime:task.state warning
+    |> Result.map_error (fun message ->
+        [ Integer_source.message_diagnostic ~span message ])
+    |> Result.map (fun () ->
+        task.compiler_diagnostics_rev :=
+          warning :: !(task.compiler_diagnostics_rev))
+
 let execute_initializer_leaf ?(use_active_stream = true) ?stream_exe_print task
     receipt =
   let ( let* ) = Result.bind in
@@ -1920,6 +1944,12 @@ let execute_initializer_leaf ?(use_active_stream = true) ?stream_exe_print task
     let destination = VM.initializer_attempt_destination attempt in
     let* context, authority, destination =
       prepare_initializer_destination_context task ~destination receipt
+    in
+    let* () =
+      emit_void_initializer_warning task
+        ~span:(Ir.Initializer_fragment_destination.span destination)
+        (Ir.Initializer_fragment_destination.root destination
+        |> Sema.Function_call_expression_result.top_level_root_value)
     in
     let* execution =
       Initializer_fragment_lowering.prepare ~context ~authority
@@ -2521,6 +2551,12 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
             ~cursor:(Ir.Integer_static_allocation.cursor allocation)
             typed
           |> diagnose
+        in
+        let* () =
+          emit_void_initializer_warning task
+            ~span:(Ir.Static_initializer_destination.span destination)
+            (Ir.Static_initializer_destination.root destination
+            |> Sema.Function_call_expression_result.top_level_root_value)
         in
         match Ir.Static_initializer_destination.copy_byte_count destination with
         | Some _ when Option.is_none task.native_dispatch ->

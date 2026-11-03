@@ -87,6 +87,15 @@ let rejected ?code target mode source options =
   require
     (member "diagnostics" report <> `List [])
     "rejection requires diagnostics";
+  List.iter
+    (fun diagnostic ->
+      let code = diagnostic |> member "code" |> to_string in
+      require
+        (not
+           (String.starts_with ~prefix:"HCPARSE" code
+           || String.starts_with ~prefix:"HCLEX" code))
+        "unsupported U0 use must reach its semantic/execution boundary")
+    (report |> member "diagnostics" |> to_list);
   Option.iter
     (fun expected ->
       require
@@ -109,12 +118,15 @@ let values =
 
 let unsupported =
   [
-    "I64 Next(){PutChars(65);return 42;}I64 F(){U0 x=Next();return 42;}F();";
-    "U0 Next(){PutChars(65);}I64 F(){U0 x=Next();return 42;}F();";
+    "extern U0 PutChars(U64 ch);I64 Next(){PutChars(65);return 42;}I64 F(){U0 \
+     x=Next();return 42;}F();";
+    "extern U0 PutChars(U64 ch);U0 Next(){PutChars(65);}I64 F(){U0 \
+     x=Next();return 42;}F();";
     "I64 F(){U0 x;return x;}F();";
     "I64 F(){U0 x;U0 *p=&x;return *p;}F();";
     "I64 F(){U0 x[1];return sizeof(x)+42;}F();";
-    "I64 Next(){PutChars(65);return 42;}I64 F(){U0 x;x=Next();return 42;}F();";
+    "extern U0 PutChars(U64 ch);I64 Next(){PutChars(65);return 42;}I64 F(){U0 \
+     x;x=Next();return 42;}F();";
   ]
 
 let () =

@@ -1,5 +1,10 @@
 # Testing holyc-ocaml
 
+[U0 initializer warning tests](void-initializer-warnings.md) compare repeated
+native counts, diagnostic order and source spans. Live parser checks retain the
+original counter across replay rejection; runtime failure preserves earlier
+output without fabricating initializer completion.
+
 [Automatic U0 declaration](automatic-void-declarations.md) checks cover zero-byte
 frames, original local/type ownership, repeated calls, recursion, neighboring
 integers and exact execution limits. Separate repeated native captures preserve
