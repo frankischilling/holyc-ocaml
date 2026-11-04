@@ -442,6 +442,43 @@ let source_controls () =
       ("A_GR", "8590196896");
       ("A_GN", "4295032992");
     ];
+  let reverse_tree = fixture "many-updates-fullwidth-reverse-tree" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original reversed update result" expected
+        (List.assoc name reverse_tree))
+    [
+      ("J_AR", "131368");
+      ("J_AN", "65576");
+      ("J_BR", "131283");
+      ("J_BN", "65491");
+      ("J_CR", "131283");
+      ("J_CN", "65491");
+      ("J_DR", "4295033041");
+      ("J_DN", "65489");
+      ("J_ER", "2147615014");
+      ("J_EN", "2147549222");
+      ("J_FR", "21474902176");
+      ("J_FN", "4295032736");
+      ("J_GR", "8590196896");
+      ("J_GN", "4295032992");
+      ("ERR", "0");
+      ("A_AR", "131368");
+      ("A_AN", "65576");
+      ("A_BR", "131283");
+      ("A_BN", "65491");
+      ("A_CR", "131283");
+      ("A_CN", "65491");
+      ("A_DR", "4295033041");
+      ("A_DN", "65489");
+      ("A_ER", "2147615014");
+      ("A_EN", "2147549222");
+      ("A_FR", "21474902176");
+      ("A_FN", "4295032736");
+      ("A_GR", "8590196896");
+      ("A_GN", "4295032992");
+    ];
   let fullwidth_ops = fixture "many-updates-fullwidth-ops" in
   List.iter
     (fun (name, wide, narrow) ->
@@ -3197,6 +3234,7 @@ let sequence_selection () =
             "full-width and narrow update sequence" true
             (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
           "I64 F(I64 x,I8 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
            x+y+z;}42;";
           "I64 F(I8 x,I64 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
@@ -3243,7 +3281,6 @@ let sequence_selection () =
           "I64 F(I64 x,I64 y,I64 z,I64 c){x+=c;y+=c;z+=c;return x+y+z;}42;";
           "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c,I64 d){x-=c;y-=c;z-=c;w+=x;return \
            x+y+z+w;}42;";
-          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;c+=c;return x+y+z;}42;";
         ])

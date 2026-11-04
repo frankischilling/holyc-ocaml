@@ -897,7 +897,13 @@ let analyze_parameter ~frame ~body =
                 | [ root ] -> (
                     match collect [] root with
                     | Some (leaves, sums, _)
-                      when same_list ( == ) leaves targets
+                      when List.length leaves = count
+                           && List.for_all
+                                (fun target ->
+                                  List.length
+                                    (List.filter (( == ) target) leaves)
+                                  = 1)
+                                targets
                            && List.length sums
                               = List.length arithmetic_additions
                            && List.length
