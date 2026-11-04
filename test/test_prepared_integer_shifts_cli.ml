@@ -298,6 +298,9 @@ let () =
           ( "#exe {I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return \
              x+y+z;}StreamPrint(\"%d;\",F(127,127,127,1));}",
             "384" );
+          ( "#exe {I64 F(U8 x,U8 y,U8 z,I64 c){x*=c;y*=c;z*=c;return \
+             x+y+z;}StreamPrint(\"%d;\",F(255,255,255,2));}",
+            "1530" );
           ( "#exe {I64 F(U8 x,U8 y,U8 z,U8 w,U8 v,I64 \
              c){x+=c;y+=c;z+=c;w+=c;v+=c;return \
              x+y+z+w+v;}StreamPrint(\"%d;\",F(255,255,255,255,255,1));}",
@@ -533,5 +536,5 @@ let () =
         (member "hosted_code" fault |> to_string))
     [ "jit"; "aot" ];
   print_endline
-    "40 prepared source projections and retained CLI work/fault boundaries \
+    "41 prepared source projections and retained CLI work/fault boundaries \
      passed."

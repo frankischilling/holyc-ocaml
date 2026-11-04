@@ -772,8 +772,10 @@ let analyze_parameter ~frame ~body =
                && List.length arithmetic_additions = count - 1
                && List.for_all
                     (fun (item : Seq.description) ->
-                      item.opcode = O.Ic_add_equ && item.payload = None)
+                      item.opcode = (List.hd updates).opcode
+                      && item.payload = None)
                     updates
+               && (count = 3 || (List.hd updates).opcode = O.Ic_add_equ)
                && returned.payload = None && ordered updates -> (
             let last = List.hd (List.rev updates) in
             let mapped =
@@ -880,12 +882,13 @@ let analyze_parameter ~frame ~body =
                            && List.for_all
                                 (fun sum ->
                                   List.exists (( == ) sum) arithmetic_additions)
-                                sums -> Some (targets, operand, root)
+                                sums ->
+                        Some (targets, operand, root, (List.hd updates).opcode)
                     | _ -> None)
                 | _ -> None)
         | _ -> None
       in
-      let sequence_source_matches (targets, operand, root) =
+      let sequence_source_matches (targets, operand, root, opcode) =
         let module Typed = Sema.Function_call_expression_result in
         let module Calls = Sema.Function_call_resolution in
         let module Bind = Sema.Module_expression_binding in
@@ -912,7 +915,17 @@ let analyze_parameter ~frame ~body =
               Typed.result_binary_operands value )
           with
           | Some (Frontend.Ast.Binary_expression binary), Some (left, right) ->
-              binary.binary_operator_spec.spelling = "+="
+              (match (binary.binary_operator_spec.spelling, opcode) with
+                | "+=", O.Ic_add_equ
+                | "-=", O.Ic_sub_equ
+                | "*=", O.Ic_mul_equ
+                | "/=", O.Ic_div_equ
+                | "<<=", O.Ic_shl_equ
+                | ">>=", O.Ic_shr_equ
+                | "&=", O.Ic_and_equ
+                | "|=", O.Ic_or_equ
+                | "^=", O.Ic_xor_equ -> true
+                | _ -> false)
               && matches_binding target left
               && matches_binding operand right
           | _ -> false
@@ -984,9 +997,10 @@ let analyze_parameter ~frame ~body =
                      first_opcode,
                      second_opcode ) -> Some [ first; second ]
           | _ ->
-              Option.bind matching_sequence (fun (targets, operand, root) ->
-                  if sequence_source_matches (targets, operand, root) then
-                    Some targets
+              Option.bind matching_sequence
+                (fun (targets, operand, root, opcode) ->
+                  if sequence_source_matches (targets, operand, root, opcode)
+                  then Some targets
                   else None)
       in
       if

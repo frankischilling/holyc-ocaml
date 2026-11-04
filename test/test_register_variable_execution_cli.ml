@@ -2112,6 +2112,48 @@ let () =
             ])
         [ 3; 4; 5 ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let unit = Int64.shift_left 1L (if signed then bits - 1 else bits) in
+          let max = Int64.pred unit in
+          let wrap_add = if signed then Int64.succ (Int64.neg unit) else 1L in
+          let wrap_double = if signed then -2L else Int64.sub unit 2L in
+          let operations =
+            [
+              ("+", 2, Int64.add max 2L, wrap_add);
+              ("-", 1, Int64.pred max, Int64.pred max);
+              ("*", 2, Int64.mul max 2L, wrap_double);
+              ("/", 1, max, max);
+              ("<<", 1, Int64.mul max 2L, wrap_double);
+              (">>", 1, Int64.div max 2L, Int64.div max 2L);
+              ("&", 127, 127L, 127L);
+              ("|", 1, max, max);
+              ("^", 1, Int64.pred max, Int64.pred max);
+            ]
+          in
+          List.concat_map
+            (fun (op, operand, wide, narrow) ->
+              List.map
+                (fun (qualifier, expected) ->
+                  ( Printf.sprintf
+                      "I64 F(%s %s x,%s %s y,%s %s z,I64 \
+                       c){x%s=c;y%s=c;z%s=c;return x+y+z;}F(%Ld,%Ld,%Ld,%d);"
+                      ty qualifier ty qualifier ty qualifier op op op max max
+                      max operand,
+                    Int64.to_string (Int64.mul 3L expected) ))
+                [ ("", wide); ("noreg", narrow) ])
+            operations)
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+  in
   List.iter
     (fun target ->
       List.iter
@@ -2134,6 +2176,8 @@ let () =
   let faults =
     [
       ("I64 F(I8 x,I8 y,I64 c){x/=c;y/=c;return x+y;}F(1,1,0);", "HCIRVM0009");
+      ( "I64 F(U8 x,U8 y,U8 z,I64 c){x/=c;y/=c;z/=c;return x+y+z;}F(1,1,1,0);",
+        "HCIRVM0009" );
       ("I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(1,0);", "HCIRVM0009");
       ("I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(1,0);", "HCIRVM0009");
       ( "I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(0x8000000000000000,-1);",

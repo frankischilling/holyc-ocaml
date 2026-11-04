@@ -20,10 +20,12 @@ val analyze :
     using one or two unchanged parameters to two scalar parameters, at least one
     narrow, and return their sum. Three to five narrow parameters of the same
     type may each add one unchanged parameter and return their sum in update
-    order. Remainder is not proved for these parameter updates. Distinct R12
-    through R15 requests are covered in these call-free shapes. Other explicit
-    registers, conflicting requests, escapes, extra locals and other control
-    flow remain unproved. The witness itself does not alter execution. *)
+    order. Three narrow parameters of the same type may also receive the same
+    supported shift, arithmetic or bitwise update. Remainder is not proved for
+    these parameter updates. Distinct R12 through R15 requests are covered in
+    these call-free shapes. Other explicit registers, conflicting requests,
+    escapes, extra locals and other control flow remain unproved. The witness
+    itself does not alter execution. *)
 
 val selection :
   t ->

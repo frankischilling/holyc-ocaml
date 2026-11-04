@@ -359,6 +359,73 @@ let source_controls () =
           ("UN", 0);
         ])
     [ 3; 4; 5 ];
+  let operator_widths = fixture "three-updates-operator-widths" in
+  List.iter
+    (fun (kind, bits, signed) ->
+      let unit = Int64.shift_left 1L (if signed then bits - 1 else bits) in
+      let max = Int64.pred unit in
+      let wrap_add = if signed then Int64.succ (Int64.neg unit) else 1L in
+      let wrap_double = if signed then -2L else Int64.sub unit 2L in
+      let values =
+        [
+          (Int64.add max 2L, wrap_add);
+          (Int64.pred max, Int64.pred max);
+          (Int64.mul max 2L, wrap_double);
+          (max, max);
+          (Int64.mul max 2L, wrap_double);
+          (Int64.div max 2L, Int64.div max 2L);
+          (127L, 127L);
+          (max, max);
+          (Int64.pred max, Int64.pred max);
+        ]
+      in
+      List.iteri
+        (fun index (wide, narrow) ->
+          List.iter
+            (fun prefix ->
+              List.iter
+                (fun (suffix, value) ->
+                  Alcotest.(check string)
+                    "original three-update operator width"
+                    (Int64.to_string (Int64.mul 3L value))
+                    (List.assoc
+                       (Printf.sprintf "%s_%sX%d%s" prefix kind index suffix)
+                       operator_widths))
+                [ ("R", wide); ("N", narrow) ])
+            [ "J"; "A" ])
+        values)
+    [
+      ("S8", 8, true);
+      ("S16", 16, true);
+      ("U16", 16, false);
+      ("S32", 32, true);
+      ("U32", 32, false);
+    ];
+  let sequence_ops = fixture "three-updates-operators" in
+  List.iteri
+    (fun index (register, stack) ->
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (suffix, expected) ->
+              Alcotest.(check string)
+                "original three-update operator" expected
+                (List.assoc
+                   (Printf.sprintf "%s_%d%s" prefix index suffix)
+                   sequence_ops))
+            [ ("R", register); ("N", stack) ])
+        [ "J"; "A" ])
+    [
+      ("771", "3");
+      ("762", "762");
+      ("1530", "762");
+      ("765", "765");
+      ("1530", "762");
+      ("381", "381");
+      ("381", "381");
+      ("765", "765");
+      ("762", "762");
+    ];
   let sequence_exe = fixture "many-updates-exe" in
   List.iter
     (fun (name, expected) ->
@@ -2528,6 +2595,23 @@ let sequence_selection () =
             ])
         [ 3; 4; 5 ];
       List.iter
+        (fun ty ->
+          List.iter
+            (fun op ->
+              let fn =
+                compile mode
+                  (Printf.sprintf
+                     "I64 F(%s x,%s y,%s z,I64 c){x%s=c;y%s=c;z%s=c;return \
+                      x+y+z;}42;"
+                     ty ty ty op op op)
+              in
+              Alcotest.(check bool)
+                "three matching update operators" true
+                (Option.is_some
+                   (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+            [ "+"; "-"; "*"; "/"; "<<"; ">>"; "&"; "|"; "^" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
         (fun source ->
           let fn = compile mode source in
           Alcotest.(check bool)
@@ -2535,6 +2619,8 @@ let sequence_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z-=c;return x+y+z;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c){x-=c;y-=c;z-=c;w-=c;return \
+           x+y+z+w;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;c+=c;return x+y+z;}42;";
