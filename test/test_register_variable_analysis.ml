@@ -195,6 +195,50 @@ let source_controls () =
         "original operand register in compile-time execution" expected
         (List.assoc name explicit_count_exe))
     [ ("PARAM", "254"); ("LOCAL", "510") ];
+  List.iter
+    (fun stem ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original multi-parameter selection" expected
+                (List.assoc (prefix ^ name) fields))
+            [ ("S", "254"); ("U", "510"); ("SN", "-2"); ("UN", "254") ])
+        [ "J_"; "A_" ])
+    [
+      "many-parameters-3";
+      "many-parameters-4";
+      "many-parameters-5";
+      "many-parameters";
+      "many-parameters-target";
+      "many-parameters-count";
+    ];
+  List.iter
+    (fun (op, values) ->
+      let fields = fixture ("many-parameters-" ^ op) in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original multi-parameter arithmetic" expected
+                (List.assoc (prefix ^ name) fields))
+            values)
+        [ "J_"; "A_" ])
+    [
+      ("add", [ ("S", "128"); ("U", "256"); ("SN", "-128"); ("UN", "0") ]);
+      ("sub", [ ("S", "-129"); ("U", "-1"); ("SN", "127"); ("UN", "255") ]);
+      ("mul", [ ("S", "254"); ("U", "510"); ("SN", "-2"); ("UN", "254") ]);
+    ];
+  let many_exe = fixture "many-parameters-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original multi-parameter compile-time execution" expected
+        (List.assoc name many_exe))
+    [ ("PARAM", "254"); ("LOCAL", "510") ];
   let unsigned = fixture "u8" in
   List.iter
     (fun prefix ->
@@ -1993,6 +2037,61 @@ let simple_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let many_parameter_selection () =
+  let signatures =
+    [
+      ("I64 a,", ",I64 c");
+      ("I64 a,", ",I64 d,I64 c");
+      ("I64 a,I64 b,", ",I64 d,I64 c");
+      ("I64 a,I64 b,", ",I64 d,I64 e,I64 c");
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (prefix, suffix) ->
+          List.iter
+            (fun (ty, qualifier, expected) ->
+              let parameters = prefix ^ ty ^ " " ^ qualifier ^ " x" ^ suffix in
+              let fn =
+                compile mode ("I64 F(" ^ parameters ^ "){x<<=c;return x;}42;")
+              in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let symbol = location fn.frame "x" |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "multi-parameter register selection" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some expected))
+            [
+              ("I8", "", Analysis.Register_candidate);
+              ("U8", "", Analysis.Register_candidate);
+              ("I8", "noreg", Analysis.Stack);
+              ("U8", "noreg", Analysis.Stack);
+            ])
+        signatures;
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "multi-parameter requested register proved" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I64 a,I64 b,I8 reg R12 x,I64 d,I64 e,I64 c){x<<=c;return \
+           x;}42;";
+          "I64 F(I64 a,I64 b,I8 x,I64 d,I64 e,I64 reg R12 c){x<<=c;return \
+           x;}42;";
+        ];
+      let fn =
+        compile mode
+          "I64 F(I64 a,I64 b,I64 d,I64 e,I64 f,I8 x,I64 c){x<<=c;return x;}42;"
+      in
+      Alcotest.(check bool)
+        "more than six parameters remain unproved" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let explicit_register_selection () =
   List.iter
     (fun mode ->
@@ -3042,6 +3141,8 @@ let () =
         [
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
+          Alcotest.test_case "multi-parameter selection" `Quick
+            many_parameter_selection;
           Alcotest.test_case "explicit register selection" `Quick
             explicit_register_selection;
           Alcotest.test_case "parameter-initialized local selection" `Quick

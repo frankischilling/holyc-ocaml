@@ -1644,6 +1644,74 @@ let () =
           ])
         [ "R12"; "R13"; "R14"; "R15" ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (prefix, suffix, before, after) ->
+          List.concat_map
+            (fun (ty, initial, wide, narrow) ->
+              List.map
+                (fun (qualifier, expected) ->
+                  ( Printf.sprintf
+                      "I64 F(%s%s %s x%s){x<<=c;return x;}F(%s%s%s);" prefix ty
+                      qualifier suffix before initial after,
+                    expected ))
+                [ ("", wide); ("noreg", narrow) ])
+            [
+              ("I8", "127", "254", "-2");
+              ("U8", "255", "510", "254");
+              ("I16", "32767", "65534", "-2");
+              ("U16", "65535", "131070", "65534");
+              ("I32", "2147483647", "4294967294", "-2");
+              ("U32", "4294967295", "8589934590", "4294967294");
+            ])
+        [
+          ("I64 a,", ",I64 c", "0,", ",1");
+          ("I64 a,", ",I64 d,I64 c", "0,", ",0,1");
+          ("I64 a,I64 b,", ",I64 d,I64 c", "0,0,", ",0,1");
+          ("I64 a,I64 b,", ",I64 d,I64 e,I64 c", "0,0,", ",0,0,1");
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(I64 a,I64 b,I8 reg R12 x,I64 d,I64 e,I64 c){x<<=c;return \
+           x;}F(0,0,127,0,0,1);",
+          "254" );
+        ( "I64 F(I64 a,I64 b,I8 x,I64 d,I64 e,I64 reg R12 c){x<<=c;return \
+           x;}F(0,0,127,0,0,1);",
+          "254" );
+      ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, op, count, wide, narrow) ->
+          List.map
+            (fun (qualifier, expected) ->
+              ( Printf.sprintf
+                  "I64 F(I64 a,I64 b,%s %s x,I64 d,I64 e,I64 c){x%s=c;return \
+                   x;}F(0,0,%s,0,0,%s);"
+                  ty qualifier op initial count,
+                expected ))
+            [ ("", wide); ("noreg", narrow) ])
+        [
+          ("I8", "127", "+", "1", "128", "-128");
+          ("U8", "255", "+", "1", "256", "0");
+          ("I8", "-128", "-", "1", "-129", "127");
+          ("U8", "0", "-", "1", "-1", "255");
+          ("I8", "127", "*", "2", "254", "-2");
+          ("U8", "255", "*", "2", "510", "254");
+          ("I8", "-128", "/", "-1", "128", "-128");
+          ("U8", "255", "/", "2", "127", "127");
+          ("I8", "127", "|", "256", "383", "127");
+          ("U8", "255", "|", "256", "511", "255");
+          ("I8", "127", "^", "256", "383", "127");
+          ("U8", "255", "^", "256", "511", "255");
+          ("I8", "-1", "&", "255", "255", "-1");
+          ("U8", "255", "&", "255", "255", "255");
+        ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

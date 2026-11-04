@@ -175,7 +175,8 @@ let analyze_parameter ~frame ~body =
          (Int64.lognot Function_body.ordinary_calling_flag_mask)
        = 0L
     && Function_body.compiler_options body = Sema.Compiler_option.initial_mask
-    && List.length locations = 2
+    && List.length locations >= 2
+    && List.length locations <= 6
     && safe_register_requests locations
     && List.for_all
          (fun location ->
@@ -416,13 +417,13 @@ let analyze_parameter ~frame ~body =
                     | Sema.Type.Primitive
                         ( _,
                           (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32)
-                        ) -> Some target_location
+                        ) -> Some (target_location, count_location)
                     | _ -> None)
                 | _ -> None)
             | _ -> None)
         | _ -> None
       in
-      let source_matches target =
+      let source_matches (target, count_location) =
         let module Typed = Sema.Function_call_expression_result in
         let module Calls = Sema.Function_call_resolution in
         let module Bind = Sema.Module_expression_binding in
@@ -481,22 +482,14 @@ let analyze_parameter ~frame ~body =
                       | _ -> false
                     in
                     let target_binding = Frame.location_binding target in
-                    let count_location =
-                      List.find_opt
-                        (fun location -> location != target)
-                        locations
-                    in
                     opcode_matches
                     && Option.fold ~none:false ~some:(( == ) target_binding)
                          (binding_of left)
                     && Option.fold ~none:false ~some:(( == ) target_binding)
                          (binding_of return_value)
                     && Option.fold ~none:false
-                         ~some:(fun count ->
-                           Option.fold ~none:false
-                             ~some:(( == ) (Frame.location_binding count))
-                             (binding_of right))
-                         count_location
+                         ~some:(( == ) (Frame.location_binding count_location))
+                         (binding_of right)
                 | _ -> false)
             | _ -> false)
           (Function_body.definition_source body)
@@ -507,7 +500,7 @@ let analyze_parameter ~frame ~body =
         || not (Option.fold ~none:false ~some:source_matches matching_target)
       then None
       else
-        let target = Option.get matching_target in
+        let target, _ = Option.get matching_target in
         let selections =
           List.map
             (fun location ->
