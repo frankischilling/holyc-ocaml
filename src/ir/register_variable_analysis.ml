@@ -775,7 +775,6 @@ let analyze_parameter ~frame ~body =
                       item.opcode = (List.hd updates).opcode
                       && item.payload = None)
                     updates
-               && (count = 3 || (List.hd updates).opcode = O.Ic_add_equ)
                && returned.payload = None && ordered updates -> (
             let last = List.hd (List.rev updates) in
             let mapped =
