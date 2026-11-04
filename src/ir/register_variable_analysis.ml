@@ -428,7 +428,7 @@ let analyze_parameter ~frame ~body =
       (* For two updates, authenticate the only non-address addition as the
          return sum and tie each operand to its own frame location. *)
       let matching_pair =
-        let narrow_shape type_ =
+        let integer_shape type_ =
           if Sema.Type.pointer_depth type_ <> 0 then None
           else
             match Sema.Type.base type_ with
@@ -438,16 +438,19 @@ let analyze_parameter ~frame ~body =
                 Some (form, 2)
             | Sema.Type.Primitive (form, (Sema.Primitive_type.I32 | U32)) ->
                 Some (form, 4)
+            | Sema.Type.Primitive (form, (Sema.Primitive_type.I64 | U64)) ->
+                Some (form, 8)
             | _ -> None
         in
         let compatible_sum first second result =
           match
-            (narrow_shape first, narrow_shape second, narrow_shape result)
+            (integer_shape first, integer_shape second, integer_shape result)
           with
           | ( Some (first_form, first_width),
               Some (second_form, second_width),
               Some (result_form, result_width) ) ->
               first_form = second_form && first_form = result_form
+              && min first_width second_width < 8
               && result_width = max first_width second_width
           | _ -> false
         in
@@ -553,23 +556,15 @@ let analyze_parameter ~frame ~body =
                        && compatible_sum
                             (Frame.location_checked_type first_target)
                             (Frame.location_checked_type second_target)
-                            sum_type -> (
-                    match
-                      Sema.Type.base (Frame.location_checked_type first_target)
-                    with
-                    | Sema.Type.Primitive
-                        ( _,
-                          (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32)
-                        ) ->
-                        Some
-                          ( first_target,
-                            second_target,
-                            count,
-                            other_count,
-                            sum_type,
-                            first.opcode,
-                            second.opcode )
-                    | _ -> None)
+                            sum_type ->
+                    Some
+                      ( first_target,
+                        second_target,
+                        count,
+                        other_count,
+                        sum_type,
+                        first.opcode,
+                        second.opcode )
                 | _ -> None)
             | _ -> None)
         | _ -> None

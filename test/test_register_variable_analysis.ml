@@ -339,6 +339,16 @@ let source_controls () =
             ])
         [ "J_"; "A_" ])
     [ 8; 16; 32 ];
+  let full_narrow = fixture "two-updates-full-narrow" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "original full-width and narrow updates" expected
+            (List.assoc (prefix ^ name) full_narrow))
+        [ ("S", "171"); ("U", "171"); ("SN", "-85"); ("UN", "-85") ])
+    [ "J_"; "A_" ];
   let mixed_ops = fixture "two-updates-mixed-types-ops" in
   List.iter
     (fun prefix ->
@@ -2374,6 +2384,12 @@ let pair_selection () =
           ("I16", "I8");
           ("U16", "U32");
           ("U32", "U16");
+          ("I8", "I64");
+          ("I64", "I8");
+          ("U16", "U64");
+          ("U64", "U16");
+          ("I32", "U64");
+          ("U64", "I32");
         ];
       let six =
         compile mode
@@ -2413,7 +2429,7 @@ let pair_selection () =
         [
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return y+x;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y%=c;return x+y;}42;";
-          "I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}42;";
+          "I64 F(I64 x,I64 y,I64 c){x+=c;y+=c;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=x;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return x+y+0;}42;";
           "I64 F(I8 reg R12 x,I8 reg R12 y,I64 c){x+=c;y+=c;return x+y;}42;";

@@ -69,6 +69,12 @@ let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
   let cases =
     [
+      ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
+      ("I64 F(I64 x,I8 y,I64 c){x+=c;y+=c;return x+y;}F(42,127,1);", "171");
+      ( "I64 F(I8 noreg x,I64 noreg y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);",
+        "-85" );
+      ( "I64 F(I64 noreg x,I8 noreg y,I64 c){x+=c;y+=c;return x+y;}F(42,127,1);",
+        "-85" );
       ("I64 F(I8 x,I8 c){x<<=c;return x;}F(127,1);", "254");
       ("I64 F(I8 noreg x,I8 c){x<<=c;return x;}F(127,1);", "-2");
       ("I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}F(127,1);", "-2");
