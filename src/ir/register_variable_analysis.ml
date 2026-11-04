@@ -771,9 +771,7 @@ let analyze_parameter ~frame ~body =
           when count >= 3 && count <= 5
                && List.length arithmetic_additions = count - 1
                && List.for_all
-                    (fun (item : Seq.description) ->
-                      item.opcode = (List.hd updates).opcode
-                      && item.payload = None)
+                    (fun (item : Seq.description) -> item.payload = None)
                     updates
                && returned.payload = None && ordered updates -> (
             let last = List.hd (List.rev updates) in
@@ -882,12 +880,18 @@ let analyze_parameter ~frame ~body =
                                 (fun sum ->
                                   List.exists (( == ) sum) arithmetic_additions)
                                 sums ->
-                        Some (targets, operand, root, (List.hd updates).opcode)
+                        Some
+                          ( targets,
+                            operand,
+                            root,
+                            List.map
+                              (fun (item : Seq.description) -> item.opcode)
+                              updates )
                     | _ -> None)
                 | _ -> None)
         | _ -> None
       in
-      let sequence_source_matches (targets, operand, root, opcode) =
+      let sequence_source_matches (targets, operand, root, opcodes) =
         let module Typed = Sema.Function_call_expression_result in
         let module Calls = Sema.Function_call_resolution in
         let module Bind = Sema.Module_expression_binding in
@@ -907,7 +911,7 @@ let analyze_parameter ~frame ~body =
             ~some:(( == ) (Frame.location_binding location))
             (binding_of value)
         in
-        let update_matches target statement =
+        let update_matches (target, opcode) statement =
           let value = Typed.expression_statement_value statement in
           match
             ( Calls.argument_expression_source (Typed.result_source value),
@@ -966,7 +970,9 @@ let analyze_parameter ~frame ~body =
             with
             | statements, [ returned ]
               when List.length statements = List.length targets ->
-                List.for_all2 update_matches targets statements
+                List.for_all2 update_matches
+                  (List.combine targets opcodes)
+                  statements
                 && Option.fold ~none:false
                      ~some:(fun value -> result_matches value root)
                      (Typed.return_value returned)
@@ -997,8 +1003,8 @@ let analyze_parameter ~frame ~body =
                      second_opcode ) -> Some [ first; second ]
           | _ ->
               Option.bind matching_sequence
-                (fun (targets, operand, root, opcode) ->
-                  if sequence_source_matches (targets, operand, root, opcode)
+                (fun (targets, operand, root, opcodes) ->
+                  if sequence_source_matches (targets, operand, root, opcodes)
                   then Some targets
                   else None)
       in

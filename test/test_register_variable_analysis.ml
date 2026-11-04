@@ -366,6 +366,87 @@ let source_controls () =
         "original compile-time many-update operator" expected
         (List.assoc name many_ops_exe))
     [ ("PARAM", "384"); ("FIVE", "2550"); ("ERR", "0") ];
+  let mixed_explicit = fixture "many-updates-mixed-explicit" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original mixed explicit register updates" expected
+        (List.assoc name mixed_explicit))
+    [
+      ("J_3", "1020");
+      ("J_5", "2294");
+      ("ERR", "0");
+      ("A_3", "1020");
+      ("A_5", "2294");
+    ];
+  let mixed_exe = fixture "many-updates-mixed-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original compile-time mixed updates" expected
+        (List.assoc name mixed_exe))
+    [ ("PARAM", "384"); ("FIVE", "2293"); ("ERR", "0") ];
+  let mixed = fixture "many-updates-mixed-operators" in
+  List.iter
+    (fun (kind, bits, signed) ->
+      let unit = Int64.shift_left 1L (if signed then bits - 1 else bits) in
+      let modulus = Int64.shift_left 1L bits in
+      let max = Int64.pred unit in
+      let wrap value =
+        let value = Int64.logand value (Int64.pred modulus) in
+        if signed && value >= unit then Int64.sub value modulus else value
+      in
+      let value = function
+        | "+" -> Int64.add max 2L
+        | "-" -> Int64.sub max 2L
+        | "*" -> Int64.mul max 2L
+        | "/" -> Int64.div max 2L
+        | "<<" -> Int64.mul max 4L
+        | ">>" -> Int64.div max 4L
+        | "&" -> Int64.logand max 2L
+        | "|" -> Int64.logor max 2L
+        | "^" -> Int64.logxor max 2L
+        | _ -> assert false
+      in
+      List.iter
+        (fun count ->
+          List.iteri
+            (fun index pattern ->
+              let ops = List.filteri (fun i _ -> i < count) pattern in
+              List.iter
+                (fun prefix ->
+                  List.iter
+                    (fun (suffix, stack) ->
+                      let expected =
+                        List.fold_left
+                          (fun sum op ->
+                            let v = value op in
+                            Int64.add sum (if stack then wrap v else v))
+                          0L ops
+                      in
+                      Alcotest.(check string)
+                        "original mixed-update operators"
+                        (Int64.to_string expected)
+                        (List.assoc
+                           (Printf.sprintf "%s_%sN%dP%d%s" prefix kind count
+                              index suffix)
+                           mixed))
+                    [ ("R", false); ("N", true) ])
+                [ "J"; "A" ])
+            [
+              [ "+"; "-"; "*"; "<<"; "^" ];
+              [ "/"; ">>"; "&"; "|"; "+" ];
+              [ "^"; "&"; "*"; ">>"; "/" ];
+            ])
+        [ 3; 4; 5 ])
+    [
+      ("S8", 8, true);
+      ("U8", 8, false);
+      ("S16", 16, true);
+      ("U16", 16, false);
+      ("S32", 32, true);
+      ("U32", 32, false);
+    ];
   let many_ops = fixture "many-updates-operators" in
   List.iter
     (fun count ->
@@ -2706,14 +2787,72 @@ let sequence_selection () =
             [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
         [ 3; 4; 5 ];
       List.iter
+        (fun count ->
+          let names = List.filteri (fun index _ -> index < count) all in
+          List.iter
+            (fun ty ->
+              List.iter
+                (fun pattern ->
+                  let ops =
+                    List.filteri (fun index _ -> index < count) pattern
+                  in
+                  let parameters =
+                    names
+                    |> List.map (fun name -> ty ^ " " ^ name)
+                    |> String.concat ","
+                  in
+                  let updates =
+                    List.map2 (fun name op -> name ^ op ^ "=c;") names ops
+                    |> String.concat ""
+                  in
+                  let fn =
+                    compile mode
+                      ("I64 F(" ^ parameters ^ ",I64 c){" ^ updates ^ "return "
+                     ^ String.concat "+" names ^ ";}42;")
+                  in
+                  Alcotest.(check bool)
+                    "mixed update operators" true
+                    (Option.is_some
+                       (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+                [
+                  [ "+"; "-"; "*"; "<<"; "^" ];
+                  [ "/"; ">>"; "&"; "|"; "+" ];
+                  [ "^"; "&"; "*"; ">>"; "/" ];
+                ])
+            [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
+        [ 3; 4; 5 ];
+      let explicit =
+        compile mode
+          "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,U8 reg R15 w,U8 noreg \
+           v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return x+y+z+w+v;}42;"
+      in
+      let proof =
+        Option.get (Analysis.analyze ~frame:explicit.frame ~body:explicit.body)
+      in
+      List.iter
+        (fun (name, expected) ->
+          let symbol = location explicit.frame name |> Frame.location_symbol in
+          Alcotest.(check bool)
+            "mixed explicit register selection" true
+            (Analysis.selection proof ~frame:explicit.frame ~body:explicit.body
+               ~symbol
+            = Some expected))
+        [
+          ("x", Analysis.Register_candidate);
+          ("y", Analysis.Register_candidate);
+          ("z", Analysis.Register_candidate);
+          ("w", Analysis.Register_candidate);
+          ("v", Analysis.Stack);
+        ];
+      List.iter
         (fun source ->
           let fn = compile mode source in
           Alcotest.(check bool)
             "unproved update sequence" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z-=c;return x+y+z;}42;";
-          "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c){x-=c;y-=c;z-=c;w+=c;return \
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z%=c;return x+y+z;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c,I64 d){x-=c;y-=c;z-=c;w+=d;return \
            x+y+z+w;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";

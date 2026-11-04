@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e42fa1f0358caa666286ee77a8212407669aa4764a978d1888def9ebc8f25416",
+  "boot_payload_sha256": "e42fa1f0358caa666286ee77a8212407669aa4764a978d1888def9ebc8f25416",
+  "boot_payload_bytes": 1057,
+  "capture_sha256": "4ca1a53d70b640559ea69dbbc026f19f04cff8d62a47e290938ae95243209899",
+  "boot_iso_sha256": "1f0774c98d21fb2e2438a326802d5bd791891747f0d3a88e1f0c06d32b585d9f",
+  "fields": {
+    "J_3": "1020",
+    "J_5": "2294",
+    "ERR": "0",
+    "A_3": "1020",
+    "A_5": "2294"
+  },
+  "scope": "Two independent original JIT and compiled observations of three and five mixed updates with explicit R12\u2013R15 requests and a stack control, captured with QEMU 10.0.13. A newline separates captures."
+}

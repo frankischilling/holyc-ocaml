@@ -70,6 +70,13 @@ let () =
   let cases =
     [
       ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
+      ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
+         c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",
+        "1020" );
+      ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,U8 reg R15 w,U8 noreg \
+         v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
+         x+y+z+w+v;}F(255,255,255,255,255,2);",
+        "2294" );
       ("I64 F(I64 x,I8 y,I64 c){x+=c;y+=c;return x+y;}F(42,127,1);", "171");
       ( "I64 F(I8 noreg x,I64 noreg y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);",
         "-85" );
@@ -2174,6 +2181,90 @@ let () =
                           (Int64.mul (Int64.of_int count) expected) ))
                     [ ("", wide); ("noreg", narrow) ])
                 operations)
+            [
+              ("I8", 8, true);
+              ("U8", 8, false);
+              ("I16", 16, true);
+              ("U16", 16, false);
+              ("I32", 32, true);
+              ("U32", 32, false);
+            ])
+        [ 3; 4; 5 ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun count ->
+          let names =
+            List.filteri
+              (fun index _ -> index < count)
+              [ "x"; "y"; "z"; "w"; "v" ]
+          in
+          List.concat_map
+            (fun (ty, bits, signed) ->
+              let unit =
+                Int64.shift_left 1L (if signed then bits - 1 else bits)
+              in
+              let modulus = Int64.shift_left 1L bits in
+              let max = Int64.pred unit in
+              let wrap value =
+                let value = Int64.logand value (Int64.pred modulus) in
+                if signed && value >= unit then Int64.sub value modulus
+                else value
+              in
+              let value = function
+                | "+" -> Int64.add max 2L
+                | "-" -> Int64.sub max 2L
+                | "*" -> Int64.mul max 2L
+                | "/" -> Int64.div max 2L
+                | "<<" -> Int64.mul max 4L
+                | ">>" -> Int64.div max 4L
+                | "&" -> Int64.logand max 2L
+                | "|" -> Int64.logor max 2L
+                | "^" -> Int64.logxor max 2L
+                | _ -> assert false
+              in
+              List.concat_map
+                (fun pattern ->
+                  let ops =
+                    List.filteri (fun index _ -> index < count) pattern
+                  in
+                  List.map
+                    (fun stack ->
+                      let qualifier = if stack then "noreg" else "" in
+                      let parameters =
+                        names
+                        |> List.map (fun name ->
+                            ty ^ " " ^ qualifier ^ " " ^ name)
+                        |> String.concat ","
+                      in
+                      let updates =
+                        List.map2 (fun name op -> name ^ op ^ "=c;") names ops
+                        |> String.concat ""
+                      in
+                      let arguments =
+                        names
+                        |> List.map (fun _ -> Int64.to_string max)
+                        |> String.concat ","
+                      in
+                      let source =
+                        "I64 F(" ^ parameters ^ ",I64 c){" ^ updates ^ "return "
+                        ^ String.concat "+" names ^ ";}F(" ^ arguments ^ ",2);"
+                      in
+                      let expected =
+                        List.fold_left
+                          (fun sum op ->
+                            let v = value op in
+                            Int64.add sum (if stack then wrap v else v))
+                          0L ops
+                      in
+                      (source, Int64.to_string expected))
+                    [ false; true ])
+                [
+                  [ "+"; "-"; "*"; "<<"; "^" ];
+                  [ "/"; ">>"; "&"; "|"; "+" ];
+                  [ "^"; "&"; "*"; ">>"; "/" ];
+                ])
             [
               ("I8", 8, true);
               ("U8", 8, false);
