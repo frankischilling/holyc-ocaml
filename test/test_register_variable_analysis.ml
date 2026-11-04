@@ -627,6 +627,43 @@ let source_controls () =
       ("A_GR", "8590196940");
       ("A_GN", "4295033036");
     ];
+  let extreme_tree = fixture "many-updates-fullwidth-extreme-tree" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original two-to-six-term update result" expected
+        (List.assoc name extreme_tree))
+    [
+      ("J_AR", "131666");
+      ("J_AN", "65618");
+      ("J_BR", "131496");
+      ("J_BN", "65448");
+      ("J_CR", "262482");
+      ("J_CN", "130898");
+      ("J_DR", "4295098704");
+      ("J_DN", "130896");
+      ("J_ER", "4295098704");
+      ("J_EN", "4295032912");
+      ("J_FR", "169");
+      ("J_FN", "-87");
+      ("J_GR", "169");
+      ("J_GN", "169");
+      ("ERR", "0");
+      ("A_AR", "131666");
+      ("A_AN", "65618");
+      ("A_BR", "131496");
+      ("A_BN", "65448");
+      ("A_CR", "262482");
+      ("A_CN", "130898");
+      ("A_DR", "4295098704");
+      ("A_DN", "130896");
+      ("A_ER", "4295098704");
+      ("A_EN", "4295032912");
+      ("A_FR", "169");
+      ("A_FN", "-87");
+      ("A_GR", "169");
+      ("A_GN", "169");
+    ];
   let fullwidth_ops = fixture "many-updates-fullwidth-ops" in
   List.iter
     (fun (name, wide, narrow) ->
@@ -3386,6 +3423,7 @@ let sequence_selection () =
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+z;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+z+x;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+z+x+y;}42;";
           "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c){x+=c;y+=c;z+=c;w+=c;return x+w;}42;";
           "I64 F(I64 x,I8 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
            x+y+z;}42;";
@@ -3432,6 +3470,7 @@ let sequence_selection () =
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z%=c;return x+y+z;}42;";
           "I64 F(I64 x,I64 y,I64 z,I64 c){x+=c;y+=c;z+=c;return x+y+z;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+c;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+z+x+y+z+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c,I64 d){x-=c;y-=c;z-=c;w+=x;return \
            x+y+z+w;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;c+=c;return x+y+z;}42;";
