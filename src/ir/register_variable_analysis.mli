@@ -20,7 +20,7 @@ val analyze :
     using one or two unchanged parameters to two scalar parameters, at least one
     narrow, and return their sum. Three to five scalar parameters, at least one
     narrow, may each receive a supported update using an unchanged parameter and
-    return a sum with as many operands as updates; each operand must be an
+    return a sum with as many operands as updates or one fewer; each must be an
     updated parameter. Their widths and signedness may differ. Remainder is not
     proved for these parameter updates. Distinct R12 through R15 requests are
     covered in these call-free shapes. Other explicit registers, conflicting
