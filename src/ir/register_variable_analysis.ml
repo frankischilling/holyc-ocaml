@@ -440,6 +440,17 @@ let analyze_parameter ~frame ~body =
                 Some (form, 4)
             | _ -> None
         in
+        let compatible_sum first second result =
+          match
+            (narrow_shape first, narrow_shape second, narrow_shape result)
+          with
+          | ( Some (first_form, first_width),
+              Some (second_form, second_width),
+              Some (result_form, result_width) ) ->
+              first_form = second_form && first_form = result_form
+              && result_width = max first_width second_width
+          | _ -> false
+        in
         let supported_update = function
           | O.Ic_add_equ
           | O.Ic_sub_equ
@@ -539,16 +550,10 @@ let analyze_parameter ~frame ~body =
                        && second_target != other_count
                        && left_target == first_target
                        && right_target == second_target
-                       && Option.is_some
-                            (narrow_shape
-                               (Frame.location_checked_type first_target))
-                       && narrow_shape
+                       && compatible_sum
                             (Frame.location_checked_type first_target)
-                          = narrow_shape
-                              (Frame.location_checked_type second_target)
-                       && narrow_shape
-                            (Frame.location_checked_type first_target)
-                          = narrow_shape sum_type -> (
+                            (Frame.location_checked_type second_target)
+                            sum_type -> (
                     match
                       Sema.Type.base (Frame.location_checked_type first_target)
                     with

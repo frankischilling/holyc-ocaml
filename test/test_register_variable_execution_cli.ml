@@ -1873,6 +1873,67 @@ let () =
           "381" );
       ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (left, lb, ls, right, rb, rs) ->
+          let open Int64 in
+          let values bits signed =
+            let n = shift_left 1L bits in
+            let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+            (maximum, add maximum 1L, if signed then neg (div n 2L) else 0L)
+          in
+          let linit, lwide, lnarrow = values lb ls
+          and rinit, rwide, rnarrow = values rb rs in
+          List.concat_map
+            (fun (l, r, li, ri, lw, rw, ln, rn) ->
+              List.map
+                (fun (ql, qr, lv, rv) ->
+                  ( Printf.sprintf
+                      "I64 F(%s %s x,%s %s y,I64 c){x+=c;y+=c;return \
+                       x+y;}F(%s,%s,1);"
+                      l ql r qr (to_string li) (to_string ri),
+                    to_string (add lv rv) ))
+                [
+                  ("", "", lw, rw);
+                  ("noreg", "noreg", ln, rn);
+                  ("", "noreg", lw, rn);
+                  ("noreg", "", ln, rw);
+                ])
+            [
+              (left, right, linit, rinit, lwide, rwide, lnarrow, rnarrow);
+              (right, left, rinit, linit, rwide, lwide, rnarrow, lnarrow);
+            ])
+        [
+          ("I8", 8, true, "U16", 16, false);
+          ("I16", 16, true, "U32", 32, false);
+          ("I8", 8, true, "U32", 32, false);
+          ("I16", 16, true, "U8", 8, false);
+          ("I32", 32, true, "U16", 16, false);
+          ("I32", 32, true, "U8", 8, false);
+          ("I8", 8, true, "I16", 16, true);
+          ("I8", 8, true, "I32", 32, true);
+          ("I16", 16, true, "I32", 32, true);
+          ("U8", 8, false, "U16", 16, false);
+          ("U8", 8, false, "U32", 32, false);
+          ("U16", 16, false, "U32", 32, false);
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(I8 x,U16 y,I64 c){x<<=c;y|=c;return x+y;}F(127,65535,1);",
+          "65789" );
+        ( "I64 F(U16 x,I8 y,I64 c){x<<=c;y|=c;return x+y;}F(65535,127,1);",
+          "131197" );
+        ( "I64 F(I8 noreg x,U16 noreg y,I64 c){x<<=c;y|=c;return \
+           x+y;}F(127,65535,1);",
+          "65533" );
+        ( "I64 F(U16 noreg x,I8 noreg y,I64 c){x<<=c;y|=c;return \
+           x+y;}F(65535,127,1);",
+          "65661" );
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

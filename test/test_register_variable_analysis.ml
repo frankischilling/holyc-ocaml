@@ -349,6 +349,77 @@ let source_controls () =
             (List.assoc (prefix ^ name) mixed_ops))
         [ ("S", "509"); ("U", "637"); ("SN", "253"); ("UN", "381") ])
     [ "J_"; "A_" ];
+  List.iter
+    (fun (sb, ub) ->
+      let fields =
+        fixture (Printf.sprintf "two-updates-mixed-width-%d-%d" sb ub)
+      in
+      let open Int64 in
+      let s = shift_left 1L (sb - 1) and u = shift_left 1L ub in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original mixed-width updates" (to_string expected)
+                (List.assoc (prefix ^ name) fields))
+            [ ("S", add s u); ("U", add s u); ("SN", neg s); ("UN", neg s) ])
+        [ "J_"; "A_" ])
+    [ (8, 16); (16, 32); (8, 32) ];
+  List.iter
+    (fun (label, first, second) ->
+      let fields = fixture ("two-updates-width-" ^ label) in
+      let values ty =
+        let bits = int_of_string (String.sub ty 1 (String.length ty - 1)) in
+        let open Int64 in
+        if ty.[0] = 'I' then
+          let n = shift_left 1L (bits - 1) in
+          (n, neg n)
+        else (shift_left 1L bits, 0L)
+      in
+      let fw, fn = values first and sw, sn = values second in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original unequal-width updates" (Int64.to_string expected)
+                (List.assoc (prefix ^ name) fields))
+            [
+              ("S", Int64.add fw sw);
+              ("U", Int64.add fw sw);
+              ("SN", Int64.add fn sn);
+              ("UN", Int64.add fn sn);
+            ])
+        [ "J_"; "A_" ])
+    [
+      ("i16-u8", "I16", "U8");
+      ("i32-u16", "I32", "U16");
+      ("i32-u8", "I32", "U8");
+      ("i8-i16", "I8", "I16");
+      ("i8-i32", "I8", "I32");
+      ("i16-i32", "I16", "I32");
+      ("u8-u16", "U8", "U16");
+      ("u8-u32", "U8", "U32");
+      ("u16-u32", "U16", "U32");
+    ];
+  let width_ops = fixture "two-updates-mixed-width-ops" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "original unequal-width operations" expected
+            (List.assoc (prefix ^ name) width_ops))
+        [ ("S", "65789"); ("U", "131197"); ("SN", "65533"); ("UN", "65661") ])
+    [ "J_"; "A_" ];
+  let width_exe = fixture "two-updates-mixed-width-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original unequal-width compile-time execution" expected
+        (List.assoc name width_exe))
+    [ ("PARAM", "65664"); ("LOCAL", "510") ];
   let mixed_exe = fixture "two-updates-mixed-types-exe" in
   List.iter
     (fun (name, expected) ->
@@ -2284,6 +2355,26 @@ let pair_selection () =
           ("I32", "U32");
           ("U32", "I32");
         ];
+      List.iter
+        (fun (left, right) ->
+          let fn =
+            compile mode
+              (Printf.sprintf "I64 F(%s x,%s y,I64 c){x+=c;y+=c;return x+y;}42;"
+                 left right)
+          in
+          Alcotest.(check bool)
+            "mixed-width update pair" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          ("I8", "U16");
+          ("U16", "I8");
+          ("I16", "U32");
+          ("U32", "I16");
+          ("I8", "I16");
+          ("I16", "I8");
+          ("U16", "U32");
+          ("U32", "U16");
+        ];
       let six =
         compile mode
           "I64 F(I64 a,I8 x,I64 b,I8 y,I64 c,I64 d){x+=c;y+=c;return x+y;}42;"
@@ -2322,7 +2413,7 @@ let pair_selection () =
         [
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return y+x;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y%=c;return x+y;}42;";
-          "I64 F(I8 x,U16 y,I64 c){x+=c;y+=c;return x+y;}42;";
+          "I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=x;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return x+y+0;}42;";
           "I64 F(I8 reg R12 x,I8 reg R12 y,I64 c){x+=c;y+=c;return x+y;}42;";

@@ -17,12 +17,11 @@ val analyze :
     Addition and subtraction by a literal in these shapes are limited to
     nonnegative signed-32-bit operands. A bounded function may also apply
     shifts, addition, subtraction, multiplication, division or bitwise updates
-    using one or two unchanged parameters to two narrow parameters of the same
-    width and return their sum. Remainder is not proved for these parameter
-    updates. Distinct R12 through R15 requests are covered in these call-free
-    shapes. Other explicit registers, conflicting requests, escapes, extra
-    locals and other control flow remain unproved. The witness itself does not
-    alter execution. *)
+    using one or two unchanged parameters to two narrow parameters and return
+    their sum. Remainder is not proved for these parameter updates. Distinct R12
+    through R15 requests are covered in these call-free shapes. Other explicit
+    registers, conflicting requests, escapes, extra locals and other control
+    flow remain unproved. The witness itself does not alter execution. *)
 
 val selection :
   t ->
