@@ -1541,6 +1541,53 @@ let () =
           ("U32", 32, false);
         ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let minimum = if signed then neg (div n 2L) else 0L in
+          let add_result = if signed then neg (div n 2L) else 0L in
+          let sub_result = if signed then maximum else sub n 1L in
+          List.concat_map
+            (fun rhs_type ->
+              List.map
+                (fun (op, initial, narrowed) ->
+                  ( Printf.sprintf
+                      "%s G=%s;%s N=7;I64 F(){return (G%s=1)*N;}F();" ty
+                      (to_string initial) rhs_type op,
+                    to_string (mul narrowed 7L) ))
+                [ ("+", maximum, add_result); ("-", minimum, sub_result) ])
+            [ "I64"; "U64" ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+    @ List.concat_map
+        (fun (rhs_type, value, source) ->
+          List.map
+            (fun (ty, initial, op, narrowed) ->
+              ( Printf.sprintf "%s G=%s;%s N=%s;I64 F(){return (G%s=1)*N;}F();"
+                  ty initial rhs_type source op,
+                Int64.(to_string (mul narrowed value)) ))
+            [
+              ("I8", "127", "+", -128L);
+              ("U8", "255", "+", 0L);
+              ("I8", "-128", "-", 127L);
+              ("U8", "0", "-", 255L);
+            ])
+        [
+          ("I64", -7L, "-7");
+          ("I64", Int64.max_int, "0x7FFFFFFFFFFFFFFF");
+          ("U64", -1L, "0xFFFFFFFFFFFFFFFF");
+        ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

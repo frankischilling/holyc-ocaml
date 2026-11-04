@@ -7,11 +7,12 @@ module Bind = Sema.Module_expression_binding
 
 type stamp = Seq.description * Seq.description
 type block_stamp = Seq.Block_id.t * stamp list * Seq.Block_id.t list
-type literal_operation = Add | Subtract | Multiply
+type binary_operation = Add | Subtract | Multiply
 
 type outer =
-  | Literal of int64 * Sema.Type.t * literal_operation
-  | Global of Sema.Symbol.t * bool * Sema.Type.t * Sema.Type.t * bool
+  | Literal of int64 * Sema.Type.t * binary_operation
+  | Global of
+      Sema.Symbol.t * bool * Sema.Type.t * Sema.Type.t * binary_operation
   | Call of Sema.Symbol.t * Sema.Type.t
 
 type t = {
@@ -212,8 +213,9 @@ let analyze ~frame ~body =
                                 =
                                 match outer with
                                 | Literal (_, _, Subtract)
-                                | Global (_, _, _, _, true) -> "-"
-                                | Literal (_, _, Multiply) -> "*"
+                                | Global (_, _, _, _, Subtract) -> "-"
+                                | Literal (_, _, Multiply)
+                                | Global (_, _, _, _, Multiply) -> "*"
                                 | _ -> "+")
                              && (match outer with
                                | Literal (expected, _, _) -> (
@@ -412,7 +414,8 @@ let analyze ~frame ~body =
                      && word_type right_type && load.opcode = O.Ic_deref
                      && load.payload = None
                      && load.operands = [ address_id ]
-                     && (sum.opcode = O.Ic_add || sum.opcode = O.Ic_sub)
+                     && (sum.opcode = O.Ic_add || sum.opcode = O.Ic_sub
+                       || sum.opcode = O.Ic_mul)
                      && sum.payload = None
                      && sum.operands = [ update_id; load_id ]
                      && word_type sum_type ->
@@ -428,7 +431,9 @@ let analyze ~frame ~body =
                              right_retained,
                              right_type,
                              sum_type,
-                             sum.opcode = O.Ic_sub )) )
+                             if sum.opcode = O.Ic_sub then Subtract
+                             else if sum.opcode = O.Ic_mul then Multiply
+                             else Add )) )
               | _ -> None)
           | [
            call_start;

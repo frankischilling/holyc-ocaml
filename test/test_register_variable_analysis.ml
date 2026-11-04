@@ -1568,6 +1568,40 @@ let source_controls () =
           check_multiply (nested ^ "-outermax") direct 2147483647L)
         [ "byte"; "16"; "32" ])
     [ "add"; "sub" ];
+  List.iter
+    (fun op ->
+      List.iter
+        (fun width ->
+          check_multiply
+            ("global-muldynamic-" ^ op ^ "-" ^ width)
+            ("global-immediate-" ^ op ^ "-" ^ width)
+            7L)
+        [ "byte"; "16"; "32" ])
+    [ "add"; "sub" ];
+  List.iter
+    (fun op ->
+      List.iter
+        (fun (label, factor) ->
+          check_multiply
+            ("global-mulunsigned-" ^ op ^ "-" ^ label)
+            ("global-immediate-" ^ op ^ "-byte")
+            factor)
+        [ ("small", 7L); ("max", -1L) ];
+      List.iter
+        (fun (label, factor) ->
+          check_multiply
+            ("global-muldynamic-" ^ op ^ "-" ^ label)
+            ("global-immediate-" ^ op ^ "-byte")
+            factor)
+        [ ("negative", -7L); ("high", Int64.max_int) ])
+    [ "add"; "sub" ];
+  let muldynamic_exe = fixture "global-muldynamic-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original dynamic multiplication in compile-time execution" expected
+        (List.assoc name muldynamic_exe))
+    [ ("ADD", "0"); ("SUB", "1785") ];
   let mulouter_exe = fixture "global-mulouter-exe" in
   List.iter
     (fun (name, expected) ->
@@ -2318,6 +2352,24 @@ let global_immediate_proof () =
                   ("2147483647", "2");
                 ])
             [ "+"; "-" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun rhs_type ->
+              List.iter
+                (fun op ->
+                  let source =
+                    Printf.sprintf "%s G=0;%s N=7;I64 F(){return (G%s=1)*N;}42;"
+                      ty rhs_type op
+                  in
+                  let fn = compile mode source in
+                  Alcotest.(check bool)
+                    "dynamic global multiplication proved" true
+                    (Option.is_some
+                       (Global.analyze ~frame:fn.frame ~body:fn.body)))
+                [ "+"; "-" ])
+            [ "I64"; "U64" ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
       List.iter
         (fun ty ->

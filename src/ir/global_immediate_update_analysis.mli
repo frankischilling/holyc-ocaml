@@ -7,10 +7,11 @@ val analyze :
 (** Prove a literal update of a narrow global in a zero-argument, zero-local
     function using its checked source and exact instruction graph. The update
     may be returned directly, used as the left operand of addition or
-    subtraction or multiplication with another literal, addition or subtraction
-    with a signed/unsigned 64-bit global value, or passed as the sole argument
-    to a direct function with a 64-bit parameter and result. Addition and
-    subtraction literals are limited to nonnegative signed-32-bit values. *)
+    subtraction or multiplication with another literal, addition, subtraction or
+    multiplication with a signed/unsigned 64-bit global value, or passed as the
+    sole argument to a direct function with a 64-bit parameter and result.
+    Addition and subtraction literals are limited to nonnegative signed-32-bit
+    values. *)
 
 val matches :
   t ->
