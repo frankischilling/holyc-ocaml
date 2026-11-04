@@ -1418,6 +1418,89 @@ let () =
         ("U8 G=255;I64 ID(I64 x){return x*2;}I64 F(){return ID(G+=1);}F();", "0");
       ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let minimum = if signed then neg (div n 2L) else 0L in
+          let normalize value =
+            let value = logand value (sub n 1L) in
+            if signed && value >= div n 2L then sub value n else value
+          in
+          List.concat_map
+            (fun (op, initial) ->
+              List.map
+                (fun (inner, outer) ->
+                  let updated =
+                    if op = "+" then add initial inner else sub initial inner
+                  in
+                  ( Printf.sprintf "%s G=%s;I64 F(){return (G%s=%s)-%s;}F();" ty
+                      (to_string initial) op (to_string inner) (to_string outer),
+                    to_string (sub (normalize updated) outer) ))
+                [ (1L, 0L); (1L, 1L); (1L, 2147483647L); (256L, 1L) ])
+            [ ("+", maximum); ("-", minimum) ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let minimum = if signed then neg (div n 2L) else 0L in
+          let add_result = if signed then neg (div n 2L) else 0L in
+          let sub_result = if signed then maximum else sub n 1L in
+          List.concat_map
+            (fun rhs_type ->
+              List.map
+                (fun (op, initial, narrowed) ->
+                  ( Printf.sprintf
+                      "%s G=%s;%s N=7;I64 F(){return (G%s=1)-N;}F();" ty
+                      (to_string initial) rhs_type op,
+                    to_string (sub narrowed 7L) ))
+                [ ("+", maximum, add_result); ("-", minimum, sub_result) ])
+            [ "I64"; "U64" ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ("U8 G=255;I64 N=-7;I64 F(){return (G+=1)-N;}F();", "7");
+        ("U8 G=0;I64 N=-7;I64 F(){return (G-=1)-N;}F();", "262");
+        ( "I8 G=127;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G+=1)-N;}F();",
+          "-127" );
+        ("U8 G=255;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G+=1)-N;}F();", "1");
+        ( "I8 G=-128;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G-=1)-N;}F();",
+          "128" );
+        ("U8 G=0;U64 N=0xFFFFFFFFFFFFFFFF;I64 F(){return (G-=1)-N;}F();", "256");
+        ( "I8 G=127;I64 N=0x7FFFFFFFFFFFFFFF;I64 F(){return (G+=1)-N;}F();",
+          "9223372036854775681" );
+        ( "I8 G=-128;I64 N=0x7FFFFFFFFFFFFFFF;I64 F(){return (G-=1)-N;}F();",
+          "-9223372036854775680" );
+        ( "U8 G=255;I64 N=0x7FFFFFFFFFFFFFFF;I64 F(){return (G+=1)-N;}F();",
+          "-9223372036854775807" );
+        ( "U8 G=0;I64 N=0x7FFFFFFFFFFFFFFF;I64 F(){return (G-=1)-N;}F();",
+          "-9223372036854775552" );
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");

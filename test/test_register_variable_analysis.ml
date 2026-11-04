@@ -1522,6 +1522,23 @@ let source_controls () =
             amount)
         [ ("1", 1L); ("256", 256L) ])
     [ "byte"; "32" ];
+  List.iter
+    (fun op ->
+      List.iter
+        (fun width ->
+          check_nested
+            ("global-subouter-" ^ op ^ "-" ^ width)
+            ("global-immediate-" ^ op ^ "-" ^ width)
+            (-1L))
+        [ "byte"; "16"; "32" ])
+    [ "add"; "sub" ];
+  let subouter_exe = fixture "global-subouter-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original subtraction in compile-time execution" expected
+        (List.assoc name subouter_exe))
+    [ ("ADD", "-1"); ("SUB", "254") ];
   let check_dynamic stem direct_stem amount =
     let fields = fixture stem and direct = fixture direct_stem in
     List.iter
@@ -1567,6 +1584,40 @@ let source_controls () =
             value)
         [ ("small", 7L); ("max", -1L) ])
     [ "add"; "sub" ];
+  List.iter
+    (fun op ->
+      List.iter
+        (fun width ->
+          check_dynamic
+            ("global-subdynamic-" ^ op ^ "-" ^ width)
+            ("global-immediate-" ^ op ^ "-" ^ width)
+            (-7L))
+        [ "byte"; "16"; "32" ])
+    [ "add"; "sub" ];
+  List.iter
+    (fun op ->
+      List.iter
+        (fun (label, amount) ->
+          check_dynamic
+            ("global-subunsigned-" ^ op ^ "-" ^ label)
+            ("global-immediate-" ^ op ^ "-byte")
+            amount)
+        [ ("small", -7L); ("max", 1L) ];
+      List.iter
+        (fun (label, amount) ->
+          check_dynamic
+            ("global-subdynamic-" ^ op ^ "-byte-" ^ label)
+            ("global-immediate-" ^ op ^ "-byte")
+            amount)
+        [ ("negative", 7L); ("high", Int64.neg Int64.max_int) ])
+    [ "add"; "sub" ];
+  let subdynamic_exe = fixture "global-subdynamic-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original global subtraction in compile-time execution" expected
+        (List.assoc name subdynamic_exe))
+    [ ("ADD", "-7"); ("SUB", "248") ];
   let global_dynamic_exe = fixture "global-nested-dynamic-exe" in
   List.iter
     (fun (name, expected) ->
@@ -2181,6 +2232,48 @@ let global_immediate_proof () =
                   ("2147483647", "0");
                 ])
             [ "+"; "-" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun op ->
+              List.iter
+                (fun (inner, outer) ->
+                  let source =
+                    Printf.sprintf "%s G=0;I64 F(){return (G%s=%s)-%s;}42;" ty
+                      op inner outer
+                  in
+                  let fn = compile mode source in
+                  Alcotest.(check bool)
+                    "subtracted global immediate proved" true
+                    (Option.is_some
+                       (Global.analyze ~frame:fn.frame ~body:fn.body)))
+                [
+                  ("1", "0");
+                  ("1", "1");
+                  ("1", "2147483647");
+                  ("256", "1");
+                  ("2147483647", "1");
+                ])
+            [ "+"; "-" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun rhs_type ->
+              List.iter
+                (fun op ->
+                  let source =
+                    Printf.sprintf "%s G=0;%s N=7;I64 F(){return (G%s=1)-N;}42;"
+                      ty rhs_type op
+                  in
+                  let fn = compile mode source in
+                  Alcotest.(check bool)
+                    "dynamic global subtraction proved" true
+                    (Option.is_some
+                       (Global.analyze ~frame:fn.frame ~body:fn.body)))
+                [ "+"; "-" ])
+            [ "I64"; "U64" ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
       List.iter
         (fun ty ->

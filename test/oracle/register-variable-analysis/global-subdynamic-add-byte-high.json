@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "b1ca264e72a6a4d06befa9c5f2253db5e4195f8144e8a1ad28975ad84eef00d6",
+  "boot_payload_sha256": "fd14bad16085daff56cb5170f8029933387cfe7eb01fba4260ff89bb811233b3",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "f4f122216805acdfdb9a5dc73752e2d3f85e305700093249ba259defe09cd03f",
+  "boot_iso_sha256": "deabb101060fa64edddce429b11eaaae0080ab9d688902c31484733655bdaa54",
+  "fields": {
+    "J_S": "9223372036854775681",
+    "J_U": "-9223372036854775807",
+    "J_SN": "9223372036854775681",
+    "J_UN": "-9223372036854775807",
+    "ERR": "0",
+    "A_S": "9223372036854775681",
+    "A_U": "-9223372036854775807",
+    "A_SN": "9223372036854775681",
+    "A_UN": "-9223372036854775807"
+  },
+  "scope": "Repeated original JIT and compiled observations of subtracting a signed or unsigned 64-bit global value from a narrow global update."
+}

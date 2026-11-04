@@ -9,8 +9,8 @@ type stamp = Seq.description * Seq.description
 type block_stamp = Seq.Block_id.t * stamp list * Seq.Block_id.t list
 
 type outer =
-  | Literal of int64 * Sema.Type.t
-  | Global of Sema.Symbol.t * bool * Sema.Type.t * Sema.Type.t
+  | Literal of int64 * Sema.Type.t * bool
+  | Global of Sema.Symbol.t * bool * Sema.Type.t * Sema.Type.t * bool
   | Call of Sema.Symbol.t * Sema.Type.t
 
 type t = {
@@ -193,8 +193,8 @@ let analyze ~frame ~body =
                   | Some outer -> (
                       let sum_type =
                         match outer with
-                        | Literal (_, sum_type) | Global (_, _, _, sum_type) ->
-                            sum_type
+                        | Literal (_, sum_type, _)
+                        | Global (_, _, _, sum_type, _) -> sum_type
                         | Call _ -> assert false
                       in
                       match
@@ -207,9 +207,14 @@ let analyze ~frame ~body =
                         when Option.fold ~none:false
                                ~some:(Sema.Type.equal sum_type)
                                (Typed.result_type value)
-                             && binary.binary_operator_spec.spelling = "+"
+                             && (binary.binary_operator_spec.spelling
+                                =
+                                match outer with
+                                | Literal (_, _, true)
+                                | Global (_, _, _, _, true) -> "-"
+                                | _ -> "+")
                              && (match outer with
-                               | Literal (expected, _) -> (
+                               | Literal (expected, _, _) -> (
                                    match
                                      Calls.argument_expression_kind
                                        (Typed.result_source right)
@@ -218,8 +223,11 @@ let analyze ~frame ~body =
                                        bits = expected
                                    | _ -> false)
                                | Global
-                                   (right_symbol, right_retained, right_type, _)
-                                 ->
+                                   ( right_symbol,
+                                     right_retained,
+                                     right_type,
+                                     _,
+                                     _ ) ->
                                    source_matches_identifier
                                      ~retained:right_retained right_symbol right
                                    && Option.fold ~none:false
@@ -342,7 +350,8 @@ let analyze ~frame ~body =
                 when outer_bits >= 0L
                      && outer_bits <= Int64.of_int32 Int32.max_int
                      && word_literal outer outer_bits
-                     && sum.opcode = O.Ic_add && sum.payload = None
+                     && (sum.opcode = O.Ic_add || sum.opcode = O.Ic_sub)
+                     && sum.payload = None
                      && sum.operands = [ update_id; outer_id ]
                      && Option.fold ~none:false
                           ~some:(fun type_ ->
@@ -359,7 +368,9 @@ let analyze ~frame ~body =
                       update,
                       returned,
                       sum_id,
-                      Some (Literal (outer_bits, sum_type)) )
+                      Some
+                        (Literal (outer_bits, sum_type, sum.opcode = O.Ic_sub))
+                    )
               | _ -> None)
           | [
            address; literal; update; right_address; load; sum; returned; jump;
@@ -394,7 +405,8 @@ let analyze ~frame ~body =
                      && word_type right_type && load.opcode = O.Ic_deref
                      && load.payload = None
                      && load.operands = [ address_id ]
-                     && sum.opcode = O.Ic_add && sum.payload = None
+                     && (sum.opcode = O.Ic_add || sum.opcode = O.Ic_sub)
+                     && sum.payload = None
                      && sum.operands = [ update_id; load_id ]
                      && word_type sum_type ->
                   Some
@@ -405,8 +417,11 @@ let analyze ~frame ~body =
                       sum_id,
                       Some
                         (Global
-                           (right_symbol, right_retained, right_type, sum_type))
-                    )
+                           ( right_symbol,
+                             right_retained,
+                             right_type,
+                             sum_type,
+                             sum.opcode = O.Ic_sub )) )
               | _ -> None)
           | [
            call_start;

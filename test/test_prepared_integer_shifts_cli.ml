@@ -251,6 +251,16 @@ let () =
           ( "#exe {U8 G=0;I64 ID(I64 x){return x;}I64 F(){return \
              ID(G-=1);}StreamPrint(\"%d;\",F());}",
             "255" );
+          ( "#exe {U8 G=255;I64 F(){return (G+=1)-1;}StreamPrint(\"%d;\",F());}",
+            "-1" );
+          ( "#exe {U8 G=0;I64 F(){return (G-=1)-1;}StreamPrint(\"%d;\",F());}",
+            "254" );
+          ( "#exe {U8 G=255;I64 N=7;I64 F(){return \
+             (G+=1)-N;}StreamPrint(\"%d;\",F());}",
+            "-7" );
+          ( "#exe {U8 G=0;I64 N=7;I64 F(){return \
+             (G-=1)-N;}StreamPrint(\"%d;\",F());}",
+            "248" );
           ("#exe {U8 G=255;I64 F(){return G+=1;}StreamPrint(\"%d;\",F());}", "0");
           ("#exe {U8 G=0;I64 F(){return G-=1;}StreamPrint(\"%d;\",F());}", "255");
           ( "#exe {U8 G=255;I64 F(){return (G+=1)+1;}StreamPrint(\"%d;\",F());}",
