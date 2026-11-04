@@ -261,6 +261,10 @@ let () =
           ( "#exe {U8 G=0;I64 N=7;I64 F(){return \
              (G-=1)-N;}StreamPrint(\"%d;\",F());}",
             "248" );
+          ( "#exe {U8 G=255;I64 F(){return (G+=1)*2;}StreamPrint(\"%d;\",F());}",
+            "0" );
+          ( "#exe {U8 G=0;I64 F(){return (G-=1)*2;}StreamPrint(\"%d;\",F());}",
+            "510" );
           ("#exe {U8 G=255;I64 F(){return G+=1;}StreamPrint(\"%d;\",F());}", "0");
           ("#exe {U8 G=0;I64 F(){return G-=1;}StreamPrint(\"%d;\",F());}", "255");
           ( "#exe {U8 G=255;I64 F(){return (G+=1)+1;}StreamPrint(\"%d;\",F());}",

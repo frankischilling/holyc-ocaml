@@ -1539,6 +1539,42 @@ let source_controls () =
         "original subtraction in compile-time execution" expected
         (List.assoc name subouter_exe))
     [ ("ADD", "-1"); ("SUB", "254") ];
+  let check_multiply stem direct_stem factor =
+    let observed = fixture stem and direct = fixture direct_stem in
+    List.iter
+      (fun prefix ->
+        List.iter
+          (fun name ->
+            let expected =
+              Int64.mul
+                (Int64.of_string (List.assoc (prefix ^ name) direct))
+                factor
+              |> Int64.to_string
+            in
+            Alcotest.(check string)
+              "original multiplied global update" expected
+              (List.assoc (prefix ^ name) observed))
+          [ "S"; "U"; "SN"; "UN" ])
+      [ "J_"; "A_" ]
+  in
+  List.iter
+    (fun op ->
+      List.iter
+        (fun width ->
+          let nested = "global-mulouter-" ^ op ^ "-" ^ width in
+          let direct = "global-immediate-" ^ op ^ "-" ^ width in
+          check_multiply nested direct 2L;
+          check_multiply (nested ^ "-innermax") (direct ^ "-max") 2L;
+          check_multiply (nested ^ "-outermax") direct 2147483647L)
+        [ "byte"; "16"; "32" ])
+    [ "add"; "sub" ];
+  let mulouter_exe = fixture "global-mulouter-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original multiplied update in compile-time execution" expected
+        (List.assoc name mulouter_exe))
+    [ ("ADD", "0"); ("SUB", "510") ];
   let check_dynamic stem direct_stem amount =
     let fields = fixture stem and direct = fixture direct_stem in
     List.iter
@@ -2260,6 +2296,32 @@ let global_immediate_proof () =
       List.iter
         (fun ty ->
           List.iter
+            (fun op ->
+              List.iter
+                (fun (inner, outer) ->
+                  let source =
+                    Printf.sprintf "%s G=0;I64 F(){return (G%s=%s)*%s;}42;" ty
+                      op inner outer
+                  in
+                  let fn = compile mode source in
+                  Alcotest.(check bool)
+                    "multiplied global immediate proved" true
+                    (Option.is_some
+                       (Global.analyze ~frame:fn.frame ~body:fn.body)))
+                [
+                  ("1", "1");
+                  ("1", "2");
+                  ("1", "3");
+                  ("1", "256");
+                  ("1", "2147483647");
+                  ("256", "2");
+                  ("2147483647", "2");
+                ])
+            [ "+"; "-" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun ty ->
+          List.iter
             (fun rhs_type ->
               List.iter
                 (fun op ->
@@ -2493,7 +2555,6 @@ let global_immediate_proof () =
         [
           "U8 G=255;I64 N=1;I64 F(){return G+=N;}42;";
           "U8 G=255;I64 F(){U8 *p=&G;return *p+=1;}42;";
-          "U8 G=255;I64 F(){return (G+=1)*1;}42;";
           "U8 G=255;U8 N=7;I64 F(){return (G+=1)+N;}42;";
           "U8 G=255;I64 F(){return (G+=1)+2147483648;}42;";
           "U8 G=255;I64 F(){return 1+(G+=1);}42;";

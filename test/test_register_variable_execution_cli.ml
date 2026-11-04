@@ -1501,6 +1501,46 @@ let () =
           "-9223372036854775552" );
       ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let minimum = if signed then neg (div n 2L) else 0L in
+          let normalize v =
+            let v = logand v (sub n 1L) in
+            if signed && v >= div n 2L then sub v n else v
+          in
+          List.concat_map
+            (fun (op, initial) ->
+              List.map
+                (fun (inner, outer) ->
+                  let updated =
+                    if op = "+" then add initial inner else sub initial inner
+                  in
+                  ( Printf.sprintf "%s G=%s;I64 F(){return (G%s=%s)*%s;}F();" ty
+                      (to_string initial) op (to_string inner) (to_string outer),
+                    to_string (mul (normalize updated) outer) ))
+                [
+                  (1L, 2L);
+                  (1L, 3L);
+                  (1L, 256L);
+                  (1L, 2147483647L);
+                  (256L, 2L);
+                  (2147483647L, 2L);
+                ])
+            [ ("+", maximum); ("-", minimum) ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
