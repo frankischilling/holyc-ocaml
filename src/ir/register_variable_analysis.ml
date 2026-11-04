@@ -428,6 +428,18 @@ let analyze_parameter ~frame ~body =
       (* For two updates, authenticate the only non-address addition as the
          return sum and tie each operand to its own frame location. *)
       let matching_pair =
+        let narrow_shape type_ =
+          if Sema.Type.pointer_depth type_ <> 0 then None
+          else
+            match Sema.Type.base type_ with
+            | Sema.Type.Primitive (form, (Sema.Primitive_type.I8 | U8)) ->
+                Some (form, 1)
+            | Sema.Type.Primitive (form, (Sema.Primitive_type.I16 | U16)) ->
+                Some (form, 2)
+            | Sema.Type.Primitive (form, (Sema.Primitive_type.I32 | U32)) ->
+                Some (form, 4)
+            | _ -> None
+        in
         let supported_update = function
           | O.Ic_add_equ
           | O.Ic_sub_equ
@@ -527,11 +539,16 @@ let analyze_parameter ~frame ~body =
                        && second_target != other_count
                        && left_target == first_target
                        && right_target == second_target
-                       && Sema.Type.equal
+                       && Option.is_some
+                            (narrow_shape
+                               (Frame.location_checked_type first_target))
+                       && narrow_shape
                             (Frame.location_checked_type first_target)
-                            (Frame.location_checked_type second_target)
-                       && Sema.Type.equal sum_type
-                            (Frame.location_checked_type first_target) -> (
+                          = narrow_shape
+                              (Frame.location_checked_type second_target)
+                       && narrow_shape
+                            (Frame.location_checked_type first_target)
+                          = narrow_shape sum_type -> (
                     match
                       Sema.Type.base (Frame.location_checked_type first_target)
                     with

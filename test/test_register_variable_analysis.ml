@@ -319,6 +319,43 @@ let source_controls () =
         "original distinct operand compile-time execution" expected
         (List.assoc name pair_distinct_exe))
     [ ("PARAM", "257"); ("LOCAL", "510") ];
+  List.iter
+    (fun bits ->
+      let fields = fixture ("two-updates-mixed-types-" ^ string_of_int bits) in
+      let open Int64 in
+      let n = shift_left 1L bits in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original mixed-signedness updates" (to_string expected)
+                (List.assoc (prefix ^ name) fields))
+            [
+              ("S", add n (div n 2L));
+              ("U", add n (div n 2L));
+              ("SN", neg (div n 2L));
+              ("UN", neg (div n 2L));
+            ])
+        [ "J_"; "A_" ])
+    [ 8; 16; 32 ];
+  let mixed_ops = fixture "two-updates-mixed-types-ops" in
+  List.iter
+    (fun prefix ->
+      List.iter
+        (fun (name, expected) ->
+          Alcotest.(check string)
+            "original mixed-signedness operations" expected
+            (List.assoc (prefix ^ name) mixed_ops))
+        [ ("S", "509"); ("U", "637"); ("SN", "253"); ("UN", "381") ])
+    [ "J_"; "A_" ];
+  let mixed_exe = fixture "two-updates-mixed-types-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original mixed-signedness compile-time execution" expected
+        (List.assoc name mixed_exe))
+    [ ("PARAM", "384"); ("LOCAL", "510") ];
   let unsigned = fixture "u8" in
   List.iter
     (fun prefix ->
@@ -2229,6 +2266,24 @@ let pair_selection () =
           "I64 F(I8 x,I8 y,I64 reg R12 c,I64 reg R13 d){x+=c;y+=d;return \
            x+y;}42;";
         ];
+      List.iter
+        (fun (left, right) ->
+          let fn =
+            compile mode
+              (Printf.sprintf "I64 F(%s x,%s y,I64 c){x+=c;y+=c;return x+y;}42;"
+                 left right)
+          in
+          Alcotest.(check bool)
+            "mixed-signedness update pair" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          ("I8", "U8");
+          ("U8", "I8");
+          ("I16", "U16");
+          ("U16", "I16");
+          ("I32", "U32");
+          ("U32", "I32");
+        ];
       let six =
         compile mode
           "I64 F(I64 a,I8 x,I64 b,I8 y,I64 c,I64 d){x+=c;y+=c;return x+y;}42;"
@@ -2267,6 +2322,7 @@ let pair_selection () =
         [
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return y+x;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y%=c;return x+y;}42;";
+          "I64 F(I8 x,U16 y,I64 c){x+=c;y+=c;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=x;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return x+y+0;}42;";
           "I64 F(I8 reg R12 x,I8 reg R12 y,I64 c){x+=c;y+=c;return x+y;}42;";

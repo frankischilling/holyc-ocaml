@@ -1831,6 +1831,48 @@ let () =
           ("U8", "255", "/", "2", "254", "254");
         ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (signed_ty, unsigned_ty, bits) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let smax = sub (div n 2L) 1L and umax = sub n 1L in
+          let swide = div n 2L and uwide = n and snarrow = neg (div n 2L) in
+          List.concat_map
+            (fun (left, right, linit, rinit, lwide, rwide, lnarrow, rnarrow) ->
+              List.map
+                (fun (ql, qr, lv, rv) ->
+                  ( Printf.sprintf
+                      "I64 F(%s %s x,%s %s y,I64 c){x+=c;y+=c;return \
+                       x+y;}F(%s,%s,1);"
+                      left ql right qr (to_string linit) (to_string rinit),
+                    to_string (add lv rv) ))
+                [
+                  ("", "", lwide, rwide);
+                  ("noreg", "noreg", lnarrow, rnarrow);
+                  ("", "noreg", lwide, rnarrow);
+                  ("noreg", "", lnarrow, rwide);
+                ])
+            [
+              (signed_ty, unsigned_ty, smax, umax, swide, uwide, snarrow, 0L);
+              (unsigned_ty, signed_ty, umax, smax, uwide, swide, 0L, snarrow);
+            ])
+        [ ("I8", "U8", 8); ("I16", "U16", 16); ("I32", "U32", 32) ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I8 x,U8 y,I64 c){x<<=c;y|=c;return x+y;}F(127,255,1);", "509");
+        ("I64 F(U8 x,I8 y,I64 c){x<<=c;y|=c;return x+y;}F(255,127,1);", "637");
+        ( "I64 F(I8 noreg x,U8 noreg y,I64 c){x<<=c;y|=c;return \
+           x+y;}F(127,255,1);",
+          "253" );
+        ( "I64 F(U8 noreg x,I8 noreg y,I64 c){x<<=c;y|=c;return \
+           x+y;}F(255,127,1);",
+          "381" );
+      ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
