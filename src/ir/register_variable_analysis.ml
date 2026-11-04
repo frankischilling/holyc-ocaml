@@ -899,11 +899,8 @@ let analyze_parameter ~frame ~body =
                     | Some (leaves, sums, _)
                       when List.length leaves = count
                            && List.for_all
-                                (fun target ->
-                                  List.length
-                                    (List.filter (( == ) target) leaves)
-                                  = 1)
-                                targets
+                                (fun leaf -> List.exists (( == ) leaf) targets)
+                                leaves
                            && List.length sums
                               = List.length arithmetic_additions
                            && List.length

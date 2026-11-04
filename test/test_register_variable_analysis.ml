@@ -479,6 +479,43 @@ let source_controls () =
       ("A_GR", "8590196896");
       ("A_GN", "4295032992");
     ];
+  let repeat_tree = fixture "many-updates-fullwidth-repeat-tree" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original repeated update result" expected
+        (List.assoc name repeat_tree))
+    [
+      ("J_AR", "131158");
+      ("J_AN", "65622");
+      ("J_BR", "131328");
+      ("J_BN", "65280");
+      ("J_CR", "342");
+      ("J_CN", "-170");
+      ("J_DR", "65876");
+      ("J_DN", "65364");
+      ("J_ER", "2147483988");
+      ("J_EN", "2147483732");
+      ("J_FR", "4295033125");
+      ("J_FN", "65317");
+      ("J_GR", "8589934800");
+      ("J_GN", "4294967504");
+      ("ERR", "0");
+      ("A_AR", "131158");
+      ("A_AN", "65622");
+      ("A_BR", "131328");
+      ("A_BN", "65280");
+      ("A_CR", "342");
+      ("A_CN", "-170");
+      ("A_DR", "65876");
+      ("A_DN", "65364");
+      ("A_ER", "2147483988");
+      ("A_EN", "2147483732");
+      ("A_FR", "4295033125");
+      ("A_FN", "65317");
+      ("A_GR", "8589934800");
+      ("A_GN", "4294967504");
+    ];
   let fullwidth_ops = fixture "many-updates-fullwidth-ops" in
   List.iter
     (fun (name, wide, narrow) ->
@@ -3235,6 +3272,7 @@ let sequence_selection () =
             (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";
           "I64 F(I64 x,I8 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
            x+y+z;}42;";
           "I64 F(I8 x,I64 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
@@ -3279,9 +3317,9 @@ let sequence_selection () =
         [
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z%=c;return x+y+z;}42;";
           "I64 F(I64 x,I64 y,I64 z,I64 c){x+=c;y+=c;z+=c;return x+y+z;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+c;}42;";
           "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c,I64 d){x-=c;y-=c;z-=c;w+=x;return \
            x+y+z+w;}42;";
-          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;c+=c;return x+y+z;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
