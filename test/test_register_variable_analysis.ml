@@ -137,6 +137,64 @@ let source_controls () =
         "original disabled local" "-2"
         (List.assoc (prefix ^ "NOLOCAL") fields))
     [ "JIT_"; "AOT_" ];
+  List.iter
+    (fun kind ->
+      List.iter
+        (fun reg ->
+          let fields = fixture (kind ^ "-" ^ reg) in
+          List.iter
+            (fun prefix ->
+              List.iter
+                (fun (name, expected) ->
+                  Alcotest.(check string)
+                    "original explicit register value" expected
+                    (List.assoc (prefix ^ name) fields))
+                [ ("S", "254"); ("U", "510"); ("SN", "-2"); ("UN", "254") ])
+            [ "J_"; "A_" ])
+        [ "r12"; "r13"; "r14"; "r15" ])
+    [ "explicit"; "explicit-local" ];
+  List.iter
+    (fun (stem, bits) ->
+      let fields = fixture stem in
+      let open Int64 in
+      let n = shift_left 1L bits in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original requested register width" (to_string expected)
+                (List.assoc (prefix ^ name) fields))
+            [
+              ("S", sub n 2L);
+              ("U", sub (mul n 2L) 2L);
+              ("SN", -2L);
+              ("UN", sub n 2L);
+            ])
+        [ "J_"; "A_" ])
+    [
+      ("allocatable-explicit", 8);
+      ("allocatable-explicit-local", 8);
+      ("explicit-count-r12", 8);
+      ("explicit-r12-16", 16);
+      ("explicit-r12-32", 32);
+      ("explicit-local-r12-16", 16);
+      ("explicit-local-r12-32", 32);
+    ];
+  let explicit_exe = fixture "explicit-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original requested register in compile-time execution" expected
+        (List.assoc name explicit_exe))
+    [ ("PARAM", "254"); ("LOCAL", "510") ];
+  let explicit_count_exe = fixture "explicit-count-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original operand register in compile-time execution" expected
+        (List.assoc name explicit_count_exe))
+    [ ("PARAM", "254"); ("LOCAL", "510") ];
   let unsigned = fixture "u8" in
   List.iter
     (fun prefix ->
@@ -1935,6 +1993,55 @@ let simple_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let explicit_register_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun reg ->
+          List.iter
+            (fun source ->
+              let fn = compile mode source in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let symbol = location fn.frame "x" |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "explicit register candidate" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some Analysis.Register_candidate))
+            [
+              Printf.sprintf "I64 F(I8 reg %s x,I64 c){x<<=c;return x;}42;" reg;
+              Printf.sprintf "I64 F(){I8 reg %s x=127;x<<=1;return x;}42;" reg;
+            ])
+        [ "R12"; "R13"; "R14"; "R15" ];
+      List.iter
+        (fun reg ->
+          let fn =
+            compile mode
+              (Printf.sprintf "I64 F(I8 x,I64 reg %s c){x<<=c;return x;}42;" reg)
+          in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let symbol = location fn.frame "c" |> Frame.location_symbol in
+          Alcotest.(check bool)
+            "explicit unchanged operand proved" true
+            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+            = Some Analysis.Unknown))
+        [ "R12"; "R13"; "R14"; "R15" ];
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "unsafe register request remains unproved" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 reg RAX x,I64 c){x<<=c;return x;}42;";
+          "I64 F(I8 reg R12 x,I64 reg R12 c){x<<=c;return x;}42;";
+          "I64 F(){I8 reg RAX x=127;x<<=1;return x;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let local_parameter_selection () =
   List.iter
     (fun mode ->
@@ -2935,6 +3042,8 @@ let () =
         [
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
+          Alcotest.test_case "explicit register selection" `Quick
+            explicit_register_selection;
           Alcotest.test_case "parameter-initialized local selection" `Quick
             local_parameter_selection;
           Alcotest.test_case "dynamic parameter local selection" `Quick

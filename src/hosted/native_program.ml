@@ -47,10 +47,19 @@ let image_errors ~fallback errors =
         error.code error.message)
     errors
 
-let stack_register_qualifiers register_qualifiers =
+(* The native backend still requires an owner-bound allocation proof before it
+   admits a requested register. These names are the non-scratch registers that
+   proof can currently establish. *)
+let bounded_register_qualifiers register_qualifiers =
   match List.rev register_qualifiers with
   | [] -> true
-  | (request : Ast.register_qualifier) :: _ -> request.kind = Ast.Noreg
+  | (request : Ast.register_qualifier) :: _ -> (
+      match (request.kind, request.explicit_register) with
+      | Ast.Noreg, _ | Ast.Reg, None -> true
+      | Ast.Reg, Some register ->
+          List.mem
+            (String.uppercase_ascii register.spelling)
+            [ "R12"; "R13"; "R14"; "R15" ])
 
 let validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
     ~max_blocks ~max_global_bytes ~max_literal_bytes =
@@ -283,7 +292,7 @@ let function_source_error (definition : Ast.function_definition) =
         then
           reject
             "native functions admit only one-level scalar pointer parameters"
-        else if not (stack_register_qualifiers parameter.register_qualifiers)
+        else if not (bounded_register_qualifiers parameter.register_qualifiers)
         then reject "native functions do not admit explicit parameter registers"
         else if Option.is_none parameter.name then
           reject "native function definitions require named fixed parameters"
@@ -355,12 +364,8 @@ let local_source_error (declaration : Ast.local_declaration) =
             "native automatic arrays require scalar elements without \
              initializers"
         else if
-          List.exists
-            (fun (qualifier : Ast.register_qualifier) ->
-              qualifier.kind <> Ast.Noreg
-              || Option.is_some qualifier.explicit_register)
-            local.local_register_qualifiers
-        then reject "native locals do not admit explicit registers"
+          not (bounded_register_qualifiers local.local_register_qualifiers)
+        then reject "native locals do not admit this register request"
         else
           match local.local_initializer with
           | None -> None

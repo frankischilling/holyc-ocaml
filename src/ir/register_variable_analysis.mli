@@ -16,8 +16,10 @@ val analyze :
     or returned with a prefix or postfix update. Addition and subtraction by a
     literal in these shapes are limited to nonnegative signed-32-bit operands.
     Remainder is not proved for the two-parameter update of a narrow parameter.
-    Explicit hardware registers, escapes, extra locals and other control flow
-    remain unproved. The witness itself does not alter execution. *)
+    Distinct R12 through R15 requests are covered in these call-free shapes.
+    Other explicit registers, conflicting requests, escapes, extra locals and
+    other control flow remain unproved. The witness itself does not alter
+    execution. *)
 
 val selection :
   t ->

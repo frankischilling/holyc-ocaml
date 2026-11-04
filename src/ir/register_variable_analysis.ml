@@ -148,6 +148,23 @@ let matches_blocks expected actual =
       && same_list Seq.Block_id.equal successors other_successors)
     expected actual
 
+(* Explicit register variables are observable through their values only in the
+   bounded, call-free graphs below. Keep conflicting or scratch-register requests
+   outside the proof. *)
+let safe_register_requests locations =
+  let rec check used = function
+    | [] -> true
+    | location :: rest -> (
+        match Frame.location_register_selection location with
+        | Request.Explicit register ->
+            let number = Request.explicit_register_number register in
+            number >= 12 && number <= 15
+            && (not (List.mem number used))
+            && check (number :: used) rest
+        | Unspecified | Allocatable | Disabled -> check used rest)
+  in
+  check [] locations
+
 let analyze_parameter ~frame ~body =
   let locations = Frame.function_locations frame in
   let ordinary =
@@ -159,6 +176,7 @@ let analyze_parameter ~frame ~body =
        = 0L
     && Function_body.compiler_options body = Sema.Compiler_option.initial_mask
     && List.length locations = 2
+    && safe_register_requests locations
     && List.for_all
          (fun location ->
            Frame.location_kind location = Frame.Named_parameter
@@ -166,11 +184,7 @@ let analyze_parameter ~frame ~body =
            && Option.is_some
                 (Integer_scalar_storage.of_type
                    (Frame.location_checked_type location))
-           && Option.is_some (Frame.location_frame_slot location)
-           &&
-           match Frame.location_register_selection location with
-           | Request.Explicit _ -> false
-           | Unspecified | Allocatable | Disabled -> true)
+           && Option.is_some (Frame.location_frame_slot location))
          locations
   in
   if not ordinary then None
@@ -541,10 +555,6 @@ let analyze_local ~frame ~body =
           (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32)) -> true
       | _ -> false)
     && Option.is_some (Frame.location_frame_slot location)
-    &&
-    match Frame.location_register_selection location with
-    | Request.Unspecified | Allocatable | Disabled -> true
-    | Explicit _ -> false
   in
   let unary_parameter location =
     Frame.location_kind location = Frame.Named_parameter
@@ -555,15 +565,12 @@ let analyze_local ~frame ~body =
           (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32)) -> true
       | _ -> false)
     && Option.is_some (Frame.location_frame_slot location)
-    &&
-    match Frame.location_register_selection location with
-    | Request.Explicit _ -> false
-    | Unspecified | Allocatable | Disabled -> true
   in
   let ordinary =
     Option.is_some (Function_body.definition_declaration body)
     && Function_body.definition_matches_frame body frame
     && Function_body.compiler_options body = Sema.Compiler_option.initial_mask
+    && safe_register_requests locations
     && Int64.logand
          (Function_body.stored_flags body)
          (Int64.lognot Function_body.ordinary_calling_flag_mask)
@@ -579,10 +586,6 @@ let analyze_local ~frame ~body =
         -> true
       | _ -> false)
     && Option.is_some (Frame.location_frame_slot location)
-    &&
-    match Frame.location_register_selection location with
-    | Request.Explicit _ -> false
-    | Unspecified | Allocatable | Disabled -> true
   in
   let count_parameter location =
     Frame.location_kind location = Frame.Named_parameter
@@ -594,10 +597,6 @@ let analyze_local ~frame ~body =
         -> true
       | _ -> false)
     && Option.is_some (Frame.location_frame_slot location)
-    &&
-    match Frame.location_register_selection location with
-    | Request.Explicit _ -> false
-    | Unspecified | Allocatable | Disabled -> true
   in
   let shape =
     match locations with

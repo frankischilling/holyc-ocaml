@@ -1588,6 +1588,62 @@ let () =
           ("U64", -1L, "0xFFFFFFFFFFFFFFFF");
         ]
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun reg ->
+          [
+            ( Printf.sprintf
+                "I64 F(I8 reg %s x,I64 c){x<<=c;return x;}F(127,1);" reg,
+              "254" );
+            ( Printf.sprintf
+                "I64 F(U8 reg %s x,I64 c){x<<=c;return x;}F(255,1);" reg,
+              "510" );
+            ( Printf.sprintf "I64 F(){I8 reg %s x=127;x<<=1;return x;}F();" reg,
+              "254" );
+            ( Printf.sprintf "I64 F(){U8 reg %s x=255;x<<=1;return x;}F();" reg,
+              "510" );
+          ])
+        [ "R12"; "R13"; "R14"; "R15" ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, expected) ->
+          List.concat_map
+            (fun qualifier ->
+              [
+                ( Printf.sprintf "I64 F(%s %s x,I64 c){x<<=c;return x;}F(%s,1);"
+                    ty qualifier initial,
+                  expected );
+                ( Printf.sprintf "I64 F(){%s %s x=%s;x<<=1;return x;}F();" ty
+                    qualifier initial,
+                  expected );
+              ])
+            [ "reg R12"; "reg" ])
+        [
+          ("I8", "127", "254");
+          ("U8", "255", "510");
+          ("I16", "32767", "65534");
+          ("U16", "65535", "131070");
+          ("I32", "2147483647", "4294967294");
+          ("U32", "4294967295", "8589934590");
+        ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun reg ->
+          [
+            ( Printf.sprintf
+                "I64 F(I8 x,I64 reg %s c){x<<=c;return x;}F(127,1);" reg,
+              "254" );
+            ( Printf.sprintf
+                "I64 F(U8 x,I64 reg %s c){x<<=c;return x;}F(255,1);" reg,
+              "510" );
+          ])
+        [ "R12"; "R13"; "R14"; "R15" ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
@@ -1758,6 +1814,21 @@ let () =
                F(255,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
               "510" );
           ])
+      [ "jit"; "aot" ];
+  if native then
+    List.iter
+      (fun mode ->
+        List.iter
+          (fun target ->
+            run ~fault:true
+              "I64 F(I8 reg RAX x,I64 c){x<<=c;return x;}F(127,1);"
+              (if target = "host-jit" || mode = "aot" then "HCRUN0001"
+               else "HCBACK0002")
+              target mode;
+            run ~fault:true
+              "I64 F(I8 reg R12 x,I64 reg R12 c){x<<=c;return x;}F(127,1);"
+              "HCBACK0002" target mode)
+          [ "host-jit"; "host-jit-task" ])
       [ "jit"; "aot" ];
   Printf.printf "Register execution checks passed (%d reports).\n"
     ((List.length targets * 2 * (List.length cases + List.length faults))

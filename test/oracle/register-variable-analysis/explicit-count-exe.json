@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "743e7b09c3d6148786ffef181b2c9f7b2ed4c55e50a0857b65ad35d8b5f0acca",
+  "boot_payload_sha256": "8a691734623edc673f73b8ab38408ec9f7ffcc2e4a7df698b1dc721b827ea49f",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "6c527adf6de789ffad8125950098ba8497584c0118332fde3abc989ad6b67214",
+  "boot_iso_sha256": "1e6f84771a8b7ca4bd921564f3fbebc1df463fcafa20726947c41677609c7383",
+  "fields": {
+    "PARAM": "254",
+    "LOCAL": "510",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of an explicitly requested operand register during compile-time execution."
+}

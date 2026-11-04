@@ -5691,6 +5691,14 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         = Some Ir.Register_variable_analysis.Register_candidate)
       register_proof
   in
+  let proved_register_request location =
+    Option.fold ~none:false
+      ~some:(fun proof ->
+        Option.is_some
+          (Ir.Register_variable_analysis.selection proof ~frame ~body
+             ~symbol:(Frame.location_symbol location)))
+      register_proof
+  in
   let narrow_update_result location =
     (* Proven stack-slot addition and subtraction return the stored narrow
        value; multiplication and shift results retain their wider intermediate. *)
@@ -5811,7 +5819,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
             true
         | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _
-          -> false
+          -> proved_register_request location
       in
       if
         Frame.location_kind location <> Frame.Named_parameter
@@ -6070,7 +6078,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
             true
         | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _
-          -> false
+          -> proved_register_request location
       in
       if
         Frame.location_kind location <> Frame.Automatic_local

@@ -271,6 +271,15 @@ let () =
           ( "#exe {U8 G=0;I64 N=7;I64 F(){return \
              (G-=1)*N;}StreamPrint(\"%d;\",F());}",
             "1785" );
+          ( "#exe {I64 F(I8 reg R12 x,I64 c){x<<=c;return \
+             x;}StreamPrint(\"%d;\",F(127,1));}",
+            "254" );
+          ( "#exe {I64 F(){U8 reg R15 x=255;x<<=1;return \
+             x;}StreamPrint(\"%d;\",F());}",
+            "510" );
+          ( "#exe {I64 F(I8 x,I64 reg R12 c){x<<=c;return \
+             x;}StreamPrint(\"%d;\",F(127,1));}",
+            "254" );
           ("#exe {U8 G=255;I64 F(){return G+=1;}StreamPrint(\"%d;\",F());}", "0");
           ("#exe {U8 G=0;I64 F(){return G-=1;}StreamPrint(\"%d;\",F());}", "255");
           ( "#exe {U8 G=255;I64 F(){return (G+=1)+1;}StreamPrint(\"%d;\",F());}",
