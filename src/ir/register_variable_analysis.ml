@@ -791,7 +791,7 @@ let analyze_parameter ~frame ~body =
             else
               let pairs = List.map Option.get mapped in
               let targets = List.map fst pairs in
-              let operand = snd (List.hd pairs) in
+              let operands = List.map snd pairs in
               let target_type = Frame.location_checked_type (List.hd targets) in
               let narrow =
                 Sema.Type.pointer_depth target_type = 0
@@ -816,12 +816,11 @@ let analyze_parameter ~frame ~body =
                 (not narrow) || (not unique_targets)
                 || List.exists
                      (fun target ->
-                       target == operand
+                       List.exists (( == ) target) operands
                        || not
                             (Sema.Type.equal target_type
                                (Frame.location_checked_type target)))
                      targets
-                || List.exists (fun (_, other) -> other != operand) pairs
                 || Seq.Instruction_id.compare last.instruction_id
                      returned.instruction_id
                    >= 0
@@ -882,7 +881,7 @@ let analyze_parameter ~frame ~body =
                                 sums ->
                         Some
                           ( targets,
-                            operand,
+                            operands,
                             root,
                             List.map
                               (fun (item : Seq.description) -> item.opcode)
@@ -891,7 +890,7 @@ let analyze_parameter ~frame ~body =
                 | _ -> None)
         | _ -> None
       in
-      let sequence_source_matches (targets, operand, root, opcodes) =
+      let sequence_source_matches (targets, operands, root, opcodes) =
         let module Typed = Sema.Function_call_expression_result in
         let module Calls = Sema.Function_call_resolution in
         let module Bind = Sema.Module_expression_binding in
@@ -911,7 +910,7 @@ let analyze_parameter ~frame ~body =
             ~some:(( == ) (Frame.location_binding location))
             (binding_of value)
         in
-        let update_matches (target, opcode) statement =
+        let update_matches (target, (operand, opcode)) statement =
           let value = Typed.expression_statement_value statement in
           match
             ( Calls.argument_expression_source (Typed.result_source value),
@@ -971,7 +970,7 @@ let analyze_parameter ~frame ~body =
             | statements, [ returned ]
               when List.length statements = List.length targets ->
                 List.for_all2 update_matches
-                  (List.combine targets opcodes)
+                  (List.combine targets (List.combine operands opcodes))
                   statements
                 && Option.fold ~none:false
                      ~some:(fun value -> result_matches value root)
@@ -1003,8 +1002,8 @@ let analyze_parameter ~frame ~body =
                      second_opcode ) -> Some [ first; second ]
           | _ ->
               Option.bind matching_sequence
-                (fun (targets, operand, root, opcodes) ->
-                  if sequence_source_matches (targets, operand, root, opcodes)
+                (fun (targets, operands, root, opcodes) ->
+                  if sequence_source_matches (targets, operands, root, opcodes)
                   then Some targets
                   else None)
       in

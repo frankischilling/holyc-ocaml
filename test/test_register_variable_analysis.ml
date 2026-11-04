@@ -366,6 +366,59 @@ let source_controls () =
         "original compile-time many-update operator" expected
         (List.assoc name many_ops_exe))
     [ ("PARAM", "384"); ("FIVE", "2550"); ("ERR", "0") ];
+  let independent_explicit = fixture "many-updates-independent-explicit" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original independent explicit operands" expected
+        (List.assoc name independent_explicit))
+    [ ("J_U8N3R", "1021"); ("ERR", "0"); ("A_U8N3R", "1021") ];
+  let independent_exe = fixture "many-updates-independent-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original compile-time independent operands" expected
+        (List.assoc name independent_exe))
+    [ ("PARAM", "384"); ("INDEP", "1277"); ("ERR", "0") ];
+  let independent = fixture "many-updates-independent" in
+  List.iter
+    (fun (kind, bits, signed) ->
+      let unit = Int64.shift_left 1L (if signed then bits - 1 else bits) in
+      let max = Int64.pred unit in
+      List.iter
+        (fun count ->
+          let wide =
+            if count = 3 then Int64.add (Int64.mul 5L max) 2L
+            else Int64.add (Int64.mul 6L max) 1L
+          in
+          let narrow =
+            if count = 3 then
+              if signed then Int64.sub (Int64.neg unit) 3L
+              else Int64.sub (Int64.mul 2L unit) 3L
+            else if signed then -5L
+            else Int64.sub (Int64.mul 3L unit) 5L
+          in
+          List.iter
+            (fun prefix ->
+              List.iter
+                (fun (suffix, value) ->
+                  Alcotest.(check string)
+                    "original independent update operands"
+                    (Int64.to_string value)
+                    (List.assoc
+                       (Printf.sprintf "%s_%sN%d%s" prefix kind count suffix)
+                       independent))
+                [ ("R", wide); ("N", narrow) ])
+            [ "J"; "A" ])
+        [ 3; 4 ])
+    [
+      ("S8", 8, true);
+      ("U8", 8, false);
+      ("S16", 16, true);
+      ("U16", 16, false);
+      ("S32", 32, true);
+      ("U32", 32, false);
+    ];
   let mixed_explicit = fixture "many-updates-mixed-explicit" in
   List.iter
     (fun (name, expected) ->
@@ -2844,6 +2897,52 @@ let sequence_selection () =
           ("w", Analysis.Register_candidate);
           ("v", Analysis.Stack);
         ];
+      let independent_explicit =
+        compile mode
+          "I64 F(U8 reg R12 x,U8 reg R13 y,U8 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+y+z;}42;"
+      in
+      let independent_proof =
+        Option.get
+          (Analysis.analyze ~frame:independent_explicit.frame
+             ~body:independent_explicit.body)
+      in
+      List.iter
+        (fun (name, expected) ->
+          let symbol =
+            location independent_explicit.frame name |> Frame.location_symbol
+          in
+          Alcotest.(check bool)
+            "independent explicit register selection" true
+            (Analysis.selection independent_proof
+               ~frame:independent_explicit.frame ~body:independent_explicit.body
+               ~symbol
+            = Some expected))
+        [
+          ("x", Analysis.Register_candidate);
+          ("y", Analysis.Register_candidate);
+          ("z", Analysis.Stack);
+        ];
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun source ->
+              let fn = compile mode source in
+              Alcotest.(check bool)
+                "independent update operands" true
+                (Option.is_some
+                   (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+            [
+              Printf.sprintf
+                "I64 F(%s x,%s y,%s z,I64 c,I64 d,I64 \
+                 e){x+=c;y*=d;z<<=e;return x+y+z;}42;"
+                ty ty ty;
+              Printf.sprintf
+                "I64 F(%s x,%s y,%s z,%s w,I64 c,I64 \
+                 d){x+=c;y-=d;z*=c;w<<=d;return x+y+z+w;}42;"
+                ty ty ty ty;
+            ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
       List.iter
         (fun source ->
           let fn = compile mode source in
@@ -2852,7 +2951,7 @@ let sequence_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z%=c;return x+y+z;}42;";
-          "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c,I64 d){x-=c;y-=c;z-=c;w+=d;return \
+          "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c,I64 d){x-=c;y-=c;z-=c;w+=x;return \
            x+y+z+w;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";

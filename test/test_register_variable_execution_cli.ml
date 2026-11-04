@@ -73,6 +73,9 @@ let () =
       ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
          c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",
         "1020" );
+      ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 noreg z,I64 c,I64 d,I64 \
+         e){x+=c;y*=d;z<<=e;return x+y+z;}F(255,255,255,2,2,1);",
+        "1021" );
       ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,U8 reg R15 w,U8 noreg \
          v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
          x+y+z+w+v;}F(255,255,255,255,255,2);",
@@ -2274,6 +2277,76 @@ let () =
               ("U32", 32, false);
             ])
         [ 3; 4; 5 ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let unit = Int64.shift_left 1L (if signed then bits - 1 else bits) in
+          let max = Int64.pred unit in
+          List.concat_map
+            (fun count ->
+              let names =
+                List.filteri
+                  (fun index _ -> index < count)
+                  [ "x"; "y"; "z"; "w" ]
+              in
+              let suffix, values, operands =
+                if count = 3 then
+                  ( "I64 c,I64 d,I64 e",
+                    "2,2,1",
+                    [ ("+", "c"); ("*", "d"); ("<<", "e") ] )
+                else
+                  ( "I64 c,I64 d",
+                    "2,1",
+                    [ ("+", "c"); ("-", "d"); ("*", "c"); ("<<", "d") ] )
+              in
+              List.map
+                (fun stack ->
+                  let qualifier = if stack then "noreg" else "" in
+                  let parameters =
+                    names
+                    |> List.map (fun name -> ty ^ " " ^ qualifier ^ " " ^ name)
+                    |> String.concat ","
+                  in
+                  let updates =
+                    List.map2
+                      (fun name (op, operand) ->
+                        name ^ op ^ "=" ^ operand ^ ";")
+                      names operands
+                    |> String.concat ""
+                  in
+                  let arguments =
+                    names
+                    |> List.map (fun _ -> Int64.to_string max)
+                    |> String.concat ","
+                  in
+                  let source =
+                    "I64 F(" ^ parameters ^ "," ^ suffix ^ "){" ^ updates
+                    ^ "return " ^ String.concat "+" names ^ ";}F(" ^ arguments
+                    ^ "," ^ values ^ ");"
+                  in
+                  let expected =
+                    if not stack then
+                      if count = 3 then Int64.add (Int64.mul 5L max) 2L
+                      else Int64.add (Int64.mul 6L max) 1L
+                    else if count = 3 then
+                      if signed then Int64.sub (Int64.neg unit) 3L
+                      else Int64.sub (Int64.mul 2L unit) 3L
+                    else if signed then -5L
+                    else Int64.sub (Int64.mul 3L unit) 5L
+                  in
+                  (source, Int64.to_string expected))
+                [ false; true ])
+            [ 3; 4 ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
   in
   List.iter
     (fun target ->
