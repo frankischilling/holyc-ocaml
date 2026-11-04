@@ -222,7 +222,7 @@ let analyze_parameter ~frame ~body =
       | Ic_ret -> true
       | _ -> false
     in
-    if List.length code > 64 || not (List.for_all allowed code) then None
+    if List.length code > 96 || not (List.for_all allowed code) then None
     else
       let produced =
         List.fold_left
@@ -720,13 +720,254 @@ let analyze_parameter ~frame ~body =
             | _ -> false)
           (Function_body.definition_source body)
       in
+      (* Match straight-line updates only when every distinct target appears in
+         order in the returned addition tree. *)
+      let matching_sequence =
+        let address_location id =
+          List.find_map
+            (fun (original, location) ->
+              if Seq.Value_id.equal original id then Some location else None)
+            addresses
+        in
+        let loaded_location id =
+          Option.bind (Values.find_opt id produced)
+            (fun (item : Seq.description) ->
+              match (item.opcode, item.operands) with
+              | O.Ic_deref, [ address ] -> address_location address
+              | _ -> None)
+        in
+        let updates =
+          List.filter
+            (fun (item : Seq.description) ->
+              match item.opcode with
+              | O.Ic_shl_equ
+              | Ic_shr_equ
+              | Ic_add_equ
+              | Ic_sub_equ
+              | Ic_mul_equ
+              | Ic_div_equ
+              | Ic_and_equ
+              | Ic_or_equ
+              | Ic_xor_equ -> true
+              | _ -> false)
+            code
+        in
+        let returns =
+          List.filter
+            (fun (item : Seq.description) -> item.opcode = O.Ic_return_val)
+            code
+        in
+        let count = List.length updates in
+        let rec ordered = function
+          | first :: (second :: _ as rest) ->
+              Seq.Instruction_id.compare first.Seq.instruction_id
+                second.Seq.instruction_id
+              < 0
+              && ordered rest
+          | _ -> true
+        in
+        match (updates, returns) with
+        | (_ :: _ as updates), [ returned ]
+          when count >= 3 && count <= 5
+               && List.length arithmetic_additions = count - 1
+               && List.for_all
+                    (fun (item : Seq.description) ->
+                      item.opcode = O.Ic_add_equ && item.payload = None)
+                    updates
+               && returned.payload = None && ordered updates -> (
+            let last = List.hd (List.rev updates) in
+            let mapped =
+              List.map
+                (fun (item : Seq.description) ->
+                  match item.operands with
+                  | [ address; operand ] ->
+                      Option.bind (address_location address) (fun target ->
+                          Option.map
+                            (fun operand -> (target, operand))
+                            (loaded_location operand))
+                  | _ -> None)
+                updates
+            in
+            if List.exists Option.is_none mapped then None
+            else
+              let pairs = List.map Option.get mapped in
+              let targets = List.map fst pairs in
+              let operand = snd (List.hd pairs) in
+              let target_type = Frame.location_checked_type (List.hd targets) in
+              let narrow =
+                Sema.Type.pointer_depth target_type = 0
+                &&
+                match Sema.Type.base target_type with
+                | Sema.Type.Primitive
+                    (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32))
+                  -> true
+                | _ -> false
+              in
+              let unique_targets =
+                List.length
+                  (List.sort_uniq Int.compare
+                     (List.map
+                        (fun location ->
+                          Sema.Symbol.id (Frame.location_symbol location)
+                          |> Sema.Symbol.Id.to_int)
+                        targets))
+                = count
+              in
+              if
+                (not narrow) || (not unique_targets)
+                || List.exists
+                     (fun target ->
+                       target == operand
+                       || not
+                            (Sema.Type.equal target_type
+                               (Frame.location_checked_type target)))
+                     targets
+                || List.exists (fun (_, other) -> other != operand) pairs
+                || Seq.Instruction_id.compare last.instruction_id
+                     returned.instruction_id
+                   >= 0
+              then None
+              else
+                let rec collect seen value =
+                  if List.exists (Seq.Value_id.equal value) seen then None
+                  else
+                    Option.bind (Values.find_opt value produced)
+                      (fun (item : Seq.description) ->
+                        if
+                          Seq.Instruction_id.compare last.instruction_id
+                            item.instruction_id
+                          >= 0
+                          || Seq.Instruction_id.compare item.instruction_id
+                               returned.instruction_id
+                             >= 0
+                        then None
+                        else
+                          match (item.opcode, item.operands) with
+                          | O.Ic_deref, [ address ] ->
+                              Option.map
+                                (fun location -> ([ location ], []))
+                                (address_location address)
+                          | O.Ic_add, [ left; right ]
+                            when item.payload = None
+                                 && Option.fold ~none:false
+                                      ~some:(Sema.Type.equal target_type)
+                                      item.target_type ->
+                              Option.bind
+                                (collect (value :: seen) left)
+                                (fun (left_locations, left_sums) ->
+                                  Option.map
+                                    (fun (right_locations, right_sums) ->
+                                      ( left_locations @ right_locations,
+                                        item :: (left_sums @ right_sums) ))
+                                    (collect (value :: seen) right))
+                          | _ -> None)
+                in
+                match returned.operands with
+                | [ root ] -> (
+                    match collect [] root with
+                    | Some (leaves, sums)
+                      when same_list ( == ) leaves targets
+                           && List.length sums
+                              = List.length arithmetic_additions
+                           && List.length
+                                (List.sort_uniq Int.compare
+                                   (List.map
+                                      (fun (item : Seq.description) ->
+                                        Seq.Instruction_id.to_int
+                                          item.instruction_id)
+                                      sums))
+                              = List.length sums
+                           && List.for_all
+                                (fun sum ->
+                                  List.exists (( == ) sum) arithmetic_additions)
+                                sums -> Some (targets, operand, root)
+                    | _ -> None)
+                | _ -> None)
+        | _ -> None
+      in
+      let sequence_source_matches (targets, operand, root) =
+        let module Typed = Sema.Function_call_expression_result in
+        let module Calls = Sema.Function_call_resolution in
+        let module Bind = Sema.Module_expression_binding in
+        let binding_of value =
+          match Calls.argument_expression_kind (Typed.result_source value) with
+          | Calls.Bound_identifier_expression bound -> (
+              match
+                Bind.occurrence_resolution
+                  (Calls.bound_identifier_occurrence bound)
+              with
+              | Bind.Local_binding binding -> Some binding
+              | _ -> None)
+          | _ -> None
+        in
+        let matches_binding location value =
+          Option.fold ~none:false
+            ~some:(( == ) (Frame.location_binding location))
+            (binding_of value)
+        in
+        let update_matches target statement =
+          let value = Typed.expression_statement_value statement in
+          match
+            ( Calls.argument_expression_source (Typed.result_source value),
+              Typed.result_binary_operands value )
+          with
+          | Some (Frontend.Ast.Binary_expression binary), Some (left, right) ->
+              binary.binary_operator_spec.spelling = "+="
+              && matches_binding target left
+              && matches_binding operand right
+          | _ -> false
+        in
+        let rec result_matches typed value =
+          match Values.find_opt value produced with
+          | None -> false
+          | Some (item : Seq.description) -> (
+              match (item.opcode, item.operands) with
+              | O.Ic_deref, [ address ] ->
+                  Option.fold ~none:false
+                    ~some:(fun location -> matches_binding location typed)
+                    (List.find_map
+                       (fun (id, location) ->
+                         if Seq.Value_id.equal id address then Some location
+                         else None)
+                       addresses)
+              | O.Ic_add, [ left; right ] -> (
+                  match
+                    ( Calls.argument_expression_source
+                        (Typed.result_source typed),
+                      Typed.result_binary_operands typed )
+                  with
+                  | ( Some (Frontend.Ast.Binary_expression binary),
+                      Some (typed_left, typed_right) ) ->
+                      binary.binary_operator_spec.spelling = "+"
+                      && Option.equal Sema.Type.equal (Typed.result_type typed)
+                           item.target_type
+                      && result_matches typed_left left
+                      && result_matches typed_right right
+                  | _ -> false)
+              | _ -> false)
+        in
+        Option.fold ~none:false
+          ~some:(fun source ->
+            match
+              ( Typed.function_expression_statements source,
+                Typed.function_returns source )
+            with
+            | statements, [ returned ]
+              when List.length statements = List.length targets ->
+                List.for_all2 update_matches targets statements
+                && Option.fold ~none:false
+                     ~some:(fun value -> result_matches value root)
+                     (Typed.return_value returned)
+            | _ -> false)
+          (Function_body.definition_source body)
+      in
       let selected_targets =
         if arithmetic_additions = [] then
           Option.bind matching_target (fun (target, count) ->
               if source_matches (target, count) then Some [ target ] else None)
         else
-          Option.bind matching_pair
-            (fun
+          match matching_pair with
+          | Some
               ( first,
                 second,
                 first_count,
@@ -734,18 +975,19 @@ let analyze_parameter ~frame ~body =
                 sum_type,
                 first_opcode,
                 second_opcode )
-            ->
-              if
-                pair_source_matches
-                  ( first,
-                    second,
-                    first_count,
-                    second_count,
-                    sum_type,
-                    first_opcode,
-                    second_opcode )
-              then Some [ first; second ]
-              else None)
+            when pair_source_matches
+                   ( first,
+                     second,
+                     first_count,
+                     second_count,
+                     sum_type,
+                     first_opcode,
+                     second_opcode ) -> Some [ first; second ]
+          | _ ->
+              Option.bind matching_sequence (fun (targets, operand, root) ->
+                  if sequence_source_matches (targets, operand, root) then
+                    Some targets
+                  else None)
       in
       if
         (not (addresses_safe && rbp_safe && dereferences_safe && simple_flow))

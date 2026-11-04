@@ -339,6 +339,52 @@ let source_controls () =
             ])
         [ "J_"; "A_" ])
     [ 8; 16; 32 ];
+  let sequence = fixture "many-updates-sequence" in
+  List.iter
+    (fun count ->
+      List.iter
+        (fun (kind, value) ->
+          List.iter
+            (fun prefix ->
+              Alcotest.(check string)
+                "original multi-update sequence" (string_of_int value)
+                (List.assoc
+                   (Printf.sprintf "%s_%d%s" prefix count kind)
+                   sequence))
+            [ "J"; "A" ])
+        [
+          ("SR", count * 128);
+          ("SN", count * -128);
+          ("UR", count * 256);
+          ("UN", 0);
+        ])
+    [ 3; 4; 5 ];
+  let sequence_exe = fixture "many-updates-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original compile-time update sequence" expected
+        (List.assoc name sequence_exe))
+    [ ("PARAM", "384"); ("FIVE", "1280"); ("ERR", "0") ];
+  let sequence_widths = fixture "many-updates-widths" in
+  List.iter
+    (fun (kind, expected) ->
+      List.iter
+        (fun prefix ->
+          Alcotest.(check string)
+            "original multi-update width" expected
+            (List.assoc (prefix ^ "_5" ^ kind) sequence_widths))
+        [ "J"; "A" ])
+    [
+      ("S16R", "163840");
+      ("S16N", "-163840");
+      ("U16R", "327680");
+      ("U16N", "0");
+      ("S32R", "10737418240");
+      ("S32N", "-10737418240");
+      ("U32R", "21474836480");
+      ("U32N", "0");
+    ];
   let full_narrow = fixture "two-updates-full-narrow" in
   List.iter
     (fun prefix ->
@@ -2436,6 +2482,66 @@ let pair_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let sequence_selection () =
+  let all = [ "x"; "y"; "z"; "w"; "v" ] in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun count ->
+          let names = List.filteri (fun index _ -> index < count) all in
+          List.iter
+            (fun (ty, qualifier, expected) ->
+              let parameters =
+                names
+                |> List.map (fun name -> ty ^ " " ^ qualifier ^ " " ^ name)
+                |> String.concat ","
+              in
+              let updates =
+                names
+                |> List.map (fun name -> name ^ "+=c;")
+                |> String.concat ""
+              in
+              let source =
+                "I64 F(" ^ parameters ^ ",I64 c){" ^ updates ^ "return "
+                ^ String.concat "+" names ^ ";}42;"
+              in
+              let fn = compile mode source in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              List.iter
+                (fun name ->
+                  let symbol =
+                    location fn.frame name |> Frame.location_symbol
+                  in
+                  Alcotest.(check bool)
+                    "multi-update register selection" true
+                    (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                       ~symbol
+                    = Some expected))
+                names)
+            [
+              ("I8", "", Analysis.Register_candidate);
+              ("U8", "", Analysis.Register_candidate);
+              ("I8", "noreg", Analysis.Stack);
+              ("U8", "noreg", Analysis.Stack);
+            ])
+        [ 3; 4; 5 ];
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "unproved update sequence" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z-=c;return x+y+z;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;c+=c;return x+y+z;}42;";
+          "I64 F(I8 x,I8 y,U8 z,I64 c){x+=c;y+=c;z+=c;return x+y+z;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let explicit_register_selection () =
   List.iter
     (fun mode ->
@@ -3485,6 +3591,7 @@ let () =
         [
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
+          Alcotest.test_case "multi-update selection" `Quick sequence_selection;
           Alcotest.test_case "two-update selection" `Quick pair_selection;
           Alcotest.test_case "multi-parameter selection" `Quick
             many_parameter_selection;

@@ -2058,6 +2058,60 @@ let () =
           ])
         widths
   in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun count ->
+          let names =
+            List.filteri
+              (fun index _ -> index < count)
+              [ "x"; "y"; "z"; "w"; "v" ]
+          in
+          List.concat_map
+            (fun (ty, bits, signed) ->
+              let unit =
+                Int64.shift_left 1L (if signed then bits - 1 else bits)
+              in
+              let initial = Int64.to_string (Int64.pred unit) in
+              List.map
+                (fun stack ->
+                  let qualifier = if stack then "noreg" else "" in
+                  let parameters =
+                    names
+                    |> List.map (fun name -> ty ^ " " ^ qualifier ^ " " ^ name)
+                    |> String.concat ","
+                  in
+                  let updates =
+                    names
+                    |> List.map (fun name -> name ^ "+=c;")
+                    |> String.concat ""
+                  in
+                  let arguments =
+                    names |> List.map (fun _ -> initial) |> String.concat ","
+                  in
+                  let source =
+                    "I64 F(" ^ parameters ^ ",I64 c){" ^ updates ^ "return "
+                    ^ String.concat "+" names ^ ";}F(" ^ arguments ^ ",1);"
+                  in
+                  let expected =
+                    if stack then
+                      if signed then
+                        Int64.neg (Int64.mul (Int64.of_int count) unit)
+                      else 0L
+                    else Int64.mul (Int64.of_int count) unit
+                  in
+                  (source, Int64.to_string expected))
+                [ false; true ])
+            [
+              ("I8", 8, true);
+              ("U8", 8, false);
+              ("I16", 16, true);
+              ("U16", 16, false);
+              ("I32", 32, true);
+              ("U32", 32, false);
+            ])
+        [ 3; 4; 5 ]
+  in
   List.iter
     (fun target ->
       List.iter
