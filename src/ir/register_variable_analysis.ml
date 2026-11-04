@@ -768,8 +768,8 @@ let analyze_parameter ~frame ~body =
         in
         match (updates, returns) with
         | (_ :: _ as updates), [ returned ]
-          when count >= 3 && count <= 5
-               && List.length arithmetic_additions >= 1
+          when count <= 5
+               && (count >= 3 || (count = 2 && arithmetic_additions = []))
                && List.length arithmetic_additions <= 5
                && List.for_all
                     (fun (item : Seq.description) -> item.payload = None)
@@ -898,7 +898,7 @@ let analyze_parameter ~frame ~body =
                 | [ root ] -> (
                     match collect [] root with
                     | Some (leaves, sums, _)
-                      when List.length leaves >= 2
+                      when List.length leaves >= 1
                            && List.length leaves <= 6
                            && List.for_all
                                 (fun leaf -> List.exists (( == ) leaf) targets)
@@ -1029,9 +1029,20 @@ let analyze_parameter ~frame ~body =
           (Function_body.definition_source body)
       in
       let selected_targets =
+        let sequence_selection () =
+          Option.bind matching_sequence
+            (fun (targets, operands, root, opcodes) ->
+              if sequence_source_matches (targets, operands, root, opcodes) then
+                Some targets
+              else None)
+        in
         if arithmetic_additions = [] then
-          Option.bind matching_target (fun (target, count) ->
-              if source_matches (target, count) then Some [ target ] else None)
+          match
+            Option.bind matching_target (fun (target, count) ->
+                if source_matches (target, count) then Some [ target ] else None)
+          with
+          | Some _ as selection -> selection
+          | None -> sequence_selection ()
         else
           match matching_pair with
           | Some
@@ -1050,12 +1061,7 @@ let analyze_parameter ~frame ~body =
                      sum_type,
                      first_opcode,
                      second_opcode ) -> Some [ first; second ]
-          | _ ->
-              Option.bind matching_sequence
-                (fun (targets, operands, root, opcodes) ->
-                  if sequence_source_matches (targets, operands, root, opcodes)
-                  then Some targets
-                  else None)
+          | _ -> sequence_selection ()
       in
       if
         (not (addresses_safe && rbp_safe && dereferences_safe && simple_flow))

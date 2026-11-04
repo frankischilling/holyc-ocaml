@@ -305,6 +305,40 @@ let source_controls () =
         "original six-parameter two-update result" "256"
         (List.assoc name pair_six))
     [ "J_S"; "A_S" ];
+  let pair_single = fixture "two-updates-single-return" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original pair single return" expected
+        (List.assoc name pair_single))
+    [
+      ("J_S", "128");
+      ("J_U", "43");
+      ("J_SN", "-128");
+      ("J_UN", "43");
+      ("ERR", "0");
+      ("A_S", "128");
+      ("A_U", "43");
+      ("A_SN", "-128");
+      ("A_UN", "43");
+    ];
+  let pair_second = fixture "two-updates-second-return" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original pair second return" expected
+        (List.assoc name pair_second))
+    [
+      ("J_S", "43");
+      ("J_U", "128");
+      ("J_SN", "43");
+      ("J_UN", "-128");
+      ("ERR", "0");
+      ("A_S", "43");
+      ("A_U", "128");
+      ("A_SN", "43");
+      ("A_UN", "-128");
+    ];
   let pair_exe = fixture "two-updates-exe" in
   List.iter
     (fun (name, expected) ->
@@ -663,6 +697,43 @@ let source_controls () =
       ("A_FN", "-87");
       ("A_GR", "169");
       ("A_GN", "169");
+    ];
+  let single_return = fixture "many-updates-fullwidth-single-return" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original single-variable update result" expected
+        (List.assoc name single_return))
+    [
+      ("J_AR", "254");
+      ("J_AN", "-2");
+      ("J_BR", "84");
+      ("J_BN", "84");
+      ("J_CR", "131070");
+      ("J_CN", "65534");
+      ("J_DR", "4294967294");
+      ("J_DN", "-2");
+      ("J_ER", "131070");
+      ("J_EN", "65534");
+      ("J_FR", "17179869180");
+      ("J_FN", "4294967292");
+      ("J_GR", "262140");
+      ("J_GN", "65532");
+      ("ERR", "0");
+      ("A_AR", "254");
+      ("A_AN", "-2");
+      ("A_BR", "84");
+      ("A_BN", "84");
+      ("A_CR", "131070");
+      ("A_CN", "65534");
+      ("A_DR", "4294967294");
+      ("A_DN", "-2");
+      ("A_ER", "131070");
+      ("A_EN", "65534");
+      ("A_FR", "17179869180");
+      ("A_FN", "4294967292");
+      ("A_GR", "262140");
+      ("A_GN", "65532");
     ];
   let fullwidth_ops = fixture "many-updates-fullwidth-ops" in
   List.iter
@@ -3422,6 +3493,9 @@ let sequence_selection () =
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+z;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z;}42;";
+          "I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x;}42;";
+          "I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return y;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+z+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+z+x+y;}42;";
           "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c){x+=c;y+=c;z+=c;w+=c;return x+w;}42;";
@@ -3470,6 +3544,7 @@ let sequence_selection () =
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z%=c;return x+y+z;}42;";
           "I64 F(I64 x,I64 y,I64 z,I64 c){x+=c;y+=c;z+=c;return x+y+z;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+c;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return c;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+z+x+y+z+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c,I64 d){x-=c;y-=c;z-=c;w+=x;return \
            x+y+z+w;}42;";
