@@ -302,6 +302,18 @@ let () =
              e){x+=c;y*=d;z<<=e;return \
              x+y+z;}StreamPrint(\"%d;\",F(255,255,255,2,2,1));}",
             "1277" );
+          ( "#exe {I64 F(I8 x,U16 y,I32 z,U32 w,I64 \
+             c){x+=c;y+=c;z+=c;w+=c;return \
+             x+y+z+w;}StreamPrint(\"%d;\",F(127,65535,2147483647,4294967295,1));}",
+            "6442516608" );
+          ( "#exe {I64 F(I8 x,U16 y,I32 z,U32 w,U8 v,I64 \
+             c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+             x+y+z+w+v;}StreamPrint(\"%d;\",F(127,65535,2147483647,4294967295,255,2));}",
+            "21474902389" );
+          ( "#exe {I64 F(I8 x,U16 y,I32 z,U32 w,I64 v,I64 \
+             c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+             x+y+z+w+v;}StreamPrint(\"%d;\",F(127,65535,2147483647,4294967295,42,2));}",
+            "21474902176" );
           ( "#exe {I64 F(U8 x,U8 y,U8 z,I64 c){x*=c;y*=c;z*=c;return \
              x+y+z;}StreamPrint(\"%d;\",F(255,255,255,2));}",
             "1530" );
@@ -548,5 +560,5 @@ let () =
         (member "hosted_code" fault |> to_string))
     [ "jit"; "aot" ];
   print_endline
-    "44 prepared source projections and retained CLI work/fault boundaries \
+    "47 prepared source projections and retained CLI work/fault boundaries \
      passed."

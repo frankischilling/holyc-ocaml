@@ -76,6 +76,20 @@ let () =
       ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 noreg z,I64 c,I64 d,I64 \
          e){x+=c;y*=d;z<<=e;return x+y+z;}F(255,255,255,2,2,1);",
         "1021" );
+      ( "I64 F(I8 reg R12 x,U16 reg R13 y,I32 noreg z,I64 c,I64 d,I64 \
+         e){x+=c;y*=d;z<<=e;return x+y+z;}F(127,65535,2147483647,2,2,1);",
+        "131197" );
+      ( "I64 F(I64 reg R12 x,I8 reg R13 y,U16 noreg z,I64 c,I64 d,I64 \
+         e){x+=c;y*=d;z<<=e;return x+y+z;}F(42,127,65535,2,2,1);",
+        "65832" );
+      ( "I64 F(I8 reg R12 x,U16 reg R13 y,I32 reg R14 z,U32 reg R15 w,I64 \
+         noreg v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
+         x+y+z+w+v;}F(127,65535,2147483647,4294967295,42,2);",
+        "21474902220" );
+      ( "I64 F(I8 reg R12 x,U16 reg R13 y,I32 reg R14 z,U32 reg R15 w,U8 noreg \
+         v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
+         x+y+z+w+v;}F(127,65535,2147483647,4294967295,255,2);",
+        "21474902390" );
       ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,U8 reg R15 w,U8 noreg \
          v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
          x+y+z+w+v;}F(255,255,255,255,255,2);",
@@ -2347,6 +2361,283 @@ let () =
           ("I32", 32, true);
           ("U32", 32, false);
         ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (types, values, wide, narrow) ->
+          let names =
+            List.filteri
+              (fun index _ -> index < List.length types)
+              [ "x"; "y"; "z"; "w" ]
+          in
+          List.map
+            (fun (qualifier, expected) ->
+              let parameters =
+                List.map2
+                  (fun ty name -> ty ^ " " ^ qualifier ^ " " ^ name)
+                  types names
+                |> String.concat ","
+              in
+              let updates =
+                names
+                |> List.map (fun name -> name ^ "+=c;")
+                |> String.concat ""
+              in
+              let source =
+                "I64 F(" ^ parameters ^ ",I64 c){" ^ updates ^ "return "
+                ^ String.concat "+" names ^ ";}F(" ^ String.concat "," values
+                ^ ",1);"
+              in
+              (source, expected))
+            [ ("", wide); ("noreg", narrow) ])
+        [
+          ( [ "I8"; "U16"; "I32" ],
+            [ "127"; "65535"; "2147483647" ],
+            "2147549312",
+            "-2147483776" );
+          ( [ "I32"; "U16"; "I8" ],
+            [ "2147483647"; "65535"; "127" ],
+            "2147549312",
+            "-2147483776" );
+          ( [ "U8"; "I16"; "U32" ],
+            [ "255"; "32767"; "4294967295" ],
+            "4295000320",
+            "-32768" );
+          ( [ "U32"; "I16"; "U8" ],
+            [ "4294967295"; "32767"; "255" ],
+            "4295000320",
+            "-32768" );
+          ( [ "I8"; "U16"; "I32"; "U32" ],
+            [ "127"; "65535"; "2147483647"; "4294967295" ],
+            "6442516608",
+            "-2147483776" );
+          ( [ "U32"; "I32"; "U16"; "I8" ],
+            [ "4294967295"; "2147483647"; "65535"; "127" ],
+            "6442516608",
+            "-2147483776" );
+        ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (types, values, updates, counts, extra, wide, narrow) ->
+          let names =
+            List.filteri
+              (fun index _ -> index < List.length types)
+              [ "x"; "y"; "z"; "w"; "v" ]
+          in
+          List.map
+            (fun (qualifier, expected) ->
+              let parameters =
+                List.map2
+                  (fun ty name -> ty ^ " " ^ qualifier ^ " " ^ name)
+                  types names
+                |> String.concat ","
+              in
+              let statements =
+                List.map2
+                  (fun name (op, operand) -> name ^ op ^ "=" ^ operand ^ ";")
+                  names updates
+                |> String.concat ""
+              in
+              let source =
+                "I64 F(" ^ parameters ^ "," ^ counts ^ "){" ^ statements
+                ^ "return " ^ String.concat "+" names ^ ";}F("
+                ^ String.concat "," (values @ extra)
+                ^ ");"
+              in
+              (source, expected))
+            [ ("", wide); ("noreg", narrow) ])
+        [
+          ( [ "I8"; "U16"; "I32" ],
+            [ "127"; "65535"; "2147483647" ],
+            [ ("+", "c"); ("*", "d"); ("<<", "e") ],
+            "I64 c,I64 d,I64 e",
+            [ "2"; "2"; "1" ],
+            "4295098493",
+            "65405" );
+          ( [ "I32"; "U16"; "I8" ],
+            [ "2147483647"; "65535"; "127" ],
+            [ ("+", "c"); ("*", "d"); ("<<", "e") ],
+            "I64 c,I64 d,I64 e",
+            [ "2"; "2"; "1" ],
+            "2147614973",
+            "-2147418115" );
+          ( [ "U8"; "I16"; "U32"; "I8" ],
+            [ "255"; "32767"; "4294967295"; "127" ],
+            [ ("+", "c"); ("-", "d"); ("*", "c"); ("<<", "d") ],
+            "I64 c,I64 d",
+            [ "2"; "1" ],
+            "8589967867",
+            "4295000059" );
+          ( [ "I8"; "U32"; "I16"; "U8" ],
+            [ "127"; "4294967295"; "32767"; "255" ],
+            [ ("+", "c"); ("-", "d"); ("*", "c"); ("<<", "d") ],
+            "I64 c,I64 d",
+            [ "2"; "1" ],
+            "4295033467",
+            "4294967419" );
+          ( [ "I8"; "U16"; "I32"; "U32"; "U8" ],
+            [ "127"; "65535"; "2147483647"; "4294967295"; "255" ],
+            [ ("+", "c"); ("-", "c"); ("*", "c"); ("<<", "c"); ("^", "c") ],
+            "I64 c",
+            [ "2" ],
+            "21474902389",
+            "4295032949" );
+          ( [ "U8"; "U32"; "I32"; "U16"; "I8" ],
+            [ "255"; "4294967295"; "2147483647"; "65535"; "127" ],
+            [ ("+", "c"); ("-", "c"); ("*", "c"); ("<<", "c"); ("^", "c") ],
+            "I64 c",
+            [ "2" ],
+            "8590197109",
+            "4295032949" );
+          ( [ "I64"; "I8"; "U16" ],
+            [ "42"; "127"; "65535" ],
+            [ ("+", "c"); ("*", "d"); ("<<", "e") ],
+            "I64 c,I64 d,I64 e",
+            [ "2"; "2"; "1" ],
+            "131368",
+            "65576" );
+          ( [ "I8"; "I64"; "U16" ],
+            [ "127"; "42"; "65535" ],
+            [ ("+", "c"); ("*", "d"); ("<<", "e") ],
+            "I64 c,I64 d,I64 e",
+            [ "2"; "2"; "1" ],
+            "131283",
+            "65491" );
+          ( [ "I8"; "U16"; "I64" ],
+            [ "127"; "65535"; "42" ],
+            [ ("+", "c"); ("*", "d"); ("<<", "e") ],
+            "I64 c,I64 d,I64 e",
+            [ "2"; "2"; "1" ],
+            "131283",
+            "65491" );
+          ( [ "I8"; "U16"; "I32"; "I64" ],
+            [ "127"; "65535"; "2147483647"; "42" ],
+            [ ("+", "c"); ("-", "d"); ("*", "c"); ("<<", "d") ],
+            "I64 c,I64 d",
+            [ "2"; "1" ],
+            "4295033041",
+            "65489" );
+          ( [ "I64"; "I32"; "U16"; "I8" ],
+            [ "42"; "2147483647"; "65535"; "127" ],
+            [ ("+", "c"); ("-", "d"); ("*", "c"); ("<<", "d") ],
+            "I64 c,I64 d",
+            [ "2"; "1" ],
+            "2147615014",
+            "2147549222" );
+          ( [ "I8"; "U16"; "I32"; "U32"; "I64" ],
+            [ "127"; "65535"; "2147483647"; "4294967295"; "42" ],
+            [ ("+", "c"); ("-", "c"); ("*", "c"); ("<<", "c"); ("^", "c") ],
+            "I64 c",
+            [ "2" ],
+            "21474902176",
+            "4295032736" );
+          ( [ "I64"; "U32"; "I32"; "U16"; "I8" ],
+            [ "42"; "4294967295"; "2147483647"; "65535"; "127" ],
+            [ ("+", "c"); ("-", "c"); ("*", "c"); ("<<", "c"); ("^", "c") ],
+            "I64 c",
+            [ "2" ],
+            "8590196896",
+            "4295032992" );
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(I64 x,I8 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+(y+(z));}F(42,127,65535,2,2,1);",
+          "131368" );
+        ( "I64 F(I64 noreg x,I8 noreg y,U16 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+(y+(z));}F(42,127,65535,2,2,1);",
+          "65576" );
+        ( "I64 F(I8 x,I64 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+(y+(z));}F(127,42,65535,2,2,1);",
+          "131283" );
+        ( "I64 F(I8 noreg x,I64 noreg y,U16 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+(y+(z));}F(127,42,65535,2,2,1);",
+          "65491" );
+        ( "I64 F(I8 x,U16 y,I64 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+(y+(z));}F(127,65535,42,2,2,1);",
+          "131283" );
+        ( "I64 F(I8 noreg x,U16 noreg y,I64 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+(y+(z));}F(127,65535,42,2,2,1);",
+          "65491" );
+        ( "I64 F(I8 x,U16 y,I32 z,I64 w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return \
+           x+(y+(z+(w)));}F(127,65535,2147483647,42,2,1);",
+          "4295033041" );
+        ( "I64 F(I8 noreg x,U16 noreg y,I32 noreg z,I64 noreg w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return \
+           x+(y+(z+(w)));}F(127,65535,2147483647,42,2,1);",
+          "65489" );
+        ( "I64 F(I64 x,I32 y,U16 z,I8 w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return \
+           x+(y+(z+(w)));}F(42,2147483647,65535,127,2,1);",
+          "2147615014" );
+        ( "I64 F(I64 noreg x,I32 noreg y,U16 noreg z,I8 noreg w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return \
+           x+(y+(z+(w)));}F(42,2147483647,65535,127,2,1);",
+          "2147549222" );
+        ( "I64 F(I8 x,U16 y,I32 z,U32 w,I64 v,I64 \
+           c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+(y+(z+(w+(v))));}F(127,65535,2147483647,4294967295,42,2);",
+          "21474902176" );
+        ( "I64 F(I8 noreg x,U16 noreg y,I32 noreg z,U32 noreg w,I64 noreg \
+           v,I64 c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+(y+(z+(w+(v))));}F(127,65535,2147483647,4294967295,42,2);",
+          "4295032736" );
+        ( "I64 F(I64 x,U32 y,I32 z,U16 w,I8 v,I64 \
+           c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+(y+(z+(w+(v))));}F(42,4294967295,2147483647,65535,127,2);",
+          "8590196896" );
+        ( "I64 F(I64 noreg x,U32 noreg y,I32 noreg z,U16 noreg w,I8 noreg \
+           v,I64 c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+(y+(z+(w+(v))));}F(42,4294967295,2147483647,65535,127,2);",
+          "4295032992" );
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(U64 x,U8 y,I8 z,I64 c,I64 d,I64 e){x>>=c;y+=d;z*=e;return \
+           x+y+z;}F(0xFFFFFFFFFFFFFFFF,255,127,1,1,2);",
+          "-9223372036854775299" );
+        ( "I64 F(U64 noreg x,U8 noreg y,I8 noreg z,I64 c,I64 d,I64 \
+           e){x>>=c;y+=d;z*=e;return \
+           x+y+z;}F(0xFFFFFFFFFFFFFFFF,255,127,1,1,2);",
+          "9223372036854775805" );
+        ( "I64 F(U8 x,U64 y,I8 z,I64 c,I64 d,I64 e){x>>=c;y+=d;z*=e;return \
+           x+y+z;}F(255,0xFFFFFFFFFFFFFFFF,127,1,1,2);",
+          "381" );
+        ( "I64 F(U8 noreg x,U64 noreg y,I8 noreg z,I64 c,I64 d,I64 \
+           e){x>>=c;y+=d;z*=e;return \
+           x+y+z;}F(255,0xFFFFFFFFFFFFFFFF,127,1,1,2);",
+          "125" );
+        ( "I64 F(I8 x,U8 y,U64 z,I64 c,I64 d,I64 e){x>>=c;y+=d;z*=e;return \
+           x+y+z;}F(127,255,0xFFFFFFFFFFFFFFFF,1,1,2);",
+          "317" );
+        ( "I64 F(I8 noreg x,U8 noreg y,U64 noreg z,I64 c,I64 d,I64 \
+           e){x>>=c;y+=d;z*=e;return \
+           x+y+z;}F(127,255,0xFFFFFFFFFFFFFFFF,1,1,2);",
+          "61" );
+        ( "I64 F(I64 x,U8 y,I8 z,I64 c,I64 d,I64 e){x>>=c;y+=d;z*=e;return \
+           x+y+z;}F(0x8000000000000000,255,127,1,1,2);",
+          "-4611686018427387394" );
+        ( "I64 F(I64 noreg x,U8 noreg y,I8 noreg z,I64 c,I64 d,I64 \
+           e){x>>=c;y+=d;z*=e;return \
+           x+y+z;}F(0x8000000000000000,255,127,1,1,2);",
+          "-4611686018427387906" );
+        ( "I64 F(I8 x,U16 y,I32 z,U32 w,U64 v,I64 \
+           c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+y+z+w+v;}F(127,65535,2147483647,4294967295,0xFFFFFFFFFFFFFFFF,2);",
+          "21474902133" );
+        ( "I64 F(I8 noreg x,U16 noreg y,I32 noreg z,U32 noreg w,U64 noreg \
+           v,I64 c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+y+z+w+v;}F(127,65535,2147483647,4294967295,0xFFFFFFFFFFFFFFFF,2);",
+          "4295032693" );
+      ]
   in
   List.iter
     (fun target ->

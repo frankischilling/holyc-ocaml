@@ -792,15 +792,40 @@ let analyze_parameter ~frame ~body =
               let pairs = List.map Option.get mapped in
               let targets = List.map fst pairs in
               let operands = List.map snd pairs in
-              let target_type = Frame.location_checked_type (List.hd targets) in
-              let narrow =
-                Sema.Type.pointer_depth target_type = 0
-                &&
-                match Sema.Type.base target_type with
-                | Sema.Type.Primitive
-                    (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32))
-                  -> true
+              let integer_shape type_ =
+                if Sema.Type.pointer_depth type_ <> 0 then None
+                else
+                  match Sema.Type.base type_ with
+                  | Sema.Type.Primitive (form, (Sema.Primitive_type.I8 | U8)) ->
+                      Some (form, 1)
+                  | Sema.Type.Primitive (form, (Sema.Primitive_type.I16 | U16))
+                    -> Some (form, 2)
+                  | Sema.Type.Primitive (form, (Sema.Primitive_type.I32 | U32))
+                    -> Some (form, 4)
+                  | Sema.Type.Primitive (form, (Sema.Primitive_type.I64 | U64))
+                    -> Some (form, 8)
+                  | _ -> None
+              in
+              let compatible_sum left right result =
+                match
+                  (integer_shape left, integer_shape right, integer_shape result)
+                with
+                | Some (lf, lw), Some (rf, rw), Some (sf, sw) ->
+                    lf = rf && lf = sf && sw = max lw rw
                 | _ -> false
+              in
+              let supported_targets =
+                List.for_all
+                  (fun target ->
+                    Option.is_some
+                      (integer_shape (Frame.location_checked_type target)))
+                  targets
+                && List.exists
+                     (fun target ->
+                       Option.fold ~none:false
+                         ~some:(fun (_, width) -> width < 8)
+                         (integer_shape (Frame.location_checked_type target)))
+                     targets
               in
               let unique_targets =
                 List.length
@@ -813,13 +838,9 @@ let analyze_parameter ~frame ~body =
                 = count
               in
               if
-                (not narrow) || (not unique_targets)
+                (not supported_targets) || (not unique_targets)
                 || List.exists
-                     (fun target ->
-                       List.exists (( == ) target) operands
-                       || not
-                            (Sema.Type.equal target_type
-                               (Frame.location_checked_type target)))
+                     (fun target -> List.exists (( == ) target) operands)
                      targets
                 || Seq.Instruction_id.compare last.instruction_id
                      returned.instruction_id
@@ -843,27 +864,39 @@ let analyze_parameter ~frame ~body =
                           match (item.opcode, item.operands) with
                           | O.Ic_deref, [ address ] ->
                               Option.map
-                                (fun location -> ([ location ], []))
+                                (fun location ->
+                                  ( [ location ],
+                                    [],
+                                    Frame.location_checked_type location ))
                                 (address_location address)
-                          | O.Ic_add, [ left; right ]
-                            when item.payload = None
-                                 && Option.fold ~none:false
-                                      ~some:(Sema.Type.equal target_type)
-                                      item.target_type ->
+                          | O.Ic_add, [ left; right ] when item.payload = None
+                            ->
                               Option.bind
                                 (collect (value :: seen) left)
-                                (fun (left_locations, left_sums) ->
-                                  Option.map
-                                    (fun (right_locations, right_sums) ->
-                                      ( left_locations @ right_locations,
-                                        item :: (left_sums @ right_sums) ))
-                                    (collect (value :: seen) right))
+                                (fun (left_locations, left_sums, left_type) ->
+                                  Option.bind
+                                    (collect (value :: seen) right)
+                                    (fun ( right_locations,
+                                           right_sums,
+                                           right_type )
+                                       ->
+                                      Option.bind item.target_type
+                                        (fun result_type ->
+                                          if
+                                            compatible_sum left_type right_type
+                                              result_type
+                                          then
+                                            Some
+                                              ( left_locations @ right_locations,
+                                                item :: (left_sums @ right_sums),
+                                                result_type )
+                                          else None)))
                           | _ -> None)
                 in
                 match returned.operands with
                 | [ root ] -> (
                     match collect [] root with
-                    | Some (leaves, sums)
+                    | Some (leaves, sums, _)
                       when same_list ( == ) leaves targets
                            && List.length sums
                               = List.length arithmetic_additions
@@ -933,33 +966,45 @@ let analyze_parameter ~frame ~body =
           | _ -> false
         in
         let rec result_matches typed value =
-          match Values.find_opt value produced with
-          | None -> false
-          | Some (item : Seq.description) -> (
-              match (item.opcode, item.operands) with
-              | O.Ic_deref, [ address ] ->
-                  Option.fold ~none:false
-                    ~some:(fun location -> matches_binding location typed)
-                    (List.find_map
-                       (fun (id, location) ->
-                         if Seq.Value_id.equal id address then Some location
-                         else None)
-                       addresses)
-              | O.Ic_add, [ left; right ] -> (
-                  match
-                    ( Calls.argument_expression_source
-                        (Typed.result_source typed),
-                      Typed.result_binary_operands typed )
-                  with
-                  | ( Some (Frontend.Ast.Binary_expression binary),
-                      Some (typed_left, typed_right) ) ->
-                      binary.binary_operator_spec.spelling = "+"
-                      && Option.equal Sema.Type.equal (Typed.result_type typed)
-                           item.target_type
-                      && result_matches typed_left left
-                      && result_matches typed_right right
-                  | _ -> false)
+          match Calls.argument_expression_kind (Typed.result_source typed) with
+          | Calls.Parenthesized_expression source -> (
+              match Typed.result_operand typed with
+              | Some operand
+                when Typed.result_source operand == source
+                     && Typed.result_intrinsic_conversion typed
+                        = Typed.No_intrinsic_conversion
+                     && Option.equal Sema.Type.equal (Typed.result_type typed)
+                          (Typed.result_type operand) ->
+                  result_matches operand value
               | _ -> false)
+          | _ -> (
+              match Values.find_opt value produced with
+              | None -> false
+              | Some (item : Seq.description) -> (
+                  match (item.opcode, item.operands) with
+                  | O.Ic_deref, [ address ] ->
+                      Option.fold ~none:false
+                        ~some:(fun location -> matches_binding location typed)
+                        (List.find_map
+                           (fun (id, location) ->
+                             if Seq.Value_id.equal id address then Some location
+                             else None)
+                           addresses)
+                  | O.Ic_add, [ left; right ] -> (
+                      match
+                        ( Calls.argument_expression_source
+                            (Typed.result_source typed),
+                          Typed.result_binary_operands typed )
+                      with
+                      | ( Some (Frontend.Ast.Binary_expression binary),
+                          Some (typed_left, typed_right) ) ->
+                          binary.binary_operator_spec.spelling = "+"
+                          && Option.equal Sema.Type.equal
+                               (Typed.result_type typed) item.target_type
+                          && result_matches typed_left left
+                          && result_matches typed_right right
+                      | _ -> false)
+                  | _ -> false))
         in
         Option.fold ~none:false
           ~some:(fun source ->

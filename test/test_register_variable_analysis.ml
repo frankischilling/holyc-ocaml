@@ -366,6 +366,170 @@ let source_controls () =
         "original compile-time many-update operator" expected
         (List.assoc name many_ops_exe))
     [ ("PARAM", "384"); ("FIVE", "2550"); ("ERR", "0") ];
+  let full64_edges = fixture "many-updates-full64-edges" in
+  List.iter
+    (fun (name, wide, narrow) ->
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (suffix, expected) ->
+              Alcotest.(check string)
+                "original full-width boundary updates" expected
+                (List.assoc (prefix ^ "_" ^ name ^ suffix) full64_edges))
+            [ ("R", wide); ("N", narrow) ])
+        [ "J"; "A" ])
+    [
+      ("A", "-9223372036854775299", "9223372036854775805");
+      ("B", "381", "125");
+      ("C", "317", "61");
+      ("D", "-4611686018427387394", "-4611686018427387906");
+      ("E", "21474902133", "4295032693");
+    ];
+  let fullwidth_explicit = fixture "many-updates-fullwidth-explicit" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original full-width explicit registers" expected
+        (List.assoc name fullwidth_explicit))
+    [
+      ("J_A", "65832");
+      ("J_E", "21474902220");
+      ("ERR", "0");
+      ("A_A", "65832");
+      ("A_E", "21474902220");
+    ];
+  let fullwidth_ops_exe = fixture "many-updates-fullwidth-ops-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original compile-time full-width updates" expected
+        (List.assoc name fullwidth_ops_exe))
+    [ ("PARAM", "384"); ("MIXED", "21474902176"); ("ERR", "0") ];
+  let right_tree = fixture "many-updates-fullwidth-right-tree" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original parenthesized update result" expected
+        (List.assoc name right_tree))
+    [
+      ("J_AR", "131368");
+      ("J_AN", "65576");
+      ("J_BR", "131283");
+      ("J_BN", "65491");
+      ("J_CR", "131283");
+      ("J_CN", "65491");
+      ("J_DR", "4295033041");
+      ("J_DN", "65489");
+      ("J_ER", "2147615014");
+      ("J_EN", "2147549222");
+      ("J_FR", "21474902176");
+      ("J_FN", "4295032736");
+      ("J_GR", "8590196896");
+      ("J_GN", "4295032992");
+      ("ERR", "0");
+      ("A_AR", "131368");
+      ("A_AN", "65576");
+      ("A_BR", "131283");
+      ("A_BN", "65491");
+      ("A_CR", "131283");
+      ("A_CN", "65491");
+      ("A_DR", "4295033041");
+      ("A_DN", "65489");
+      ("A_ER", "2147615014");
+      ("A_EN", "2147549222");
+      ("A_FR", "21474902176");
+      ("A_FN", "4295032736");
+      ("A_GR", "8590196896");
+      ("A_GN", "4295032992");
+    ];
+  let fullwidth_ops = fixture "many-updates-fullwidth-ops" in
+  List.iter
+    (fun (name, wide, narrow) ->
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (suffix, expected) ->
+              Alcotest.(check string)
+                "original full-width and narrow updates" expected
+                (List.assoc (prefix ^ "_" ^ name ^ suffix) fullwidth_ops))
+            [ ("R", wide); ("N", narrow) ])
+        [ "J"; "A" ])
+    [
+      ("A", "131368", "65576");
+      ("B", "131283", "65491");
+      ("C", "131283", "65491");
+      ("D", "4295033041", "65489");
+      ("E", "2147615014", "2147549222");
+      ("F", "21474902176", "4295032736");
+      ("G", "8590196896", "4295032992");
+    ];
+  let mixed_types_explicit = fixture "many-updates-mixed-types-explicit" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original mixed types explicit registers" expected
+        (List.assoc name mixed_types_explicit))
+    [
+      ("J_A", "131197");
+      ("J_E", "21474902390");
+      ("ERR", "0");
+      ("A_A", "131197");
+      ("A_E", "21474902390");
+    ];
+  let mixed_types_ops_exe = fixture "many-updates-mixed-types-ops-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original compile-time mixed types and operators" expected
+        (List.assoc name mixed_types_ops_exe))
+    [ ("PARAM", "384"); ("MIXED", "21474902389"); ("ERR", "0") ];
+  let mixed_types_ops = fixture "many-updates-mixed-types-ops" in
+  List.iter
+    (fun (name, wide, narrow) ->
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (suffix, expected) ->
+              Alcotest.(check string)
+                "original mixed types and operators" expected
+                (List.assoc (prefix ^ "_" ^ name ^ suffix) mixed_types_ops))
+            [ ("R", wide); ("N", narrow) ])
+        [ "J"; "A" ])
+    [
+      ("A", "4295098493", "65405");
+      ("B", "2147614973", "-2147418115");
+      ("C", "8589967867", "4295000059");
+      ("D", "4295033467", "4294967419");
+      ("E", "21474902389", "4295032949");
+      ("F", "8590197109", "4295032949");
+    ];
+  let mixed_types_exe = fixture "many-updates-mixed-types-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original compile-time mixed update types" expected
+        (List.assoc name mixed_types_exe))
+    [ ("PARAM", "384"); ("MIXED", "6442516608"); ("ERR", "0") ];
+  let mixed_types = fixture "many-updates-mixed-types" in
+  List.iter
+    (fun (name, wide, narrow) ->
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (suffix, expected) ->
+              Alcotest.(check string)
+                "original mixed narrow update types" expected
+                (List.assoc (prefix ^ "_" ^ name ^ suffix) mixed_types))
+            [ ("R", wide); ("N", narrow) ])
+        [ "J"; "A" ])
+    [
+      ("A", "2147549312", "-2147483776");
+      ("B", "2147549312", "-2147483776");
+      ("C", "4295000320", "-32768");
+      ("D", "4295000320", "-32768");
+      ("E", "6442516608", "-2147483776");
+      ("F", "6442516608", "-2147483776");
+    ];
   let independent_explicit = fixture "many-updates-independent-explicit" in
   List.iter
     (fun (name, expected) ->
@@ -2944,6 +3108,131 @@ let sequence_selection () =
             ])
         [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
       List.iter
+        (fun types ->
+          let names =
+            List.filteri (fun index _ -> index < List.length types) all
+          in
+          let parameters =
+            List.map2 (fun ty name -> ty ^ " " ^ name) types names
+            |> String.concat ","
+          in
+          let updates =
+            names |> List.map (fun name -> name ^ "+=c;") |> String.concat ""
+          in
+          let fn =
+            compile mode
+              ("I64 F(" ^ parameters ^ ",I64 c){" ^ updates ^ "return "
+             ^ String.concat "+" names ^ ";}42;")
+          in
+          Alcotest.(check bool)
+            "mixed narrow update types" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          [ "I8"; "U16"; "I32" ];
+          [ "I32"; "U16"; "I8" ];
+          [ "U8"; "I16"; "U32" ];
+          [ "U32"; "I16"; "U8" ];
+          [ "I8"; "U16"; "I32"; "U32" ];
+          [ "U32"; "I32"; "U16"; "I8" ];
+        ];
+      let mixed_type_explicit =
+        compile mode
+          "I64 F(I8 reg R12 x,U16 reg R13 y,I32 reg R14 z,U32 reg R15 w,U8 \
+           noreg v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return x+y+z+w+v;}42;"
+      in
+      let mixed_type_proof =
+        Option.get
+          (Analysis.analyze ~frame:mixed_type_explicit.frame
+             ~body:mixed_type_explicit.body)
+      in
+      List.iter
+        (fun (name, expected) ->
+          let symbol =
+            location mixed_type_explicit.frame name |> Frame.location_symbol
+          in
+          Alcotest.(check bool)
+            "mixed type explicit register selection" true
+            (Analysis.selection mixed_type_proof
+               ~frame:mixed_type_explicit.frame ~body:mixed_type_explicit.body
+               ~symbol
+            = Some expected))
+        [
+          ("x", Analysis.Register_candidate);
+          ("y", Analysis.Register_candidate);
+          ("z", Analysis.Register_candidate);
+          ("w", Analysis.Register_candidate);
+          ("v", Analysis.Stack);
+        ];
+      let fullwidth_explicit =
+        compile mode
+          "I64 F(I8 reg R12 x,U16 reg R13 y,I32 reg R14 z,U32 reg R15 w,I64 \
+           noreg v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return x+y+z+w+v;}42;"
+      in
+      let fullwidth_proof =
+        Option.get
+          (Analysis.analyze ~frame:fullwidth_explicit.frame
+             ~body:fullwidth_explicit.body)
+      in
+      List.iter
+        (fun (name, expected) ->
+          let symbol =
+            location fullwidth_explicit.frame name |> Frame.location_symbol
+          in
+          Alcotest.(check bool)
+            "full-width explicit register selection" true
+            (Analysis.selection fullwidth_proof ~frame:fullwidth_explicit.frame
+               ~body:fullwidth_explicit.body ~symbol
+            = Some expected))
+        [
+          ("x", Analysis.Register_candidate);
+          ("y", Analysis.Register_candidate);
+          ("z", Analysis.Register_candidate);
+          ("w", Analysis.Register_candidate);
+          ("v", Analysis.Stack);
+        ];
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "full-width and narrow update sequence" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I64 x,I8 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+y+z;}42;";
+          "I64 F(I8 x,I64 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+y+z;}42;";
+          "I64 F(I8 x,U16 y,I64 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+y+z;}42;";
+          "I64 F(I8 x,U16 y,I32 z,I64 w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return x+y+z+w;}42;";
+          "I64 F(I64 x,I32 y,U16 z,I8 w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return x+y+z+w;}42;";
+          "I64 F(I8 x,U16 y,I32 z,U32 w,I64 v,I64 \
+           c){x+=c;y-=c;z*=c;w<<=c;v^=c;return x+y+z+w+v;}42;";
+          "I64 F(I64 x,U32 y,I32 z,U16 w,I8 v,I64 \
+           c){x+=c;y-=c;z*=c;w<<=c;v^=c;return x+y+z+w+v;}42;";
+        ];
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "mixed narrow types and update operators" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,U16 y,I32 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+y+z;}42;";
+          "I64 F(I32 x,U16 y,I8 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+y+z;}42;";
+          "I64 F(U8 x,I16 y,U32 z,I8 w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return x+y+z+w;}42;";
+          "I64 F(I8 x,U32 y,I16 z,U8 w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return x+y+z+w;}42;";
+          "I64 F(I8 x,U16 y,I32 z,U32 w,U8 v,I64 \
+           c){x+=c;y-=c;z*=c;w<<=c;v^=c;return x+y+z+w+v;}42;";
+          "I64 F(U8 x,U32 y,I32 z,U16 w,I8 v,I64 \
+           c){x+=c;y-=c;z*=c;w<<=c;v^=c;return x+y+z+w+v;}42;";
+        ];
+      List.iter
         (fun source ->
           let fn = compile mode source in
           Alcotest.(check bool)
@@ -2951,12 +3240,12 @@ let sequence_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z%=c;return x+y+z;}42;";
+          "I64 F(I64 x,I64 y,I64 z,I64 c){x+=c;y+=c;z+=c;return x+y+z;}42;";
           "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c,I64 d){x-=c;y-=c;z-=c;w+=x;return \
            x+y+z+w;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;c+=c;return x+y+z;}42;";
-          "I64 F(I8 x,I8 y,U8 z,I64 c){x+=c;y+=c;z+=c;return x+y+z;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
