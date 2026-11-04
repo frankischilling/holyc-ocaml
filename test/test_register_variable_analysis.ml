@@ -590,6 +590,43 @@ let source_controls () =
       ("A_GR", "4294967463");
       ("A_GN", "167");
     ];
+  let long_tree = fixture "many-updates-fullwidth-long-tree" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original longer update result" expected
+        (List.assoc name long_tree))
+    [
+      ("J_AR", "131412");
+      ("J_AN", "65620");
+      ("J_BR", "131412");
+      ("J_BN", "65364");
+      ("J_CR", "131412");
+      ("J_CN", "65364");
+      ("J_DR", "4295033170");
+      ("J_DN", "65362");
+      ("J_ER", "2147615058");
+      ("J_EN", "2147549266");
+      ("J_FR", "21474902305");
+      ("J_FN", "4295032609");
+      ("J_GR", "8590196940");
+      ("J_GN", "4295033036");
+      ("ERR", "0");
+      ("A_AR", "131412");
+      ("A_AN", "65620");
+      ("A_BR", "131412");
+      ("A_BN", "65364");
+      ("A_CR", "131412");
+      ("A_CN", "65364");
+      ("A_DR", "4295033170");
+      ("A_DN", "65362");
+      ("A_ER", "2147615058");
+      ("A_EN", "2147549266");
+      ("A_FR", "21474902305");
+      ("A_FN", "4295032609");
+      ("A_GR", "8590196940");
+      ("A_GN", "4295033036");
+    ];
   let fullwidth_ops = fixture "many-updates-fullwidth-ops" in
   List.iter
     (fun (name, wide, narrow) ->
@@ -3348,6 +3385,7 @@ let sequence_selection () =
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return z+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+z;}42;";
+          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+z+x;}42;";
           "I64 F(I8 x,I8 y,I8 z,I8 w,I64 c){x+=c;y+=c;z+=c;w+=c;return x+w;}42;";
           "I64 F(I64 x,I8 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
            x+y+z;}42;";

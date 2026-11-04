@@ -2821,6 +2821,61 @@ let () =
   let cases =
     cases
     @ [
+        ( "I64 F(I64 x,I8 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+(y+(z+(x)));}F(42,127,65535,2,2,1);",
+          "131412" );
+        ( "I64 F(I64 noreg x,I8 noreg y,U16 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+(y+(z+(x)));}F(42,127,65535,2,2,1);",
+          "65620" );
+        ( "I64 F(I8 x,I64 y,U16 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+(y+(z+(x)));}F(127,42,65535,2,2,1);",
+          "131412" );
+        ( "I64 F(I8 noreg x,I64 noreg y,U16 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+(y+(z+(x)));}F(127,42,65535,2,2,1);",
+          "65364" );
+        ( "I64 F(I8 x,U16 y,I64 z,I64 c,I64 d,I64 e){x+=c;y*=d;z<<=e;return \
+           x+(y+(z+(x)));}F(127,65535,42,2,2,1);",
+          "131412" );
+        ( "I64 F(I8 noreg x,U16 noreg y,I64 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+(y+(z+(x)));}F(127,65535,42,2,2,1);",
+          "65364" );
+        ( "I64 F(I8 x,U16 y,I32 z,I64 w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return \
+           x+(y+(z+(w+(x))));}F(127,65535,2147483647,42,2,1);",
+          "4295033170" );
+        ( "I64 F(I8 noreg x,U16 noreg y,I32 noreg z,I64 noreg w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return \
+           x+(y+(z+(w+(x))));}F(127,65535,2147483647,42,2,1);",
+          "65362" );
+        ( "I64 F(I64 x,I32 y,U16 z,I8 w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return \
+           x+(y+(z+(w+(x))));}F(42,2147483647,65535,127,2,1);",
+          "2147615058" );
+        ( "I64 F(I64 noreg x,I32 noreg y,U16 noreg z,I8 noreg w,I64 c,I64 \
+           d){x+=c;y-=d;z*=c;w<<=d;return \
+           x+(y+(z+(w+(x))));}F(42,2147483647,65535,127,2,1);",
+          "2147549266" );
+        ( "I64 F(I8 x,U16 y,I32 z,U32 w,I64 v,I64 \
+           c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+(y+(z+(w+(v+(x)))));}F(127,65535,2147483647,4294967295,42,2);",
+          "21474902305" );
+        ( "I64 F(I8 noreg x,U16 noreg y,I32 noreg z,U32 noreg w,I64 noreg \
+           v,I64 c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+(y+(z+(w+(v+(x)))));}F(127,65535,2147483647,4294967295,42,2);",
+          "4295032609" );
+        ( "I64 F(I64 x,U32 y,I32 z,U16 w,I8 v,I64 \
+           c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+(y+(z+(w+(v+(x)))));}F(42,4294967295,2147483647,65535,127,2);",
+          "8590196940" );
+        ( "I64 F(I64 noreg x,U32 noreg y,I32 noreg z,U16 noreg w,I8 noreg \
+           v,I64 c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+           x+(y+(z+(w+(v+(x)))));}F(42,4294967295,2147483647,65535,127,2);",
+          "4295033036" );
+      ]
+  in
+  let cases =
+    cases
+    @ [
         ( "I64 F(U64 x,U8 y,I8 z,I64 c,I64 d,I64 e){x>>=c;y+=d;z*=e;return \
            x+y+z;}F(0xFFFFFFFFFFFFFFFF,255,127,1,1,2);",
           "-9223372036854775299" );

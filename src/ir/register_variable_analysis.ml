@@ -770,7 +770,7 @@ let analyze_parameter ~frame ~body =
         | (_ :: _ as updates), [ returned ]
           when count >= 3 && count <= 5
                && List.length arithmetic_additions >= max 1 (count - 3)
-               && List.length arithmetic_additions <= count - 1
+               && List.length arithmetic_additions <= count
                && List.for_all
                     (fun (item : Seq.description) -> item.payload = None)
                     updates
@@ -899,7 +899,7 @@ let analyze_parameter ~frame ~body =
                     match collect [] root with
                     | Some (leaves, sums, _)
                       when List.length leaves >= max 2 (count - 2)
-                           && List.length leaves <= count
+                           && List.length leaves <= count + 1
                            && List.for_all
                                 (fun leaf -> List.exists (( == ) leaf) targets)
                                 leaves
