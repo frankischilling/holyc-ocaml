@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "2bccffbb1117be15f7133a6f9f5798d86fa8c7f567b1068b52302bd11b815abc",
+  "boot_payload_sha256": "d45d167220b7c2ab50c51f37658886796642786b1dab680413af1344681adbdd",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "630853d06299566ab807acb5b4f31809f4cc869d458f0250abdc5095b95a009d",
+  "boot_iso_sha256": "c571d8b0b8d8b419e31d4c22d1fbb68424da0aabc0abb246a3b89b1b3f53f2c0",
+  "fields": {
+    "J_S": "256",
+    "J_U": "512",
+    "J_SN": "-256",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "256",
+    "A_U": "512",
+    "A_SN": "-256",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of two narrow register variables updated and returned in a sum."
+}

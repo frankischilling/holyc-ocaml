@@ -5690,6 +5690,7 @@
 
 (rule
  (alias runtest)
+ (deps ../examples/register-variable-selection.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5697,6 +5698,7 @@
 
 (rule
  (alias native-tests)
+ (deps ../examples/register-variable-selection.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}

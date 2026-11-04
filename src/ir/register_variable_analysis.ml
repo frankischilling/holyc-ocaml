@@ -281,6 +281,9 @@ let analyze_parameter ~frame ~body =
         List.filter (fun (d : Seq.description) -> d.opcode = O.Ic_add) code
       in
       let addresses = List.filter_map frame_address additions in
+      let arithmetic_additions =
+        List.filter (fun item -> Option.is_none (frame_address item)) additions
+      in
       let safe_use id location (item : Seq.description) =
         let same_type =
           Option.fold ~none:false
@@ -304,12 +307,11 @@ let analyze_parameter ~frame ~body =
         | _ -> false
       in
       let addresses_safe =
-        List.length additions = List.length addresses
-        && List.for_all
-             (fun (id, location) ->
-               let consumers = users id in
-               consumers <> [] && List.for_all (safe_use id location) consumers)
-             addresses
+        List.for_all
+          (fun (id, location) ->
+            let consumers = users id in
+            consumers <> [] && List.for_all (safe_use id location) consumers)
+          addresses
       in
       let rbp_safe =
         List.for_all
@@ -423,6 +425,133 @@ let analyze_parameter ~frame ~body =
             | _ -> None)
         | _ -> None
       in
+      (* For two updates, authenticate the only non-address addition as the
+         return sum and tie each operand to its own frame location. *)
+      let matching_pair =
+        let supported_update = function
+          | O.Ic_add_equ
+          | O.Ic_sub_equ
+          | O.Ic_mul_equ
+          | O.Ic_div_equ
+          | O.Ic_shl_equ
+          | O.Ic_shr_equ
+          | O.Ic_and_equ
+          | O.Ic_or_equ
+          | O.Ic_xor_equ -> true
+          | _ -> false
+        in
+        let address_location id =
+          List.find_map
+            (fun (original, location) ->
+              if Seq.Value_id.equal original id then Some location else None)
+            addresses
+        in
+        let loaded_location id =
+          Option.bind (Values.find_opt id produced)
+            (fun (item : Seq.description) ->
+              match (item.opcode, item.operands) with
+              | O.Ic_deref, [ address ] -> address_location address
+              | _ -> None)
+        in
+        let updates =
+          List.filter
+            (fun (item : Seq.description) ->
+              item.opcode = O.Ic_add_equ || item.opcode = O.Ic_sub_equ
+              || item.opcode = O.Ic_mul_equ || item.opcode = O.Ic_div_equ
+              || item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ
+              || item.opcode = O.Ic_and_equ || item.opcode = O.Ic_or_equ
+              || item.opcode = O.Ic_xor_equ)
+            code
+        in
+        let returns =
+          List.filter
+            (fun (item : Seq.description) -> item.opcode = O.Ic_return_val)
+            code
+        in
+        match (updates, returns, arithmetic_additions) with
+        | [ first; second ], [ returned ], [ sum ]
+          when supported_update first.opcode
+               && supported_update second.opcode
+               && first.payload = None && second.payload = None
+               && sum.payload = None && returned.payload = None
+               && Seq.Instruction_id.compare first.instruction_id
+                    second.instruction_id
+                  < 0
+               && Seq.Instruction_id.compare second.instruction_id
+                    sum.instruction_id
+                  < 0
+               && Seq.Instruction_id.compare sum.instruction_id
+                    returned.instruction_id
+                  < 0 -> (
+            match
+              ( first.operands,
+                second.operands,
+                sum.operands,
+                sum.result,
+                returned.operands )
+            with
+            | ( [ first_address; first_count ],
+                [ second_address; second_count ],
+                [ left; right ],
+                Some sum_result,
+                [ returned_value ] )
+              when Seq.Value_id.equal sum_result.value_id returned_value
+                   && List.for_all
+                        (fun value ->
+                          Option.fold ~none:false
+                            ~some:(fun (item : Seq.description) ->
+                              Seq.Instruction_id.compare second.instruction_id
+                                item.instruction_id
+                              < 0)
+                            (Values.find_opt value produced))
+                        [ left; right ] -> (
+                match
+                  ( address_location first_address,
+                    address_location second_address,
+                    loaded_location first_count,
+                    loaded_location second_count,
+                    loaded_location left,
+                    loaded_location right,
+                    sum.target_type )
+                with
+                | ( Some first_target,
+                    Some second_target,
+                    Some count,
+                    Some other_count,
+                    Some left_target,
+                    Some right_target,
+                    Some sum_type )
+                  when first_target != second_target
+                       && first_target != count && second_target != count
+                       && first_target != other_count
+                       && second_target != other_count
+                       && left_target == first_target
+                       && right_target == second_target
+                       && Sema.Type.equal
+                            (Frame.location_checked_type first_target)
+                            (Frame.location_checked_type second_target)
+                       && Sema.Type.equal sum_type
+                            (Frame.location_checked_type first_target) -> (
+                    match
+                      Sema.Type.base (Frame.location_checked_type first_target)
+                    with
+                    | Sema.Type.Primitive
+                        ( _,
+                          (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32)
+                        ) ->
+                        Some
+                          ( first_target,
+                            second_target,
+                            count,
+                            other_count,
+                            sum_type,
+                            first.opcode,
+                            second.opcode )
+                    | _ -> None)
+                | _ -> None)
+            | _ -> None)
+        | _ -> None
+      in
       let source_matches (target, count_location) =
         let module Typed = Sema.Function_call_expression_result in
         let module Calls = Sema.Function_call_resolution in
@@ -494,18 +623,124 @@ let analyze_parameter ~frame ~body =
             | _ -> false)
           (Function_body.definition_source body)
       in
+      let pair_source_matches
+          ( first_target,
+            second_target,
+            first_count,
+            second_count,
+            sum_type,
+            first_opcode,
+            second_opcode ) =
+        let module Typed = Sema.Function_call_expression_result in
+        let module Calls = Sema.Function_call_resolution in
+        let module Bind = Sema.Module_expression_binding in
+        let binding_of value =
+          match Calls.argument_expression_kind (Typed.result_source value) with
+          | Calls.Bound_identifier_expression bound -> (
+              match
+                Bind.occurrence_resolution
+                  (Calls.bound_identifier_occurrence bound)
+              with
+              | Bind.Local_binding binding -> Some binding
+              | _ -> None)
+          | _ -> None
+        in
+        let matches_binding location value =
+          Option.fold ~none:false
+            ~some:(( == ) (Frame.location_binding location))
+            (binding_of value)
+        in
+        let update_matches target count opcode statement =
+          let value = Typed.expression_statement_value statement in
+          match
+            ( Calls.argument_expression_source (Typed.result_source value),
+              Typed.result_binary_operands value )
+          with
+          | Some (Frontend.Ast.Binary_expression binary), Some (left, right) ->
+              (match (binary.binary_operator_spec.spelling, opcode) with
+                | "+=", O.Ic_add_equ
+                | "-=", O.Ic_sub_equ
+                | "*=", O.Ic_mul_equ
+                | "/=", O.Ic_div_equ
+                | "<<=", O.Ic_shl_equ
+                | ">>=", O.Ic_shr_equ
+                | "&=", O.Ic_and_equ
+                | "|=", O.Ic_or_equ
+                | "^=", O.Ic_xor_equ -> true
+                | _ -> false)
+              && matches_binding target left
+              && matches_binding count right
+          | _ -> false
+        in
+        Option.fold ~none:false
+          ~some:(fun source ->
+            match
+              ( Typed.function_expression_statements source,
+                Typed.function_returns source )
+            with
+            | [ first; second ], [ returned ] -> (
+                match Typed.return_value returned with
+                | Some value -> (
+                    match
+                      ( Calls.argument_expression_source
+                          (Typed.result_source value),
+                        Typed.result_binary_operands value )
+                    with
+                    | ( Some (Frontend.Ast.Binary_expression binary),
+                        Some (left, right) ) ->
+                        binary.binary_operator_spec.spelling = "+"
+                        && Option.fold ~none:false
+                             ~some:(Sema.Type.equal sum_type)
+                             (Typed.result_type value)
+                        && update_matches first_target first_count first_opcode
+                             first
+                        && update_matches second_target second_count
+                             second_opcode second
+                        && matches_binding first_target left
+                        && matches_binding second_target right
+                    | _ -> false)
+                | None -> false)
+            | _ -> false)
+          (Function_body.definition_source body)
+      in
+      let selected_targets =
+        if arithmetic_additions = [] then
+          Option.bind matching_target (fun (target, count) ->
+              if source_matches (target, count) then Some [ target ] else None)
+        else
+          Option.bind matching_pair
+            (fun
+              ( first,
+                second,
+                first_count,
+                second_count,
+                sum_type,
+                first_opcode,
+                second_opcode )
+            ->
+              if
+                pair_source_matches
+                  ( first,
+                    second,
+                    first_count,
+                    second_count,
+                    sum_type,
+                    first_opcode,
+                    second_opcode )
+              then Some [ first; second ]
+              else None)
+      in
       if
         (not (addresses_safe && rbp_safe && dereferences_safe && simple_flow))
-        || Option.is_none matching_target
-        || not (Option.fold ~none:false ~some:source_matches matching_target)
+        || Option.is_none selected_targets
       then None
       else
-        let target, _ = Option.get matching_target in
+        let targets = Option.get selected_targets in
         let selections =
           List.map
             (fun location ->
               let selection =
-                if location != target then Unknown
+                if not (List.exists (( == ) location) targets) then Unknown
                 else if
                   Frame.location_register_selection location = Request.Disabled
                 then Stack

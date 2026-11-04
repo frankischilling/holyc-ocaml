@@ -283,6 +283,12 @@ let () =
           ( "#exe {I64 F(I64 a,I64 b,I8 x,I64 d,I64 e,I64 c){x<<=c;return \
              x;}StreamPrint(\"%d;\",F(0,0,127,0,0,1));}",
             "254" );
+          ( "#exe {I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return \
+             x+y;}StreamPrint(\"%d;\",F(127,127,1));}",
+            "256" );
+          ( "#exe {I64 F(I8 x,I8 y,I64 c,I64 d){x+=c;y+=d;return \
+             x+y;}StreamPrint(\"%d;\",F(127,127,1,2));}",
+            "257" );
           ("#exe {U8 G=255;I64 F(){return G+=1;}StreamPrint(\"%d;\",F());}", "0");
           ("#exe {U8 G=0;I64 F(){return G-=1;}StreamPrint(\"%d;\",F());}", "255");
           ( "#exe {U8 G=255;I64 F(){return (G+=1)+1;}StreamPrint(\"%d;\",F());}",

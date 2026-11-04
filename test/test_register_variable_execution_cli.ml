@@ -1712,6 +1712,125 @@ let () =
           ("U8", "255", "&", "255", "255", "255");
         ]
   in
+  let cases =
+    cases
+    @ [ (read "../examples/register-variable-selection.hc", "512") ]
+    @ List.concat_map
+        (fun (ty, bits, signed) ->
+          let open Int64 in
+          let n = shift_left 1L bits in
+          let maximum = if signed then sub (div n 2L) 1L else sub n 1L in
+          let narrow = if signed then neg (div n 2L) else 0L in
+          let wide = add maximum 1L in
+          List.map
+            (fun (qx, qy, vx, vy) ->
+              ( Printf.sprintf
+                  "I64 F(%s %s x,%s %s y,I64 c){x+=c;y+=c;return \
+                   x+y;}F(%s,%s,1);"
+                  ty qx ty qy (to_string maximum) (to_string maximum),
+                to_string (add vx vy) ))
+            [
+              ("", "", wide, wide);
+              ("noreg", "noreg", narrow, narrow);
+              ("", "noreg", wide, narrow);
+              ("noreg", "", narrow, wide);
+              ("reg R12", "reg R13", wide, wide);
+            ])
+        [
+          ("I8", 8, true);
+          ("U8", 8, false);
+          ("I16", 16, true);
+          ("U16", 16, false);
+          ("I32", 32, true);
+          ("U32", 32, false);
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ("I64 F(I8 x,I8 y,I8 c){x+=c;y+=c;return x+y;}F(-128,-128,-1);", "-258");
+        ( "I64 F(I8 noreg x,I8 noreg y,I8 c){x+=c;y+=c;return \
+           x+y;}F(-128,-128,-1);",
+          "254" );
+        ("I64 F(U8 x,U8 y,I8 c){x+=c;y+=c;return x+y;}F(0,0,-1);", "-2");
+        ( "I64 F(U8 noreg x,U8 noreg y,I8 c){x+=c;y+=c;return x+y;}F(0,0,-1);",
+          "510" );
+      ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, first, second, count, wide, narrow) ->
+          List.map
+            (fun (qualifier, expected) ->
+              ( Printf.sprintf
+                  "I64 F(%s %s x,%s %s y,I64 c){x%s=c;y%s=c;return \
+                   x+y;}F(%s,%s,%s);"
+                  ty qualifier ty qualifier first second initial initial count,
+                expected ))
+            [ ("", wide); ("noreg", narrow) ])
+        [
+          ("I8", "-128", "-", "-", "1", "-258", "254");
+          ("U8", "0", "-", "-", "1", "-2", "510");
+          ("I8", "127", "*", "*", "2", "508", "-4");
+          ("U8", "255", "*", "*", "2", "1020", "508");
+          ("I8", "127", "+", "-", "1", "254", "-2");
+          ("U8", "255", "+", "-", "1", "510", "254");
+        ]
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(I64 a,I8 x,I64 b,I8 y,I64 c,I64 d){x+=c;y+=c;return \
+           x+y;}F(0,127,0,127,1,0);",
+          "256" );
+      ]
+  in
+  let cases =
+    cases
+    @ [
+        ( "I64 F(I8 x,I8 y,I64 c,I64 d){x+=c;y+=d;return x+y;}F(127,127,1,2);",
+          "257" );
+        ( "I64 F(U8 x,U8 y,I64 c,I64 d){x+=c;y+=d;return x+y;}F(255,255,1,2);",
+          "513" );
+        ( "I64 F(I8 noreg x,I8 noreg y,I64 c,I64 d){x+=c;y+=d;return \
+           x+y;}F(127,127,1,2);",
+          "-255" );
+        ( "I64 F(U8 noreg x,U8 noreg y,I64 c,I64 d){x+=c;y+=d;return \
+           x+y;}F(255,255,1,2);",
+          "1" );
+        ( "I64 F(I8 x,I8 y,I64 reg R12 c,I64 reg R13 d){x+=c;y+=d;return \
+           x+y;}F(127,127,1,2);",
+          "257" );
+      ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, op, count, wide, narrow) ->
+          List.map
+            (fun (qualifier, expected) ->
+              ( Printf.sprintf
+                  "I64 F(%s %s x,%s %s y,I64 c){x%s=c;y%s=c;return \
+                   x+y;}F(%s,%s,%s);"
+                  ty qualifier ty qualifier op op initial initial count,
+                expected ))
+            [ ("", wide); ("noreg", narrow) ])
+        [
+          ("I8", "127", "<<", "1", "508", "-4");
+          ("U8", "255", "<<", "1", "1020", "508");
+          ("I8", "-128", ">>", "1", "-128", "-128");
+          ("U8", "255", ">>", "1", "254", "254");
+          ("I8", "127", "|", "256", "766", "254");
+          ("U8", "255", "|", "256", "1022", "510");
+          ("I8", "127", "^", "256", "766", "254");
+          ("U8", "255", "^", "256", "1022", "510");
+          ("I8", "-1", "&", "255", "510", "-2");
+          ("U8", "255", "&", "255", "510", "510");
+          ("I8", "-128", "/", "-1", "256", "-256");
+          ("U8", "255", "/", "2", "254", "254");
+        ]
+  in
   let division_widths =
     [
       ("I8", "-128", "-1", "128", "-128");
@@ -1851,6 +1970,7 @@ let () =
   in
   let faults =
     [
+      ("I64 F(I8 x,I8 y,I64 c){x/=c;y/=c;return x+y;}F(1,1,0);", "HCIRVM0009");
       ("I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(1,0);", "HCIRVM0009");
       ("I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(1,0);", "HCIRVM0009");
       ( "I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(0x8000000000000000,-1);",

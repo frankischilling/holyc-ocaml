@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "9a7e56b4695a02521c44220e738ea14aeb1b0b23df3a4668d6efc08bc76f0227",
+  "boot_payload_sha256": "8a352c901758548a2bded89b721d7ab6598c097e577c0f77d82d393e68748270",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "5392441d3643ce1041cf7aa0a6bd5fac1bbfe62f174dc8b250dc44b021679095",
+  "boot_iso_sha256": "301b38b6821080a08143d8d4336d1f5b0ea72ce4b25a19a199ddb52b214a5846",
+  "fields": {
+    "J_S": "4294967296",
+    "J_U": "8589934592",
+    "J_SN": "-4294967296",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "4294967296",
+    "A_U": "8589934592",
+    "A_SN": "-4294967296",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of two narrow register updates."
+}

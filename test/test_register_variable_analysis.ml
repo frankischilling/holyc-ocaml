@@ -239,6 +239,86 @@ let source_controls () =
         "original multi-parameter compile-time execution" expected
         (List.assoc name many_exe))
     [ ("PARAM", "254"); ("LOCAL", "510") ];
+  List.iter
+    (fun (stem, values) ->
+      let fields = fixture stem in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original two-update selection" expected
+                (List.assoc (prefix ^ name) fields))
+            values)
+        [ "J_"; "A_" ])
+    [
+      ( "two-updates",
+        [ ("S", "256"); ("U", "512"); ("SN", "-256"); ("UN", "0") ] );
+      ( "two-updates-mixed",
+        [ ("S", "256"); ("U", "512"); ("SN", "0"); ("UN", "256") ] );
+      ( "two-updates-explicit",
+        [ ("S", "256"); ("U", "512"); ("SN", "-256"); ("UN", "0") ] );
+      ( "two-updates-narrow-count",
+        [ ("S", "256"); ("U", "512"); ("SN", "-256"); ("UN", "0") ] );
+      ( "two-updates-negative-count",
+        [ ("S", "-258"); ("U", "-2"); ("SN", "254"); ("UN", "510") ] );
+      ( "two-updates-sub",
+        [ ("S", "-258"); ("U", "-2"); ("SN", "254"); ("UN", "510") ] );
+      ( "two-updates-mul",
+        [ ("S", "508"); ("U", "1020"); ("SN", "-4"); ("UN", "508") ] );
+      ( "two-updates-mixedops",
+        [ ("S", "254"); ("U", "510"); ("SN", "-2"); ("UN", "254") ] );
+      ( "two-updates-two-counts",
+        [ ("S", "257"); ("U", "513"); ("SN", "-255"); ("UN", "1") ] );
+      ( "two-updates-shl",
+        [ ("S", "508"); ("U", "1020"); ("SN", "-4"); ("UN", "508") ] );
+      ( "two-updates-shr",
+        [ ("S", "-128"); ("U", "254"); ("SN", "-128"); ("UN", "254") ] );
+      ( "two-updates-or",
+        [ ("S", "766"); ("U", "1022"); ("SN", "254"); ("UN", "510") ] );
+      ( "two-updates-xor",
+        [ ("S", "766"); ("U", "1022"); ("SN", "254"); ("UN", "510") ] );
+      ( "two-updates-and",
+        [ ("S", "510"); ("U", "510"); ("SN", "-2"); ("UN", "510") ] );
+      ( "two-updates-div",
+        [ ("S", "256"); ("U", "254"); ("SN", "-256"); ("UN", "254") ] );
+    ];
+  List.iter
+    (fun bits ->
+      let fields = fixture ("two-updates-" ^ string_of_int bits) in
+      let open Int64 in
+      let n = shift_left 1L bits in
+      List.iter
+        (fun prefix ->
+          List.iter
+            (fun (name, expected) ->
+              Alcotest.(check string)
+                "original two-update width" (to_string expected)
+                (List.assoc (prefix ^ name) fields))
+            [ ("S", n); ("U", mul n 2L); ("SN", neg n); ("UN", 0L) ])
+        [ "J_"; "A_" ])
+    [ 16; 32 ];
+  let pair_six = fixture "two-updates-six" in
+  List.iter
+    (fun name ->
+      Alcotest.(check string)
+        "original six-parameter two-update result" "256"
+        (List.assoc name pair_six))
+    [ "J_S"; "A_S" ];
+  let pair_exe = fixture "two-updates-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original two-update compile-time execution" expected
+        (List.assoc name pair_exe))
+    [ ("PARAM", "256"); ("LOCAL", "510") ];
+  let pair_distinct_exe = fixture "two-updates-two-counts-exe" in
+  List.iter
+    (fun (name, expected) ->
+      Alcotest.(check string)
+        "original distinct operand compile-time execution" expected
+        (List.assoc name pair_distinct_exe))
+    [ ("PARAM", "257"); ("LOCAL", "510") ];
   let unsigned = fixture "u8" in
   List.iter
     (fun prefix ->
@@ -2092,6 +2172,107 @@ let many_parameter_selection () =
         (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let pair_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (qx, qy, sx, sy) ->
+          let source =
+            Printf.sprintf
+              "I64 F(I8 %s x,I8 %s y,I64 c){x+=c;y+=c;return x+y;}42;" qx qy
+          in
+          let fn = compile mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          List.iter
+            (fun (name, expected) ->
+              let symbol = location fn.frame name |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "two-update selection" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some expected))
+            [ ("x", sx); ("y", sy) ])
+        [
+          ("", "", Analysis.Register_candidate, Analysis.Register_candidate);
+          ("noreg", "noreg", Analysis.Stack, Analysis.Stack);
+          ("", "noreg", Analysis.Register_candidate, Analysis.Stack);
+          ( "reg R12",
+            "reg R13",
+            Analysis.Register_candidate,
+            Analysis.Register_candidate );
+        ];
+      List.iter
+        (fun first ->
+          List.iter
+            (fun second ->
+              let source =
+                Printf.sprintf
+                  "I64 F(I8 x,I8 y,I64 c){x%s=c;y%s=c;return x+y;}42;" first
+                  second
+              in
+              let fn = compile mode source in
+              Alcotest.(check bool)
+                "two-update arithmetic proved" true
+                (Option.is_some
+                   (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+            [ "+"; "-"; "*"; "/"; "<<"; ">>"; "&"; "|"; "^" ])
+        [ "+"; "-"; "*"; "/"; "<<"; ">>"; "&"; "|"; "^" ];
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "two-update independent operands proved" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I8 y,I64 c,I64 d){x+=c;y+=d;return x+y;}42;";
+          "I64 F(I8 x,I8 y,I64 reg R12 c,I64 reg R13 d){x+=c;y+=d;return \
+           x+y;}42;";
+        ];
+      let six =
+        compile mode
+          "I64 F(I64 a,I8 x,I64 b,I8 y,I64 c,I64 d){x+=c;y+=c;return x+y;}42;"
+      in
+      Alcotest.(check bool)
+        "six-parameter two-update selection" true
+        (Option.is_some (Analysis.analyze ~frame:six.frame ~body:six.body));
+      let fn =
+        compile mode "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return x+y;}42;"
+      in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      let sum =
+        Body.body fn.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+        |> List.find (fun (item : Seq.description) ->
+            item.opcode = Holyc_lib__Ir.Opcode.Ic_add
+            && Option.fold ~none:false
+                 ~some:(fun ty -> Semantic_type.pointer_depth ty = 0)
+                 item.target_type)
+      in
+      Obj.set_field (Obj.repr sum) 5 (Obj.repr (Some (Seq.Integer 1L)));
+      Alcotest.(check bool)
+        "changed two-update graph rejected" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+      Obj.set_field (Obj.repr sum) 5 (Obj.repr None);
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "unproved two-update shape" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return y+x;}42;";
+          "I64 F(I8 x,I8 y,I64 c){x+=c;y%=c;return x+y;}42;";
+          "I64 F(I8 x,I8 y,I64 c){x+=c;y+=x;return x+y;}42;";
+          "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return x+y+0;}42;";
+          "I64 F(I8 reg R12 x,I8 reg R12 y,I64 c){x+=c;y+=c;return x+y;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let explicit_register_selection () =
   List.iter
     (fun mode ->
@@ -3141,6 +3322,7 @@ let () =
         [
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
+          Alcotest.test_case "two-update selection" `Quick pair_selection;
           Alcotest.test_case "multi-parameter selection" `Quick
             many_parameter_selection;
           Alcotest.test_case "explicit register selection" `Quick
