@@ -702,7 +702,7 @@ let entry_contains_opcode entry opcode =
           (Ir.Instruction_sequence.description instruction).opcode = opcode))
 
 let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
-    ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.hard_max_stack_bytes)
+    ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.default_stack_bytes)
     ?(max_blocks = 4096) ?(max_initializer_steps = 100_000)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
     ?(max_default_bytes = 65_536) ?(max_global_bytes = 1_048_576)

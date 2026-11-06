@@ -85,8 +85,11 @@ type task_layout = X86_64_global_storage.task_layout
 val data_default : t -> Ir.Saved_parameter_value.t option
 val data_default_has_misc_data : t -> bool
 
+val default_stack_bytes : int
+(** Default private frame quota: 4088 bytes. *)
+
 val hard_max_stack_bytes : int
-(** Maximum shared spill frame size: 4088 bytes. *)
+(** Maximum shared spill frame size: 65528 bytes. *)
 
 val validate_limits :
   max_ir_instructions:int -> max_code_bytes:int -> (unit, error list) result

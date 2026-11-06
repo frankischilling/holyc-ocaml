@@ -464,6 +464,41 @@ static uint64_t native_execute_checked_image(value code, value unwind,
 #define HOLYC_NATIVE_MAX_ARENA_BYTES (32u * 1024u * 1024u)
 #define HOLYC_NATIVE_MAX_OUTPUT_BYTES (16u * 1024u * 1024u)
 
+/* Page probes leave RSP and all registers unchanged until the one fixed
+   allocation. Validate the exact sequence as well as its unwind endpoint. */
+static unsigned native_stack_probe_bytes(unsigned allocation)
+{
+  return allocation < 4096u ? 0u : 8u * ((allocation + 4095u) / 4096u);
+}
+
+static void native_validate_stack_allocation(const unsigned char *code,
+                                              size_t length,
+                                              unsigned allocation,
+                                              const char *allocation_error)
+{
+  unsigned offset = 0;
+  unsigned distance;
+  const unsigned probes = native_stack_probe_bytes(allocation);
+  if (length < (size_t)probes + 7u)
+    caml_invalid_argument("native stack allocation prologue is truncated");
+  for (distance = 4096u; offset < probes; distance += 4096u, offset += 8u) {
+    uint32_t displacement;
+    const uint32_t expected = 0u - (distance < allocation ? distance : allocation);
+    memcpy(&displacement, code + offset + 4u, sizeof(displacement));
+    if (code[offset] != 0x48 || code[offset + 1u] != 0x85 ||
+        code[offset + 2u] != 0x84 || code[offset + 3u] != 0x24 ||
+        displacement != expected)
+      caml_invalid_argument("native stack allocation has missing or invalid page probes");
+  }
+  {
+    uint32_t encoded;
+    memcpy(&encoded, code + probes + 3u, sizeof(encoded));
+    if (code[probes] != 0x48 || code[probes + 1u] != 0x81 ||
+        code[probes + 2u] != 0xec || encoded != allocation)
+      caml_invalid_argument(allocation_error);
+  }
+}
+
 static unsigned native_validate_program_unwind(value unwind)
 {
   const unsigned char *bytes;
@@ -510,7 +545,7 @@ static unsigned native_validate_program_unwind(value unwind)
       saw_push_rbp = 1;
       break;
     case 1: /* UWOP_ALLOC_LARGE */
-      if (info != 0u || code_offset != 11u || saw_allocation)
+      if (info != 0u || code_offset != bytes[1] || saw_allocation)
         caml_invalid_argument("native program large-allocation unwind opcode is malformed");
       slots = 2;
       if (slots > count - index)
@@ -521,7 +556,7 @@ static unsigned native_validate_program_unwind(value unwind)
       saw_allocation = 1;
       break;
     case 2: /* UWOP_ALLOC_SMALL */
-      if (code_offset != 11u || saw_allocation)
+      if (code_offset != bytes[1] || saw_allocation)
         caml_invalid_argument("native program small-allocation unwind opcode is malformed");
       allocation_bytes = (info * 8u) + 8u;
       saw_allocation = 1;
@@ -536,7 +571,8 @@ static unsigned native_validate_program_unwind(value unwind)
   if (!saw_push_rbp)
     caml_invalid_argument("native program unwind record does not save RBP");
   if (saw_allocation) {
-    if (bytes[1] != 11u || allocation_bytes < 16u || allocation_bytes > 4080u ||
+    if (bytes[1] != 11u + native_stack_probe_bytes(allocation_bytes) ||
+        allocation_bytes < 16u || allocation_bytes > 65520u ||
         (allocation_bytes & 15u) != 0u)
       caml_invalid_argument("native program unwind allocation is outside the callable frame bound");
     if ((allocation_bytes <= 128u && count != 2u) ||
@@ -597,6 +633,14 @@ static mlsize_t native_validate_program_functions(value functions,
           caml_invalid_argument("native leaf target cell exceeds the task bound");
       } else {
         const unsigned allocation = native_validate_program_unwind(unwind);
+        const unsigned char *owner = (const unsigned char *)String_val(code) + begin;
+        const size_t owner_length = (size_t)(end - begin);
+        if (owner_length < 4u || owner[0] != 0x55 || owner[1] != 0x48 ||
+            owner[2] != 0x89 || owner[3] != 0xe5)
+          caml_invalid_argument("native callable does not save its frame pointer");
+        if (allocation != 0)
+          native_validate_stack_allocation(owner + 4u, owner_length - 4u, allocation,
+            "native stack allocation disagrees with its unwind frame");
         if (index == 0) *entry_allocation = allocation;
       }
     }
@@ -900,7 +944,8 @@ static unsigned native_validate_retained_functions(value code, value functions,
       value unwind = Field(descriptor, 2);
       const mlsize_t length = caml_string_length(unwind);
       const unsigned char *bytes = (const unsigned char *)String_val(unwind);
-      if (length == 0 || (length == 8 && bytes[1] == 7)) {
+      if (length == 0 || (length == 8 &&
+          (bytes[1] == 7 || bytes[1] >= 23))) {
         size_t capture_offset = 0;
         const unsigned char *encoded = (const unsigned char *)String_val(code);
         if (Long_val(Field(descriptor, 0)) != 0 ||
@@ -908,7 +953,7 @@ static unsigned native_validate_retained_functions(value code, value functions,
             (uintnat)Long_val(Field(descriptor, 1)) != (uintnat)code_length)
           caml_invalid_argument("retained native closed entry range does not cover its code");
         if (length != 0) {
-          if (bytes[0] != 1 || bytes[3] != 0 || bytes[4] != 7)
+          if (bytes[0] != 1 || bytes[3] != 0 || bytes[4] != bytes[1])
             caml_invalid_argument("retained native closed entry unwind header is malformed");
           if (bytes[2] == 1 && (bytes[5] & 15u) == 2u &&
               bytes[6] == 0 && bytes[7] == 0) {
@@ -920,15 +965,14 @@ static unsigned native_validate_retained_functions(value code, value functions,
           } else {
             caml_invalid_argument("retained native closed entry unwind allocation is malformed");
           }
-          if (allocation < 8u || allocation > 4088u ||
+          if (allocation < 8u || allocation > 65528u ||
               (allocation & 15u) != 8u)
             caml_invalid_argument("retained native closed entry unwind allocation exceeds its frame bound");
-          if (code_length < 10 || encoded[0] != 0x48 || encoded[1] != 0x81 ||
-              encoded[2] != 0xec || encoded[3] != (allocation & 0xffu) ||
-              encoded[4] != ((allocation >> 8) & 0xffu) ||
-              encoded[5] != 0 || encoded[6] != 0)
-            caml_invalid_argument("retained native closed entry code disagrees with its spill frame");
-          capture_offset = 7;
+          if (bytes[1] != 7u + native_stack_probe_bytes(allocation))
+            caml_invalid_argument("retained native closed entry has an invalid prologue length");
+          native_validate_stack_allocation(encoded, code_length, allocation,
+            "retained native closed entry code disagrees with its spill frame");
+          capture_offset = bytes[1];
         }
         if (code_length < capture_offset + 3 ||
             encoded[capture_offset] != 0x49 ||

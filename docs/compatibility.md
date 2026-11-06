@@ -571,7 +571,11 @@ occupied. Ordinary images have seven; #654 fault-capable images reserve R11 and
 have six. Slots preserve shared values and are reused after reload; all code
 and padded-frame bytes are bounded. Windows registers the generated unwind
 record for the mapping's execution lifetime. This adds hosted expression
-spilling, not general memory, large/probed frames, calls or the complete ABI.
+spilling, not the complete ABI. The later #703 frame extension adds
+[page-probed native frames](native-stack-probing.md), with an explicit quota
+through 65,528 bytes and a separate unchanged 65,536-byte active-stack cap.
+The default private-frame quota remains 4,088 bytes. General register
+allocation remains unfinished.
 
 [Narrow integer execution](integer-narrow.md) in #633 adds I8/I16/U16/I32/U32
 storage, fixed arrays, references, canonical updates and numeric signatures.

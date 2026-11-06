@@ -34,6 +34,26 @@ static uint32_t read_u32(const unsigned char *bytes)
        | ((uint32_t)bytes[3] << 24);
 }
 
+static unsigned probe_prefix_size(unsigned frame)
+{
+  return frame < 4096u ? 0u : ((frame + 4095u) / 4096u) * 8u;
+}
+
+static int valid_probe_prefix(const unsigned char *code, size_t length, unsigned frame)
+{
+  unsigned offset;
+  unsigned size = probe_prefix_size(frame);
+  if (length < size + 7u) return 0;
+  for (offset = 0; offset < size; offset += 8u) {
+    unsigned distance = (offset / 8u + 1u) * 4096u;
+    if (distance > frame) distance = frame;
+    if (code[offset] != 0x48 || code[offset+1] != 0x85 ||
+        code[offset+2] != 0x84 || code[offset+3] != 0x24 ||
+        read_u32(code+offset+4) != 0u-distance) return 0;
+  }
+  return 1;
+}
+
 static void check_fixed_image(const unsigned char *code, size_t length,
                               const unsigned char *unwind, size_t unwind_length,
                               uint32_t frame_bytes)
@@ -41,21 +61,23 @@ static void check_fixed_image(const unsigned char *code, size_t length,
   unsigned char expected_op;
   uint16_t scaled;
 
-  if (frame_bytes < 8 || frame_bytes > 4088 || (frame_bytes & 15u) != 8u)
-    caml_invalid_argument("unwind probe frame is outside 8..4088 / 8 mod 16");
+  if (frame_bytes < 8 || frame_bytes > 65528 || (frame_bytes & 15u) != 8u)
+    caml_invalid_argument("unwind probe frame is outside 8..65528 / 8 mod 16");
   if (length < 15 || length > UINT32_MAX)
     caml_invalid_argument("unwind probe code length is outside the checked range");
   if (unwind_length != 8)
     caml_invalid_argument("unwind probe requires the fixed eight-byte blob");
-  if (code[0] != 0x48 || code[1] != 0x81 || code[2] != 0xec ||
-      read_u32(code + 3) != frame_bytes)
+  unsigned prefix = probe_prefix_size(frame_bytes);
+  if (!valid_probe_prefix(code, length, frame_bytes) ||
+      code[prefix] != 0x48 || code[prefix+1] != 0x81 || code[prefix+2] != 0xec ||
+      read_u32(code + prefix + 3) != frame_bytes)
     caml_invalid_argument("unwind probe image has an unexpected stack prologue");
   if (code[length - 8] != 0x48 || code[length - 7] != 0x81 ||
       code[length - 6] != 0xc4 || read_u32(code + length - 5) != frame_bytes ||
       code[length - 1] != 0xc3)
     caml_invalid_argument("unwind probe image has an unexpected stack epilogue");
-  if (unwind[0] != 0x01 || unwind[1] != 0x07 || unwind[3] != 0x00 ||
-      unwind[4] != 0x07)
+  if (unwind[0] != 0x01 || unwind[1] != prefix + 7u || unwind[3] != 0x00 ||
+      unwind[4] != prefix + 7u)
     caml_invalid_argument("unwind probe metadata has an unexpected header");
 
   if (frame_bytes <= 128) {
@@ -151,11 +173,16 @@ static const char *check_callable_owner(const unsigned char *code,
     return "callable owner does not begin with PUSH RBP; MOV RBP,RSP";
 
   body = begin + 4u;
+  while (end - body >= 8u && code[body] == 0x48u && code[body+1u] == 0x85u)
+    body += 8u;
   if (end - body >= 7u && code[body] == 0x48u && code[body + 1u] == 0x81u &&
       code[body + 2u] == 0xecu) {
     frame = read_u32(code + body + 3u);
-    if (frame == 0u || (frame & 15u) != 0u || frame > 4088u)
+    if (frame == 0u || (frame & 15u) != 0u || frame > 65520u)
       return "callable owner has an invalid fixed stack allocation";
+    if (!valid_probe_prefix(code + begin + 4u, end - begin - 4u, frame) ||
+        body != begin + 4u + probe_prefix_size(frame))
+      return "callable owner has an invalid page-probe sequence";
     body += 7u;
   }
 
@@ -176,8 +203,8 @@ static const char *check_callable_owner(const unsigned char *code,
         code[end - 1u] != 0xc3u)
       return "frameful callable owner has an incorrect epilogue";
     epilogue = end - 9u;
-    if (unwind[0] != 0x01u || unwind[1] != 0x0bu || unwind[3] != 0x00u ||
-        unwind[4] != 0x0bu)
+    if (unwind[0] != 0x01u || unwind[1] != body - begin || unwind[3] != 0x00u ||
+        unwind[4] != body - begin)
       return "frameful callable owner has an incorrect unwind header";
     if (frame <= 128u) {
       if (unwind_length != 8u || unwind[2] != 0x02u ||
@@ -243,7 +270,7 @@ CAMLprim value holyc_test_native_unwind(value code_value, value unwind_value,
   const unsigned char *unwind = (const unsigned char *)String_val(unwind_value);
   const size_t unwind_offset = (code_length + 3u) & ~(size_t)3u;
   const size_t mapping_length = unwind_offset + unwind_length;
-  const size_t stack_length = 16u * 1024u;
+  const size_t stack_length = 128u * 1024u;
   unsigned char *code_mapping = NULL;
   unsigned char *stack_mapping = NULL;
   unsigned char *entry_stack;
@@ -276,8 +303,8 @@ CAMLprim value holyc_test_native_unwind(value code_value, value unwind_value,
     probe_fail(code_mapping, NULL,
                "unwind probe could not allocate the synthetic stack");
   /* VirtualAlloc is page aligned. +8192+8 has the Windows entry alignment and
-     leaves more than the maximum 4088-byte frame mapped below the body RSP. */
-  entry_stack = stack_mapping + (8u * 1024u) + 8u;
+     leaves more than the maximum 65528-byte frame mapped below the body RSP. */
+  entry_stack = stack_mapping + (96u * 1024u) + 8u;
   entry_rsp = (DWORD64)(uintptr_t)entry_stack;
   memcpy(entry_stack, &return_rip, sizeof(return_rip));
 
@@ -291,8 +318,11 @@ CAMLprim value holyc_test_native_unwind(value code_value, value unwind_value,
      at RET it has. Each state must unwind to the same synthetic caller. */
   unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
             0u, entry_rsp, entry_rsp, return_rip);
+  for (size_t offset = 0; offset <= probe_prefix_size(frame_bytes); offset += 8u)
+    unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
+              offset, entry_rsp, entry_rsp, return_rip);
   unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
-            7u, entry_rsp - frame_bytes, entry_rsp, return_rip);
+            (size_t)unwind[1], entry_rsp - frame_bytes, entry_rsp, return_rip);
   unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
             epilogue_offset, entry_rsp - frame_bytes, entry_rsp, return_rip);
   unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
@@ -403,7 +433,7 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
   }
   registered = 1;
 
-  stack_mapping = (unsigned char *)VirtualAlloc(NULL, 16u * 1024u,
+  stack_mapping = (unsigned char *)VirtualAlloc(NULL, 128u * 1024u,
                                                 MEM_RESERVE | MEM_COMMIT,
                                                 PAGE_READWRITE);
   if (stack_mapping == NULL)
@@ -417,7 +447,7 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
     uint32_t frame_bytes = 0;
     size_t body_offset = 0;
     size_t epilogue_offset = 0;
-    unsigned char *entry_stack = stack_mapping + (8u * 1024u) + 8u;
+    unsigned char *entry_stack = stack_mapping + (96u * 1024u) + 8u;
     DWORD64 entry_rsp = (DWORD64)(uintptr_t)entry_stack;
     DWORD64 saved_rbp = UINT64_C(0x2222333344445555);
     DWORD64 return_rip = UINT64_C(0x0000123456789abc) + (DWORD64)index;
@@ -443,6 +473,10 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
       failure = "RtlLookupFunctionEntry did not return the registered owner";
       break;
     }
+    for (size_t offset = begin + 4u; failure == NULL && offset < body_offset; offset += 8u)
+      failure = unwind_callable_at(mapping, found, image_base + offset,
+          entry_rsp - 8u, entry_rsp - 8u, entry_rsp, return_rip);
+    if (failure != NULL) break;
     failure = unwind_callable_at(
         mapping, found, image_base + (DWORD64)body_offset,
         entry_rsp - 8u - (DWORD64)frame_bytes, entry_rsp - 8u, entry_rsp,

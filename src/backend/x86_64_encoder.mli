@@ -203,10 +203,10 @@ val registers : register list
 
 val stack_slot : offset:int -> (stack_slot, string) result
 (** Construct an eight-byte spill slot addressed from RSP. Offsets are aligned
-    multiples of eight from zero through 4080. *)
+    multiples of eight from zero through 65520. *)
 
 val stack_frame : bytes:int -> (stack_frame, string) result
-(** Construct a fixed spill frame. Sizes are 8..4088 bytes and 8 modulo 16,
+(** Construct a fixed spill frame. Sizes are 8..65528 bytes and 8 modulo 16,
     keeping the generated body aligned after the host call pushes its return
     address. *)
 
@@ -226,9 +226,9 @@ val arena_slot : offset:int -> (arena_slot, string) result
 
 val call_frame : bytes:int -> (call_frame, string) result
 (** Construct a fixed callable frame. Sizes are positive 16-byte multiples up to
-    4080 bytes, so PUSH RBP plus one frame allocation never skips a 4 KiB stack
-    guard page. Outgoing ABI home space, when required, is part of this fixed
-    allocation. *)
+    65520 bytes. Allocations of at least 4096 bytes probe each page and the
+    final word before changing RSP. Outgoing ABI home space, when required, is
+    part of this fixed allocation. *)
 
 val max_code_bytes : int
 (** Hard limit of 16 MiB for one encoded instruction sequence, further bounded
@@ -239,16 +239,17 @@ val size : instruction -> int
     is always three bytes (REX.W with REX.B when needed, D3, ModR/M). [Setcc]
     uses three bytes for AL/CL/DL and four for R8b through R11b. Stack
     loads/stores always use an eight-byte fixed-disp32 SIB form; stack
-    allocation/free always use seven-byte imm32 forms. Qword frame loads/stores
-    use a seven-byte RBP+disp32 form. Narrow frame loads/stores are seven or
-    eight bytes depending on width/prefix requirements. Callable allocation/free
-    uses a seven-byte imm32 RSP form. Direct CALL and branches use fixed rel32
-    forms. Private context accesses use disp8 through offset 120 and disp32 for
-    later generation fields; immediate stores have the corresponding eight or
-    eleven-byte size. Context pointer and activity words are immutable; stores
-    admit the original offsets through 64 and counters at 88, 96, 104, 120, 128
-    and 160. Arena qword/narrow accesses use fixed R9+disp32 forms. Invalid
-    immediate, branch or private-context operands raise [Invalid_argument]. *)
+    allocation/free use seven-byte imm32 forms; large allocations prepend
+    eight-byte page probes. Qword frame loads/stores use a seven-byte RBP+disp32
+    form. Narrow frame loads/stores are seven or eight bytes depending on
+    width/prefix requirements. Callable allocation/free uses a seven-byte imm32
+    RSP form. Direct CALL and branches use fixed rel32 forms. Private context
+    accesses use disp8 through offset 120 and disp32 for later generation
+    fields; immediate stores have the corresponding eight or eleven-byte size.
+    Context pointer and activity words are immutable; stores admit the original
+    offsets through 64 and counters at 88, 96, 104, 120, 128 and 160. Arena
+    qword/narrow accesses use fixed R9+disp32 forms. Invalid immediate, branch
+    or private-context operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
 (** Build checked [Asm.Encoding] recipes from the pinned opcode facts and emit
@@ -259,3 +260,6 @@ val encode_all :
   max_code_bytes:int -> instruction list -> (string, string) result
 (** Validate the positive limit and exact total size before allocating a code
     buffer. A limit above [max_code_bytes] is rejected. *)
+
+val stack_allocation_size : int -> int
+(** Encoded size of the bounded page probes and fixed RSP allocation. *)

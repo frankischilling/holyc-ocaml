@@ -90,14 +90,14 @@ let registers = [ Rax; Rcx; Rdx; R8; R9; R10; R11 ]
 let max_code_bytes = min (16 * 1024 * 1024) Sys.max_string_length
 
 let stack_slot ~offset =
-  if offset < 0 || offset > 4080 || offset mod 8 <> 0 then
-    Error "stack slot offset must be an aligned value between 0 and 4080"
+  if offset < 0 || offset > 65520 || offset mod 8 <> 0 then
+    Error "stack slot offset must be an aligned value between 0 and 65520"
   else Ok { offset }
 
 let stack_frame ~bytes =
-  if bytes < 8 || bytes > 4088 || bytes mod 16 <> 8 then
+  if bytes < 8 || bytes > 65528 || bytes mod 16 <> 8 then
     Error
-      "stack frame size must be between 8 and 4088 and congruent to 8 mod 16"
+      "stack frame size must be between 8 and 65528 and congruent to 8 mod 16"
   else Ok { bytes }
 
 let frame_slot ~offset =
@@ -124,8 +124,9 @@ let arena_slot ~offset =
   else Ok { arena_offset = offset }
 
 let call_frame ~bytes =
-  if bytes < 16 || bytes > 4080 || bytes mod 16 <> 0 then
-    Error "call frame size must be a 16-byte multiple between 16 and 4080 bytes"
+  if bytes < 16 || bytes > 65520 || bytes mod 16 <> 0 then
+    Error
+      "call frame size must be a 16-byte multiple between 16 and 65520 bytes"
   else Ok { call_bytes = bytes }
 
 let register_spelling = function
@@ -462,6 +463,30 @@ let checked = function
 let signed bytes value =
   Encoding.field ~bytes ~range:Encoding.Signed value |> checked
 
+(* Probe before moving RSP. TEST only changes flags, so argument and status
+   registers survive. Every touched word lies inside the future allocation. *)
+let stack_probe_offsets bytes =
+  if bytes < 0 || bytes > 65528 then
+    invalid_arg "stack allocation outside 0..65528";
+  if bytes < 4096 then []
+  else
+    List.init
+      ((bytes + 4095) / 4096)
+      (fun index -> min bytes ((index + 1) * 4096))
+
+let stack_probe_plans bytes =
+  List.map
+    (fun offset ->
+      Encoding.plan ~mode:Asm.Operand.Use64 ~form:test ~prefixes:[ 0x48 ]
+        ~modrm:0x84 ~sib:0x24
+        ~displacement:(signed 4 (Int64.of_int (-offset)))
+        ()
+      |> checked)
+    (stack_probe_offsets bytes)
+
+let stack_allocation_size bytes =
+  7 + (8 * List.length (stack_probe_offsets bytes))
+
 let plans instruction =
   validate instruction;
   let selected = form instruction in
@@ -528,7 +553,12 @@ let plans instruction =
       memory ~reg:(register_number destination) ~base:4 slot.offset
   | Store_stack (slot, source) ->
       memory ~reg:(register_number source) ~base:4 slot.offset
-  | Alloc_stack frame | Free_stack frame ->
+  | Alloc_stack frame ->
+      stack_probe_plans frame.bytes
+      @ register ~reg:selected.slash_value ~rm:4
+          ~immediate:(signed 4 (Int64.of_int frame.bytes))
+          ()
+  | Free_stack frame ->
       register ~reg:selected.slash_value ~rm:4
         ~immediate:(signed 4 (Int64.of_int frame.bytes))
         ()
@@ -583,7 +613,12 @@ let plans instruction =
           (lock_prefix.opcode_bytes @ if width = Atomic16 then [ 0x66 ] else [])
         ~wide:(width = Atomic64) ~reg:(register_number source)
         ~base:(register_number base) 0
-  | Alloc_call_frame frame | Free_call_frame frame ->
+  | Alloc_call_frame frame ->
+      stack_probe_plans frame.call_bytes
+      @ register ~reg:selected.slash_value ~rm:4
+          ~immediate:(signed 4 (Int64.of_int frame.call_bytes))
+          ()
+  | Free_call_frame frame ->
       register ~reg:selected.slash_value ~rm:4
         ~immediate:(signed 4 (Int64.of_int frame.call_bytes))
         ()

@@ -14,8 +14,11 @@ type arithmetic_fault = private {
 type error = { code : string; message : string; span : Common.Span.t option }
 type t
 
+val default_stack_bytes : int
+(** Default private frame quota: 4088 bytes. *)
+
 val hard_max_stack_bytes : int
-(** Maximum hosted spill frame size: 4088 bytes. *)
+(** Maximum hosted spill frame size: 65528 bytes. *)
 
 val validate_limits :
   max_ir_instructions:int -> max_code_bytes:int -> (unit, error list) result
@@ -65,7 +68,7 @@ val compile :
     counts use C1 and their low byte, with no RCX reservation. Eight-byte stack
     slots are reused after final use, and spilling starts only after the
     complete IR passes preflight. A nonzero spill frame is 8 modulo 16, at most
-    4088 bytes, and is allocated by a fixed seven-byte prologue and released
+    65528 bytes, and is allocated after page probes where needed and released
     immediately before RET. [max_stack_bytes] defaults to 4088; zero retains a
     register-only gate. Code size includes all spill traffic and frame
     instructions and is checked before encoded bytes are allocated.

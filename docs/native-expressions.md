@@ -152,10 +152,12 @@ A frame uses one fixed `SUB RSP,imm32` prologue and matching `ADD RSP,imm32`
 epilogue before `RET`. Stack loads and stores use full-word `[RSP+disp32]`
 addressing. A nonzero frame is eight modulo sixteen bytes, which aligns the
 body stack after the host's call. Alignment padding counts toward its quota.
-The maximum is 4,088 bytes, or 511 qword slots, below the first stack-probing
-threshold. Source-visible memory, arguments, saved nonvolatile registers,
-large/probed frames and calls remain outside this gate. These hosted frames
-do not establish the general HolyC calling convention.
+The default quota is 4,088 bytes. An explicit quota can admit up to 65,528
+bytes, or 8,191 qword slots. [Page probes](native-stack-probing.md) precede
+allocations of at least 4,096 bytes and are included in the unwind prologue.
+Source-visible memory, arguments, saved nonvolatile registers and calls remain
+outside this expression gate. These hosted frames do not establish the general
+HolyC calling convention.
 
 Predicates read the input registers with CMP or TEST before a destination can
 overwrite either operand. SETcc consumes those flags without an intervening
@@ -222,7 +224,7 @@ allocating bytes. The five-instruction, 25-byte fixture succeeds at both
 exact limits; either corresponding one-below limit fails. These counts are
 compiler resource bounds, not measured CPU cycles or a native timeout.
 The optional API `max_stack_bytes` and CLI `--stack-byte-limit` default to
-4,088. Values from zero through 4,088 are valid; zero disables spilling.
+4,088. Values from zero through 65,528 are valid; zero disables spilling.
 The compiler rejects an image whose actual padded frame exceeds the requested
 limit before allocating executable memory. The eight-live fixture needs eight
 bytes: eight succeeds, seven and zero fail. A limit need not itself be aligned;
@@ -404,6 +406,6 @@ These tests execute the hosted encoder, not the TempleOS reference compiler.
 The CI workflow explicitly runs native tests on Windows x86-64 and both
 Linux OCaml jobs. Unsupported hosts fail this requested target instead of
 skipping it. Metered closed control flow is implemented by the separate native
-program gate. General call frames, stack probing, calls/HolyC ABI, memory,
+program gate. The complete HolyC call ABI, memory,
 x87 behavior, relocations, integrated assembler operands, object/BIN output,
 actual-loader acceptance and bootstrap remain required later gates.

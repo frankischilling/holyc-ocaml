@@ -59,6 +59,7 @@ type program_site = {
 type program_image
 
 val hard_ir_limit : int
+val default_stack_bytes : int
 val hard_max_stack_bytes : int
 val hard_block_limit : int
 

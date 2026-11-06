@@ -16,6 +16,14 @@ external probe_windows_program_unwind :
   string -> (int * int * string) array -> unit
   = "holyc_test_native_program_unwind"
 
+type retained_probe
+
+external retain_probe :
+  string * (int * int * string) array * int * int * (int * int * int * string) ->
+  retained_probe = "holyc_native_retain_program"
+
+external release_probe : retained_probe -> unit = "holyc_native_release_program"
+
 let require condition message = if not condition then failwith message
 
 let diagnostic_errors errors =
@@ -57,7 +65,7 @@ let compile_source ~mode contents =
   Native_expression.compile session ~config ~source
   |> require_ok diagnostic_errors
 
-let compile_program_source ~mode contents =
+let compile_program_source ?(max_stack_bytes = 4088) ~mode contents =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-program-unwind.hc" ~contents
@@ -65,7 +73,8 @@ let compile_program_source ~mode contents =
   let config =
     Preprocessor.Config.create ~compilation_mode:mode () |> require_ok Fun.id
   in
-  Native_program.compile session ~config ~source |> require_ok diagnostic_errors
+  Native_program.compile ~max_stack_bytes session ~config ~source
+  |> require_ok diagnostic_errors
   |> fun checked -> checked.value
 
 let instruction_id id =
@@ -92,7 +101,7 @@ let description ?(operands = []) ?result ?target_type ?payload id opcode :
     span = None;
   }
 
-let pressure_image count =
+let pressure_image ?(max_stack_bytes = 4088) count =
   let imm id bits =
     description ~result:id ~target_type:i64 ~payload:(Sequence.Integer bits) id
       Opcode.Ic_imm_i64
@@ -131,7 +140,8 @@ let pressure_image count =
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
   in
-  Image.compile ~max_ir_instructions:4096 ~max_code_bytes:65536 graph
+  Image.compile ~max_stack_bytes ~max_ir_instructions:4096 ~max_code_bytes:65536
+    graph
   |> require_ok native_errors
 
 let div_pressure_image ~status_abi count =
@@ -193,18 +203,20 @@ let uint32_le text offset =
 let string_of_bytes bytes =
   String.init (List.length bytes) (fun index -> Char.chr (List.nth bytes index))
 
+let probe_size bytes = if bytes < 4096 then 0 else 8 * ((bytes + 4095) / 4096)
+
 let expected_unwind frame_bytes =
   require
-    (frame_bytes >= 8 && frame_bytes <= 4088 && frame_bytes mod 16 = 8)
+    (frame_bytes >= 8 && frame_bytes <= 65528 && frame_bytes mod 16 = 8)
     "test fixture frame is outside the bounded ABI shape";
   if frame_bytes <= 128 then
     string_of_bytes
       [
         0x01;
-        0x07;
+        7 + probe_size frame_bytes;
         0x01;
         0x00;
-        0x07;
+        7 + probe_size frame_bytes;
         (((frame_bytes - 8) / 8) lsl 4) lor 0x02;
         0x00;
         0x00;
@@ -214,10 +226,10 @@ let expected_unwind frame_bytes =
     string_of_bytes
       [
         0x01;
-        0x07;
+        7 + probe_size frame_bytes;
         0x02;
         0x00;
-        0x07;
+        7 + probe_size frame_bytes;
         0x01;
         scaled land 0xff;
         (scaled lsr 8) land 0xff;
@@ -225,12 +237,15 @@ let expected_unwind frame_bytes =
 
 let check_frame_code label frame_bytes code =
   let length = String.length code in
-  require (length >= 15) (label ^ ": frameful image is too short");
+  let prefix = probe_size frame_bytes in
+  require (length >= prefix + 15) (label ^ ": frameful image is too short");
   require
-    (byte code 0 = 0x48 && byte code 1 = 0x81 && byte code 2 = 0xec)
+    (byte code prefix = 0x48
+    && byte code (prefix + 1) = 0x81
+    && byte code (prefix + 2) = 0xec)
     (label ^ ": prologue is not SUB RSP,imm32");
   require
-    (uint32_le code 3 = frame_bytes)
+    (uint32_le code (prefix + 3) = frame_bytes)
     (label ^ ": prologue allocation differs from frame_bytes");
   let epilogue = length - 8 in
   require
@@ -324,9 +339,10 @@ let program_status_abi_name = function
   | Program.Windows_x64 -> "windows"
   | Program.System_v_x64 -> "system-v"
 
-let check_program_unwind ~windows ~status_abi ~live expected_frame =
+let check_program_unwind ?(max_stack_bytes = 4088) ~windows ~status_abi ~live
+    expected_frame =
   let image =
-    Program.compile ~status_abi ~max_ir_instructions:4096
+    Program.compile ~max_stack_bytes ~status_abi ~max_ir_instructions:4096
       ~max_code_bytes:1048576
       (Test_native_program.pressure_graph live)
     |> require_ok (fun errors ->
@@ -364,11 +380,36 @@ let check_program_unwind ~windows ~status_abi ~live expected_frame =
     (Program.windows_unwind_info image = second)
     (label ^ ": program unwind getter must return immutable copies");
   let capture = Encoder.encode (Encoder.Capture_status status_abi) in
-  let capture_offset = if expected_frame = 0 then 0 else 7 in
+  let capture_offset =
+    if expected_frame = 0 then 0 else 7 + probe_size expected_frame
+  in
   require
     (String.length code >= capture_offset + String.length capture
     && String.sub code capture_offset (String.length capture) = capture)
-    (label ^ ": context capture must follow the optional stack allocation")
+    (label ^ ": context capture must follow the optional stack allocation");
+  if expected_frame > 4088 && windows = (status_abi = Program.Windows_x64) then (
+    (match Native_program_execution.execute ~max_steps:4096 image with
+    | Ok (Program.Completed { final_value = Some word; _ }) ->
+        require
+          (word.bits = Int64.of_int (live * (live + 1) / 2))
+          "large closed frame result"
+    | _ -> failwith "large closed frame did not execute");
+    let owners = Array.of_list (Program.windows_unwind_functions image) in
+    let identity code =
+      ( code,
+        owners,
+        (if windows then 1 else 2),
+        Program.entry_stack_bytes image,
+        (0, 0, 0, "") )
+    in
+    release_probe (retain_probe (identity code));
+    let bad = Bytes.of_string code in
+    Bytes.set bad 1 '\x84';
+    match retain_probe (identity (Bytes.to_string bad)) with
+    | retained ->
+        release_probe retained;
+        failwith "closed frame admitted a missing probe"
+    | exception Invalid_argument _ -> ())
 
 let check_callable_program_unwind ~windows ~mode =
   let image =
@@ -413,6 +454,37 @@ let check_callable_program_unwind ~windows ~mode =
     (label ^ ": per-owner unwind getter must return immutable copies");
   if windows then probe_windows_program_unwind code (Array.of_list functions)
 
+let check_retained_probe_validation ~windows image =
+  let code = Program.code image in
+  let owners = Array.of_list (Program.windows_unwind_functions image) in
+  let abi = if windows then 1 else 2 in
+  let retain code owners =
+    retain_probe
+      (code, owners, abi, Program.entry_stack_bytes image, (0, 0, 0, ""))
+  in
+  release_probe (retain code owners);
+  let rejected label code owners =
+    match retain code owners with
+    | handle ->
+        release_probe handle;
+        failwith (label ^ ": corrupt frame admitted")
+    | exception Invalid_argument _ -> ()
+  in
+  let begin_offset, _, _ = owners.(1) in
+  let bad = Bytes.of_string code in
+  Bytes.set bad (begin_offset + 5) '\x84';
+  rejected "missing first probe" (Bytes.to_string bad) owners;
+  let bad = Bytes.of_string code in
+  Bytes.blit_string code (begin_offset + 8) bad (begin_offset + 16) 4;
+  rejected "repeated page probe" (Bytes.to_string bad) owners;
+  let bad_owners = Array.copy owners in
+  let first, last, unwind = bad_owners.(1) in
+  let bad_unwind = Bytes.of_string unwind in
+  Bytes.set bad_unwind 1 '\x0b';
+  Bytes.set bad_unwind 4 '\x0b';
+  bad_owners.(1) <- (first, last, Bytes.to_string bad_unwind);
+  rejected "stale allocation unwind offset" code bad_owners
+
 let () =
   let windows =
     match Runtime.platform () with
@@ -441,7 +513,9 @@ let () =
       check_program_unwind ~windows ~status_abi ~live:2 0;
       check_program_unwind ~windows ~status_abi ~live:6 8;
       check_program_unwind ~windows ~status_abi ~live:23 152;
-      check_program_unwind ~windows ~status_abi ~live:516 4088)
+      check_program_unwind ~windows ~status_abi ~live:516 4088;
+      check_program_unwind ~max_stack_bytes:16384 ~windows ~status_abi
+        ~live:1030 8200)
     [ Program.Windows_x64; Program.System_v_x64 ];
   List.iter
     (fun mode -> check_callable_program_unwind ~windows ~mode)
@@ -455,4 +529,22 @@ let () =
     "legacy non-fault image must not publish a private status ABI";
   check_compiled_image ~windows
     ~label:"verified IR 518 live values / 4088-byte frame" ~expected_frame:4088
-    maximum
+    maximum;
+  let large = pressure_image ~max_stack_bytes:16384 1030 in
+  check_compiled_image ~windows ~label:"probed expression frame"
+    ~expected_frame:8184 large;
+  require (Runtime.execute large = Ok 530965L) "large expression frame result";
+  List.iter
+    (fun mode ->
+      let image =
+        compile_program_source ~max_stack_bytes:32768 ~mode
+          "I64 F(){I64 a[1024];a[0]=20;a[1023]=22;return a[0]+a[1023];}F();"
+      in
+      require
+        (Program.frame_bytes image = 16528)
+        "large callable frame exact size";
+      check_retained_probe_validation ~windows image;
+      if windows then
+        probe_windows_program_unwind (Program.code image)
+          (Array.of_list (Program.windows_unwind_functions image)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]

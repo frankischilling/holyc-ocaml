@@ -1612,7 +1612,7 @@ let encoder_stack_bytes () =
             true (message <> "")
       | Ok _ ->
           Alcotest.failf "invalid stack slot offset %d was accepted" offset)
-    [ -8; -1; 1; 4088; 4096 ];
+    [ -8; -1; 1; 65528; 65536 ];
   List.iter
     (fun bytes ->
       match Encoder.stack_frame ~bytes with
@@ -1622,6 +1622,54 @@ let encoder_stack_bytes () =
             true (message <> "")
       | Ok _ -> Alcotest.failf "invalid stack frame %d was accepted" bytes)
     [ -8; 0; 7; 16; 4080; 4089; 4096 ]
+
+let encoder_large_stack_probes () =
+  List.iter
+    (fun (bytes, displacements) ->
+      let frame = Encoder.stack_frame ~bytes |> require_ok Fun.id in
+      let probes =
+        List.map (fun n -> "48858424" ^ n) displacements |> String.concat ""
+      in
+      let allocation =
+        Printf.sprintf "4881ec%02x%02x0000" (bytes land 255) (bytes lsr 8)
+      in
+      let expected = probes ^ allocation in
+      let instruction = Encoder.Alloc_stack frame in
+      Alcotest.(check string)
+        "independent page probe encoding" expected
+        (hex (Encoder.encode instruction));
+      let size = String.length expected / 2 in
+      Alcotest.(check int)
+        "probes count toward encoded size" size (Encoder.size instruction);
+      ignore
+        (Encoder.encode_all ~max_code_bytes:size [ instruction ]
+        |> require_ok Fun.id);
+      Alcotest.(check bool)
+        "probe bytes obey code quota" true
+        (Result.is_error
+           (Encoder.encode_all ~max_code_bytes:(size - 1) [ instruction ])))
+    [
+      (4104, [ "00f0ffff"; "f8efffff" ]);
+      (8184, [ "00f0ffff"; "08e0ffff" ]);
+      (8200, [ "00f0ffff"; "00e0ffff"; "f8dfffff" ]);
+    ];
+  List.iter
+    (fun (bytes, expected) ->
+      let frame = Encoder.call_frame ~bytes |> require_ok Fun.id in
+      Alcotest.(check string)
+        "page-aligned callable probes" expected
+        (hex (Encoder.encode (Encoder.Alloc_call_frame frame))))
+    [
+      (4096, "4885842400f0ffff4881ec00100000");
+      (8192, "4885842400f0ffff4885842400e0ffff4881ec00200000");
+    ];
+  let largest = Encoder.stack_frame ~bytes:65528 |> require_ok Fun.id in
+  Alcotest.(check int)
+    "bounded largest prologue fits unwind byte" 135
+    (Encoder.size (Encoder.Alloc_stack largest));
+  Alcotest.(check bool)
+    "beyond large frame bound" true
+    (Result.is_error (Encoder.stack_frame ~bytes:65544))
 
 let encoder_narrow_frame_bytes () =
   (* OpCodes.DD's MOV/MOVSX/MOVZX/MOVSXD forms and Asm.HC's REX/ModRM
@@ -3231,7 +3279,7 @@ let spill_frames_and_unwind () =
 
 let spill_limits_and_hard_bound () =
   Alcotest.(check int)
-    "public hard stack bound" 4088 Native.hard_max_stack_bytes;
+    "public hard stack bound" 65528 Native.hard_max_stack_bytes;
   List.iter
     (fun max_stack_bytes ->
       Native.validate_stack_limit ~max_stack_bytes |> require_ok native_errors)
@@ -3248,7 +3296,7 @@ let spill_limits_and_hard_bound () =
                (fun (error : Native.error) ->
                  error.code = "HCBACK0001" && error.span = None)
                errors))
-    [ -1; 4089; max_int ];
+    [ -1; 65529; max_int ];
   let checked = pressure_graph 8 in
   let baseline =
     compile ~max_stack_bytes:8 checked |> require_ok native_errors
@@ -4606,6 +4654,8 @@ let logical_source_boundaries () =
 
 let tests =
   [
+    Alcotest.test_case "large stack page probe bytes" `Quick
+      encoder_large_stack_probes;
     Alcotest.test_case
       "owned code RIP addresses and captured indirect call bytes" `Quick
       encoder_owned_code_bytes;

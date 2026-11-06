@@ -164,14 +164,14 @@ Storage-bearing callable programs reserve R9 for the arena and use four value
 registers; the reported register peak
 also counts R10, R11 and any fixed or temporary registers. Each block has fresh
 value ownership and reusable spill slots. Closed programs keep their original
-single frame, sized to the largest block, with a maximum of 4,088 bytes.
+single frame, sized to the largest block, with a default quota of 4,088 bytes and a probed maximum of 65,528 bytes.
 
 Callable owners save RBP and keep RSP fixed throughout their bodies. Parameters
 occupy the original positive slots starting at `RBP+16`; automatic locals use
 their checked negative frame displacements and exact declared widths. Narrow
 loads sign- or zero-extend and stores touch only the object's bytes. Private initialization flags, spills,
 pending arguments and a shared outgoing argument area occupy disjoint storage.
-The allocation is a multiple of 16 bytes and at most 4,080 bytes; the return
+The allocation is a multiple of 16 bytes and at most 65,520 bytes; the return
 address and saved RBP are counted separately by the active-stack limit. An owner
 that needs no allocation still saves and restores RBP.
 
@@ -323,8 +323,8 @@ mapping rather than leaving a dangling OS reference. The OCaml runtime lock
 remains held while the image runs. Callable Windows images register one sorted
 function table covering entry and every generated function, with separate unwind
 records for their actual fixed-RSP prologues. The table and records share the
-mapping's lifetime. Each allocation stays below one page; larger/probed frames
-remain outside this gate.
+mapping's lifetime. Allocations crossing a page use checked probes. General
+register allocation remains outside this gate.
 
 This is an in-process executor. The step budget bounds checked IR loops; it is
 not a wall-clock deadline, isolation boundary or recovery from arbitrary machine
@@ -385,3 +385,18 @@ writes survive checked faults; each activation keeps fresh bounded status and
 output capture. The source-task driver schedules original live JIT requests and
 compiles direct calls from their admitted function sources. Persistent native
 addresses across source events still require their own code owners.
+
+## Larger private frames
+
+The default private-frame quota remains 4,088 bytes. An explicit
+`--stack-byte-limit` can raise it to 65,528 bytes; callable allocations are
+16-byte aligned and therefore top out at 65,520. Allocations of at least
+4,096 bytes touch each intervening page and the final allocated word before
+changing RSP. Probe bytes count against the code quota. See
+[stack probing](native-stack-probing.md) for the host ABI and unwind rules.
+
+The simultaneous physical-stack cap remains 65,536 bytes. Raising the private
+frame quota does not raise semantic frame bytes, recursion depth, generated
+code or active-stack limits. A large callee can still fail its active-stack
+check before entry. The usual epilogues restore reservations after normal
+returns and hosted faults.

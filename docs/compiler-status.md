@@ -1,5 +1,10 @@
 # Compiler status and implementation notes
 
+[Large native frames](native-stack-probing.md) now use page probes and
+matching Windows unwind offsets. The larger quota is opt-in; default frame
+and active-stack limits are unchanged. General register allocation in #703
+is still open.
+
 Bounded integer AOT initializer leaves now use their original raw assignment
 width, separately from JIT and constant-copy widths. [Native captures](aot-zero-byte-initializers.md)
 verify four- and eight-byte stores. Missing register values, ownership and storage

@@ -139,6 +139,7 @@ let scalar_program value =
 let data_default value = value.data_default_
 let data_default_has_misc_data value = value.data_default_misc_
 let hard_max_stack_bytes = Codegen.hard_max_stack_bytes
+let default_stack_bytes = Codegen.default_stack_bytes
 
 let project_error (error : Codegen.error) : error =
   { code = error.code; message = error.message; span = error.span }

@@ -64,7 +64,8 @@ type expression_image = {
 }
 
 let hard_ir_limit = 100_000
-let hard_max_stack_bytes = 4088
+let hard_max_stack_bytes = 65528
+let default_stack_bytes = 4088
 let hard_block_limit = 100_000
 let hard_max_global_bytes = Global_storage.hard_max_global_bytes
 
@@ -1169,12 +1170,12 @@ let build_windows_unwind_info frame_size =
   else
     let info = Bytes.make 8 '\000' in
     let set index value = Bytes.set info index (Char.chr value) in
-    (* Conventional Windows x64 UNWIND_INFO version 1. The fixed prologue is
-       seven bytes, so its one stack-allocation unwind code ends at offset 7. *)
+    (* Version 1 records the allocation after any page probes. The probes
+       leave RSP and nonvolatile registers unchanged. *)
     set 0 1;
-    set 1 7;
+    set 1 (Encoder.stack_allocation_size frame_size);
     set 3 0;
-    set 4 7;
+    set 4 (Encoder.stack_allocation_size frame_size);
     (if frame_size <= 128 then (
        let opinfo = (frame_size / 8) - 1 in
        set 2 1;
@@ -1189,17 +1190,18 @@ let build_windows_unwind_info frame_size =
 
 let build_callable_windows_unwind_info frame_size =
   let has_allocation = frame_size <> 0 in
+  let allocation_end = 4 + Encoder.stack_allocation_size frame_size in
   let large_allocation = frame_size > 128 in
   let info = Bytes.make (if large_allocation then 12 else 8) '\000' in
   let set index value = Bytes.set info index (Char.chr value) in
   (* Windows x64 UNWIND_INFO version 1. PUSH RBP ends at byte 1 and MOV
      RBP,RSP at byte 4. A callable allocation, when present, is the fixed
-     seven-byte SUB RSP,imm32 ending at byte 11. RSP stays fixed after that
+     seven-byte SUB RSP,imm32 after any page probes. RSP stays fixed after that
      allocation, so the unwind record does not establish a frame register;
      MOV RBP,RSP needs no unwind code. Codes are recorded in reverse prologue
      order and padded to an even slot count. *)
   set 0 1;
-  set 1 (if has_allocation then 11 else 4);
+  set 1 (if has_allocation then allocation_end else 4);
   set 3 0;
   (if not has_allocation then (
      set 2 1;
@@ -1207,14 +1209,14 @@ let build_callable_windows_unwind_info frame_size =
      set 5 (5 lsl 4))
    else if frame_size <= 128 then (
      set 2 2;
-     set 4 11;
+     set 4 allocation_end;
      set 5 ((((frame_size / 8) - 1) lsl 4) lor 2);
      set 6 1;
      set 7 (5 lsl 4))
    else
      let scaled = frame_size / 8 in
      set 2 3;
-     set 4 11;
+     set 4 allocation_end;
      set 5 1;
      set 6 (scaled land 0xff);
      set 7 ((scaled lsr 8) land 0xff);
@@ -1410,9 +1412,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
   let r8 = register_index Encoder.R8 in
   let reserved = List.map register_index reserved_registers in
   let owners : value option array = Array.make (Array.length registers) None in
-  let slots : value option array = Array.make (hard_max_stack_bytes / 8) None in
+  let slots : value option array = Array.make (max_stack_bytes / 8) None in
   let shared_count = List.length shared_values in
-  if shared_count > hard_max_stack_bytes / 8 then
+  if shared_count > max_stack_bytes / 8 then
     reject "HCBACK0004" "native shared-value frame exceeds the stack limit";
   let slot_high_water = ref shared_count in
   let planned = ref [] in
@@ -11565,7 +11567,7 @@ let plan_label_offsets plan =
 let default_status_abi () =
   if Sys.os_type = "Win32" then Windows_x64 else System_v_x64
 
-let compile_expression ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
+let compile_expression ?status_abi ?(max_stack_bytes = default_stack_bytes)
     ~max_ir_instructions ~max_code_bytes verified =
   match validate_limits ~max_ir_instructions ~max_code_bytes with
   | Error errors -> Error errors
@@ -11621,7 +11623,7 @@ let compile_expression ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                   }
           with Rejected error -> Error [ error ]))
 
-let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
+let compile_program ?status_abi ?(max_stack_bytes = default_stack_bytes)
     ?(max_blocks = 4096) ~max_ir_instructions ~max_code_bytes verified =
   match validate_limits ~max_ir_instructions ~max_code_bytes with
   | Error errors -> Error errors
@@ -11828,7 +11830,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
     ?retained_callback_default ?(capture_callback_default = false)
     ?capture_data_default ?retained_function_source ?retained_slot_binding
     ?retained_slot_address_binding ?retained_slot_address_refresh ?status_abi
-    ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
+    ?(max_stack_bytes = default_stack_bytes) ?(max_blocks = 4096)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?parameter_defaults ?global_initializers ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
@@ -12434,7 +12436,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           rbp_bytes + ((fixed_stack_slots + local_subroutine_slots) * 8)
         in
         let base_frame = if base_bytes = 0 then 0 else align_up base_bytes 16 in
-        if base_frame > max_stack_bytes || base_frame > 4080 then
+        if base_frame > max_stack_bytes || base_frame > 65520 then
           reject "HCBACK0004"
             (Printf.sprintf
                "native callable fixed frame requires %d bytes, exceeding \
@@ -12488,10 +12490,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                      })
                 block.program_instructions
             in
-            if allocation.frame_size > 4080 then
+            if allocation.frame_size > 65520 then
               reject "HCBACK0004"
-                "native callable frame exceeds the single guard-page-safe \
-                 allocation bound";
+                "native callable frame exceeds the probed allocation bound";
             frame_size := max !frame_size allocation.frame_size;
             peak := max !peak allocation.peak;
             fault_blocks_rev :=
@@ -12786,7 +12787,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               let frame_size =
                 align_up ((7 + Option_codegen.scratch_slots) * 8) 16
               in
-              if frame_size > max_stack_bytes || frame_size > 4080 then
+              if frame_size > max_stack_bytes || frame_size > 65520 then
                 reject "HCBACK0004"
                   "native compiler option entry exceeds its private scratch \
                    frame";
@@ -12873,7 +12874,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   * 8)
                   16
               in
-              if frame_size > max_stack_bytes || frame_size > 4080 then
+              if frame_size > max_stack_bytes || frame_size > 65520 then
                 reject "HCBACK0004"
                   "native Print entry exceeds its private scratch frame";
               let frame = encoder_call_frame None frame_size in

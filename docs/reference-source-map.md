@@ -2615,3 +2615,8 @@ move lowering are separate consumers in `OptPass012`, `OptPass3`, `OptPass4`,
 U0 initializer result from a discarded statement. JIT source tasks emit the
 warning through their active compiler control after the one-use initializer
 claim, before execution. See [U0 initializer warnings](void-initializer-warnings.md).
+
+[Large native frames](native-stack-probing.md) keep the semantic entry/leave
+contract from `Compiler/OptPass789A.HC:387-405,698-719`. Guard-page probes and
+variable allocation offsets in Windows unwind records are host adaptations,
+using the Microsoft x64 prologue and unwind specifications linked there.

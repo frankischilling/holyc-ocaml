@@ -1289,11 +1289,11 @@ let eval_native_command =
   let stack_bytes =
     Arg.(
       value
-      & opt int Holyc_lib.X86_64_expression.hard_max_stack_bytes
+      & opt int Holyc_lib.X86_64_expression.default_stack_bytes
       & info [ "stack-byte-limit" ] ~docv:"BYTES"
           ~doc:
             "Maximum private spill-frame bytes, including alignment padding. \
-             Must be between 0 and 4088; zero disables spilling.")
+             Must be between 0 and 65528; zero disables spilling.")
   in
   Cmd.v
     (Cmd.info "eval-native" ~exits:expression_exits
@@ -1523,7 +1523,7 @@ let run_command =
   let native_stack_bytes =
     Arg.(
       value
-      & opt int Holyc_lib.X86_64_program.hard_max_stack_bytes
+      & opt int Holyc_lib.X86_64_program.default_stack_bytes
       & info [ "stack-byte-limit" ] ~docv:"BYTES"
           ~doc:
             "host-jit only: maximum private frame bytes per generated \

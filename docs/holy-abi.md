@@ -300,3 +300,9 @@ addresses retain that definition's body. `PrsStmt.HC:67-143` applies function
 modifiers when creating a record; reuse keeps its stored cleanup flags. The
 private IR and native adapters check the selected call header against those
 original flags. Later source spelling cannot replace the checked cleanup policy.
+
+Hosted native entries can now use checked, page-probed private frames beyond
+4 KiB without changing the semantic RBP layout above. See
+[native stack probing](native-stack-probing.md) for the limits, prologues and
+Windows unwind checks. This is a host adapter extension, not the full HolyC
+register allocation or native exception ABI.

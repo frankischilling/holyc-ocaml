@@ -109,7 +109,7 @@ let image_errors ~span errors =
     errors
 
 let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
-    ?(max_stack_bytes = Image.hard_max_stack_bytes) ?(max_blocks = 4096)
+    ?(max_stack_bytes = Image.default_stack_bytes) ?(max_blocks = 4096)
     ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)

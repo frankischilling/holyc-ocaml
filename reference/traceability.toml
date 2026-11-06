@@ -15052,3 +15052,15 @@ verification = "Repeated original JIT and compiled observations cover bounded pa
 repeated_update_verification = "Pinned OptPass3 member scoring supports two to five ordered updates that revisit a parameter while all operand parameters remain unchanged. Source-derived API and CLI tests cover all narrow widths, stack and explicit-register controls, interleaved targets, exact/one-below execution limits and both modes through IR and native execution. No new TempleOS runtime capture is claimed."
 remainder_update_verification = "Pinned OptPass3 compound member scoring and BackA ICDivEqu support single, paired and repeated parameter remainder updates. Hosted tests cover six narrow widths, entry conversion, register and stack controls, signed and unsigned operands, mixed sequences, retained defaults, zero divisors and signed quotient overflow. These source-derived expectations add no TempleOS runtime captures."
 evidence_limit = "Only explicitly source-proven shapes are covered; the parameter and local proofs are call-free. General physical register allocation, other explicit or conflicting registers, aliases, additional control flow, other local shapes and native exception handling remain open."
+
+[[feature]]
+id = "HC-HOSTED-LARGE-NATIVE-FRAMES"
+description = "Probe larger hosted native frames and describe their allocation in Windows unwind records."
+sources = ["Compiler/OptPass789A.HC:387-405,698-719", "https://learn.microsoft.com/en-us/cpp/build/prolog-and-epilog", "https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64"]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/native_execution_stubs.c"]
+tests = ["test/test_native_expression.ml", "test/test_large_native_frames_cli.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c"]
+documentation = ["docs/native-stack-probing.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Independent probe bytes, bounded unwind offsets, source arrays, recursion, repeated calls, arithmetic and initialization faults, private frame quotas and separate semantic and active-stack limits. Windows RtlVirtualUnwind checks every probe position and allocation boundary."
+evidence_limit = "Hosted ABI adaptation, not a new TempleOS capture or complete register allocator. Default frame quota remains 4088; simultaneous physical stack remains capped at 65536."

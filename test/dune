@@ -5710,3 +5710,14 @@
    %{exe:test_register_variable_execution_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(executable
+ (name test_large_native_frames_cli)
+ (modules test_large_native_frames_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/large-native-frame.hc)
+ (action
+  (run %{exe:test_large_native_frames_cli.exe} %{exe:../bin/holyc.exe})))

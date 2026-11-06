@@ -877,7 +877,7 @@ let invalid_configuration () =
           in
           check_limits ~stack report 4096 65536;
           check_command_error report "HCBACK0001" "max_stack_bytes")
-        [ -1; 4089 ];
+        [ -1; 65529 ];
       let report =
         native_json ~mode:"jit" ~options:[ "--include-depth-limit=-1" ] 1 source
       in
@@ -897,7 +897,7 @@ let invalid_configuration () =
         [
           "--ir-instruction-limit=0";
           "--stack-byte-limit=-1";
-          "--stack-byte-limit=4089";
+          "--stack-byte-limit=65529";
         ])
 
 let invalid_options () =
