@@ -3021,6 +3021,98 @@ let simple_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let repeated_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun (qualifier, expected) ->
+              List.iter
+                (fun count ->
+                  List.iter
+                    (fun op ->
+                      let statements =
+                        String.concat ""
+                          (List.init count (fun _ -> "x" ^ op ^ "=c;"))
+                      in
+                      let fn =
+                        compile mode
+                          ("I64 F(" ^ ty ^ " " ^ qualifier ^ " x,I64 c){"
+                         ^ statements ^ "return x;}42;")
+                      in
+                      let proof =
+                        Option.get
+                          (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+                      in
+                      let symbol =
+                        Frame.location_symbol (location fn.frame "x")
+                      in
+                      Alcotest.(check bool)
+                        "repeated updates retain selection" true
+                        (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                           ~symbol
+                        = Some expected))
+                    [ "+"; "-"; "*"; "/"; "<<"; ">>"; "&"; "|"; "^" ])
+                [ 2; 3; 4; 5 ])
+            [
+              ("", Analysis.Register_candidate);
+              ("noreg", Analysis.Stack);
+              ("reg R12", Analysis.Register_candidate);
+            ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "interleaved repeated updates" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,U16 y,I64 c){x+=c;y*=c;x-=c;return x+y;}42;";
+          "I64 F(I8 x,I64 c,I64 d){x+=c;x*=d;x-=c;return x+x;}42;";
+        ];
+      let fn = compile mode "I64 F(I8 x,I64 c,I64 d){x+=c;x*=d;return x;}42;" in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = Frame.location_symbol (location fn.frame "x") in
+      let updates =
+        Body.body fn.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+        |> List.filter (fun (item : Seq.description) ->
+            item.opcode = Holyc_lib__Ir.Opcode.Ic_add_equ
+            || item.opcode = Holyc_lib__Ir.Opcode.Ic_mul_equ)
+      in
+      let first = List.hd updates and second = List.nth updates 1 in
+      let original = second.operands in
+      let substituted = [ List.hd original; List.nth first.operands 1 ] in
+      Obj.set_field (Obj.repr second) 2 (Obj.repr substituted);
+      Alcotest.(check bool)
+        "repeated update substitution invalidates witness" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+      Alcotest.(check bool)
+        "repeated update cannot acquire foreign operand" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      Obj.set_field (Obj.repr second) 2 (Obj.repr original);
+      Alcotest.(check bool)
+        "original repeated update witness remains valid" true
+        (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+        = Some Analysis.Register_candidate);
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "unproved repeated update stays rejected" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I64 c){x+=c;x+=x;return x;}42;";
+          "I64 F(I8 x,I64 c){x+=c;c+=x;x*=c;return x;}42;";
+          "I64 F(I8 x,I64 c){x+=c;x%=c;return x;}42;";
+          "I64 F(I8 x,I64 c){x+=c;x+=c;x+=c;x+=c;x+=c;x+=c;return x;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let many_parameter_selection () =
   let signatures =
     [
@@ -4602,6 +4694,8 @@ let () =
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
           Alcotest.test_case "multi-update selection" `Quick sequence_selection;
+          Alcotest.test_case "repeated update selection" `Quick
+            repeated_selection;
           Alcotest.test_case "two-update selection" `Quick pair_selection;
           Alcotest.test_case "multi-parameter selection" `Quick
             many_parameter_selection;

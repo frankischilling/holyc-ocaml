@@ -5690,7 +5690,9 @@
 
 (rule
  (alias runtest)
- (deps ../examples/register-variable-selection.hc)
+ (deps
+  ../examples/register-variable-selection.hc
+  ../examples/repeated-register-updates.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5698,7 +5700,9 @@
 
 (rule
  (alias native-tests)
- (deps ../examples/register-variable-selection.hc)
+ (deps
+  ../examples/register-variable-selection.hc
+  ../examples/repeated-register-updates.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}

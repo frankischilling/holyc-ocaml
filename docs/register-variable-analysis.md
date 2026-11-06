@@ -43,3 +43,23 @@ A separate proof covers a zero-argument, zero-local function that returns a narr
 A call-free function with up to six scalar parameters may also apply shifts, addition, subtraction, multiplication, division or bitwise updates using one or two unchanged parameters to two distinct scalar parameters, at least one narrow, and return their sum or either updated parameter. The analysis checks both updates, their order, and the original return expression. Mixed `reg` and `noreg` storage and distinct R12–R15 requests are supported in this shape. The reference captures include a signed byte paired with a 64-bit parameter in both operand orders. Other combinations remain unproved. `examples/register-variable-selection.hc` demonstrates the difference between register and stack values.
 
 For three to five distinct scalar parameters, at least one narrow, a straight-line function can apply supported shift, arithmetic or bitwise updates using unchanged parameters, then return one updated variable or a sum of two to six operands, including repeated variables and parenthesized groupings. The parameters may have different widths or signedness, including full-width integers. Original JIT and compiled captures cover each operator and width, mixed-operator patterns and independent operands, with register and stack controls. The proof checks each intermediate sum type and verifies that every sum operand is one of the updated variables. Other multi-update sequences remain outside this case.
+
+The ordered sequence can revisit a parameter in two to five updates. Every
+right-hand operand must still be an unchanged parameter, and the return must
+read an updated parameter or a supported sum of updated parameters. For example,
+an `I8 x` parameter entering with 127, with an unchanged `step` parameter of 2,
+retains 258 after `x+=step; x*=step;` in a selected register. The `noreg` control
+stores the low byte after each update and
+returns 2. The maintained example is
+[repeated register updates](../examples/repeated-register-updates.hc).
+
+This extension follows the pinned `OptPass3.HC` member-scoring loop: every
+compound update scores its destination's existing frame member, and register
+assignment is performed once for that member after the scan. Repeated uses do
+not allocate new variables or force a narrow store. Tests cover signed and
+unsigned 8-, 16- and 32-bit parameters, explicit registers, stack controls,
+interleaved destinations, unchanged operands and exact execution limits through
+both source modes and all three hosted executors. These are source-derived
+expectations and hosted tests, not new TempleOS runtime captures. Changed operand
+parameters, remainder updates, six-update sequences and general control flow
+remain outside this proof.

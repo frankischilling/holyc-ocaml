@@ -720,8 +720,8 @@ let analyze_parameter ~frame ~body =
             | _ -> false)
           (Function_body.definition_source body)
       in
-      (* Match straight-line updates only when every distinct target appears in
-         order in the returned addition tree. *)
+      (* Match the original ordered updates, including repeated destinations.
+         Operands must remain unchanged and returns must read updated members. *)
       let matching_sequence =
         let address_location id =
           List.find_map
@@ -828,18 +828,8 @@ let analyze_parameter ~frame ~body =
                          (integer_shape (Frame.location_checked_type target)))
                      targets
               in
-              let unique_targets =
-                List.length
-                  (List.sort_uniq Int.compare
-                     (List.map
-                        (fun location ->
-                          Sema.Symbol.id (Frame.location_symbol location)
-                          |> Sema.Symbol.Id.to_int)
-                        targets))
-                = count
-              in
               if
-                (not supported_targets) || (not unique_targets)
+                (not supported_targets)
                 || List.exists
                      (fun target -> List.exists (( == ) target) operands)
                      targets

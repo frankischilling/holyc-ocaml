@@ -855,6 +855,13 @@ probe cover this producer-to-consumer path.
 `OptLib.HC:9-14,101-122,196-202` and `OptPass012.HC:151-191` distinguish native
 node classes from result/stack classes, notably for direct calls and COM.
 
+[Repeated register updates](register-variable-analysis.md) follow
+`Compiler/OptPass3.HC:223-247,524-610`: each compound update scores the same
+frame member, then the allocator selects storage once per member. The bounded
+proof permits revisiting that member while keeping source order and unchanged
+operand parameters. Hosted tests cover wide register values and per-update
+narrow stack stores; this extension adds no native TempleOS capture.
+
 [U8 signatures](integer-byte-signatures.md) in #631 follow
 `Compiler/PrsExp.HC:468-483` and `BackLib.HC:312-347` for argument transport,
 `OptPass789A.HC:710-717` and `BackLib.HC:528-530` for byte parameter entry,

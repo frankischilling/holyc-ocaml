@@ -15,7 +15,7 @@ let with_file suffix f =
 let compiler = Sys.argv.(1)
 let native = Array.length Sys.argv = 3 && Sys.argv.(2) = "--native"
 
-let run ?(fault = false) source expected target mode =
+let run ?(fault = false) ?steps source expected target mode =
   with_file ".hc" (fun path ->
       let channel = open_out_bin path in
       output_string channel source;
@@ -36,6 +36,12 @@ let run ?(fault = false) source expected target mode =
                   "--mode=" ^ mode;
                   path;
                 |]
+                |> fun args ->
+                match steps with
+                | None -> args
+                | Some limit ->
+                    Array.append args
+                      [| "--step-limit=" ^ string_of_int limit |]
               in
               let pid =
                 Fun.protect
@@ -111,6 +117,51 @@ let () =
          x+a+a+a+b+b+b+d+d+d+e+e+e+f+f+f+g+g+g+h+h+h+i+i+i;}F(127,1,0,0,0,0,0,0,0,0);",
         "-2" );
     ]
+  in
+  let cases =
+    cases
+    @ List.concat_map
+        (fun (ty, initial, wide) ->
+          List.map
+            (fun (qualifier, expected) ->
+              ( Printf.sprintf
+                  "I64 F(%s %s x,I64 c){x+=c;x*=c;return x;}F(%s,2);" ty
+                  qualifier initial,
+                expected ))
+            [ ("", wide); ("noreg", "2"); ("reg R12", wide) ])
+        [
+          ("I8", "127", "258");
+          ("U8", "255", "514");
+          ("I16", "32767", "65538");
+          ("U16", "65535", "131074");
+          ("I32", "2147483647", "4294967298");
+          ("U32", "4294967295", "8589934594");
+        ]
+    @ [
+        ( "I64 F(I8 x,I64 c){x+=c;x<<=c;x-=c;x/=c;x^=c;return x;}F(127,2);",
+          "259" );
+        ( "I64 F(I8 noreg x,I64 c){x+=c;x<<=c;x-=c;x/=c;x^=c;return x;}F(127,2);",
+          "3" );
+        ( "I64 F(I8 x,U16 y,I64 c){x+=c;y*=c;x-=c;return x+y;}F(127,65535,2);",
+          "131197" );
+        ("I64 F(I8 x,I64 c,I64 d){x+=c;x*=d;x-=c;return x+x;}F(127,2,3);", "770");
+        ("I64 F(I8 x,I64 c){x+=c;x>>=c;x|=c;x&=c;return x;}F(127,2);", "2");
+      ]
+  in
+  List.iter
+    (fun target ->
+      List.iter
+        (fun mode ->
+          let source = "I64 F(I8 x,I64 c){x+=c;x*=c;return x;}F(127,2);" in
+          let steps =
+            if target = "host-jit-task" && mode = "jit" then 34 else 33
+          in
+          run ~steps source "258" target mode;
+          run ~fault:true ~steps:(steps - 1) source "HCIRVM0007" target mode)
+        [ "jit"; "aot" ])
+    targets;
+  let cases =
+    cases @ [ (read "../examples/repeated-register-updates.hc", "42") ]
   in
   let local_cases =
     [
@@ -3084,20 +3135,26 @@ let () =
             faults)
         [ "jit"; "aot" ])
     targets;
-  if native then
-    List.iter
-      (fun mode ->
-        List.iter
-          (fun (source, expected) -> run source expected "host-jit-task" mode)
-          [
-            ( "#exe {I64 F(I8 x,I8 c){x<<=c;return x;}I64 I(){return \
-               F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
-              "254" );
-            ( "#exe {I64 F(U8 x,I8 c){x<<=c;return x;}I64 I(){return \
-               F(255,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
-              "510" );
-          ])
-      [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected) ->
+          run source expected (if native then "host-jit-task" else "ir") mode)
+        [
+          ( "#exe {I64 F(I8 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(U8 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(255,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(I8 x,I64 c){x+=c;x*=c;return x;}I64 I(){return \
+             F(127,2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "258" );
+          ( "#exe {I64 F(I8 noreg x,I64 c){x+=c;x*=c;return x;}I64 I(){return \
+             F(127,2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "2" );
+        ])
+    [ "jit"; "aot" ];
   if native then
     List.iter
       (fun mode ->
@@ -3114,5 +3171,6 @@ let () =
           [ "host-jit"; "host-jit-task" ])
       [ "jit"; "aot" ];
   Printf.printf "Register execution checks passed (%d reports).\n"
-    ((List.length targets * 2 * (List.length cases + List.length faults))
-    + if native then 4 else 0)
+    ((List.length targets * 2 * (List.length cases + List.length faults + 2))
+    + 8
+    + if native then 8 else 0)
