@@ -163,6 +163,66 @@ let () =
   let cases =
     cases @ [ (read "../examples/repeated-register-updates.hc", "42") ]
   in
+  let remainder_cases =
+    List.concat_map
+      (fun (ty, initial, wide, stored, divisor) ->
+        List.concat_map
+          (fun (qualifier, expected) ->
+            List.map
+              (fun operand_type ->
+                ( Printf.sprintf
+                    "I64 F(%s %s x,I64 step,%s \
+                     divisor){x+=step;x%%=divisor;return x;}F(%s,2,%s);"
+                    ty qualifier operand_type initial divisor,
+                  expected ))
+              [ "I64"; "U64" ])
+          [ ("", wide); ("reg R12", wide); ("noreg", stored) ])
+      [
+        ("U8", "255", "257", "1", "355");
+        ("U16", "65535", "65537", "1", "65635");
+        ("U32", "4294967295", "4294967297", "1", "4294967395");
+      ]
+    @ List.concat_map
+        (fun (ty, initial, wide, stored, divisor) ->
+          List.concat_map
+            (fun (qualifier, expected) ->
+              List.map
+                (fun sign ->
+                  ( Printf.sprintf
+                      "I64 F(%s %s x,I64 step,I64 \
+                       divisor){x+=step;x%%=divisor;return x;}F(%s,2,%s%s);"
+                      ty qualifier initial sign divisor,
+                    expected ))
+                [ ""; "-" ])
+            [ ("", wide); ("reg R12", wide); ("noreg", stored) ])
+        [
+          ("I8", "127", "129", "-127", "227");
+          ("I16", "32767", "32769", "-32767", "32867");
+          ("I32", "2147483647", "2147483649", "-2147483647", "2147483747");
+        ]
+    @ [
+        ("I64 F(I8 x,I64 c){x%=c;return x;}F(-128,-1);", "0");
+        ("I64 F(I8 x,I64 c){x%=c;return x;}F(-127,7);", "-1");
+        ("I64 F(U8 x,U64 c){x%=c;return x;}F(511,7);", "3");
+        ("I64 F(I8 x,I8 y,I64 c){x%=c;y+=c;return x+y;}F(-127,127,7);", "133");
+        ( "I64 F(I8 noreg x,I8 noreg y,I64 c){x%=c;y+=c;return \
+           x+y;}F(-127,127,7);",
+          "-123" );
+        ( "I64 F(I8 x,I8 y,I8 z,I64 c){x%=c;y+=c;z*=c;return \
+           x+y+z;}F(-127,127,127,7);",
+          "1022" );
+        ( "I64 F(I8 x,I64 c,I64 d){x+=c;x%=d;x*=c;x%=d;x+=c;return \
+           x;}F(127,2,131);",
+          "129" );
+        ( "I64 F(I8 noreg x,I64 c,I64 d){x+=c;x%=d;x*=c;x%=d;x+=c;return \
+           x;}F(127,2,131);",
+          "4" );
+      ]
+  in
+  let cases =
+    cases @ remainder_cases
+    @ [ (read "../examples/remainder-register-updates.hc", "42") ]
+  in
   let local_cases =
     [
       ("I8", "255", "255", "-1");
@@ -3114,6 +3174,11 @@ let () =
   in
   let faults =
     [
+      ("I64 F(I8 x,I64 c){x%=c;return x;}F(1,0);", "HCIRVM0009");
+      ("I64 F(U8 x,I64 c,I64 d){x+=c;x%=d;return x;}F(255,2,0);", "HCIRVM0009");
+      ( "I64 F(I8 x,I64 c,I64 d){x*=c;x%=d;return x;}F(1,0x8000000000000000,-1);",
+        "HCIRVM0010" );
+      ("I64 F(I8 x,I8 y,I64 c){x%=c;y%=c;return x+y;}F(1,1,0);", "HCIRVM0009");
       ("I64 F(I8 x,I8 y,I64 c){x/=c;y/=c;return x+y;}F(1,1,0);", "HCIRVM0009");
       ( "I64 F(U8 x,U8 y,U8 z,I64 c){x/=c;y/=c;z/=c;return x+y+z;}F(1,1,1,0);",
         "HCIRVM0009" );
@@ -3141,6 +3206,12 @@ let () =
         (fun (source, expected) ->
           run source expected (if native then "host-jit-task" else "ir") mode)
         [
+          ( "#exe {I64 F(I8 x,I64 c){x+=c;x%=c;return x;}I64 I(){return \
+             F(127,10);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "7" );
+          ( "#exe {I64 F(I8 noreg x,I64 c){x+=c;x%=c;return x;}I64 I(){return \
+             F(127,10);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-9" );
           ( "#exe {I64 F(I8 x,I8 c){x<<=c;return x;}I64 I(){return \
              F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
             "254" );
@@ -3172,5 +3243,5 @@ let () =
       [ "jit"; "aot" ];
   Printf.printf "Register execution checks passed (%d reports).\n"
     ((List.length targets * 2 * (List.length cases + List.length faults + 2))
-    + 8
+    + 12
     + if native then 8 else 0)

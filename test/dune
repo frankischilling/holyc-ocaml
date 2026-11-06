@@ -5692,7 +5692,8 @@
  (alias runtest)
  (deps
   ../examples/register-variable-selection.hc
-  ../examples/repeated-register-updates.hc)
+  ../examples/repeated-register-updates.hc
+  ../examples/remainder-register-updates.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5702,7 +5703,8 @@
  (alias native-tests)
  (deps
   ../examples/register-variable-selection.hc
-  ../examples/repeated-register-updates.hc)
+  ../examples/repeated-register-updates.hc
+  ../examples/remainder-register-updates.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}

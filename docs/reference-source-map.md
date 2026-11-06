@@ -861,6 +861,10 @@ frame member, then the allocator selects storage once per member. The bounded
 proof permits revisiting that member while keeping source order and unchanged
 operand parameters. Hosted tests cover wide register values and per-update
 narrow stack stores; this extension adds no native TempleOS capture.
+Parameter remainder uses the same scoring branch and
+`Compiler/BackA.HC:372-423`, which writes the division remainder from RDX
+to the selected register or narrow memory operand. Hosted cases cover signed
+and unsigned remainder, mixed sequences, zero divisors and signed overflow.
 
 [U8 signatures](integer-byte-signatures.md) in #631 follow
 `Compiler/PrsExp.HC:468-483` and `BackLib.HC:312-347` for argument transport,

@@ -4,7 +4,7 @@ TempleOS can keep a narrow integer variable in a register without narrowing the 
 
 Selection depends on more than the declared type. The original `Compiler/OptPass3.HC` scores frame members and assigns a limited set of registers; escape and register pressure can prevent selection. The captures include a larger pressure case where the signed result is -2. An option experiment enabled an option in the surrounding compiler context but still returned 254 from a compiled function. That experiment does not establish the function's own option snapshot, so the analysis declines non-default option states.
 
-For parameters, the analysis covers a default-option, straight-line function with two to six scalar integer parameters, one compound shift, addition, subtraction, multiplication, division or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return. It ties the result to the original typed source, frame and instruction graph and rejects changes to that evidence. Explicit `noreg` is classified as stack storage. Address escapes, extra statements, control flow and larger graphs remain unproved. Within the supported call-free shapes, distinct explicit R12, R13, R14 and R15 requests are covered. Other explicit registers and conflicting requests remain unproved; this models their observable value behavior rather than binding host machine registers.
+For parameters, the analysis covers a default-option, straight-line function with two to six scalar integer parameters, one compound shift, addition, subtraction, multiplication, division, remainder or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return. It ties the result to the original typed source, frame and instruction graph and rejects changes to that evidence. Explicit `noreg` is classified as stack storage. Address escapes, extra statements, control flow and larger graphs remain unproved. Within the supported call-free shapes, distinct explicit R12, R13, R14 and R15 requests are covered. Other explicit registers and conflicting requests remain unproved; this models their observable value behavior rather than binding host machine registers.
 
 The updated variable and operand may appear in any parameter position. For this bounded class, the interpreter and native backends preserve the full register value through the update and return. Arguments are first converted to their declared narrow type, as in the entry-conversion captures. Explicit `noreg` continues to use narrow memory storage. The native entry path normalizes the incoming value before preserving its full-width register value.
 
@@ -40,7 +40,7 @@ The same directly returned literal updates are supported for a single narrow par
 
 A separate proof covers a zero-argument, zero-local function that returns a narrow global's literal addition or subtraction update, either directly or as the left side of addition, subtraction or multiplication by another nonnegative signed-32-bit literal, or addition, subtraction or multiplication by a signed/unsigned 64-bit global value, or as the sole argument to a direct function with a 64-bit parameter and result. It checks the original source and instruction graph, including the exact global identity. The literal is limited to a nonnegative signed-32-bit value. The reference's `ICAddSubEctEqu` implementation in `Compiler/BackA.HC` distinguishes the direct by-value immediate path from the indirect path. Original captures cover signed and unsigned widths in JIT and compiled execution, as well as direct calls in compile-time execution. Dynamic update operands, pointer accesses and retained initializer preparation are not included in this proof. Other nested expressions and call shapes remain outside the supported case.
 
-A call-free function with up to six scalar parameters may also apply shifts, addition, subtraction, multiplication, division or bitwise updates using one or two unchanged parameters to two distinct scalar parameters, at least one narrow, and return their sum or either updated parameter. The analysis checks both updates, their order, and the original return expression. Mixed `reg` and `noreg` storage and distinct R12–R15 requests are supported in this shape. The reference captures include a signed byte paired with a 64-bit parameter in both operand orders. Other combinations remain unproved. `examples/register-variable-selection.hc` demonstrates the difference between register and stack values.
+A call-free function with up to six scalar parameters may also apply shifts, addition, subtraction, multiplication, division, remainder or bitwise updates using one or two unchanged parameters to two distinct scalar parameters, at least one narrow, and return their sum or either updated parameter. The analysis checks both updates, their order, and the original return expression. Mixed `reg` and `noreg` storage and distinct R12–R15 requests are supported in this shape. The reference captures include a signed byte paired with a 64-bit parameter in both operand orders. Other combinations remain unproved. `examples/register-variable-selection.hc` demonstrates the difference between register and stack values.
 
 For three to five distinct scalar parameters, at least one narrow, a straight-line function can apply supported shift, arithmetic or bitwise updates using unchanged parameters, then return one updated variable or a sum of two to six operands, including repeated variables and parenthesized groupings. The parameters may have different widths or signedness, including full-width integers. Original JIT and compiled captures cover each operator and width, mixed-operator patterns and independent operands, with register and stack controls. The proof checks each intermediate sum type and verifies that every sum operand is one of the updated variables. Other multi-update sequences remain outside this case.
 
@@ -61,5 +61,21 @@ unsigned 8-, 16- and 32-bit parameters, explicit registers, stack controls,
 interleaved destinations, unchanged operands and exact execution limits through
 both source modes and all three hosted executors. These are source-derived
 expectations and hosted tests, not new TempleOS runtime captures. Changed operand
-parameters, remainder updates, six-update sequences and general control flow
+parameters, six-update sequences and general control flow
 remain outside this proof.
+
+Parameter remainder updates use the same proof as division, including single,
+paired and repeated updates. The pinned `OptPass3.HC:223-247` scores
+`IC_MOD_EQU` with the other compound updates. `BackA.HC:372-423` emits division
+and writes RDX for remainder, retaining the full value for a selected register
+and narrowing a stack store. Thus `I8 x=127` supplied as a parameter can retain
+129 through `x+=step; x%=divisor;` when `step` is 2 and `divisor` is 227.
+The `noreg` control returns -127.
+[Register remainder](../examples/remainder-register-updates.hc) is a runnable example. Signed remainder follows the dividend's sign;
+zero divisors and signed quotient overflow retain their fault diagnostics.
+
+Hosted tests cover all six narrow widths, register and stack storage, negative
+and unsigned operands, mixed update sequences and the existing proof boundaries.
+These expectations come from the pinned source, not new TempleOS captures.
+The restrictions on unchanged operands, parameter count and control flow still
+apply. This does not close the general allocation work in #703.

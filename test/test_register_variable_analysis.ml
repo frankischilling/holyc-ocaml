@@ -3021,6 +3021,48 @@ let simple_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let remainder_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun ty ->
+          List.iter
+            (fun (qualifier, expected) ->
+              let fn =
+                compile mode
+                  ("I64 F(" ^ ty ^ " " ^ qualifier
+                 ^ " x,I64 c){x%=c;return x;}42;")
+              in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let symbol = Frame.location_symbol (location fn.frame "x") in
+              Alcotest.(check bool)
+                "single remainder selection" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some expected))
+            [
+              ("", Analysis.Register_candidate);
+              ("noreg", Analysis.Stack);
+              ("reg R12", Analysis.Register_candidate);
+            ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ];
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          Alcotest.(check bool)
+            "remainder proof rejects aliases and effects" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I64 c){x%=x;return x;}42;";
+          "I64 F(I8 x,I64 c){c+=x;x%=c;return x;}42;";
+          "I64 F(I8 x,I64 c){I8 *p=&x;x%=c;return x;}42;";
+          "I64 F(I8 x,I64 c){if(c)x%=c;return x;}42;";
+          "I64 F(I8 reg RAX x,I64 c){x%=c;return x;}42;";
+          "I64 F(I8 reg R12 x,I64 reg R12 c){x%=c;return x;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let repeated_selection () =
   List.iter
     (fun mode ->
@@ -3053,7 +3095,7 @@ let repeated_selection () =
                         (Analysis.selection proof ~frame:fn.frame ~body:fn.body
                            ~symbol
                         = Some expected))
-                    [ "+"; "-"; "*"; "/"; "<<"; ">>"; "&"; "|"; "^" ])
+                    [ "+"; "-"; "*"; "/"; "%"; "<<"; ">>"; "&"; "|"; "^" ])
                 [ 2; 3; 4; 5 ])
             [
               ("", Analysis.Register_candidate);
@@ -3108,7 +3150,6 @@ let repeated_selection () =
         [
           "I64 F(I8 x,I64 c){x+=c;x+=x;return x;}42;";
           "I64 F(I8 x,I64 c){x+=c;c+=x;x*=c;return x;}42;";
-          "I64 F(I8 x,I64 c){x+=c;x%=c;return x;}42;";
           "I64 F(I8 x,I64 c){x+=c;x+=c;x+=c;x+=c;x+=c;x+=c;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -3212,8 +3253,8 @@ let pair_selection () =
                 "two-update arithmetic proved" true
                 (Option.is_some
                    (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
-            [ "+"; "-"; "*"; "/"; "<<"; ">>"; "&"; "|"; "^" ])
-        [ "+"; "-"; "*"; "/"; "<<"; ">>"; "&"; "|"; "^" ];
+            [ "+"; "-"; "*"; "/"; "%"; "<<"; ">>"; "&"; "|"; "^" ])
+        [ "+"; "-"; "*"; "/"; "%"; "<<"; ">>"; "&"; "|"; "^" ];
       List.iter
         (fun source ->
           let fn = compile mode source in
@@ -3306,7 +3347,6 @@ let pair_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return y+x;}42;";
-          "I64 F(I8 x,I8 y,I64 c){x+=c;y%=c;return x+y;}42;";
           "I64 F(I64 x,I64 y,I64 c){x+=c;y+=c;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=x;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return x+y+0;}42;";
@@ -3385,7 +3425,7 @@ let sequence_selection () =
                     "matching update operators" true
                     (Option.is_some
                        (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
-                [ "+"; "-"; "*"; "/"; "<<"; ">>"; "&"; "|"; "^" ])
+                [ "+"; "-"; "*"; "/"; "%"; "<<"; ">>"; "&"; "|"; "^" ])
             [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32" ])
         [ 3; 4; 5 ];
       List.iter
@@ -3633,7 +3673,6 @@ let sequence_selection () =
             "unproved update sequence" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z%=c;return x+y+z;}42;";
           "I64 F(I64 x,I64 y,I64 z,I64 c){x+=c;y+=c;z+=c;return x+y+z;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+c;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return c;}42;";
@@ -4694,6 +4733,7 @@ let () =
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
           Alcotest.test_case "multi-update selection" `Quick sequence_selection;
+          Alcotest.test_case "remainder selection" `Quick remainder_selection;
           Alcotest.test_case "repeated update selection" `Quick
             repeated_selection;
           Alcotest.test_case "two-update selection" `Quick pair_selection;

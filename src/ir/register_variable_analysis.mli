@@ -16,18 +16,17 @@ val analyze :
     decremented before return, or returned with a prefix or postfix update.
     Addition and subtraction by a literal in these shapes are limited to
     nonnegative signed-32-bit operands. A bounded function may also apply
-    shifts, addition, subtraction, multiplication, division or bitwise updates
-    using one or two unchanged parameters to two scalar parameters, at least one
-    narrow, and return their sum or either updated parameter. Three to five
-    scalar parameters, at least one narrow, may each receive a supported update
-    using an unchanged parameter and return one updated parameter or a sum of
-    two to six updated parameters. Their widths and signedness may differ. Two
-    to five updates may also revisit a target, provided every operand parameter
-    remains unchanged. Remainder is not proved for these parameter updates.
-    Distinct R12 through R15 requests are covered in these call-free shapes.
-    Other explicit registers, conflicting requests, escapes, extra locals and
-    other control flow remain unproved. The witness itself does not alter
-    execution. *)
+    shifts, addition, subtraction, multiplication, division, remainder or
+    bitwise updates using one or two unchanged parameters to two scalar
+    parameters, at least one narrow, and return their sum or either updated
+    parameter. Three to five scalar parameters, at least one narrow, may each
+    receive a supported update using an unchanged parameter and return one
+    updated parameter or a sum of two to six updated parameters. Their widths
+    and signedness may differ. Two to five updates may also revisit a target,
+    provided every operand parameter remains unchanged. Distinct R12 through R15
+    requests are covered in these call-free shapes. Other explicit registers,
+    conflicting requests, escapes, extra locals and other control flow remain
+    unproved. The witness itself does not alter execution. *)
 
 val selection :
   t ->

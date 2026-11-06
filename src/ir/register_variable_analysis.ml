@@ -213,6 +213,7 @@ let analyze_parameter ~frame ~body =
       | Ic_sub_equ
       | Ic_mul_equ
       | Ic_div_equ
+      | Ic_mod_equ
       | Ic_and_equ
       | Ic_or_equ
       | Ic_xor_equ
@@ -300,6 +301,7 @@ let analyze_parameter ~frame ~body =
             | Ic_sub_equ
             | Ic_mul_equ
             | Ic_div_equ
+            | Ic_mod_equ
             | Ic_and_equ
             | Ic_or_equ
             | Ic_xor_equ ),
@@ -340,6 +342,7 @@ let analyze_parameter ~frame ~body =
                 | Ic_sub_equ
                 | Ic_mul_equ
                 | Ic_div_equ
+                | Ic_mod_equ
                 | Ic_and_equ
                 | Ic_or_equ
                 | Ic_xor_equ ),
@@ -386,8 +389,8 @@ let analyze_parameter ~frame ~body =
               item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ
               || item.opcode = O.Ic_add_equ || item.opcode = O.Ic_sub_equ
               || item.opcode = O.Ic_mul_equ || item.opcode = O.Ic_div_equ
-              || item.opcode = O.Ic_and_equ || item.opcode = O.Ic_or_equ
-              || item.opcode = O.Ic_xor_equ)
+              || item.opcode = O.Ic_mod_equ || item.opcode = O.Ic_and_equ
+              || item.opcode = O.Ic_or_equ || item.opcode = O.Ic_xor_equ)
             code
         in
         let returns =
@@ -459,6 +462,7 @@ let analyze_parameter ~frame ~body =
           | O.Ic_sub_equ
           | O.Ic_mul_equ
           | O.Ic_div_equ
+          | O.Ic_mod_equ
           | O.Ic_shl_equ
           | O.Ic_shr_equ
           | O.Ic_and_equ
@@ -484,9 +488,9 @@ let analyze_parameter ~frame ~body =
             (fun (item : Seq.description) ->
               item.opcode = O.Ic_add_equ || item.opcode = O.Ic_sub_equ
               || item.opcode = O.Ic_mul_equ || item.opcode = O.Ic_div_equ
-              || item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ
-              || item.opcode = O.Ic_and_equ || item.opcode = O.Ic_or_equ
-              || item.opcode = O.Ic_xor_equ)
+              || item.opcode = O.Ic_mod_equ || item.opcode = O.Ic_shl_equ
+              || item.opcode = O.Ic_shr_equ || item.opcode = O.Ic_and_equ
+              || item.opcode = O.Ic_or_equ || item.opcode = O.Ic_xor_equ)
             code
         in
         let returns =
@@ -603,6 +607,7 @@ let analyze_parameter ~frame ~body =
                         || item.opcode = O.Ic_sub_equ
                         || item.opcode = O.Ic_mul_equ
                         || item.opcode = O.Ic_div_equ
+                        || item.opcode = O.Ic_mod_equ
                         || item.opcode = O.Ic_and_equ
                         || item.opcode = O.Ic_or_equ
                         || item.opcode = O.Ic_xor_equ)
@@ -622,6 +627,7 @@ let analyze_parameter ~frame ~body =
                       | "-=", Ic_sub_equ
                       | "*=", Ic_mul_equ
                       | "/=", Ic_div_equ
+                      | "%=", Ic_mod_equ
                       | "&=", Ic_and_equ
                       | "|=", Ic_or_equ
                       | "^=", Ic_xor_equ -> true
@@ -679,6 +685,7 @@ let analyze_parameter ~frame ~body =
                 | "-=", O.Ic_sub_equ
                 | "*=", O.Ic_mul_equ
                 | "/=", O.Ic_div_equ
+                | "%=", O.Ic_mod_equ
                 | "<<=", O.Ic_shl_equ
                 | ">>=", O.Ic_shr_equ
                 | "&=", O.Ic_and_equ
@@ -746,6 +753,7 @@ let analyze_parameter ~frame ~body =
               | Ic_sub_equ
               | Ic_mul_equ
               | Ic_div_equ
+              | Ic_mod_equ
               | Ic_and_equ
               | Ic_or_equ
               | Ic_xor_equ -> true
@@ -950,6 +958,7 @@ let analyze_parameter ~frame ~body =
                 | "-=", O.Ic_sub_equ
                 | "*=", O.Ic_mul_equ
                 | "/=", O.Ic_div_equ
+                | "%=", O.Ic_mod_equ
                 | "<<=", O.Ic_shl_equ
                 | ">>=", O.Ic_shr_equ
                 | "&=", O.Ic_and_equ
