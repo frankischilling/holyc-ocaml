@@ -784,7 +784,9 @@ private saves and shared epilogues, including R10/R11. Defaults, callbacks,
 variadics, global leaves in the mixed proof and branch-local initialization remain
 excluded. An ordinary integer helper can own global state while a mixed caller
 uses its checked return value. [Numeric conversions](native-f64-conversions.md)
-can use this canonical mixed proof for conservative placement. Conversion-bearing
+can use this canonical mixed proof for conservative placement. A separate
+numeric-only target query admits sealed conversion intrinsics without broadening
+the ordinary call-target query. Conversion-bearing
 roots remain outside exact scoring. Floating updates retain their separate native
 admission limits.
 

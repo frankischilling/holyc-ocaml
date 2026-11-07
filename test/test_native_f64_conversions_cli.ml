@@ -216,10 +216,62 @@ let cases =
       "_intern 27 I64 Convert(F64 x);Convert(3.75);",
       "i64",
       3L );
+    ( "explicit arithmetic argument rounds",
+      "_intern 27 I64 C(F64 x);I64 F(F64 a,F64 b){return \
+       C(a+b);}F(9007199254740992.0,1.0);",
+      "i64",
+      9007199254740992L );
+    ( "implicit arithmetic return retains",
+      "I64 F(F64 a,F64 b){return a+b;}F(9007199254740992.0,1.0);",
+      "i64",
+      9007199254740993L );
+    ( "explicit nested arithmetic argument",
+      "_intern 27 I64 C(F64 x);I64 F(F64 a,F64 b,F64 c){return \
+       C((a+b)+c);}F(9007199254740992.0,1.0,-9007199254740992.0);",
+      "i64",
+      1L );
+    ( "ordinary same spelling arithmetic argument",
+      "I64 ToI64(F64 x){return 7;}I64 F(F64 a,F64 b){return \
+       ToI64(a+b);}F(9007199254740992.0,1.0);",
+      "i64",
+      7L );
+    ( "explicit materialized arithmetic consumer",
+      "_intern 28 F64 C(I64 x);I64 F(I64 n,F64 y){return \
+       C(n)+y;}F(9007199254740993,-9007199254740992.0);",
+      "i64",
+      0L );
+    ( "ordinary same spelling arithmetic consumer",
+      "F64 ToF64(I64 x){return 7.5;}F64 F(I64 n,F64 y){return \
+       ToF64(n)+y;}F(3,1.0);",
+      "f64",
+      0x4021000000000000L );
+    ( "explicit materialized reversed consumer",
+      "_intern 28 F64 C(I64 x);I64 F(I64 n,F64 y){return \
+       y+C(n);}F(9007199254740993,-9007199254740992.0);",
+      "i64",
+      0L );
+    ( "explicit integer arithmetic consumer",
+      "_intern 27 I64 C(F64 x);I64 F(F64 a,I64 n){return C(a)+n;}F(3.75,7);",
+      "i64",
+      10L );
+    ( "explicit float consumer without return conversion",
+      "_intern 28 F64 C(I64 x);F64 F(I64 n,F64 y){return \
+       C(n)+y;}F(9007199254740993,-9007199254740992.0);",
+      "f64",
+      0L );
   ]
 
 let excluded =
   [
+    ( "explicit consumer with arithmetic sibling",
+      "_intern 28 F64 C(I64 x);F64 F(I64 n,F64 a,F64 b){return \
+       C(n)+(a+b);}F(3,1.0,2.0);" );
+    ( "opposite family intrinsic arithmetic consumer",
+      "_intern 27 I64 C(F64 x);F64 F(F64 a,F64 b){return C(a)+b;}F(3.75,1.0);"
+    );
+    ( "nested opposite numeric intrinsics",
+      "_intern 27 I64 A(F64 x);_intern 28 F64 B(I64 x);I64 F(I64 n){return \
+       A(B(n));}F(3);" );
     ( "integer producer multiply alias",
       "I64 F(I64 n,F64 a,F64 b){return \
        (n*1)+(a+b);}F(9007199254740993,-9007199254740992.0,0.0);" );
@@ -242,9 +294,6 @@ let excluded =
       "I64 F(I64 n){return 1.0*n;}F(9007199254740993);" );
     ( "converted divide one barrier",
       "I64 F(I64 n){return n/1.0;}F(9007199254740993);" );
-    ( "explicit intrinsic arithmetic argument",
-      "_intern 27 I64 C(F64 x);I64 F(F64 a,F64 b){return \
-       C(a+b);}F(9007199254740992.0,1.0);" );
     ("explicit wrong source family", "_intern 28 F64 C(I64 x);C(3.75);");
     ("unsupported intrinsic opcode", "_intern 999 F64 C(I64 x);C(3);");
     ("wrong intrinsic result", "_intern 28 I64 C(I64 x);C(3);");
@@ -276,8 +325,8 @@ let compile ?max_ir_instructions ?max_code_bytes mode contents =
   Native_program.compile ?max_ir_instructions ?max_code_bytes session ~config
     ~source
 
-let retained mode =
-  let _, source, _, expected = List.hd cases in
+let retained ?(case = List.hd cases) mode =
+  let _, source, _, expected = case in
   let image = (compile mode source |> checked).value in
   require
     (Image.requires_x87 image && Image.requires_fisttp image)
@@ -337,10 +386,25 @@ let retained mode =
           (run (steps - 1) |> fault Image.Step_limit_exceeded = steps - 1)
           "step quota charge";
         ignore (run steps |> completed);
-        ignore (run ~max_frame_bytes:16 steps |> completed);
+        let rec minimum_frame low high =
+          if low = high then low
+          else
+            let middle = (low + high) / 2 in
+            match
+              Runtime.outcome (run ~max_frame_bytes:middle steps) |> checked
+            with
+            | Image.Completed _ -> minimum_frame low middle
+            | Image.Fault f when f.kind = Image.Frame_limit_exceeded ->
+                minimum_frame (middle + 1) high
+            | _ -> failwith "unexpected frame probe outcome"
+        in
+        let frame = minimum_frame 0 4096 in
+        require (frame > 0 && frame < 4096) "bounded conversion frame";
+        ignore (run ~max_frame_bytes:frame steps |> completed);
         ignore
-          (run ~max_frame_bytes:15 steps |> fault Image.Frame_limit_exceeded);
-        ignore (run ~max_frame_bytes:16 steps |> completed))
+          (run ~max_frame_bytes:(frame - 1) steps
+          |> fault Image.Frame_limit_exceeded);
+        ignore (run ~max_frame_bytes:frame steps |> completed))
 
 let failures = ref []
 
@@ -353,7 +417,21 @@ let () =
     (fun mode ->
       if native && Native_execution.x87_supported () then
         check (mode ^ " retained conversions and quotas") (fun () ->
-            retained mode);
+            retained mode;
+            retained
+              ~case:
+                (List.find
+                   (fun (label, _, _, _) ->
+                     label = "explicit nested arithmetic argument")
+                   cases)
+              mode;
+            retained
+              ~case:
+                (List.find
+                   (fun (label, _, _, _) ->
+                     label = "explicit materialized arithmetic consumer")
+                   cases)
+              mode);
       check (mode ^ " IR exclusion") (fun () ->
           invoke ~status:1 ~target:"ir" ~mode "IR exclusion"
             (let _, s, _, _ = List.hd cases in

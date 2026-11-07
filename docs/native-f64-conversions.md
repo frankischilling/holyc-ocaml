@@ -22,11 +22,22 @@ slots. F64-valued call arguments, returns and stores materialize binary64.
 The separately recognized `_intern` opcodes `IC_TO_F64` and `IC_TO_I64` retain
 exact selected declaration, parameter, result, argument and scope identity.
 Renaming the function does not change its opcode; matching a familiar function
-name does not make an ordinary function intrinsic. The initial explicit builtin
-subset requires the actual argument's numeric family to match the declared
-parameter and a materialized result boundary. Opposite-conversion cancellation
-and explicit builtin calls with arithmetic arguments or arithmetic consumers
-are rejected.
+name does not make an ordinary function intrinsic. The explicit builtin subset
+requires the actual argument's numeric family to match the declared parameter
+and a materialized result boundary. ToI64 accepts source-proved floating
+arithmetic arguments, including supported nested links within the argument.
+The terminal arithmetic result must materialize binary64 before conversion.
+ToF64 results also feed isolated F64 arithmetic whose other operand is an
+unconverted F64 literal or frame load. ToI64 results similarly feed isolated
+integer arithmetic with an unconverted integer literal or frame load and no
+result conversion. The original CALL_END result is a materialized scalar leaf,
+never an extended-value producer. Canonical mixed
+source validation includes only exactly sealed numeric intrinsic declarations;
+the ordinary call-target query and exact register-score proof remain unchanged.
+Cached consumer plans revalidate the canonical source and original frame header
+even when the body has no implicit conversion flags.
+Opposite-conversion cancellation, nested numeric intrinsics and arithmetic
+siblings around explicit builtin results remain rejected.
 
 ## Event ordering and precision
 
@@ -55,6 +66,26 @@ before arithmetic, as `OptLib.HC:124-139` and `OptPass012.HC:70-84` require. Its
 result for the same `y` is `0`. Integer constant expressions and negative
 literal expressions also materialize before arithmetic rather than acquiring a
 runtime extended conversion link.
+
+Explicit conversion differs from implicit result conversion. With runtime
+`a=9007199254740992.0` and `b=1.0`, `ToI64(a+b)` produces integer
+`9007199254740992`, whereas an I64 function returning `a+b` directly produces
+`9007199254740993`. `PrsExp.HC:543-586` surrounds the explicit intrinsic with
+CALL_START/CALL_END. `OptPass3.HC:444-445` does not call CmpF1PushPop for TO_I64,
+and `CInit.HC:44-45` does not classify it as an fpop consumer. Consequently the
+argument lacks the cross-instruction hint required by `BackFA.HC:21-32`:
+its ADD stores binary64, then `BackB.HC:277-281` invokes FLD/FISTTP at CN_INST.
+Implicit return conversion instead receives RES_TO_INT at
+`OptPass3.HC:249-256` and the same-instruction link in `BackFA.HC:40-42`.
+Nested argument arithmetic retains its independently proved internal links:
+`ToI64((a+b)-a)` therefore produces `1` before the final argument store.
+
+For the isolated consumer `ToF64(n)+y`, runtime `n=9007199254740993` and
+`y=-9007199254740992.0` produce `0`, unlike implicit `n+y` which produces `1`.
+`CInit.HC:23` marks CALL_END as non-fpop; `OptLib.HC:542-553` therefore does not
+request an extended link from it. The intrinsic FILD result is stored before
+CALL_END supplies binary64 bits to the arithmetic operation. No normalized
+alias maps CALL_END back to its argument or conversion event.
 
 Runtime conversion uses **signed FILD64**, including U64 source words with the
 high bit set (`BackFA.HC:123-166`). Unsigned immediate normalization is a

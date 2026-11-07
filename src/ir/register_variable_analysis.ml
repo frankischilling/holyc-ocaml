@@ -2634,6 +2634,13 @@ module Mixed_scalar_source = struct
   let authenticate ?runtime ~frame ~body () =
     try
       let source = get (Function_body.definition_source body) in
+      let declaration = get (Function_body.definition_declaration body) in
+      require
+        (Function_body.definition_matches_frame body frame
+        && Frame.function_header frame
+           == Sema.Function_resolution.declaration_site_function
+                (Sema.Function_resolution.resolved_declaration_site declaration)
+        );
       let definition = get (Typed.function_source_body source) in
       require
         (definition.variadic = None
@@ -2656,7 +2663,9 @@ module Mixed_scalar_source = struct
       let targets =
         match runtime with
         | Some runtime ->
-            get (Runtime_call_context.function_call_targets runtime ~body)
+            get
+              (Runtime_call_context.function_mixed_scalar_call_targets runtime
+                 ~body)
         | None ->
             require (calls = []);
             []
@@ -3047,14 +3056,31 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
     Option.fold ~none:[] ~some:Typed.function_calls
       (Function_body.definition_source body)
   in
+  let numeric_target call =
+    mixed
+    && Option.fold ~none:false
+         ~some:(fun runtime ->
+           Option.fold ~none:false
+             ~some:
+               (List.exists (fun target ->
+                    Sema.Function_call_target_classification.source target
+                    == call
+                    && Option.fold ~none:false ~some:Numeric_intrinsic.supports
+                         (Runtime_call_context.intrinsic_opcode_of_source
+                            (Runtime_call_context.Function_call target))))
+             (Runtime_call_context.function_mixed_scalar_call_targets runtime
+                ~body))
+         runtime
+  in
   let direct_target = function
     | Typed.Direct_call_result call ->
         let source = Typed.direct_source call |> Policy.direct_source in
         let declaration = Typed.direct_declaration call in
         if
-          Resolution.declaration_site_kind
-            (Resolution.resolved_declaration_site declaration)
-          = Resolution.Definition
+          (Resolution.declaration_site_kind
+             (Resolution.resolved_declaration_site declaration)
+           = Resolution.Definition
+          || numeric_target call)
           && Option.is_none
                (Sema.Function_type_resolution.function_variadic_bindings
                   (Calls.direct_active_header source))
@@ -3151,6 +3177,18 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
        | Ic_jmp
        | Ic_ret -> true
        | Ic_imm_f64 -> mixed
+       | Ic_to_i64 | Ic_to_f64 ->
+           mixed
+           && Option.fold ~none:false
+                ~some:(fun runtime ->
+                  Option.fold ~none:false
+                    ~some:(fun receipt ->
+                      Runtime_call_context.intrinsic_opcode receipt
+                      = item.opcode)
+                    (Runtime_call_context.find_intrinsic_instruction runtime
+                       ~owner:(Runtime_call_context.Function body)
+                       item.instruction_id))
+                runtime
        | _ -> false)
   in
   if

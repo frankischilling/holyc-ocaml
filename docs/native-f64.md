@@ -97,7 +97,9 @@ type, so an integer-returning function cannot hide unsupported floating work.
 [Scalar numeric conversions](native-f64-conversions.md) cover checked fixed
 arguments, returns, local initialization, assignment and mixed arithmetic.
 Explicit `ToI64`/`ToF64` operations require the original intrinsic declaration
-and a proved materialization boundary. Conversion events have separate source
+and a proved materialization boundary. Arithmetic arguments and isolated
+consumers preserve that boundary rather than linking through CALL_END.
+Conversion events have separate source
 receipts and x87 ownership; they do not authorize arbitrary conversion flags.
 Images using FISTTP additionally require runtime SSE3 support.
 

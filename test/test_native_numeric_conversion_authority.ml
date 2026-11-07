@@ -110,11 +110,136 @@ let intrinsic_snapshots () =
     (Plan.validated_intrinsics plan ~graph = None);
   rejects (Plan.prepare ~source graph)
 
+let arithmetic_intrinsic () =
+  let contents =
+    "_intern 27 I64 C(F64 x);I64 F(F64 a,F64 b,F64 c){return C((a+b)+c);}"
+  in
+  List.iter
+    (fun transform ->
+      let source, graph = fixture ~contents () in
+      let plan = Plan.prepare ~source graph |> checked in
+      let receipt =
+        Plan.validated_intrinsics plan ~graph |> Option.get |> List.hd
+      in
+      let entries = Plan.validated_entries plan ~graph |> Option.get in
+      Alcotest.(check bool)
+        "internal argument link preserved" true
+        (List.exists (fun (e : Plan.entry) -> e.live_after <> []) entries);
+      let terminal =
+        List.find
+          (fun (e : Plan.entry) -> e.result_id = receipt.intrinsic_input)
+          entries
+      in
+      Alcotest.(check bool)
+        "terminal argument materializes" true
+        (terminal.live_after = [] && terminal.result_conversion = None);
+      rejects (Plan.prepare graph);
+      let foreign, _ = fixture ~contents () in
+      rejects
+        (Plan.prepare ~source:{ source with runtime = foreign.runtime } graph);
+      mutate graph
+        (fun d -> d.S.instruction_id = terminal.instruction_id)
+        transform;
+      Alcotest.(check bool)
+        "argument mutation invalidates intrinsic receipt" true
+        (Plan.validated_intrinsics plan ~graph = None);
+      rejects (Plan.prepare ~source graph))
+    [
+      (fun d -> { d with S.flags = 2L });
+      (fun d -> { d with S.opcode = O.Ic_sub });
+      (fun d -> { d with S.operands = List.rev d.operands });
+    ]
+
+let intrinsic_consumer () =
+  let contents = "_intern 28 F64 C(I64 x);I64 F(I64 n,F64 y){return C(n)+y;}" in
+  List.iter
+    (fun (select_end, transform) ->
+      let source, graph = fixture ~contents () in
+      Alcotest.(check bool)
+        "ordinary target query remains narrow" true
+        (Holyc_lib__Ir.Runtime_call_context.function_call_targets source.runtime
+           ~body:source.body
+        = None);
+      Alcotest.(check bool)
+        "numeric body has canonical proof" true
+        (Holyc_lib__Ir.Register_variable_analysis
+         .authenticates_mixed_scalar_source ~runtime:source.runtime
+           ~frame:source.frame ~body:source.body);
+      let plan = Plan.prepare ~source graph |> checked in
+      let entries = Plan.validated_entries plan ~graph |> Option.get in
+      Alcotest.(check bool)
+        "consumer has no incoming extended owner" true
+        (List.for_all (fun (e : Plan.entry) -> e.live_before = []) entries);
+      let receipt =
+        Plan.validated_intrinsics plan ~graph |> Option.get |> List.hd
+      in
+      let foreign, _ = fixture ~contents () in
+      rejects
+        (Plan.prepare ~source:{ source with runtime = foreign.runtime } graph);
+      mutate graph
+        (fun d ->
+          if select_end then
+            Option.fold ~none:false
+              ~some:(fun r -> r.S.value_id = receipt.intrinsic_result)
+              d.S.result
+          else d.S.opcode = O.Ic_add)
+        transform;
+      Alcotest.(check bool)
+        "boundary/consumer mutation invalidates receipt" true
+        (Plan.validated_intrinsics plan ~graph = None);
+      rejects (Plan.prepare ~source graph))
+    [
+      (true, fun d -> { d with S.flags = 2L });
+      (true, fun d -> { d with S.payload = None });
+      (false, fun d -> { d with S.operands = List.rev d.operands });
+      (false, fun d -> { d with S.opcode = O.Ic_sub });
+    ]
+
+let consumer_source_invalidation () =
+  let contents = "_intern 28 F64 C(I64 x);F64 F(I64 n,F64 y){return C(n)+y;}" in
+  let source, graph = fixture ~contents () in
+  let plan = Plan.prepare ~source graph |> checked in
+  Alcotest.(check int)
+    "no implicit conversions mask canonical dependency" 0
+    (Plan.validated_conversions plan ~graph |> Option.get |> List.length);
+  let module T = Holyc_lib__Sema.Function_call_expression_result in
+  let module C = Holyc_lib__Sema.Function_call_resolution in
+  let original = F.definition_source source.body |> Option.get in
+  let binary =
+    T.function_all_results original
+    |> List.find_map (fun value ->
+        match C.argument_expression_source (T.result_source value) with
+        | Some (Holyc_lib__Frontend.Ast.Binary_expression binary) -> Some binary
+        | _ -> None)
+    |> Option.get
+  in
+  Obj.set_field (Obj.repr binary) 3 (Obj.repr binary.binary_left);
+  Alcotest.(check bool)
+    "changed source revokes cached canonical consumer" true
+    (Plan.validated_intrinsics plan ~graph = None);
+  rejects (Plan.prepare ~source graph);
+  let source, graph = fixture ~contents () in
+  let foreign, _ = fixture ~contents () in
+  let plan = Plan.prepare ~source graph |> checked in
+  let module Frame = Holyc_lib__Sema.Function_frame_layout in
+  Obj.set_field (Obj.repr source.frame) 1
+    (Obj.repr (Frame.function_header foreign.frame));
+  Alcotest.(check bool)
+    "changed frame revokes cached canonical consumer" true
+    (Plan.validated_intrinsics plan ~graph = None);
+  rejects (Plan.prepare ~source graph)
+
 let () =
   Alcotest.run "numeric conversion authority"
     [
       ( "source proofs",
         [
+          Alcotest.test_case "consumer source and frame invalidation" `Quick
+            consumer_source_invalidation;
+          Alcotest.test_case "materialized intrinsic consumer" `Quick
+            intrinsic_consumer;
+          Alcotest.test_case "materialized intrinsic argument" `Quick
+            arithmetic_intrinsic;
           Alcotest.test_case "canonical ordered events" `Quick canonical;
           Alcotest.test_case "foreign and absent ownership" `Quick ownership;
           Alcotest.test_case "conversion and operand snapshots" `Quick snapshots;

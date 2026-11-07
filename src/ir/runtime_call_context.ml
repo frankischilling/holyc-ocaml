@@ -914,6 +914,81 @@ let intrinsic_opcode_of_source source =
             | Some _ | None -> None)
   | Some _ | None -> None
 
+let function_mixed_scalar_call_targets context ~body =
+  let owner = Function body in
+  if not (matches_graph context ~owner (Function_body.body body)) then None
+  else
+    match
+      ( find_graph context owner,
+        Function_body.definition_source body,
+        List.find_opt
+          (fun (original, _) -> original == body)
+          context.function_source_owners )
+    with
+    | Some graph, Some source, Some (_, original_source)
+      when source == original_source
+           && Typed.function_source_body_valid source
+           && Instructions.is_empty graph.callback_calls ->
+        let original_calls = Typed.function_calls source in
+        let expected =
+          List.filter_map
+            (function
+              | Typed.Direct_call_result call -> Some call
+              | _ -> None)
+            original_calls
+        in
+        let original_target declaration = function
+          | Function_call target
+            when Sema.Function_call_target_classification.declaration target
+                 == declaration
+                 && List.exists
+                      (fun original ->
+                        original
+                        == Sema.Function_call_target_classification.source
+                             target)
+                      expected -> Some target
+          | _ -> None
+        in
+        let ordinary =
+          Instructions.bindings graph.calls
+          |> List.map (fun (_, (call : call)) ->
+              original_target call.declaration_ call.description.source)
+        in
+        let numeric =
+          Instructions.bindings graph.intrinsic_starts
+          |> List.map (fun (_, (intrinsic : intrinsic)) ->
+              if
+                Numeric_intrinsic.supports intrinsic.opcode_
+                && intrinsic_opcode_of_source intrinsic.description.source
+                   = Some intrinsic.opcode_
+              then
+                original_target intrinsic.declaration_
+                  intrinsic.description.source
+              else None)
+        in
+        let targets = ordinary @ numeric in
+        if
+          List.length original_calls <> List.length expected
+          || List.length targets <> List.length expected
+          || List.exists Option.is_none targets
+        then None
+        else
+          let targets = List.map Option.get targets in
+          if
+            List.for_all
+              (fun original ->
+                List.length
+                  (List.filter
+                     (fun target ->
+                       Sema.Function_call_target_classification.source target
+                       == original)
+                     targets)
+                = 1)
+              expected
+          then Some targets
+          else None
+    | _ -> None
+
 type fixed_value =
   | Provided of Typed.expression_result
   | Prepared_callback_default of Prepared_callback_default.t

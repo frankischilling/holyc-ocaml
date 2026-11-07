@@ -383,6 +383,8 @@ let prepare ?source ?runtime ?owner graph =
     | _ -> false
   in
   let intrinsics = ref I.empty in
+  let canonical_consumer = ref false in
+  let arithmetic_arguments = ref [] in
   List.iter
     (fun block ->
       List.iter
@@ -412,7 +414,29 @@ let prepare ?source ?runtime ?owner graph =
                             integer_type source_type
                         | To_integer -> is_f64 source_type
                       in
+                      let arithmetic_input =
+                        match producer input with
+                        | Some p ->
+                            direction = Ir.Numeric_intrinsic.To_integer
+                            && Option.is_some (arithmetic p.opcode)
+                            && I.mem p.instruction_id regions
+                            && Int64.logand p.flags 3L = 0L
+                        | None -> false
+                      in
+                      let nested_numeric =
+                        Option.fold ~none:false
+                          ~some:(fun (p : S.description) ->
+                            Option.fold ~none:false
+                              ~some:(fun (runtime, owner) ->
+                                Option.is_some
+                                  (R.find_intrinsic_end runtime ~owner
+                                     p.instruction_id))
+                              runtime_context)
+                          (producer input)
+                      in
                       let simple_input =
+                        (not nested_numeric)
+                        &&
                         match (producer input, direction) with
                         | Some p, Ir.Numeric_intrinsic.To_integer ->
                             List.mem p.opcode
@@ -430,22 +454,80 @@ let prepare ?source ?runtime ?owner graph =
                         List.for_all
                           (fun (consumer : S.description) ->
                             List.mem consumer.opcode
-                              [ O.Ic_assign; Ic_return_val; Ic_end_exp ])
+                              [ O.Ic_assign; Ic_return_val; Ic_end_exp ]
+                            || authenticated
+                               && Option.is_some (arithmetic consumer.opcode)
+                               && Option.fold ~none:false
+                                    ~some:
+                                      (if
+                                         direction
+                                         = Ir.Numeric_intrinsic.To_float
+                                       then is_f64
+                                       else integer_type)
+                                    consumer.target_type
+                               && (direction = Ir.Numeric_intrinsic.To_float
+                                  || Int64.logand consumer.flags 3L = 0L)
+                               && List.for_all
+                                    (fun id ->
+                                      id = result
+                                      || Option.fold ~none:false
+                                           ~some:(fun (p : S.description) ->
+                                             List.mem p.opcode
+                                               (if
+                                                  direction
+                                                  = Ir.Numeric_intrinsic
+                                                    .To_float
+                                                then [ O.Ic_deref; Ic_imm_f64 ]
+                                                else [ O.Ic_deref; Ic_imm_i64 ])
+                                             && Int64.logand p.flags 3L = 0L
+                                             && Option.fold ~none:false
+                                                  ~some:
+                                                    (if
+                                                       direction
+                                                       = Ir.Numeric_intrinsic
+                                                         .To_float
+                                                     then is_f64
+                                                     else integer_type)
+                                                  p.target_type)
+                                           (producer id))
+                                    consumer.operands)
                           (users result)
                       in
                       let result_producer = producer result in
                       if
-                        (not family) || (not simple_input) || (not boundary)
+                        (not family) || nested_numeric
+                        || ((not simple_input) && not arithmetic_input)
+                        || (not boundary)
                         || not
                              (Option.fold ~none:false
                                 ~some:(fun (p : S.description) ->
-                                  Int64.logand p.flags 3L = 0L)
+                                  p.opcode = O.Ic_call_end && p.flags = 0L
+                                  && p.operands = []
+                                  && p.instruction_id = R.intrinsic_last receipt
+                                  && Option.equal Sema.Type.equal p.target_type
+                                       (Some (R.intrinsic_return_type receipt))
+                                  &&
+                                  match p.payload with
+                                  | Some (S.Symbol symbol) ->
+                                      symbol == R.intrinsic_symbol receipt
+                                  | _ -> false)
                                 result_producer)
                       then
                         fail d
                           "numeric intrinsic requires an original materialized \
                            scalar boundary"
-                      else
+                      else (
+                        if
+                          List.exists
+                            (fun (consumer : S.description) ->
+                              not
+                                (List.mem consumer.opcode
+                                   [ O.Ic_assign; Ic_return_val; Ic_end_exp ]))
+                            (users result)
+                        then canonical_consumer := true;
+                        if arithmetic_input then
+                          arithmetic_arguments :=
+                            (d, input) :: !arithmetic_arguments;
                         intrinsics :=
                           I.add d.instruction_id
                             {
@@ -454,7 +536,7 @@ let prepare ?source ?runtime ?owner graph =
                               intrinsic_result = result;
                               intrinsic_conversion = direction;
                             }
-                            !intrinsics
+                            !intrinsics)
                   | _ ->
                       fail d "numeric intrinsic lost its exact unary argument")
               | None ->
@@ -1023,6 +1105,20 @@ let prepare ?source ?runtime ?owner graph =
             live_steps;
           } ))
       !entries;
+  (* Explicit TO_I64 is not an OptPass3 CmpF1PushPop consumer. BackB
+     invokes ICFCvt at CN_INST, so its argument must have reached memory.
+     Internal links in the argument region remain valid, but its terminal
+     producer cannot transfer ST0 ownership across the intrinsic boundary. *)
+  List.iter
+    (fun (d, input) ->
+      match entry_of input with
+      | Some (_, entry)
+        when entry.live_after = [] && entry.result_conversion = None -> ()
+      | _ ->
+          fail d
+            "numeric intrinsic arithmetic argument lacks a materialized \
+             terminal receipt")
+    !arithmetic_arguments;
   if !live <> [] then
     errors :=
       { message = "native F64 link escapes its source region"; span = None }
@@ -1139,7 +1235,8 @@ let prepare ?source ?runtime ?owner graph =
               | Some _, None -> true
               | _ -> false)
             && source_regions source graph = regions
-            && (I.is_empty !conversions || authentic_source ())
+            && ((I.is_empty !conversions && not !canonical_consumer)
+               || authentic_source ())
             && (I.is_empty !intrinsics || runtime_valid ())
       in
       Ok
