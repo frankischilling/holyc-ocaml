@@ -113,7 +113,7 @@ Integer conversion producers needing identity elimination or literal
 reassociation also reject, rather than acquiring the wrong conversion-event
 position. Scalar suffix bitcasts are not authorized by conversion receipts.
 
-A bounded direct-I64-return identity group now has a separate
+A bounded direct-return identity group for I64→I64, I64→F64 and F64→I64 has a separate
 [source-normalized event proof](native-numeric-normalization.md). Deleted
 identities such as `n*1.0` return raw binary64 bits in the integer carrier;
 surviving copies such as `n/1.0` materialize before numeric truncation. Other

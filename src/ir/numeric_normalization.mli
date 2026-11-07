@@ -12,6 +12,7 @@ type phase =
 type state = private {
   phase : phase;
   input_class : scalar_class;
+  return_class : scalar_class;
   input_to_float : bool;
   raw_class : scalar_class;
   class2 : scalar_class;
@@ -19,6 +20,7 @@ type state = private {
   producer_to_float : bool;
   producer_to_integer : bool;
   return_operand_to_float : bool;
+  return_operand_to_integer : bool;
   arithmetic_operand_to_float : bool;
 }
 

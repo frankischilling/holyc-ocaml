@@ -362,53 +362,203 @@ let normalization_mutations () =
 
 let normalization_source_invalidation () =
   let module N = Holyc_lib__Ir.Numeric_normalization in
-  let contents = "I64 F(I64 n){return n*1.0;}" in
   List.iter
-    (fun change_frame ->
-      let source, graph = fixture ~contents () in
-      let receipt =
-        N.prepare ~runtime:source.runtime ~body:source.body ~frame:source.frame
-          graph
-        |> List.hd
+    (fun contents ->
+      List.iter
+        (fun change_frame ->
+          let source, graph = fixture ~contents () in
+          let receipt =
+            N.prepare ~runtime:source.runtime ~body:source.body
+              ~frame:source.frame graph
+            |> List.hd
+          in
+          let plan = Plan.prepare ~source graph |> checked in
+          let foreign, _ = fixture ~contents () in
+          Alcotest.(check int)
+            "foreign runtime cannot prove normalization" 0
+            (N.prepare ~runtime:foreign.runtime ~body:source.body
+               ~frame:source.frame graph
+            |> List.length);
+          (if change_frame then
+             let module Frame = Holyc_lib__Sema.Function_frame_layout in
+             Obj.set_field (Obj.repr source.frame) 1
+               (Obj.repr (Frame.function_header foreign.frame))
+           else
+             let module T = Holyc_lib__Sema.Function_call_expression_result in
+             let module C = Holyc_lib__Sema.Function_call_resolution in
+             let binary =
+               F.definition_source source.body
+               |> Option.get |> T.function_all_results
+               |> List.find_map (fun value ->
+                   match
+                     C.argument_expression_source (T.result_source value)
+                   with
+                   | Some (Holyc_lib__Frontend.Ast.Binary_expression b) ->
+                       Some b
+                   | _ -> None)
+               |> Option.get
+             in
+             Obj.set_field (Obj.repr binary) 3 (Obj.repr binary.binary_left));
+          Alcotest.(check bool)
+            "stale normalization source/header rejected" false
+            (N.valid receipt ~graph);
+          Alcotest.(check bool)
+            "stale backend recipe rejected" true
+            (Plan.validated_entries plan ~graph = None);
+          rejects (Plan.prepare ~source graph))
+        [ false; true ])
+    [
+      "I64 F(I64 n){return n*1.0;}";
+      "F64 F(I64 n){return n*1.0;}";
+      "I64 F(F64 n){return n*1.0;}";
+    ]
+
+let cross_family_normalization () =
+  let module N = Holyc_lib__Ir.Numeric_normalization in
+  List.iter
+    (fun (input_class, return_class, input_name, return_name) ->
+      List.iter
+        (fun (expression, deleted) ->
+          let contents =
+            return_name ^ " F(" ^ input_name ^ " n){return " ^ expression ^ ";}"
+          in
+          let source, graph = fixture ~contents () in
+          let receipt =
+            N.prepare ~runtime:source.runtime ~body:source.body
+              ~frame:source.frame graph
+            |> List.hd
+          in
+          let plan = Plan.prepare ~source graph |> checked in
+          let phases = N.states receipt in
+          let normalized = List.nth phases 2
+          and returned = List.nth phases 3
+          and migrated = List.nth phases 4 in
+          let integer_input = input_class = N.Integer64 in
+          Alcotest.(check bool)
+            "original input and declared return remain separate" true
+            (List.for_all
+               (fun (state : N.state) ->
+                 state.input_class = input_class
+                 && state.return_class = return_class)
+               phases);
+          Alcotest.(check bool)
+            "cross-family raw survivor and stack class" true
+            ((normalized.raw_class = if deleted then input_class else N.Float64)
+            && normalized.stacked_class = N.Float64);
+          Alcotest.(check bool)
+            "cross-family return flags classified once" true
+            (returned.producer_to_float = (deleted && integer_input)
+            && returned.producer_to_integer = not integer_input);
+          Alcotest.(check bool)
+            "cross-family migration flags" true
+            ((not migrated.input_to_float)
+            && (not migrated.producer_to_float)
+            && migrated.producer_to_integer
+               = ((not deleted) && not integer_input)
+            && migrated.return_operand_to_float = (deleted && integer_input)
+            && migrated.return_operand_to_integer
+               = (deleted && not integer_input)
+            && migrated.arithmetic_operand_to_float
+               = ((not deleted) && integer_input));
+          let code =
+            List.concat_map
+              (fun block ->
+                List.map S.description (S.instructions (G.instructions block)))
+              (G.blocks graph)
+          in
+          let return =
+            List.find
+              (fun (d : S.description) -> d.opcode = O.Ic_return_val)
+              code
+          in
+          let root = N.instruction receipt in
+          let cvt =
+            if integer_input then [ N.Load_signed_integer; N.Store_binary64 ]
+            else [ N.Load_binary64; N.Store_integer_truncate ]
+          in
+          let owner, position =
+            if deleted then (return.instruction_id, N.Argument1)
+            else if integer_input then
+              (root, if expression = "1.0*n" then N.Argument2 else N.Argument1)
+            else (root, N.Result)
+          in
+          let conversion =
+            List.map (fun event -> (owner, position, event)) cvt
+          in
+          let copy = [ (root, N.Instruction, N.Copy_binary64) ] in
+          let expected =
+            if deleted then conversion
+            else if integer_input then conversion @ copy
+            else copy @ conversion
+          in
+          Alcotest.(check bool)
+            "cross-family exact physical event sequence" true
+            (List.map
+               (fun (step : N.step) -> (step.owner, step.position, step.event))
+               (N.steps receipt)
+            = expected);
+          let entry =
+            Plan.validated_entries plan ~graph
+            |> Option.get
+            |> List.find (fun (e : Plan.entry) -> e.instruction_id = root)
+          in
+          Alcotest.(check bool)
+            "cross-family single bounded x87 lifetime" true
+            (entry.live_before = [] && entry.live_after = []
+           && entry.peak_depth = 1
+            && List.length entry.live_steps = 3
+            && entry.loads
+               = [ (if integer_input then Plan.Signed_integer else Plan.Bits) ]
+            );
+          mutate graph
+            (fun d -> d.S.instruction_id = root)
+            (fun d -> { d with S.flags = (if integer_input then 2L else 0L) });
+          Alcotest.(check bool)
+            "cross-family flag mutation revokes shared receipt" false
+            (N.valid receipt ~graph);
+          Alcotest.(check bool)
+            "cross-family flag mutation revokes backend receipt" true
+            (Plan.validated_entries plan ~graph = None))
+        [
+          ("n*1.0", true);
+          ("n+0.0", true);
+          ("0.0+n", true);
+          ("n-0.0", true);
+          ("n/1.0", false);
+          ("1.0*n", false);
+        ])
+    [
+      (N.Integer64, N.Float64, "I64", "F64");
+      (N.Float64, N.Integer64, "F64", "I64");
+    ];
+  List.iter
+    (fun expression ->
+      let source, graph =
+        fixture ~contents:("F64 F(F64 n){return " ^ expression ^ ";}") ()
       in
-      let plan = Plan.prepare ~source graph |> checked in
-      let foreign, _ = fixture ~contents () in
       Alcotest.(check int)
-        "foreign runtime cannot prove normalization" 0
-        (N.prepare ~runtime:foreign.runtime ~body:source.body
-           ~frame:source.frame graph
+        "F64 bit copies retain existing proof" 0
+        (N.prepare ~runtime:source.runtime ~body:source.body ~frame:source.frame
+           graph
         |> List.length);
-      (if change_frame then
-         let module Frame = Holyc_lib__Sema.Function_frame_layout in
-         Obj.set_field (Obj.repr source.frame) 1
-           (Obj.repr (Frame.function_header foreign.frame))
-       else
-         let module T = Holyc_lib__Sema.Function_call_expression_result in
-         let module C = Holyc_lib__Sema.Function_call_resolution in
-         let binary =
-           F.definition_source source.body
-           |> Option.get |> T.function_all_results
-           |> List.find_map (fun value ->
-               match C.argument_expression_source (T.result_source value) with
-               | Some (Holyc_lib__Frontend.Ast.Binary_expression b) -> Some b
-               | _ -> None)
-           |> Option.get
-         in
-         Obj.set_field (Obj.repr binary) 3 (Obj.repr binary.binary_left));
+      let plan = Plan.prepare ~source graph |> checked in
       Alcotest.(check bool)
-        "stale normalization source/header rejected" false
-        (N.valid receipt ~graph);
-      Alcotest.(check bool)
-        "stale backend recipe rejected" true
-        (Plan.validated_entries plan ~graph = None);
-      rejects (Plan.prepare ~source graph))
-    [ false; true ]
+        "no numeric recipe inserted into F64 bit copy" true
+        (List.for_all
+           (fun (e : Plan.entry) ->
+             match e.operation with
+             | Plan.Normalized _ -> false
+             | _ -> true)
+           (Plan.validated_entries plan ~graph |> Option.get)))
+    [ "n*1.0"; "n+0.0"; "0.0+n"; "n-0.0"; "n/1.0"; "1.0*n" ]
 
 let () =
   Alcotest.run "numeric conversion authority"
     [
       ( "source proofs",
         [
+          Alcotest.test_case "cross-family normalized phase and event matrix"
+            `Quick cross_family_normalization;
           Alcotest.test_case "normalized source and header invalidation" `Quick
             normalization_source_invalidation;
           Alcotest.test_case "normalized phase receipts" `Quick

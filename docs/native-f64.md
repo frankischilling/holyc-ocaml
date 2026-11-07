@@ -104,7 +104,8 @@ authorize arbitrary conversion flags.
 Images using FISTTP additionally require runtime SSE3 support.
 
 [Source-normalized identity events](native-numeric-normalization.md) cover a
-bounded direct-I64-return group. Deleted identities and surviving copy barriers
+bounded direct-return group for I64-to-I64, I64-to-F64 and F64-to-I64 values.
+Deleted identities and surviving copy barriers
 have different source phase histories and results; generic cast rules cannot
 replace those histories.
 

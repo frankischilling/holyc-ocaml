@@ -211,11 +211,12 @@ let cases =
       "i64",
       3L );
     ( "positive overflow indefinite",
-      "I64 F(F64 n){return n;}F(9.223372036854776e18);",
+      "I64 F(F64 n){return n;}F(9223372036854775807e0);",
       "i64",
       Int64.min_int );
     ( "negative overflow indefinite",
-      "I64 F(F64 n){return n;}F(-9.223372036854778e18);",
+      "F64 Offset(F64 n){return n-2048e0;}I64 F(F64 n){return \
+       n;}F(Offset(-9223372036854775807e0));",
       "i64",
       Int64.min_int );
     ( "positive infinity indefinite",
@@ -287,7 +288,54 @@ let cases =
       0L );
   ]
 
-let cases = cases @ normalized_cases
+(* Boundary mantissas use exponent zero so the pinned lexer multiplies by
+   exact one. Nonzero exponents depend on its generated x87 Pow10 table;
+   a host decimal parser is not an oracle for those literals. *)
+let cross_family_normalized_cases =
+  List.concat_map
+    (fun expression ->
+      let to_float =
+        List.map
+          (fun (argument, bits) ->
+            ( "normalized I64 to F64 " ^ expression ^ " " ^ argument,
+              "F64 F(I64 n){return " ^ expression ^ ";}F(" ^ argument ^ ");",
+              "f64",
+              bits ))
+          [
+            ("9007199254740993", 0x4340000000000000L);
+            ("-9007199254740993", 0xc340000000000000L);
+            ("0x7fffffffffffffff", 0x43e0000000000000L);
+            ("0x8000000000000000", 0xc3e0000000000000L);
+            ("-3", 0xc008000000000000L);
+            ("0", 0L);
+          ]
+      and to_integer =
+        List.map
+          (fun (argument, bits) ->
+            ( "normalized F64 to I64 " ^ expression ^ " " ^ argument,
+              (if argument = "Offset(-9223372036854775807e0)" then
+                 "F64 Offset(F64 n){return n-2048e0;}"
+               else "")
+              ^ "I64 F(F64 n){return " ^ expression ^ ";}F(" ^ argument ^ ");",
+              "i64",
+              bits ))
+          [
+            ("3.75", 3L);
+            ("-3.75", -3L);
+            ("-0.0", 0L);
+            ("9223372036854775807e0", Int64.min_int);
+            ("-9223372036854775807e0", Int64.min_int);
+            ("9223372036854774784e0", 0x7ffffffffffffc00L);
+            ("1.0/0.0", Int64.min_int);
+            ("-1e999", Int64.min_int);
+            ("0.0/0.0", Int64.min_int);
+            ("Offset(-9223372036854775807e0)", Int64.min_int);
+          ]
+      in
+      to_float @ to_integer)
+    [ "n*1.0"; "n+0.0"; "0.0+n"; "n-0.0"; "n/1.0"; "1.0*n" ]
+
+let cases = cases @ normalized_cases @ cross_family_normalized_cases
 
 let excluded =
   [
@@ -369,10 +417,14 @@ let normalization_capabilities mode =
       ("I64 F(I64 n){return n*1.0;}F(9007199254740993);", false);
       ("I64 F(I64 n){return n/1.0;}F(9007199254740993);", true);
       ("I64 F(F64 n){return n;}F(3.75);", true);
+      ("F64 F(I64 n){return n*1.0;}F(9007199254740993);", false);
+      ("F64 F(I64 n){return n/1.0;}F(9007199254740993);", false);
+      ("I64 F(F64 n){return n*1.0;}F(3.75);", true);
+      ("I64 F(F64 n){return n/1.0;}F(3.75);", true);
     ]
 
 let retained ?(case = List.hd cases) mode =
-  let _, source, _, expected = case in
+  let _, source, kind, expected = case in
   let image = (compile mode source |> checked).value in
   require (Image.requires_x87 image) "conversion capability missing";
   let float_image =
@@ -413,7 +465,8 @@ let retained ?(case = List.hd cases) mode =
           | Image.Completed result ->
               let word = Option.get result.final_value in
               require
-                (word.type_ = Image.I64 && word.bits = expected)
+                ((word.type_ = if kind = "f64" then Image.F64 else Image.I64)
+                && word.bits = expected)
                 "retained conversion result";
               result.executed_steps
           | _ -> failwith "unexpected retained conversion fault"
@@ -485,7 +538,19 @@ let () =
                  (fun (label, _, _, _) ->
                    label = "normalized n*1.0 9007199254740993"
                    || label = "normalized n/1.0 9007199254740993")
-                 normalized_cases));
+                 normalized_cases);
+            List.iter
+              (fun case -> retained ~case mode)
+              (List.filter
+                 (fun (label, _, _, _) ->
+                   List.mem label
+                     [
+                       "normalized I64 to F64 n*1.0 9007199254740993";
+                       "normalized I64 to F64 n/1.0 9007199254740993";
+                       "normalized F64 to I64 n*1.0 -3.75";
+                       "normalized F64 to I64 n/1.0 -3.75";
+                     ])
+                 cross_family_normalized_cases));
       check (mode ^ " IR exclusion") (fun () ->
           invoke ~status:1 ~target:"ir" ~mode "IR exclusion"
             (let _, s, _, _ = List.hd cases in

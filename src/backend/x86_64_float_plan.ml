@@ -801,7 +801,14 @@ let prepare ?source ?runtime ?owner graph =
                   | Some receipt ->
                       ( Normalized receipt,
                         [ Ir.Numeric_normalization.input receipt ],
-                        [ Signed_integer ] )
+                        [
+                          (match
+                             (List.hd (Ir.Numeric_normalization.states receipt))
+                               .input_class
+                           with
+                          | Integer64 -> Signed_integer
+                          | Float64 -> Bits);
+                        ] )
                   | None -> (operation, d.operands, loads)
                 in
                 let depth =
@@ -819,13 +826,19 @@ let prepare ?source ?runtime ?owner graph =
                     let orientation, live_steps =
                       match (operation, operands, loads) with
                       | Normalized receipt, [ input ], _ ->
-                          ( Left_first,
-                            [ []; [ input ]; [] ]
-                            @
-                            match Ir.Numeric_normalization.recipe receipt with
-                            | Deleted_float_identity -> []
-                            | Materialized_copy_barrier ->
-                                [ [ result.value_id ]; [] ] )
+                          let owner = ref input in
+                          let steps = ref [ [] ] in
+                          List.iter
+                            (function
+                              | Ir.Numeric_normalization.Load_signed_integer
+                              | Load_binary64 ->
+                                  steps := !steps @ [ [ !owner ] ]
+                              | Store_binary64 | Store_integer_truncate ->
+                                  steps := !steps @ [ [] ];
+                                  owner := result.value_id
+                              | Copy_binary64 -> owner := result.value_id)
+                            (Ir.Numeric_normalization.events receipt);
+                          (Left_first, !steps)
                       | ( (Copy_left | Copy_right | Alias_left | Alias_right),
                           _,
                           _ ) -> (Bit_copy, [ [] ])

@@ -14,6 +14,7 @@ type phase =
 type state = {
   phase : phase;
   input_class : scalar_class;
+  return_class : scalar_class;
   input_to_float : bool;
   raw_class : scalar_class;
   class2 : scalar_class;
@@ -21,6 +22,7 @@ type state = {
   producer_to_float : bool;
   producer_to_integer : bool;
   return_operand_to_float : bool;
+  return_operand_to_integer : bool;
   arithmetic_operand_to_float : bool;
 }
 
@@ -129,17 +131,23 @@ let prepare ~runtime ~body ~frame graph =
         in
         match (shape, root.result) with
         | Some (input_, recipe_), Some result
-          when root.flags = 2L
-               && scalar Sema.Primitive_type.F64 root.target_type -> (
+          when scalar Sema.Primitive_type.F64 root.target_type -> (
             match (producer input_, users result.value_id) with
             | Some input, [ return ]
-              when input.opcode = O.Ic_deref && input.flags = 1L
-                   && scalar Sema.Primitive_type.I64 input.target_type
+              when input.opcode = O.Ic_deref
+                   && (input.flags = 1L
+                       && scalar Sema.Primitive_type.I64 input.target_type
+                      || input.flags = 0L
+                         && scalar Sema.Primitive_type.F64 input.target_type)
                    && one_user input_ root
                    && return.opcode = O.Ic_return_val
                    && return.flags = 0L
                    && return.operands = [ result.value_id ]
-                   && scalar Sema.Primitive_type.I64 return.target_type ->
+                   && (root.flags = 2L
+                       && scalar Sema.Primitive_type.I64 return.target_type
+                      || root.flags = 0L
+                         && scalar Sema.Primitive_type.F64 return.target_type
+                         && scalar Sema.Primitive_type.I64 input.target_type) ->
                 (* OptLib:124-139 installs the input conversion before pass2.
                OptPass012:376-384,560-566,588-594,662-668 eliminate identities.
                Its grouped end:715-721 updates the SURVIVOR's class2, but
@@ -147,65 +155,84 @@ let prepare ~runtime ~body ~frame graph =
                collapse these two classes. Return conversion is later, at
                OptPass3:249-256, and compares raw ic_class only. *)
                 let deleted = recipe_ = Deleted_float_identity in
+                let input_class =
+                  if scalar Sema.Primitive_type.I64 input.target_type then
+                    Integer64
+                  else Float64
+                in
+                let return_class =
+                  if scalar Sema.Primitive_type.I64 return.target_type then
+                    Integer64
+                  else Float64
+                in
+                let integer_input = input_class = Integer64 in
+                let normalized_class =
+                  if deleted then input_class else Float64
+                in
+                let result_to_integer =
+                  return_class = Integer64 && normalized_class = Float64
+                in
                 let state phase raw_class class2 producer_to_float
-                    producer_to_integer return_operand_to_float =
+                    producer_to_integer =
+                  let migrated = phase = Operand_migrated in
                   {
                     phase;
-                    input_class = Integer64;
-                    input_to_float = phase <> Operand_migrated;
+                    input_class;
+                    return_class;
+                    input_to_float = integer_input && not migrated;
                     raw_class;
                     class2;
                     stacked_class = Float64;
                     producer_to_float;
                     producer_to_integer;
-                    return_operand_to_float;
+                    return_operand_to_float =
+                      migrated && deleted && integer_input;
+                    return_operand_to_integer =
+                      migrated && deleted && result_to_integer;
                     arithmetic_operand_to_float =
-                      phase = Operand_migrated && not deleted;
+                      migrated && (not deleted) && integer_input;
                   }
                 in
                 let states_ =
                   [
-                    state Mixed_operands Float64 Float64 false false false;
-                    state Identity_replaced
-                      (if deleted then Integer64 else Float64)
-                      Float64 deleted false false;
-                    state Identity_normalized
-                      (if deleted then Integer64 else Float64)
-                      (if deleted then Integer64 else Float64)
-                      deleted false false;
-                    state Return_classified
-                      (if deleted then Integer64 else Float64)
-                      (if deleted then Integer64 else Float64)
-                      deleted (not deleted) false;
-                    state Operand_migrated
-                      (if deleted then Integer64 else Float64)
-                      (if deleted then Integer64 else Float64)
-                      false (not deleted) deleted;
+                    state Mixed_operands Float64 Float64 false false;
+                    state Identity_replaced normalized_class Float64
+                      (deleted && integer_input) false;
+                    state Identity_normalized normalized_class normalized_class
+                      (deleted && integer_input) false;
+                    state Return_classified normalized_class normalized_class
+                      (deleted && integer_input) result_to_integer;
+                    state Operand_migrated normalized_class normalized_class
+                      false
+                      ((not deleted) && result_to_integer);
                   ]
                 in
-                (* Pass5 migrates MOV/REG conversion. The deleted case reaches
-               RETURN's FILD/FSTP then raw RAX move, with no FISTTP. BackFB:
-               488-515 copy templates instead form FALSE,FALSE link barriers. *)
+                (* MOV/REG conversion migrates to RETURN for aliases, or to the
+                   surviving arithmetic operand. Copy templates form an explicit
+                   FALSE,FALSE barrier, so return conversion is a separate event. *)
                 let argument_position =
                   if List.hd root.operands = input_ then Argument1
                   else Argument2
                 in
                 let step owner position event = { owner; position; event } in
+                let at owner position events =
+                  List.map (step owner position) events
+                in
+                let to_float = [ Load_signed_integer; Store_binary64 ] in
+                let to_integer = [ Load_binary64; Store_integer_truncate ] in
                 let steps_ =
-                  List.map
-                    (step
-                       (if deleted then return.instruction_id
-                        else root.instruction_id)
-                       (if deleted then Argument1 else argument_position))
-                    [ Load_signed_integer; Store_binary64 ]
-                  @
-                  if deleted then []
+                  if deleted then
+                    at return.instruction_id Argument1
+                      (if integer_input then to_float else to_integer)
                   else
-                    [
-                      step root.instruction_id Instruction Copy_binary64;
-                      step root.instruction_id Result Load_binary64;
-                      step root.instruction_id Result Store_integer_truncate;
-                    ]
+                    (if integer_input then
+                       at root.instruction_id argument_position to_float
+                     else [])
+                    @ [ step root.instruction_id Instruction Copy_binary64 ]
+                    @
+                    if result_to_integer then
+                      at root.instruction_id Result to_integer
+                    else []
                 in
                 let eliminated_ =
                   if deleted then
