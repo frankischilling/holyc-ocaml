@@ -30,8 +30,28 @@ type stack_frame = { bytes : int }
 type frame_slot = { frame_offset : int }
 type arena_slot = { arena_offset : int }
 type call_frame = { call_bytes : int }
+type x87_register = { x87_index : int }
+type x87_memory = X87_frame of frame_slot | X87_stack of stack_slot
+type x87_binary = Fadd | Fmul | Fsub | Fsubr | Fdiv | Fdivr
+
+type x87_constant =
+  | Fzero
+  | Fone
+  | Fpi
+  | Flog2_10
+  | Flog2_e
+  | Flog10_2
+  | Floge_2
 
 type instruction =
+  | Fld64 of x87_memory
+  | Fstp64 of x87_memory
+  | Fbinary64 of x87_binary * x87_memory
+  | Fbinary_st0 of x87_binary * x87_register
+  | Fbinary_sti of x87_binary * x87_register
+  | Fbinary_pop of x87_binary * x87_register
+  | Fchs
+  | Fld_constant of x87_constant
   | Mov_imm64 of register * int64
   | Mov of register * register
   | Load_stack of register * stack_slot
@@ -133,6 +153,11 @@ let registers = [ Rax; Rcx; Rdx; R8; R9; R10; R11 ]
    R10/R11 for source owners; legacy expression allocation may still use them. *)
 let encodable_registers = registers @ [ Rbx; Rsi; Rdi; R12; R13; R14; R15 ]
 let max_code_bytes = min (16 * 1024 * 1024) Sys.max_string_length
+
+let x87_register ~index =
+  if index < 0 || index > 7 then
+    Error "x87 register index must be between 0 and 7"
+  else Ok { x87_index = index }
 
 let stack_slot ~offset =
   if offset < 0 || offset > 524272 || offset mod 8 <> 0 then
@@ -321,6 +346,43 @@ let set_above = source_form "SETA" 986
 let set_below_equal = source_form "SETBE" 985
 let return = source_form "RET" 961
 
+(* OpCodes.DD:1166-1253; BackFA.HC:480-512 selects reversed memory
+   subtraction/division when operand loading swaps, or pop forms after loading
+   a second built-in constant. Keep all three register orientations explicit. *)
+let fld64 = source_form "FLD" 1168
+let fstp64 = source_form "FSTP" 1172
+let fchs = source_form "FCHS" 1189
+
+let x87_binary_forms =
+  List.map
+    (fun (operation, name, memory_line, pop_line) ->
+      ( operation,
+        ( source_form name memory_line,
+          source_form name (memory_line + 1),
+          source_form name (memory_line + 2),
+          source_form (name ^ "P") pop_line ) ))
+    [
+      (Fadd, "FADD", 1220, 1217);
+      (Fmul, "FMUL", 1198, 1195);
+      (Fsub, "FSUB", 1226, 1223);
+      (Fsubr, "FSUBR", 1232, 1229);
+      (Fdiv, "FDIV", 1207, 1204);
+      (Fdivr, "FDIVR", 1213, 1210);
+    ]
+
+let x87_constant_forms =
+  List.map
+    (fun (constant, name, line) -> (constant, source_form name line))
+    [
+      (Fzero, "FLDZ", 1253);
+      (Fone, "FLD1", 1247);
+      (Fpi, "FLDPI", 1250);
+      (Flog2_10, "FLDL2T", 1248);
+      (Flog2_e, "FLDL2E", 1249);
+      (Flog10_2, "FLDLG2", 1251);
+      (Floge_2, "FLDLN2", 1252);
+    ]
+
 let condition_form = function
   | E -> set_equal
   | NE -> set_not_equal
@@ -362,6 +424,22 @@ let narrow_store_form = function
   | Frame32 -> mov_store32
 
 let form = function
+  | Fld64 _ -> fld64
+  | Fstp64 _ -> fstp64
+  | Fbinary64 (operation, _) ->
+      let memory, _, _, _ = List.assoc operation x87_binary_forms in
+      memory
+  | Fbinary_st0 (operation, _) ->
+      let _, st0, _, _ = List.assoc operation x87_binary_forms in
+      st0
+  | Fbinary_sti (operation, _) ->
+      let _, _, sti, _ = List.assoc operation x87_binary_forms in
+      sti
+  | Fbinary_pop (operation, _) ->
+      let _, _, _, pop = List.assoc operation x87_binary_forms in
+      pop
+  | Fchs -> fchs
+  | Fld_constant constant -> List.assoc constant x87_constant_forms
   | Mov_imm64 _ -> mov_immediate
   | Mov _ -> mov_register
   | Load_stack _ -> mov_load
@@ -467,6 +545,11 @@ let valid_reference_offset offset =
   offset = 0 || offset = 8 || offset = 16 || offset = 24 || offset = 32
 
 let validate = function
+  | Fld64 (X87_frame slot)
+  | Fstp64 (X87_frame slot)
+  | Fbinary64 (_, X87_frame slot)
+    when slot.frame_offset mod 8 <> 0 ->
+      invalid_arg "x87 m64 access requires an aligned frame slot"
   | Callable_store_status_kind kind when kind < 1 || kind > 2 ->
       invalid_arg "status kind must be 1 or 2"
   | Callable_store_status_site site when site < 1 || site > 100_000 ->
@@ -658,6 +741,24 @@ let plans instruction =
       ?immediate ()
   in
   match instruction with
+  | Fld64 operand | Fstp64 operand | Fbinary64 (_, operand) ->
+      let base, offset =
+        match operand with
+        | X87_frame slot -> (5, slot.frame_offset)
+        | X87_stack slot -> (4, slot.offset)
+      in
+      (* The pinned backtick m64 form suppresses REX.W. No general registers
+         are exposed, so neither a REX extension nor a neutral REX is needed. *)
+      one
+        ~modrm:(0x80 lor (selected.slash_value lsl 3) lor base)
+        ?sib:(if base = 4 then Some 0x24 else None)
+        ~displacement:(signed 4 (Int64.of_int offset))
+        ()
+  | Fbinary_st0 (_, register)
+  | Fbinary_sti (_, register)
+  | Fbinary_pop (_, register) ->
+      one ~opcode_patch:(Encoding.Add_low3 register.x87_index) ()
+  | Fchs | Fld_constant _ -> one ()
   | Mov_imm64 (destination, immediate) ->
       let destination = register_number destination in
       one

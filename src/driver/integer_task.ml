@@ -41,7 +41,7 @@ let native_source_callback ~generation ~valid ?compiler_options handler =
                             if previous then 1L else 0L))))
 
 module Native_dispatch = struct
-  type word = I64 of int64 | U64 of int64
+  type word = I64 of int64 | U64 of int64 | F64 of int64
   type capture = Unchanged | Captured of word option
   type entry_state = Offered | Claiming | Entered | Closed
 
@@ -2917,8 +2917,9 @@ let native_word_of_vm (word : VM.word) =
   | VM.U64 -> Native_dispatch.U64 word.bits
 
 let native_word_for_vm = function
-  | Native_dispatch.I64 bits -> (VM.I64, bits)
-  | Native_dispatch.U64 bits -> (VM.U64, bits)
+  | Native_dispatch.I64 bits -> VM.Native_i64 bits
+  | Native_dispatch.U64 bits -> VM.Native_u64 bits
+  | Native_dispatch.F64 bits -> VM.Native_f64 bits
 
 let execute_source ?(use_active_stream = true) ?stream_exe_print task command =
   if task.identity != command.owner then
@@ -3009,8 +3010,8 @@ let execute_source ?(use_active_stream = true) ?stream_exe_print task command =
                   with
                   | true, Some attempt -> (
                       let settled =
-                        VM.complete_native_task_program task.state attempt
-                          ~captured
+                        VM.complete_native_scalar_task_program task.state
+                          attempt ~captured
                           ~final_value:(Option.map native_word_for_vm value)
                         |> diagnose
                       in
@@ -3038,8 +3039,11 @@ let native_final_value task =
   match task.native_dispatch with
   | None -> None
   | Some _ ->
-      let progress = VM.task_progress task.state in
-      Option.map native_word_of_vm progress.final_value
+      VM.native_task_final_value task.state
+      |> Option.map (function
+        | VM.Native_i64 bits -> Native_dispatch.I64 bits
+        | VM.Native_u64 bits -> Native_dispatch.U64 bits
+        | VM.Native_f64 bits -> Native_dispatch.F64 bits)
 
 let stream_diagnostics span message =
   let code, detail =
@@ -3526,11 +3530,13 @@ and run_stream_exe_source ?saved_compiler task ~active ~span contents =
   Frontend.Symbol_visibility.Environment.without_locals
     (Session.symbols target.session) (fun () ->
       let* final_value = execute suspension source in
-      Ok
-        (Option.fold ~none:0L
-           ~some:(function
-             | Native_dispatch.I64 bits | Native_dispatch.U64 bits -> bits)
-           final_value))
+      match final_value with
+      | None -> Ok 0L
+      | Some (Native_dispatch.I64 bits | Native_dispatch.U64 bits) -> Ok bits
+      | Some (Native_dispatch.F64 _) ->
+          Error
+            (stream_diagnostics span
+               "native StreamExePrint does not support a floating final value"))
 
 and run_input_execution ?suspension ?enclosing ?stream_task
     ?(use_active_stream = true) ?(active = fun () -> Ok ()) task ~source =

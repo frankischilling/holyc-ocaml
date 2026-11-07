@@ -1678,3 +1678,16 @@
    %{dep:../../examples/native-stream-declarations.hc}
    %{dep:../../examples/native-compiler-options.hc}
    --native)))
+
+(executable
+ (name test_native_f64_callbacks)
+ (modules test_native_f64_callbacks)
+ (libraries holyc_lib alcotest)
+ (foreign_stubs
+  (language c)
+  (names native_f64_callback_probe)))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_f64_callbacks.exe})))

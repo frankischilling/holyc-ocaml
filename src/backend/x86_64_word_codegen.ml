@@ -30,7 +30,7 @@ module Block_map = Map.Make (Sequence.Block_id)
 module Block_set = Set.Make (Sequence.Block_id)
 module Int_map = Map.Make (Int)
 
-type word_type = I64 | U64
+type word_type = I64 | U64 | F64
 type status_abi = Encoder.status_abi = Windows_x64 | System_v_x64
 type arithmetic_operation = Divide | Remainder
 type error = { code : string; message : string; span : Common.Span.t option }
@@ -139,6 +139,8 @@ let scalar_value ?(allow_public = false) type_ =
     | Type.Aggregate _ -> false
   in
   if not form_allowed then None
+  else if X86_64_float_plan.is_f64 type_ then
+    Some { word_type = F64; byte_size = 8 }
   else
     Option.map
       (fun scalar ->
@@ -223,6 +225,8 @@ let compatible_reference target source =
      | _ -> false
 
 let checked_copy description target source =
+  if X86_64_float_plan.is_f64 target <> X86_64_float_plan.is_f64 source then
+    unsupported description "native scalar copies cannot convert F64 values";
   if Type.pointer_depth target = 0 then (
     ignore (checked_scalar ~allow_public:true description target);
     ignore (checked_scalar ~allow_public:true description source))
@@ -234,7 +238,7 @@ let checked_copy description target source =
 
 let checked_word ?(allow_public = false) description type_ =
   let scalar = checked_scalar ~allow_public description type_ in
-  if scalar.byte_size <> 8 then
+  if scalar.byte_size <> 8 || scalar.word_type = F64 then
     unsupported description
       (if allow_public then
          "this native operation requires scalar I64 or U64 values"
@@ -352,6 +356,7 @@ type operation =
   | Load_function_slot_cursor of value * Global_storage.function_slot
   | Load_function_slot of value * Global_storage.function_slot * value
   | Load_undefined_function_address of value
+  | Apply_float of X86_64_float_plan.entry * value list * value
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
   | Apply_shift of Encoder.shift * value * value * value
@@ -752,6 +757,8 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               | `Left, (I64 | U64) -> Encoder.Shl
               | `Right, I64 -> Encoder.Sar
               | `Right, U64 -> Encoder.Shr
+              | _, F64 ->
+                  unsupported description "native F64 shifts are unsupported"
             in
             let result =
               define result target_type (Computation.forward target_type)
@@ -770,6 +777,8 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               | `Left, (I64 | U64) -> Encoder.Shl
               | `Right, I64 -> Encoder.Sar
               | `Right, U64 -> Encoder.Shr
+              | _, F64 ->
+                  unsupported description "native F64 shifts are unsupported"
             in
             let result =
               define result target_type (Computation.forward target_type)
@@ -818,6 +827,9 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               with
               | I64 -> signed
               | U64 -> unsigned
+              | F64 ->
+                  unsupported description
+                    "native F64 comparisons are unsupported"
             in
             let result =
               define result target_type (Computation.forward target_type)
@@ -1419,7 +1431,7 @@ let print_argument_kind type_ =
     | Type.Primitive (_, Primitive.I8) -> Print_codegen.Signed_byte_pointer
     | _ -> Print_codegen.Other_pointer
 
-let allocate_body ?callable_frame ?(shared_values = [])
+let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
     ?(shared_home_indices = Value_map.empty) ?(local_subroutine_capacity = 0)
     ?(provider_entry_start = Int.max_int) ?(function_code_owners = [||])
     ?undefined_code_owner ?(status_abi = Encoder.System_v_x64) ~max_stack_bytes
@@ -1517,7 +1529,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
   let local_subroutine_slots =
     if local_subroutine_capacity = 0 then 0 else local_subroutine_capacity + 1
   in
-  let fixed_stack_slots = source_fixed_stack_slots + local_subroutine_slots in
+  let float_scratch_slots = if float_scratch then 1 else 0 in
+  let float_scratch_index = source_fixed_stack_slots + local_subroutine_slots in
+  let fixed_stack_slots = float_scratch_index + float_scratch_slots in
   let frame_size_for_spills spill_slots =
     match callable_frame with
     | None -> frame_bytes_for_slots (fixed_stack_slots + spill_slots)
@@ -1921,6 +1935,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
         emit (Encoder.Test Encoder.Rcx);
         emit_branch Equal zero_label;
         (match word with
+        | F64 -> reject "HCBACK0003" "F64 reached integer division"
         | U64 ->
             emit Encoder.Zero_edx;
             emit Encoder.Div_rcx
@@ -2322,6 +2337,74 @@ let allocate_body ?callable_frame ?(shared_values = [])
                  encoder_arena_slot instruction.span
                    (Global_storage.undefined_code_owner_address owner) ));
           assign position destination result
+      | Apply_float (plan, values, result) ->
+          let inputs, protected = ensure_inputs instruction.span values in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
+          let scratch = fixed_stack_slot instruction.span float_scratch_index in
+          let memory = Encoder.X87_stack scratch in
+          let load source = function
+            | X86_64_float_plan.Zero ->
+                emit (Encoder.Fld_constant Encoder.Fzero)
+            | One -> emit (Encoder.Fld_constant Encoder.Fone)
+            | Bits ->
+                emit (Encoder.Store_stack (scratch, registers.(source)));
+                emit (Encoder.Fld64 memory)
+          in
+          (match (plan.operation, inputs, plan.loads) with
+          | ( ((X86_64_float_plan.Copy_left | Copy_right) as op),
+              [ left; right ],
+              _ ) ->
+              let source =
+                if op = X86_64_float_plan.Copy_left then left else right
+              in
+              emit (Encoder.Mov (registers.(destination), registers.(source)))
+          | Negate, [ source ], [ loading ] ->
+              load source loading;
+              emit Encoder.Fchs;
+              emit (Encoder.Fstp64 memory);
+              emit (Encoder.Load_stack (registers.(destination), scratch))
+          | ( ((Add | Subtract | Multiply | Divide) as op),
+              [ left; right ],
+              [ ll; rl ] ) ->
+              let binary =
+                match op with
+                | X86_64_float_plan.Add -> Encoder.Fadd
+                | Subtract -> Encoder.Fsub
+                | Multiply -> Encoder.Fmul
+                | Divide -> Encoder.Fdiv
+                | _ -> assert false
+              in
+              (match (ll, rl) with
+              | _, X86_64_float_plan.Bits ->
+                  load left ll;
+                  emit (Encoder.Store_stack (scratch, registers.(right)));
+                  emit (Encoder.Fbinary64 (binary, memory))
+              | Bits, _ ->
+                  (* BackFA.HC:484-496 places the builtin in ST0 and
+                     reverses noncommutative operations against memory. *)
+                  load right rl;
+                  emit (Encoder.Store_stack (scratch, registers.(left)));
+                  let reverse =
+                    match binary with
+                    | Encoder.Fsub -> Encoder.Fsubr
+                    | Fdiv -> Fdivr
+                    | _ -> binary
+                  in
+                  emit (Encoder.Fbinary64 (reverse, memory))
+              | _ ->
+                  load left ll;
+                  load right rl;
+                  let st1 = Encoder.x87_register ~index:1 |> Result.get_ok in
+                  emit (Encoder.Fbinary_pop (binary, st1)));
+              emit (Encoder.Fstp64 memory);
+              emit (Encoder.Load_stack (registers.(destination), scratch))
+          | _ ->
+              reject ?span:instruction.span "HCBACK0003"
+                "invalid sealed F64 emission plan");
+          assign position destination result
       | Apply_unary (unary, input, result) ->
           require_numeric_owner input;
           let inputs, protected = ensure_inputs instruction.span [ input ] in
@@ -2435,6 +2518,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Test Encoder.Rcx);
           emit_branch Equal zero_label;
           (match word with
+          | F64 -> reject "HCBACK0003" "F64 reached an integer-only operation"
           | U64 ->
               emit Encoder.Zero_edx;
               emit Encoder.Div_rcx
@@ -2691,6 +2775,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           let overflow = fault_label 8 (Option.get instruction.site) in
           copy_value_to instruction.span index rax;
           (match word with
+          | F64 -> reject "HCBACK0003" "F64 reached an integer-only operation"
           | U64 ->
               emit (Encoder.Test Encoder.Rax);
               emit_branch Less overflow
@@ -4916,6 +5001,7 @@ type program_image = {
   code_owner_bindings : (int * int * int * int * int) list;
   function_slot_bindings : (int * int) list;
   has_output : bool;
+  requires_x87 : bool;
   sites : program_site list;
 }
 
@@ -5658,6 +5744,9 @@ let callable_argument_types ?(allow_pointer_tail = false) description
       | Some index when not seen.(index) ->
           seen.(index) <- true;
           let type_ = Runtime.argument_target_type argument in
+          if index >= fixed_count && X86_64_float_plan.is_f64 type_ then
+            unsupported description
+              "native F64 variadic arguments are unsupported";
           (if index < fixed_count then (
              if not (Type.equal type_ fixed.(index)) then
                malformed description
@@ -5685,6 +5774,10 @@ let callable_argument_types ?(allow_pointer_tail = false) description
 
 let callable_callback_arguments description (callback : Runtime.callback_call)
     argument_types =
+  if
+    X86_64_float_plan.is_f64 callback.callback_return_type
+    || Array.exists X86_64_float_plan.is_f64 argument_types
+  then unsupported description "native F64 callback signatures are unsupported";
   let parameters =
     callback.callback_pointer |> Headers.function_pointer_signature
     |> Headers.signature_parameters |> Array.of_list
@@ -5797,14 +5890,16 @@ let int_of_frame_displacement ?span value =
   Int64.to_int value
 
 let source_scalar ?span label type_ =
-  match Scalar.of_type type_ with
-  | Some scalar ->
-      {
-        word_type = (if Scalar.is_unsigned scalar then U64 else I64);
-        byte_size = Scalar.byte_size scalar;
-      }
-  | None ->
-      reject ?span "HCBACK0002" (label ^ " must be a nonzero scalar integer")
+  if X86_64_float_plan.is_f64 type_ then { word_type = F64; byte_size = 8 }
+  else
+    match Scalar.of_type type_ with
+    | Some scalar ->
+        {
+          word_type = (if Scalar.is_unsigned scalar then U64 else I64);
+          byte_size = Scalar.byte_size scalar;
+        }
+    | None ->
+        reject ?span "HCBACK0002" (label ^ " must be a nonzero scalar integer")
 
 let source_slot_scalar ?span label type_ =
   if Type.pointer_depth type_ = 0 then source_scalar ?span label type_
@@ -5813,6 +5908,8 @@ let source_slot_scalar ?span label type_ =
     | Ok _ when Ir.Automatic_aggregate_storage.aggregate_pointer type_ ->
         { word_type = U64; byte_size = 8 }
     | Ok pointee ->
+        if X86_64_float_plan.is_f64 pointee then
+          reject ?span "HCBACK0002" "native F64 pointers are unsupported";
         ignore (source_scalar ?span label pointee);
         { word_type = U64; byte_size = 8 }
     | Error message -> reject ?span "HCBACK0002" message
@@ -5879,6 +5976,40 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
     Headers.function_variadic_bindings (Frame.function_header frame)
   in
   let register_proof = Ir.Register_variable_analysis.analyze ~frame ~body in
+  let has_float_storage_or_code =
+    List.exists
+      (fun location ->
+        X86_64_float_plan.is_f64 (Frame.location_checked_type location))
+      (Frame.function_locations frame)
+    || List.exists
+         (fun block ->
+           List.exists
+             (fun instruction ->
+               let description = Sequence.description instruction in
+               Option.fold ~none:false ~some:X86_64_float_plan.is_f64
+                 description.target_type)
+             (Sequence.instructions (Graph.instructions block)))
+         (Graph.blocks (Function.body body))
+  in
+  let require_mixed_storage_proof location scalar =
+    if
+      has_float_storage_or_code && scalar.byte_size < 8
+      && not
+           (Option.fold ~none:false
+              ~some:(fun proof ->
+                match
+                  Ir.Register_variable_analysis.selection proof ~frame ~body
+                    ~symbol:(Frame.location_symbol location)
+                with
+                | Some (Ir.Register_variable_analysis.Register_candidate | Stack)
+                  -> true
+                | Some Unknown | None -> false)
+              register_proof)
+    then
+      reject ?span "HCBACK0002"
+        "native F64 functions require an authenticated allocation proof for \
+         narrow integer storage"
+  in
   let global_immediate_proof =
     Ir.Global_immediate_update_analysis.analyze ~frame ~body
   in
@@ -6029,12 +6160,21 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
             Ir.Automatic_aggregate_storage.byte_type
         else scalar
       in
+      require_mixed_storage_proof location scalar;
+      (match (scalar.word_type, Frame.location_register_selection location) with
+      | ( F64,
+          (Sema.Register_request.Allocatable | Sema.Register_request.Explicit _)
+        ) ->
+          reject ?span "HCBACK0002"
+            "native requested F64 GPR allocation requires an original \
+             allocation proof"
+      | _ -> ());
       let register_ok =
         match Frame.location_register_selection location with
         | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
             true
         | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _
-          -> proved_register_request location
+          -> scalar.word_type <> F64 && proved_register_request location
       in
       if
         Frame.location_kind location <> Frame.Named_parameter
@@ -6290,12 +6430,21 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         else if object_bytes >= 2 then 2
         else 1
       in
+      require_mixed_storage_proof location scalar;
+      (match (scalar.word_type, Frame.location_register_selection location) with
+      | ( F64,
+          (Sema.Register_request.Allocatable | Sema.Register_request.Explicit _)
+        ) ->
+          reject ?span "HCBACK0002"
+            "native requested F64 GPR allocation requires an original \
+             allocation proof"
+      | _ -> ());
       let register_ok =
         match Frame.location_register_selection location with
         | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
             true
         | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _
-          -> proved_register_request location
+          -> scalar.word_type <> F64 && proved_register_request location
       in
       if
         Frame.location_kind location <> Frame.Automatic_local
@@ -6591,6 +6740,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     ~(frame_slots : callable_slot Int_map.t) ~global_immediate_proof
     ~empty_frame_roots ~variadic ~expected_return ~source_item_index ~is_entry
     ~rbp_bytes ~max_stack_bytes ~next_site graph =
+  let float_plan =
+    match X86_64_float_plan.prepare graph with
+    | Ok plan -> plan
+    | Error errors ->
+        let error = List.hd errors in
+        reject ?span:error.span "HCBACK0002" error.message
+  in
   let lock_validation = Lock_validation.of_graph graph in
   let function_addresses =
     match
@@ -10415,6 +10571,16 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       unsupported description
                         "U0 source functions cannot return a word value"
                   | Callable_word_return _ ->
+                      (* Callback word views retain their original pointer-shaped
+                         declaration while returning numeric bits. Only the new
+                         floating-kind boundary is checked here; the existing
+                         owner-aware integer return path must stay intact. *)
+                      if
+                        X86_64_float_plan.is_f64 target_type
+                        <> X86_64_float_plan.is_f64 input.declared_type
+                      then
+                        unsupported description
+                          "native scalar returns cannot convert F64 values";
                       if not (has_code_word_view input) then
                         ignore
                           (checked_scalar ~allow_public:true description
@@ -10450,6 +10616,45 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 || Option.is_some description.payload
               then malformed description "invalid IC_END shape"
               else (End_stream, None)
+          | Opcode.Ic_imm_f64 -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [],
+                  Some result,
+                  Some target_type,
+                  Some (Sequence.Float_bits bits) )
+                when description.flags = 0L
+                     && X86_64_float_plan.is_f64 target_type ->
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  (Load_immediate (value, bits), None)
+              | _ ->
+                  malformed description "invalid native F64 literal transport")
+          | _ when Option.is_some (X86_64_float_plan.find float_plan ~graph raw)
+            -> (
+              if description.flags <> 0L then
+                malformed description
+                  "native F64 operation has unsupported flags";
+              let plan =
+                Option.get (X86_64_float_plan.find float_plan ~graph raw)
+              in
+              match (description.result, description.target_type) with
+              | Some result, Some target_type ->
+                  let inputs =
+                    List.map (operand values description position) plan.operands
+                  in
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  (Apply_float (plan, inputs, value), None)
+              | _ -> malformed description "F64 plan lost its result")
           | _ when Option.is_some (opcode_kind description.opcode) -> (
               if description.flags <> 0L then
                 malformed description
@@ -10465,6 +10670,18 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               unsupported description
                 "opcode is outside the native callable source subset"
         in
+        (match operation with
+        | Load_reference_value (_, result)
+        | Load_indexed_object_value (_, result)
+          when X86_64_float_plan.is_f64 result.declared_type ->
+            unsupported raw
+              "native F64 indirect and aggregate storage is unsupported"
+        | Store_reference_value (_, input, _)
+        | Store_indexed_object_value (_, input, _)
+          when X86_64_float_plan.is_f64 input.declared_type ->
+            unsupported raw
+              "native F64 indirect and aggregate storage is unsupported"
+        | _ -> ());
         let locked = prepare_lock ~lock_validation raw operation in
         (match operation with
         | Load_immediate (value, 0L) ->
@@ -12048,6 +12265,7 @@ let compile_program ?status_abi ?(max_stack_bytes = default_stack_bytes)
                         block_count;
                         function_count = 0;
                         callable = false;
+                        requires_x87 = false;
                         private_function_count = 0;
                         entry_stack_bytes = 8 + !frame_size;
                         global_bytes = 0;
@@ -12376,7 +12594,18 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         |> List.exists (fun instruction ->
             (Sequence.description instruction).opcode = Opcode.Ic_call_start))
   in
-  if callable_sources = [] && (not has_storage) && not entry_has_calls then
+  let entry_has_float =
+    Graph.blocks entry_graph
+    |> List.exists (fun block ->
+        Graph.instructions block |> Sequence.instructions
+        |> List.exists (fun instruction ->
+            Option.fold ~none:false ~some:X86_64_float_plan.is_f64
+              (Sequence.description instruction).target_type))
+  in
+  if
+    callable_sources = [] && (not has_storage) && (not entry_has_calls)
+    && not entry_has_float
+  then
     if
       Runtime.matches runtime_calls ~entry ~initialization:(Some initialization)
         ~functions:[]
@@ -12692,8 +12921,22 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           if local_subroutine_capacity = 0 then 0
           else local_subroutine_capacity + 1
         in
+        let float_scratch =
+          List.exists
+            (fun block ->
+              List.exists
+                (fun instruction ->
+                  match instruction.operation with
+                  | Apply_float _ -> true
+                  | _ -> false)
+                block.program_instructions)
+            prepared.callable_blocks
+        in
         let base_bytes =
-          rbp_bytes + ((fixed_stack_slots + local_subroutine_slots) * 8)
+          rbp_bytes
+          + (fixed_stack_slots + local_subroutine_slots
+            + if float_scratch then 1 else 0)
+            * 8
         in
         let base_frame = if base_bytes = 0 then 0 else align_up base_bytes 16 in
         if base_frame > max_stack_bytes || base_frame > 524272 then
@@ -12724,7 +12967,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             in
             let allocation =
               allocate_body ~status_abi:abi ~local_subroutine_capacity
-                ~shared_values:prepared.callable_shared_values
+                ~float_scratch ~shared_values:prepared.callable_shared_values
                 ~shared_home_indices:prepared.callable_shared_home_indices
                 ~function_code_owners ?undefined_code_owner
                 ~provider_entry_start:(Array.length function_infos)
@@ -13658,6 +13901,19 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           in
           Ok
             {
+              requires_x87 =
+                List.exists
+                  (function
+                    | Encoder.Fld64 _
+                    | Fstp64 _
+                    | Fbinary64 _
+                    | Fbinary_st0 _
+                    | Fbinary_sti _
+                    | Fbinary_pop _
+                    | Fchs
+                    | Fld_constant _ -> true
+                    | _ -> false)
+                  instructions;
               encoded =
                 Bytes.concat Bytes.empty
                   [ Bytes.of_string encoded; undefined_bytes; leaf_bytes ];
@@ -13817,3 +14073,4 @@ let program_function_slot_bindings (compiled : program_image) =
 
 let expression_sections (compiled : expression_image) = compiled.sections
 let program_sections (compiled : program_image) = compiled.sections
+let program_requires_x87 (compiled : program_image) = compiled.requires_x87

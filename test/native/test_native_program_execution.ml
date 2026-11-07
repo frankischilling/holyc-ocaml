@@ -24,6 +24,7 @@ let execute ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
 let word_type_name = function
   | Program.I64 -> "I64"
   | Program.U64 -> "U64"
+  | Program.F64 -> "F64"
 
 let vm_type_name = function
   | VM.I64 -> "I64"

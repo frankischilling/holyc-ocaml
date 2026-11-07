@@ -1,6 +1,6 @@
 module Codegen = X86_64_word_codegen
 
-type word_type = Codegen.word_type = I64 | U64
+type word_type = Codegen.word_type = I64 | U64 | F64
 type status_abi = Codegen.status_abi = Windows_x64 | System_v_x64
 type arithmetic_operation = Codegen.arithmetic_operation = Divide | Remainder
 type arithmetic_fault_kind = Division_by_zero | Signed_division_overflow

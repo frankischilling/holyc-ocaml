@@ -170,7 +170,7 @@ static void native_reference_scope_finish(struct native_reference_scope *scope)
 
 /* Request lanes: operation, first, second, third at context words 26..29.
    The first 24 context words retain their existing native/source ABI. */
-static uint64_t native_reference_service(uint64_t *context)
+static NATIVE_FPU_BODY uint64_t native_reference_service_body(uint64_t *context)
 {
   struct native_reference_scope *scope = (struct native_reference_scope *)(uintptr_t)context[25];
   struct native_reference_state *state = scope->state;

@@ -1,4 +1,29 @@
 (test
+ (name test_native_float_plan)
+ (modules test_native_float_plan)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_x87_encoder)
+ (modules test_x87_encoder)
+ (libraries holyc_lib alcotest))
+
+(executable
+ (name test_native_fpu_boundary)
+ (modules test_native_fpu_boundary)
+ (libraries alcotest)
+ (foreign_stubs
+  (language c)
+  (names native_fpu_boundary_test)
+  (flags
+   (:standard -DHOLYC_OCAML_TEST))))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_fpu_boundary.exe})))
+
+(test
  (name test_scored_register_allocation)
  (modules test_scored_register_allocation)
  (libraries holyc_lib alcotest))
@@ -623,6 +648,7 @@
   source_constant_shift_cases
   public_shift_class_cases
   test_native_program
+  test_native_f64_transport
   test_native_literal_storage
   test_native_persistent_storage
   test_native_scalar_functions
@@ -5842,3 +5868,20 @@
  (deps ../examples/scored-register-pressure.hc)
  (action
   (run %{exe:test_scored_register_cli.exe} %{exe:../bin/holyc.exe} --native)))
+
+(executable
+ (name test_native_f64_cli)
+ (modules test_native_f64_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/native-scalar-f64.hc)
+ (action
+  (run %{exe:test_native_f64_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/native-scalar-f64.hc)
+ (action
+  (run %{exe:test_native_f64_cli.exe} %{exe:../bin/holyc.exe} --native)))

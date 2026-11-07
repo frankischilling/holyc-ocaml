@@ -15328,3 +15328,15 @@ status = "partial"
 issue = 703
 verification = "Source-owned selection, explicit and scored member placement, private invocation saves, bridge preservation, exact budget accounting, literal encodings and host unwind checks."
 evidence_limit = "RBX context and memory budget are hosted adaptations, not TempleOS frame bytes. Legacy execution remains separate. General and floating allocation and complete HolyC ABI remain open. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-NATIVE-SCALAR-F64"
+description = "Source-owned F64 bit transport and isolated x87 arithmetic with checked host-state boundaries."
+sources = ["Compiler/OptLib.HC:535-554", "Compiler/OptPass3.HC:29-47,165-228", "Compiler/OptPass6.HC:119-165", "Compiler/BackFA.HC:6-59,195-239,339-518", "Compiler/BackLib.HC:423-442", "Compiler/BackFB.HC:488-594", "Compiler/OptPass789A.HC:779-785,1026-1032", "Kernel/KStart64.HC:5-7", "Kernel/KTask.HC:211-213", "Kernel/Sched.HC:87,119"]
+implementation = ["src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_task.ml", "src/hosted/native_program.ml", "src/hosted/native_source_execution.ml", "src/native_fpu_boundary.h", "src/native_execution_stubs.c"]
+tests = ["test/test_native_float_plan.ml", "test/test_x87_encoder.ml", "test/test_native_f64_transport.ml", "test/test_native_f64_cli.ml", "test/test_native_fpu_boundary.ml", "test/native/test_native_f64_callbacks.ml"]
+documentation = ["docs/native-f64.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Hosted cases cover exact F64 bits, source/task results, arithmetic orientation and identity copies, signed zero, infinities, NaNs, loops, recursion, quotas, hostile host FP state and actual OCaml callback cleanup."
+evidence_limit = "No new TempleOS runtime capture. Unproved extended links, conversions, nonbasic operations, requested F64 GPRs and mixed narrow storage without allocation proof reject. Persistent, indirect, default and callback-invocation F64 remain outside this subset. Unsupported host compilers reject x87 images; this entry does not claim complete Windows qualification or completion of issue 703."

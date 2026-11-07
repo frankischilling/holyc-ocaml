@@ -44,6 +44,13 @@ module Instruction_map = Map.Make (struct
   let compare = Instruction_id.compare
 end)
 
+(** Native scalar transport is separate from interpreter arithmetic. Float
+    payloads are raw IEEE-754 bits, never integer interpreter words. *)
+type native_word =
+  | Native_i64 of int64
+  | Native_u64 of int64
+  | Native_f64 of int64
+
 type word_type = I64 | U64
 type word = { type_ : word_type; bits : int64 }
 
@@ -424,6 +431,7 @@ type native_program_attempt = {
   native_program_catalog : Integer_globals.task_catalog;
   native_program_source : task_source_program;
   native_program_admission : task_admission;
+  native_program_capture_kinds : native_word list;
   mutable native_program_state : native_program_attempt_state;
 }
 
@@ -774,6 +782,7 @@ and task_state = {
   mutable native_function_sources :
     (Retained_function.t * task_function_source) list;
   mutable outer_value : word option;
+  mutable native_outer_value : native_word option;
   mutable admissions : task_admission list;
   mutable native_program_attempts : native_program_attempt list;
   mutable source_programs : task_source_program list;
@@ -960,6 +969,7 @@ let make_task_state ~resources ~native_storage_authority ~table =
     native_function_sources = [];
     provider_entries = [];
     outer_value = None;
+    native_outer_value = None;
     resources;
     admissions = [];
     native_program_attempts = [];
@@ -2758,6 +2768,50 @@ let retain_native_provider_sources task runtime_calls owner graph =
                    (Sequence.description instruction)))))
     (Runtime.original_function_slot_addresses runtime_calls ~owner)
 
+let native_capture_kinds source =
+  let descriptions =
+    X87.graph source.source_entry
+    |> Graph.blocks
+    |> List.concat_map (fun block ->
+        Graph.instructions block |> Sequence.instructions
+        |> List.map Sequence.description)
+  in
+  let producers =
+    List.fold_left
+      (fun map (description : Sequence.description) ->
+        match description.result with
+        | None -> map
+        | Some result ->
+            Value_map.add result.value_id description.target_type map)
+      Value_map.empty descriptions
+  in
+  List.filter_map
+    (fun (description : Sequence.description) ->
+      if
+        description.opcode <> Opcode.Ic_end_exp
+        || Runtime.is_implicit_discard source.source_calls ~owner:Runtime.Entry
+             description.instruction_id
+      then None
+      else
+        match description.operands with
+        | [ operand ] -> (
+            match Value_map.find_opt operand producers with
+            | Some (Some type_) when Type.pointer_depth type_ = 0 -> (
+                match Type.base type_ with
+                | Type.Primitive (_, Sema.Primitive_type.F64) ->
+                    Some (Native_f64 0L)
+                | _ ->
+                    Option.map
+                      (fun scalar ->
+                        if Scalar.is_unsigned scalar then Native_u64 0L
+                        else Native_i64 0L)
+                      (Scalar.of_type type_))
+            (* Original callback-word discards retain the existing I64 view. *)
+            | Some (Some _) -> Some (Native_i64 0L)
+            | _ -> None)
+        | _ -> None)
+    descriptions
+
 let claim_native_task_program task ~runtime_calls ~globals ~initialization
     ~functions entry =
   let ( let* ) = Result.bind in
@@ -2796,6 +2850,7 @@ let claim_native_task_program task ~runtime_calls ~globals ~initialization
       native_program_catalog = task.catalog;
       native_program_source = source;
       native_program_admission = admission;
+      native_program_capture_kinds = native_capture_kinds source;
       native_program_state = Native_program_entered;
     }
   in
@@ -2824,15 +2879,36 @@ let owns_active_native_task_program task attempt =
   && List.exists (fun saved -> saved == admission) task.admissions
   && List.exists (fun saved -> saved == attempt) task.native_program_attempts
 
-let complete_native_task_program task attempt ~captured ~final_value =
+let complete_native_scalar_task_program task attempt ~captured ~final_value =
   if not (owns_active_native_task_program task attempt) then
     Error "native source command completion is foreign or repeated"
   else if (not captured) && Option.is_some final_value then
     Error
       "native source command cannot publish a value without a reached capture"
+  else if
+    Option.fold ~none:false
+      ~some:(fun value ->
+        let kind = function
+          | Native_i64 _ -> Native_i64 0L
+          | Native_u64 _ -> Native_u64 0L
+          | Native_f64 _ -> Native_f64 0L
+        in
+        not (List.mem (kind value) attempt.native_program_capture_kinds))
+      final_value
+  then
+    Error
+      "native source command completion kind disagrees with original capture \
+       sites"
   else
-    let value = Option.map (fun (type_, bits) -> { type_; bits }) final_value in
-    if captured && task.resources.streams = [] then task.outer_value <- value;
+    let value =
+      Option.bind final_value (function
+        | Native_i64 bits -> Some { type_ = I64; bits }
+        | Native_u64 bits -> Some { type_ = U64; bits }
+        | Native_f64 _ -> None)
+    in
+    if captured && task.resources.streams = [] then (
+      task.outer_value <- value;
+      task.native_outer_value <- final_value);
     let receipts =
       Integer_globals.source_command_receipts
         attempt.native_program_source.source_storage
@@ -2850,6 +2926,17 @@ let complete_native_task_program task attempt ~captured ~final_value =
       task.inputs;
     attempt.native_program_state <- Native_program_completed;
     Ok ()
+
+let complete_native_task_program task attempt ~captured ~final_value =
+  complete_native_scalar_task_program task attempt ~captured
+    ~final_value:
+      (Option.map
+         (function
+           | I64, bits -> Native_i64 bits
+           | U64, bits -> Native_u64 bits)
+         final_value)
+
+let native_task_final_value task = task.native_outer_value
 
 let fail_native_task_program task attempt =
   if not (owns_active_native_task_program task attempt) then

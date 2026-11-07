@@ -1,4 +1,7 @@
 type word = private { type_ : Backend.X86_64_program.word_type; bits : int64 }
+(** F64 values retain the exact IEEE-754 payload, including NaNs and signed
+    zero. *)
+
 type result = private { final_value : word option }
 type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
 

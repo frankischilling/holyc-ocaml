@@ -1,4 +1,4 @@
-type word_type = X86_64_expression.word_type = I64 | U64
+type word_type = X86_64_expression.word_type = I64 | U64 | F64
 type status_abi = X86_64_encoder.status_abi = Windows_x64 | System_v_x64
 
 type error = X86_64_expression.error = {
@@ -277,6 +277,10 @@ val check_task_activation : t -> (unit, string) result
 (** Internal runtime admission. A task image claims only its exact still-active
     synchronous source request, once. Standalone images require no task claim.
 *)
+
+val requires_x87 : t -> bool
+(** Whether the original generated image executes x87 instructions. Raw F64
+    identity transport alone does not require an x87-capable entry thunk. *)
 
 val code : t -> string
 

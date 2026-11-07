@@ -298,7 +298,8 @@ let actual_source ?max_layout_work ~adversarial () =
                         (fun (word : Image.word) ->
                           match word.type_ with
                           | Image.I64 -> Dispatch.I64 word.bits
-                          | U64 -> Dispatch.U64 word.bits)
+                          | U64 -> Dispatch.U64 word.bits
+                          | F64 -> Dispatch.F64 word.bits)
                         result.final_value)
                  else Dispatch.Unchanged));
     }
@@ -389,7 +390,8 @@ let array_source ?(both_abis = false) ?(max_arena_bytes = 48)
                             (fun (word : Image.word) ->
                               match word.type_ with
                               | Image.I64 -> Dispatch.I64 word.bits
-                              | U64 -> Dispatch.U64 word.bits)
+                              | U64 -> Dispatch.U64 word.bits
+                              | F64 -> Dispatch.F64 word.bits)
                             result.final_value)
                      else Dispatch.Unchanged)));
     }
@@ -962,7 +964,8 @@ let native_function_preflight_retry () =
                         (fun (word : Image.word) ->
                           match word.type_ with
                           | Image.I64 -> Dispatch.I64 word.bits
-                          | U64 -> Dispatch.U64 word.bits)
+                          | U64 -> Dispatch.U64 word.bits
+                          | F64 -> Dispatch.F64 word.bits)
                         result.final_value)
                  else Dispatch.Unchanged)));
     }
@@ -1059,7 +1062,8 @@ let native_function_reached_fault_retains_source () =
                       (fun (word : Image.word) ->
                         match word.type_ with
                         | Image.I64 -> Dispatch.I64 word.bits
-                        | U64 -> Dispatch.U64 word.bits)
+                        | U64 -> Dispatch.U64 word.bits
+                        | F64 -> Dispatch.F64 word.bits)
                       execution.final_value
                   in
                   Ok
@@ -1356,7 +1360,8 @@ let native_literal_source_authority () =
                         (fun (word : Image.word) ->
                           match word.type_ with
                           | Image.I64 -> Dispatch.I64 word.bits
-                          | U64 -> Dispatch.U64 word.bits)
+                          | U64 -> Dispatch.U64 word.bits
+                          | F64 -> Dispatch.F64 word.bits)
                         result.final_value)
                  else Dispatch.Unchanged)));
     }
@@ -1430,7 +1435,8 @@ let native_static_source_authority ?(callback_type = "I64") () =
                     (fun (word : Image.word) ->
                       match word.type_ with
                       | Image.I64 -> Dispatch.I64 word.bits
-                      | U64 -> Dispatch.U64 word.bits)
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
                     result.final_value)
              else Dispatch.Unchanged));
     }
@@ -1676,7 +1682,8 @@ let native_static_copy_authority () =
                     (fun (word : Image.word) ->
                       match word.type_ with
                       | Image.I64 -> Dispatch.I64 word.bits
-                      | U64 -> Dispatch.U64 word.bits)
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
                     result.final_value)
              else Dispatch.Unchanged));
     }
@@ -1874,7 +1881,8 @@ let native_default_source_authority_case ?(callback_saved = false) text () =
                     (fun (word : Image.word) ->
                       match word.type_ with
                       | Image.I64 -> Dispatch.I64 word.bits
-                      | U64 -> Dispatch.U64 word.bits)
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
                     result.final_value)
              else Dispatch.Unchanged));
     }
@@ -2832,7 +2840,8 @@ let check_zero_reference_initializer_authority contents =
                     (fun (word : Image.word) ->
                       match word.type_ with
                       | Image.I64 -> Dispatch.I64 word.bits
-                      | U64 -> Dispatch.U64 word.bits)
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
                     result.final_value)
              else Dispatch.Unchanged));
     }

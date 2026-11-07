@@ -1,3 +1,10 @@
+(** Native scalar transport is separate from interpreter arithmetic. Float
+    payloads are raw IEEE-754 bits, never integer interpreter words. *)
+type native_word =
+  | Native_i64 of int64
+  | Native_u64 of int64
+  | Native_f64 of int64
+
 type word_type = I64 | U64
 type word = private { type_ : word_type; bits : int64 }
 
@@ -898,6 +905,17 @@ val claim_native_task_program :
   functions:function_definition list ->
   X87_stack.t ->
   (native_program_attempt, string) result
+
+val native_task_final_value : task_state -> native_word option
+
+val complete_native_scalar_task_program :
+  task_state ->
+  native_program_attempt ->
+  captured:bool ->
+  final_value:native_word option ->
+  (unit, string) result
+(** Settle only an original entered attempt. The returned scalar kind must occur
+    at an original capture site; F64 bits never become interpreter words. *)
 
 val complete_native_task_program :
   task_state ->

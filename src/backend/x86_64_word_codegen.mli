@@ -1,4 +1,4 @@
-type word_type = I64 | U64
+type word_type = I64 | U64 | F64
 type status_abi = X86_64_encoder.status_abi = Windows_x64 | System_v_x64
 type arithmetic_operation = Divide | Remainder
 type error = { code : string; message : string; span : Common.Span.t option }
@@ -224,3 +224,6 @@ val program_private_function_count : program_image -> int
 val program_function_slot_bindings : program_image -> (int * int) list
 val expression_sections : expression_image -> Asm.Native_sections.t
 val program_sections : program_image -> Asm.Native_sections.t
+
+val program_requires_x87 : program_image -> bool
+(** True when the original sealed emission contains x87 instructions. *)

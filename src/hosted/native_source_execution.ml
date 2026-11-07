@@ -77,11 +77,13 @@ let ( let* ) = Result.bind
 let word_of_dispatch = function
   | Dispatch.I64 bits -> { type_ = Image.I64; bits }
   | Dispatch.U64 bits -> { type_ = Image.U64; bits }
+  | Dispatch.F64 bits -> { type_ = Image.F64; bits }
 
 let dispatch_of_word (word : Image.word) =
   match word.type_ with
   | Image.I64 -> Dispatch.I64 word.bits
   | Image.U64 -> Dispatch.U64 word.bits
+  | Image.F64 -> Dispatch.F64 word.bits
 
 let describe_image image =
   {

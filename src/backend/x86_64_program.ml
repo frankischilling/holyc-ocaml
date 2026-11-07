@@ -2,7 +2,7 @@ module Codegen = X86_64_word_codegen
 module Task_dispatch = Driver.Integer_task.Native_dispatch
 module Task_storage = X86_64_global_storage
 
-type word_type = X86_64_expression.word_type = I64 | U64
+type word_type = X86_64_expression.word_type = I64 | U64 | F64
 type status_abi = X86_64_encoder.status_abi = Windows_x64 | System_v_x64
 
 type error = X86_64_expression.error = {
@@ -537,6 +537,7 @@ let check_task_activation image =
   | None -> Ok ()
   | Some claim -> claim ()
 
+let requires_x87 compiled = Codegen.program_requires_x87 compiled.image
 let code compiled = Codegen.program_code compiled.image
 let code_bytes compiled = Codegen.program_code_bytes compiled.image
 
@@ -565,6 +566,7 @@ let entry_stack_bytes compiled =
 let project_word_type = function
   | Codegen.I64 -> I64
   | Codegen.U64 -> U64
+  | Codegen.F64 -> F64
 
 let project_operation = function
   | Codegen.Divide -> Divide

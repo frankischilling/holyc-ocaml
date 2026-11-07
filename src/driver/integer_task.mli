@@ -16,7 +16,13 @@ type native_source_callback =
     does not grant machine, arena or budget entry. *)
 
 module Native_dispatch : sig
-  type word = I64 of int64 | U64 of int64
+  type word =
+    | I64 of int64
+    | U64 of int64
+    | F64 of int64
+        (** F64 carries exact IEEE-754 bits, not an integer interpreter value.
+        *)
+
   type capture = Unchanged | Captured of word option
   type initializer_request
   type command_request
@@ -990,8 +996,9 @@ val execute_source :
     execution. *)
 
 val native_final_value : t -> Native_dispatch.word option
-(** Final word metadata from a successfully reached native source command. This
-    is not an interpreter execution receipt or native runtime counter. *)
+(** Final scalar metadata from a successfully reached native source command. F64
+    bits are available here rather than in integer interpreter progress or
+    results. This is not an execution receipt or native runtime counter. *)
 
 val run :
   t ->

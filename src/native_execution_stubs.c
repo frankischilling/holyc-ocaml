@@ -38,8 +38,19 @@
 #endif
 
 #if HOLYC_NATIVE_PLATFORM != 0
+#include "native_fpu_boundary.h"
 #include "native_reference_shadow.h"
 #endif
+
+#ifndef HOLYC_NATIVE_X87_SUPPORTED
+#define HOLYC_NATIVE_X87_SUPPORTED 0
+#endif
+
+CAMLprim value holyc_native_x87_supported(value unit)
+{
+  (void)unit;
+  return Val_bool(HOLYC_NATIVE_X87_SUPPORTED);
+}
 
 /* A custom finalizer can run while OCaml promotes a global root and holds its
    root-table lock. Root-owning finalizers must not remove roots there. They
@@ -156,7 +167,7 @@ static uint64_t native_windows_execute_mapping(void *mapping,
   }
 
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
 
   if (function_count != 0 && !RtlDeleteFunctionTable(function_table))
     caml_failwith("native unwind removal failed; registered mapping retained");
@@ -259,7 +270,7 @@ static uint64_t native_windows_execute_mapping_storage(
   }
 
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   pointer_ok = context[9] == (uint64_t)(uintptr_t)arena;
 
   if (function_count != 0 && !RtlDeleteFunctionTable(function_table)) {
@@ -324,7 +335,7 @@ static uint64_t native_linux_execute_code(value code, mlsize_t length,
   }
   __builtin___clear_cache((char *)mapping, (char *)mapping + length);
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   if (munmap(mapping, (size_t)length) != 0)
     native_os_error("release", (unsigned long)errno);
   return bits;
@@ -377,7 +388,7 @@ static uint64_t native_linux_execute_code_storage(value code, mlsize_t length,
   memcpy(arena, String_val(arena_image), arena_length);
   context[9] = (uint64_t)(uintptr_t)arena;
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   pointer_ok = context[9] == (uint64_t)(uintptr_t)arena;
 
   {
@@ -1356,7 +1367,7 @@ static uint64_t native_retained_run(value handle, uint64_t *context, value enter
   if (entered != Val_unit)
     Store_field(entered, 0, Val_true);
   native_source_enter(context);
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   native_source_leave(context);
   atomic_store(&program->active, 0);
   if (context[9] != arena)
@@ -1500,7 +1511,7 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
   if (entered != Val_unit)
     Store_field(entered, 0, Val_true);
   native_source_enter(context);
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   native_source_leave(context);
   pointer_ok = context[9] == arena_address;
   for (size_t index = 0; index < borrowed; ++index) {
@@ -1531,7 +1542,7 @@ CAMLprim value holyc_native_execute_image(value code, value unwind, value abi)
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
   CAMLlocal4(result, boxed_bits, boxed_kind, boxed_site);
-  uint64_t status[2] = {0, 0};
+  uint64_t status[NATIVE_FPU_CONTEXT_WORDS] = {0, 0};
   const uint64_t bits =
     native_execute_checked_image(code, unwind, Long_val(abi), status);
 
@@ -1569,9 +1580,9 @@ CAMLprim value holyc_native_execute_program(value code, value unwind, value abi,
   if (step_limit <= 0)
     caml_invalid_argument("native program max_steps must be greater than zero");
 
-  /* Preserve the original six-word closed-program ABI exactly. Callable source
+  /* Preserve the original six visible words of the closed-program ABI. Callable source
      programs use holyc_native_execute_program_functions below. */
-  uint64_t context[6] = {0, 0, (uint64_t)step_limit, 0, 0, 0};
+  uint64_t context[NATIVE_FPU_CONTEXT_WORDS] = {0, 0, (uint64_t)step_limit, 0, 0, 0};
   (void)native_execute_checked_image(code, unwind, abi_code, context);
   if (context[2] != (uint64_t)step_limit)
     caml_failwith("native program status integrity failure: budget was modified");
@@ -1647,8 +1658,8 @@ CAMLprim value holyc_native_execute_program_functions(value code, value function
      all three remaining quotas to these values. Word 35 is the live remaining
      step allowance, initialized by the callable root. This hosted layout frees
      TempleOS source-variable registers R10/R11; the legacy closed executor above
-     still uses its six-word context. */
-  uint64_t context[36] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+     still exposes only its original six status words. */
+  uint64_t context[NATIVE_FPU_CONTEXT_WORDS] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                          (uint64_t)frame_limit, (uint64_t)depth_limit,
                          remaining_stack};
   struct native_reference_state reference_state = {0};
@@ -1774,7 +1785,7 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
      platform helper after fresh RW allocation. Generated code may only read it
      through the sealed RBX callable context and keeps R9 reserved as the arena
      base. Word 35 is the callable root's live remaining step allowance. */
-  uint64_t context[36] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+  uint64_t context[NATIVE_FPU_CONTEXT_WORDS] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                           (uint64_t)frame_limit, (uint64_t)depth_limit,
                           remaining_stack, 0};
   struct native_reference_state reference_state = {0};
@@ -2346,12 +2357,12 @@ static uint64_t native_compiler_callback(uint64_t *context,
   CAMLreturnT(uint64_t, bits);
 }
 
-static uint64_t native_source_callback(uint64_t *context)
+static NATIVE_FPU_BODY uint64_t native_source_callback_body(uint64_t *context)
 {
   return native_compiler_callback(context, 0, 0, 0);
 }
 
-static uint64_t native_option_callback(uint64_t *context,
+static NATIVE_FPU_BODY uint64_t native_option_callback_body(uint64_t *context,
   uint64_t option_index, uint64_t encoded_value)
 {
   if (encoded_value > 2) {
@@ -2873,7 +2884,7 @@ static value native_execute_program_output(value code, value functions,
   }
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
-    uint64_t context[36] = {
+    uint64_t context[NATIVE_FPU_CONTEXT_WORDS] = {
       0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
       output_address, remaining_output, remaining_work, 0,

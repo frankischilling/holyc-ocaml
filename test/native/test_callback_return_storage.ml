@@ -373,13 +373,15 @@ let unsupported_f64_execution_stays_gated () =
             "unsupported object or callback indirection stays gated" "HCRUN0001"
             (compile_error ~mode contents).code)
         [
-          "I64 Run(){F64 value;return 42;}Run();";
-          "I64 Run(){F64 (*p)(),value;return 42;}Run();";
+          "I64 Run(){static F64 value;return 42;}Run();";
+          "I64 Run(){F64 (*p)(),*value;return 42;}Run();";
           "I64 Run(){I64 (**p)();return 42;}Run();";
         ];
       let body = "F64 Value(){return 1.0;}42;" in
-      let body_error = compile_error ~mode body in
-      Alcotest.(check string) "F64 source body gate" "HCRUN0001" body_error.code;
+      let session, config, source = source_inputs ~mode body in
+      (match Native_program.compile session ~config ~source with
+      | Ok _ -> ()
+      | Error _ -> Alcotest.fail "native scalar F64 body did not compile");
       let call = "I64 Run(){F64 (*p)(I64 n);p=0;p(40);return 42;}Run();" in
       let _, batch = batch_failure ~mode ~max_steps:10_000 call in
       Alcotest.(check string)
@@ -428,7 +430,7 @@ let () =
                 "callback storage quotas are exact across IR and native" `Quick
                 exact_storage_code_and_step_quotas;
               Alcotest.test_case
-                "F64 callback execution and F64 bodies remain gated" `Quick
-                unsupported_f64_execution_stays_gated;
+                "F64 callback execution stays gated; scalar bodies compile"
+                `Quick unsupported_f64_execution_stays_gated;
             ] );
         ]

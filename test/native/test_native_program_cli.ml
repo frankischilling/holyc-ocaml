@@ -599,7 +599,7 @@ let source_rejection_has_no_native_outcome () =
             (contents ^ " rejects before native entry")))
     [
       "I64 N=1;I64 x=N<<2;";
-      "I64 Bad(){F64 x=1.0;return 0;} 42;";
+      "I64 Bad(){reg F64 x=1.0;return 0;} 42;";
       "1/0; I64 F(I64 n=42){return n;} F();";
       "I64 N;I64 F(I64 n=N<<3){return n;} F();";
       "extern I64 Add(I64 x); 42;";

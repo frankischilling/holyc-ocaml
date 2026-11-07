@@ -108,6 +108,11 @@ let scalar_word_type = function
   | Ast.Internal_type_specifier primitive -> scalar_integer primitive.primitive
   | Ast.Named_type_specifier _ -> false
 
+let scalar_f64_type = function
+  | Ast.Primitive_type_specifier { primitive = F64; _ }
+  | Ast.Internal_type_specifier { primitive = F64; _ } -> true
+  | _ -> false
+
 let named_pointer type_specifier pointer_layers =
   List.length pointer_layers = 1
   &&
@@ -235,12 +240,13 @@ let function_source_error (definition : Ast.function_definition) =
   if
     not
       (scalar_word_type definition.return_type
+      || scalar_f64_type definition.return_type
       || void_return_type definition.return_type
       ||
       match definition.return_type with
       | Ast.Named_type_specifier _ -> true
       | _ -> false)
-  then reject "native functions require a scalar integer or U0 return type"
+  then reject "native functions require a scalar integer, F64 or U0 return type"
   else if
     List.length definition.return_pointer_layers > 1
     || definition.return_pointer_layers <> []
@@ -272,6 +278,8 @@ let function_source_error (definition : Ast.function_definition) =
         if
           not
             (scalar_word_type parameter.type_specifier
+            || scalar_f64_type parameter.type_specifier
+               && parameter.pointer_layers = []
             || named_pointer parameter.type_specifier parameter.pointer_layers
             || (parameter.pointer_layers = []
                &&
@@ -331,6 +339,14 @@ let local_source_error (declaration : Ast.local_declaration) =
   if
     not
       (scalar_word_type declaration.local_type_specifier
+      || scalar_f64_type declaration.local_type_specifier
+         && (not is_static)
+         && List.for_all
+              (fun (local : Ast.local_declarator) ->
+                local.local_pointer_layers = []
+                && local.local_array_dimensions = []
+                && Option.is_none local.local_function_pointer)
+              declaration.local_declarators
       || storage_free_void || aggregate_object
       || List.for_all
            (fun local -> Option.is_some local.Ast.local_function_pointer)
@@ -989,10 +1005,25 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                              (entry_contains_opcode
                                 (Integer_unit.entry checked.value)
                                 Ir.Opcode.Ic_str_const))
+                       && (not
+                             (entry_contains_opcode
+                                (Integer_unit.entry checked.value)
+                                Ir.Opcode.Ic_call_start))
                        && not
-                            (entry_contains_opcode
+                            (Ir.X87_stack.graph
                                (Integer_unit.entry checked.value)
-                               Ir.Opcode.Ic_call_start) ->
+                            |> Ir.Block_graph.blocks
+                            |> List.exists (fun block ->
+                                Ir.Block_graph.instructions block
+                                |> Ir.Instruction_sequence.instructions
+                                |> List.exists (fun instruction ->
+                                    let description =
+                                      Ir.Instruction_sequence.description
+                                        instruction
+                                    in
+                                    Option.fold ~none:false
+                                      ~some:Backend.X86_64_float_plan.is_f64
+                                      description.target_type))) ->
                     Image.compile ?status_abi ~max_stack_bytes ~max_blocks
                       ~max_ir_instructions ~max_code_bytes
                       (Integer_unit.entry checked.value)

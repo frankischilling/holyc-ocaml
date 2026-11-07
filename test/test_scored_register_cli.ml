@@ -907,7 +907,8 @@ let directive_placement mode (case : case) body =
                   (fun (word : Program.word) ->
                     match word.type_ with
                     | Program.I64 -> Task.Native_dispatch.I64 word.bits
-                    | Program.U64 -> Task.Native_dispatch.U64 word.bits)
+                    | Program.U64 -> Task.Native_dispatch.U64 word.bits
+                    | Program.F64 -> Task.Native_dispatch.F64 word.bits)
                   execution.final_value)
            else Task.Native_dispatch.Unchanged)
     | Program.Fault _ -> failwith (label ^ ": unexpected native directive fault")

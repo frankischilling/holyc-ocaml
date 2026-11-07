@@ -240,11 +240,14 @@ let native_decimal (word : native_word) =
   match word.type_ with
   | Holyc_lib.X86_64_program.I64 -> Int64.to_string word.bits
   | Holyc_lib.X86_64_program.U64 -> Printf.sprintf "%Lu" word.bits
+  | Holyc_lib.X86_64_program.F64 ->
+      Printf.sprintf "%.17g" (Int64.float_of_bits word.bits)
 
 let native_word_type (word : native_word) =
   match word.type_ with
   | Holyc_lib.X86_64_program.I64 -> "i64"
   | Holyc_lib.X86_64_program.U64 -> "u64"
+  | Holyc_lib.X86_64_program.F64 -> "f64"
 
 let native_fragment_json (fragment : Holyc_lib.Native_source_execution.fragment)
     =

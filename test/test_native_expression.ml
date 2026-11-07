@@ -164,6 +164,7 @@ let replace_instruction id replacement checked =
 let type_name = function
   | Native.I64 -> "I64"
   | Native.U64 -> "U64"
+  | Native.F64 -> "F64"
 
 let hex bytes =
   String.to_seq bytes

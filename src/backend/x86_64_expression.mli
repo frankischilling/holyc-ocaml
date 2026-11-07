@@ -1,4 +1,4 @@
-type word_type = I64 | U64
+type word_type = I64 | U64 | F64
 type status_abi = X86_64_encoder.status_abi = Windows_x64 | System_v_x64
 type arithmetic_operation = Divide | Remainder
 type arithmetic_fault_kind = Division_by_zero | Signed_division_overflow

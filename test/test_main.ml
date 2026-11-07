@@ -244,6 +244,7 @@ let () =
       ("source integer U0 calls", Test_integer_u0.tests);
       ("source integer output", Test_integer_output.tests);
       ("source joined definitions", Test_integer_joined_definitions.tests);
+      ("native F64 transport", Test_native_f64_transport.tests);
       ("source persistent bytes", Test_integer_persistent_bytes.tests);
       ("source persistent arrays", Test_integer_persistent_arrays.tests);
       ("global array layout", Test_global_array_layout.tests);

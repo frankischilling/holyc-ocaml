@@ -408,6 +408,16 @@ let assignment_results_and_types () =
   ignore (execute frame [ 0L; 0L ] (public_cast narrow) |> expect_word 0x1002aL)
 
 let lowering_boundaries () =
+  let float_frame, float_function =
+    analyze "I64 Add(){F64 c;c=1.0;return 0;}"
+  in
+  let float_root = A.expression_values float_function |> List.hd in
+  (match
+     Expr.lower_typed_result ~frame:float_frame
+       ~instruction_id:(H.instruction_id 0) ~value_id:(H.value_id 0) float_root
+   with
+  | Ok (Expr.Lowered _) -> ()
+  | _ -> Alcotest.fail "scalar F64 assignment must lower for native execution");
   let frame, function_ = analyze source in
   let root = A.return_value function_ in
   let foreign, _ = analyze source in
@@ -443,7 +453,6 @@ let lowering_boundaries () =
       "I64 Add(){I0 c;c=1;return 0;}";
       "I64 Add(){I0 c[1];c;return 0;}";
       "I64 Add(){I64 *c[2];c;return 0;}";
-      "I64 Add(){F64 c;c=1.0;return 0;}";
       "I64 Add(){I0 c;&c;return 0;}";
       "I64 global; I64 Add(){global=1;return 0;}";
     ];

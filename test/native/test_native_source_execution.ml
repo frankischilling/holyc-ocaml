@@ -570,7 +570,7 @@ let unsupported_domains () =
   List.iter
     (fun text -> expect_rejection (run text))
     [
-      "F64 F(){return 42.0;} F();";
+      "F64 F(F64 x){return (x+1.0)*2.0;} F(42.0);";
       "I64 *A; A;";
       "F64 A=42.0; A;";
       "\"unsupported\";";

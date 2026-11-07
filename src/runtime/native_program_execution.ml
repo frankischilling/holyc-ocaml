@@ -324,7 +324,9 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
   let prior_steps, prior_output, prior_work =
     Option.value ~default:(0, 0, 0) consumed
   in
-  if max_steps <= 0 then
+  if Image.requires_x87 image && not (Native_execution.x87_supported ()) then
+    error_report Native_execution.x87_unavailable_message
+  else if max_steps <= 0 then
     error_report "native program max_steps must be greater than zero"
   else if max_frame_bytes <= 0 then
     error_report "native program max_frame_bytes must be greater than zero"
@@ -832,7 +834,9 @@ let retained_identity_prefix ?(max_global_bytes = 1_048_576)
     | Linux_x86_64, Image.System_v_x64 -> Some 2
     | _ -> None
   in
-  if max_global_bytes <= 0 || max_global_bytes > hard_max_global_bytes then
+  if Image.requires_x87 image && not (Native_execution.x87_supported ()) then
+    Error Native_execution.x87_unavailable_message
+  else if max_global_bytes <= 0 || max_global_bytes > hard_max_global_bytes then
     Error "retained native max_global_bytes is outside the host bound"
   else if max_literal_bytes <= 0 || max_literal_bytes > hard_max_literal_bytes
   then Error "retained native max_literal_bytes is outside the host bound"

@@ -484,40 +484,6 @@ let array_storage_address result =
      && Semantic_result.result_array_rank result > 0
      && Option.is_some (Semantic_result.result_callback_pointer result)
 
-let checked_frame_value result =
-  if numeric_callback_result result then checked_frame_integer result
-  else
-    match Semantic_result.result_storage_type result with
-    | Some type_ when array_storage_address result -> (
-        match Type.pointer_to type_ with
-        | Ok pointer
-          when array_pointer_type pointer
-               || Automatic_aggregate_storage.aggregate_pointer pointer ->
-            Ok (Checked_type pointer)
-        | _ -> Ok Unsupported_type)
-    | Some type_
-      when data_pointer_type type_
-           && Semantic_result.result_array_rank result = 0
-           && Semantic_result.result_class result
-              = Semantic_result.Integer_result -> Ok (Checked_type type_)
-    | _ -> checked_frame_integer result
-
-let checked_frame_scalar result =
-  match Semantic_result.result_category result with
-  | Semantic_result.Callback_value
-    when Semantic_result.result_is_callback_storage result
-         && Semantic_result.result_class result = Semantic_result.Integer_result
-    -> (
-      match Semantic_result.result_storage_type result with
-      | Some storage_type -> Ok (Checked_type storage_type)
-      | None ->
-          Error
-            (metadata_error ?span:(result_span result)
-               "callback cell has no checked physical storage type"))
-  | Semantic_result.Object_value | Semantic_result.Lvalue ->
-      checked_frame_value result
-  | _ -> Ok Unsupported_type
-
 let checked_f64_type result =
   match Semantic_result.result_type result with
   | None ->
@@ -540,6 +506,44 @@ let checked_f64_type result =
           | Semantic_result.Unresolved_actual_class ),
           _,
           (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
+
+let checked_frame_value result =
+  if numeric_callback_result result then checked_frame_integer result
+  else
+    match Semantic_result.result_storage_type result with
+    | Some type_ when array_storage_address result -> (
+        match Type.pointer_to type_ with
+        | Ok pointer
+          when array_pointer_type pointer
+               || Automatic_aggregate_storage.aggregate_pointer pointer ->
+            Ok (Checked_type pointer)
+        | _ -> Ok Unsupported_type)
+    | Some type_
+      when data_pointer_type type_
+           && Semantic_result.result_array_rank result = 0
+           && Semantic_result.result_class result
+              = Semantic_result.Integer_result -> Ok (Checked_type type_)
+    | _
+      when Semantic_result.result_class result = Semantic_result.F64_result
+           && Semantic_result.result_array_rank result = 0 ->
+        checked_f64_type result
+    | _ -> checked_frame_integer result
+
+let checked_frame_scalar result =
+  match Semantic_result.result_category result with
+  | Semantic_result.Callback_value
+    when Semantic_result.result_is_callback_storage result
+         && Semantic_result.result_class result = Semantic_result.Integer_result
+    -> (
+      match Semantic_result.result_storage_type result with
+      | Some storage_type -> Ok (Checked_type storage_type)
+      | None ->
+          Error
+            (metadata_error ?span:(result_span result)
+               "callback cell has no checked physical storage type"))
+  | Semantic_result.Object_value | Semantic_result.Lvalue ->
+      checked_frame_value result
+  | _ -> Ok Unsupported_type
 
 let checked_string_type result =
   let invalid () =
@@ -5945,7 +5949,14 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
   else
     let target_is_word =
       match aggregate_destination with
-      | None -> Option.is_some (Integer_scalar_storage.of_type target_type)
+      | None -> (
+          Option.is_some (Integer_scalar_storage.of_type target_type)
+          || Option.is_some frame
+             && Type.pointer_depth target_type = 0
+             &&
+             match Type.base target_type with
+             | Type.Primitive (_, Sema.Primitive_type.F64) -> true
+             | _ -> false)
       | Some (scalar, _) ->
           Result.is_ok (Integer_initializer_layout.normalized_word scalar 0L)
     in

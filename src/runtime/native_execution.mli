@@ -3,6 +3,12 @@ type platform = Windows_x86_64 | Linux_x86_64 | Unsupported
 val platform : unit -> platform
 val platform_name : platform -> string
 
+val x87_supported : unit -> bool
+(** Whether this host build provides audited x87 entry and callback scopes. A
+    false result does not disable legacy integer native execution. *)
+
+val x87_unavailable_message : string
+
 type execution_outcome =
   | Returned of int64
   | Fault of Backend.X86_64_expression.arithmetic_fault

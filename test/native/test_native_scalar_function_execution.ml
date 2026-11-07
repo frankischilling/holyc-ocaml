@@ -114,6 +114,7 @@ let batch_failure ?max_frame_bytes ?max_call_depth ~mode ~max_steps contents =
 let program_type_name = function
   | Program.I64 -> "I64"
   | Program.U64 -> "U64"
+  | Program.F64 -> "F64"
 
 let vm_type_name = function
   | VM.I64 -> "I64"

@@ -5,6 +5,11 @@ module Image = Backend.X86_64_expression
 type execution_outcome = Returned of int64 | Fault of Image.arithmetic_fault
 
 external native_platform : unit -> int = "holyc_native_platform"
+external x87_supported : unit -> bool = "holyc_native_x87_supported"
+
+let x87_unavailable_message =
+  "native x87 execution requires a GCC/Clang host boundary; this build \
+   supports integer execution only"
 
 external execute_image : string -> string -> int -> int64 * int64 * int64
   = "holyc_native_execute_image"

@@ -176,7 +176,8 @@ let native_compiler_option_authority () =
                       (fun (word : Image.word) ->
                         match word.type_ with
                         | Image.I64 -> Task.Native_dispatch.I64 word.bits
-                        | Image.U64 -> Task.Native_dispatch.U64 word.bits)
+                        | Image.U64 -> Task.Native_dispatch.U64 word.bits
+                        | Image.F64 -> Task.Native_dispatch.F64 word.bits)
                       result.final_value)
                else Unchanged)
       in
@@ -790,7 +791,8 @@ let capture_authority () =
             (fun (word : Image.word) ->
               match word.type_ with
               | I64 -> Task.Native_dispatch.I64 word.bits
-              | U64 -> Task.Native_dispatch.U64 word.bits)
+              | U64 -> Task.Native_dispatch.U64 word.bits
+              | F64 -> Task.Native_dispatch.F64 word.bits)
             result.final_value))
   in
   let dispatch : Task.Native_dispatch.t =
@@ -1103,7 +1105,8 @@ let native_source_callback_scope ?(failure = `None)
                   (fun (word : Image.word) ->
                     match word.type_ with
                     | I64 -> Task.Native_dispatch.I64 word.bits
-                    | U64 -> Task.Native_dispatch.U64 word.bits)
+                    | U64 -> Task.Native_dispatch.U64 word.bits
+                    | F64 -> Task.Native_dispatch.F64 word.bits)
                   result.final_value)
            else Task.Native_dispatch.Unchanged)
   in
