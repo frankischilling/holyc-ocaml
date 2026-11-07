@@ -7,14 +7,26 @@ and the frame. The hosted adapter keeps its existing fixed-RSP calling
 convention, parameter slots and checked local displacements. Windows guard pages
 and unwind records are host requirements, not TempleOS language semantics.
 
-The encoder admits spill frames through 65,528 bytes and callable frames through
-65,520 bytes. Their alignment is unchanged. The default quota stays at 4,088.
-For an allocation of at least 4,096 bytes, the prologue emits a qword TEST from
-`RSP-4096`, then each successive page, then the final allocation address if it
-is not a page multiple. All reads fall inside the future frame. TEST preserves
-registers and memory; only flags change. RSP moves once, after the probes.
-The largest probe sequence occupies 128 bytes, so the complete callable
-prologue fits the one-byte Windows unwind offset.
+The encoder admits spill frames through 524,280 bytes and callable frames
+through 524,272 bytes. Their alignment is unchanged. The private-frame default
+stays at 4,088 bytes; simultaneous physical stack use still defaults to 65,536
+bytes, with a separate opt-in ceiling of 524,288. These are independent limits.
+
+Allocations through 65,528 bytes keep their original bytes. Starting at 4,096
+bytes, that path emits one qword TEST per page and a final partial-page touch.
+Larger allocations use a compact loop: RAX starts at -4096, each TEST reads
+`[RSP+RAX]`, and the cursor moves downward by 4096 until the last full page.
+A separate TEST touches the final allocation address when needed. The loop
+uses the pinned MOV, TEST, SUB, CMP and JGE forms from OpCodes.DD. It changes
+RAX and flags, so RAX must be free at these allocation-entry sites. Argument,
+context and nonvolatile registers remain intact. All probes preserve RSP and
+memory, and RSP moves once after probing. Probing never jumps directly to the
+bottom of an uncommitted stack range.
+
+The compact allocation occupies 34 bytes for a page multiple and 42 bytes with
+a partial tail. Callable prologues add four bytes for PUSH RBP and MOV RBP,RSP,
+so Windows unwind offsets remain below 256. The ceiling fits the existing
+scaled UWOP_ALLOC_LARGE field; the unscaled variant is not claimed.
 
 [Microsoft's x64 prologue rules](https://learn.microsoft.com/en-us/cpp/build/prolog-and-epilog)
 require checking large allocations before changing RSP and preserving argument
@@ -26,8 +38,8 @@ place the allocation operation after the probes. No unwind operation is needed
 for a probe because it changes neither RSP nor a nonvolatile register. The
 unchanged epilogues add the allocation back, restore RBP where present and return.
 
-The native bridge checks the probe bytes, distances, allocation and unwind
-endpoint before admitting callable or retained closed images. The Windows test
+The native bridge checks the probe bytes, distances, loop bounds/back edge,
+partial-page touch, allocation and unwind endpoint before admitting callable or retained closed images. The Windows test
 probe checks `RtlVirtualUnwind` at each probe, before allocation, in the body and
 in the epilogue. Linux runs the same emitted allocation paths. Byte tests cover
 page boundaries, final partial pages, the maximum frame and exact code quotas.
@@ -41,3 +53,11 @@ because initialization flags and private runtime storage also occupy space.
 
 This change does not implement general integer or floating register allocation,
 requested-register conflicts or native exception handlers. Issue #703 stays open.
+
+`examples/compact-native-frame.hc` also returns 42. It uses a 40,000-byte array
+and an 80,144-byte callable frame. Run it with `--stack-byte-limit=131072`,
+`--code-byte-limit=262144` and `--active-stack-byte-limit=262144` on either
+native target. Its exact simultaneous physical requirement is 80,320 bytes,
+including the entry frame and callee return address/saved RBP. Both private
+and active-stack defaults remain too small for it. Enlarging the private-frame
+quota does not silently enlarge either the code or active-stack quota.

@@ -245,7 +245,8 @@ type retained = {
 
 let platform = Native_execution.platform
 let platform_name = Native_execution.platform_name
-let hard_max_active_stack_bytes = 65_536
+let default_active_stack_bytes = 65_536
+let hard_max_active_stack_bytes = 524_288
 let hard_max_global_bytes = 16_777_216
 let hard_max_literal_bytes = 16_777_216
 let hard_max_arena_bytes = 33_554_432
@@ -316,7 +317,7 @@ let release_arena_lease arena borrowed =
 let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
     ?source_callback_state ?consumed_after_source ?activation_step_restriction
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
-    ?(max_active_stack_bytes = hard_max_active_stack_bytes)
+    ?(max_active_stack_bytes = default_active_stack_bytes)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~max_steps
     image =
@@ -823,7 +824,7 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
 
 let retained_identity_prefix ?(max_global_bytes = 1_048_576)
     ?(max_literal_bytes = 1_048_576)
-    ?(max_active_stack_bytes = hard_max_active_stack_bytes) image =
+    ?(max_active_stack_bytes = default_active_stack_bytes) image =
   let abi = Image.status_abi image in
   let abi_code =
     match (platform (), abi) with

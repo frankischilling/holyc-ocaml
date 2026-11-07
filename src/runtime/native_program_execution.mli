@@ -6,8 +6,11 @@ type platform = Native_execution.platform =
 val platform : unit -> platform
 val platform_name : platform -> string
 
+val default_active_stack_bytes : int
+(** Default simultaneous physical native stack budget: 65,536 bytes. *)
+
 val hard_max_active_stack_bytes : int
-(** Hard per-execution bound for generated native activations: 65,536 bytes. *)
+(** Hard per-execution bound for generated native activations: 524,288 bytes. *)
 
 val hard_max_global_bytes : int
 (** Hard logical global and static byte bound: 16 MiB. *)

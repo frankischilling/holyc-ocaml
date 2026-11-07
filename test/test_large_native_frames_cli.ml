@@ -13,8 +13,10 @@ let with_file suffix f =
   Fun.protect ~finally:(fun () -> Sys.remove path) (fun () -> f path)
 
 let compiler = Sys.argv.(1)
+let reports = ref 0
 
 let run ?(fault = false) ?(options = []) source expected target mode =
+  incr reports;
   with_file ".hc" (fun path ->
       let channel = open_out_bin path in
       output_string channel source;
@@ -56,8 +58,13 @@ let run ?(fault = false) ?(options = []) source expected target mode =
               if fault then
                 require
                   (result |> member "diagnostics" |> to_list
-                  |> List.exists (fun diagnostic ->
-                      member "code" diagnostic = `String expected))
+                   |> List.exists (fun diagnostic ->
+                       member "code" diagnostic = `String expected)
+                  ||
+                  match member "command_error" result with
+                  | `Assoc fields ->
+                      List.assoc_opt "code" fields = Some (`String expected)
+                  | _ -> false)
                   (target ^ " " ^ mode ^ ": " ^ Yojson.Safe.to_string result)
               else
                 require
@@ -74,6 +81,79 @@ let () =
     (fun target ->
       List.iter
         (fun mode ->
+          let large =
+            "I64 F(){I64 a[5000];a[0]=20;a[4999]=22;return a[0]+a[4999];}F();"
+          in
+          let large_options =
+            [
+              "--stack-byte-limit=131072";
+              "--code-byte-limit=262144";
+              "--active-stack-byte-limit=262144";
+            ]
+          in
+          run ~options:large_options large "42" target mode;
+          let compile_options =
+            [ "--stack-byte-limit=131072"; "--code-byte-limit=262144" ]
+          in
+          run ~fault:true ~options:compile_options large "HCNATIVE0006" target
+            mode;
+          run
+            ~options:(compile_options @ [ "--active-stack-byte-limit=80320" ])
+            large "42" target mode;
+          run ~fault:true
+            ~options:(compile_options @ [ "--active-stack-byte-limit=80319" ])
+            large "HCNATIVE0006" target mode;
+          run
+            ~options:
+              [
+                "--stack-byte-limit=80144";
+                "--code-byte-limit=262144";
+                "--active-stack-byte-limit=262144";
+              ]
+            large "42" target mode;
+          run ~fault:true
+            ~options:
+              [
+                "--stack-byte-limit=80143";
+                "--code-byte-limit=262144";
+                "--active-stack-byte-limit=262144";
+              ]
+            large "HCBACK0004" target mode;
+          run ~fault:true
+            ~options:
+              [
+                "--stack-byte-limit=131072";
+                "--code-byte-limit=4096";
+                "--active-stack-byte-limit=262144";
+              ]
+            large "HCBACK0005" target mode;
+          run ~fault:true
+            ~options:(compile_options @ [ "--active-stack-byte-limit=524289" ])
+            large "HCIRVM0001" target mode;
+          run ~options:large_options
+            (read "../examples/compact-native-frame.hc")
+            "42" target mode;
+          run ~fault:true large "HCBACK0004" target mode;
+          run
+            ~options:(large_options @ [ "--frame-byte-limit=40000" ])
+            large "42" target mode;
+          run ~fault:true
+            ~options:(large_options @ [ "--frame-byte-limit=39999" ])
+            large "HCIRVM0011" target mode;
+          run ~options:large_options
+            "I64 F(I64 n){I64 a[5000];a[0]=n;a[4999]=21;if(n)return \
+             F(n-1)+a[0];return a[4999];}F(1);"
+            "22" target mode;
+          run ~options:large_options
+            "I64 F(){I64 a[5000];a[0]=20;a[4999]=22;return a[0]+a[4999];}I64 \
+             sum=0,i;for(i=0;i<5;i++)sum+=F();sum;"
+            "210" target mode;
+          run ~fault:true ~options:large_options
+            "I64 F(I64 n){I64 a[5000];a[0]=n;if(n)return F(n-1);return \
+             a[0]/n;}F(1);"
+            "HCIRVM0009" target mode;
+          run ~fault:true ~options:large_options
+            "I64 F(){I64 a[5000];return a[4999];}F();" "HCIRVM0012" target mode;
           run ~options ordinary "42" target mode;
           run
             ~options:[ "--stack-byte-limit=65528"; "--code-byte-limit=262144" ]
@@ -116,4 +196,4 @@ let () =
               ordinary "HCNATIVE0006" target mode))
         [ "jit"; "aot" ])
     [ "host-jit"; "host-jit-task" ];
-  Printf.printf "Large native frame CLI checks passed (52 reports).\n"
+  Printf.printf "Large native frame CLI checks passed (%d reports).\n" !reports

@@ -164,14 +164,14 @@ Storage-bearing callable programs reserve R9 for the arena and use four value
 registers; the reported register peak
 also counts R10, R11 and any fixed or temporary registers. Each block has fresh
 value ownership and reusable spill slots. Closed programs keep their original
-single frame, sized to the largest block, with a default quota of 4,088 bytes and a probed maximum of 65,528 bytes.
+single frame, sized to the largest block, with a default quota of 4,088 bytes and a probed maximum of 524,280 bytes.
 
 Callable owners save RBP and keep RSP fixed throughout their bodies. Parameters
 occupy the original positive slots starting at `RBP+16`; automatic locals use
 their checked negative frame displacements and exact declared widths. Narrow
 loads sign- or zero-extend and stores touch only the object's bytes. Private initialization flags, spills,
 pending arguments and a shared outgoing argument area occupy disjoint storage.
-The allocation is a multiple of 16 bytes and at most 65,520 bytes; the return
+The allocation is a multiple of 16 bytes and at most 524,272 bytes; the return
 address and saved RBP are counted separately by the active-stack limit. An owner
 that needs no allocation still saves and restores RBP.
 
@@ -200,7 +200,8 @@ call or semantic frame units, but its physical footprint is checked before host
 entry. A fault returns through each actual generated epilogue; callers restore
 all three reservations and propagate it without charging cleanup/end instructions
 that were not reached. The final native bridge checks the restored counters.
-The physical allowance is independently capped at 65,536 bytes so recursion with
+The physical allowance defaults to 65,536 bytes and is independently capped at
+524,288 bytes, so recursion with
 zero semantic frame bytes cannot evade stack bounds.
 
 The expression API keeps its separate return convention and previous byte
@@ -246,11 +247,11 @@ allocating executable memory.
 | `--default-byte-limit` / `max_default_bytes` | 65,536 | Positive saved scalar payload quota; eight bytes per prepared default |
 | `--ir-instruction-limit` / `max_ir_instructions` | 4,096 | 1 through 100,000 |
 | `--code-byte-limit` / `max_code_bytes` | 65,536 | 1 through 16 MiB |
-| `--stack-byte-limit` / `max_stack_bytes` | 4,088 | 0 through 4,088 per generated owner; callable allocations are rounded to 16 bytes and capped at 4,080 |
+| `--stack-byte-limit` / `max_stack_bytes` | 4,088 | 0 through 524,280 per generated owner; callable allocations are rounded to 16 bytes and capped at 524,272 |
 | `--block-limit` / `max_blocks` | 4,096 | 1 through 100,000 |
 | `--frame-byte-limit` / `max_frame_bytes` | 1,048,576 | Positive simultaneous named-function parameter/local bytes |
 | `--call-depth-limit` / `max_call_depth` | 128 | Positive simultaneously active named calls |
-| `--active-stack-byte-limit` / `max_active_stack_bytes` | 65,536 | 1 through 65,536; physical bytes for entry and all active generated calls |
+| `--active-stack-byte-limit` / `max_active_stack_bytes` | 65,536 | 1 through 524,288; physical bytes for entry and all active generated calls |
 
 The compiler counts all IR and blocks before allocating its maps, preflights the
 whole bundle, and checks the complete planned image before allocating encoded
@@ -389,13 +390,14 @@ addresses across source events still require their own code owners.
 ## Larger private frames
 
 The default private-frame quota remains 4,088 bytes. An explicit
-`--stack-byte-limit` can raise it to 65,528 bytes; callable allocations are
-16-byte aligned and therefore top out at 65,520. Allocations of at least
+`--stack-byte-limit` can raise it to 524,280 bytes; callable allocations are
+16-byte aligned and therefore top out at 524,272. Allocations of at least
 4,096 bytes touch each intervening page and the final allocated word before
 changing RSP. Probe bytes count against the code quota. See
 [stack probing](native-stack-probing.md) for the host ABI and unwind rules.
 
-The simultaneous physical-stack cap remains 65,536 bytes. Raising the private
+The simultaneous physical-stack default remains 65,536 bytes; its opt-in hard
+ceiling is 524,288. Raising the private
 frame quota does not raise semantic frame bytes, recursion depth, generated
 code or active-stack limits. A large callee can still fail its active-stack
 check before entry. The usual epilogues restore reservations after normal

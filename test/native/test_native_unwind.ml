@@ -16,6 +16,10 @@ external probe_windows_program_unwind :
   string -> (int * int * string) array -> unit
   = "holyc_test_native_program_unwind"
 
+external execute_encoded_probe :
+  string -> string -> int -> int64 * int64 * int64
+  = "holyc_native_execute_image"
+
 type retained_probe
 
 external retain_probe :
@@ -65,7 +69,8 @@ let compile_source ~mode contents =
   Native_expression.compile session ~config ~source
   |> require_ok diagnostic_errors
 
-let compile_program_source ?(max_stack_bytes = 4088) ~mode contents =
+let compile_program_source ?(max_stack_bytes = 4088) ?max_code_bytes ~mode
+    contents =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-program-unwind.hc" ~contents
@@ -73,7 +78,8 @@ let compile_program_source ?(max_stack_bytes = 4088) ~mode contents =
   let config =
     Preprocessor.Config.create ~compilation_mode:mode () |> require_ok Fun.id
   in
-  Native_program.compile ~max_stack_bytes session ~config ~source
+  Native_program.compile ~max_stack_bytes ?max_code_bytes session ~config
+    ~source
   |> require_ok diagnostic_errors
   |> fun checked -> checked.value
 
@@ -203,11 +209,62 @@ let uint32_le text offset =
 let string_of_bytes bytes =
   String.init (List.length bytes) (fun index -> Char.chr (List.nth bytes index))
 
-let probe_size bytes = if bytes < 4096 then 0 else 8 * ((bytes + 4095) / 4096)
+let probe_size bytes =
+  if bytes < 4096 then 0
+  else if bytes <= 65528 then 8 * ((bytes + 4095) / 4096)
+  else 27 + if bytes mod 4096 = 0 then 0 else 8
+
+let int32_bytes value =
+  List.init 4 (fun index -> (value lsr (index * 8)) land 0xff)
+
+let expected_probe frame =
+  let tail distance = [ 0x48; 0x85; 0x84; 0x24 ] @ int32_bytes (-distance) in
+  if frame < 4096 then ""
+  else if frame <= 65528 then
+    List.init
+      ((frame + 4095) / 4096)
+      (fun index -> tail (min frame ((index + 1) * 4096)))
+    |> List.concat |> string_of_bytes
+  else
+    ([
+       0x48;
+       0xc7;
+       0xc0;
+       0x00;
+       0xf0;
+       0xff;
+       0xff;
+       0x48;
+       0x85;
+       0x04;
+       0x04;
+       0x48;
+       0x81;
+       0xe8;
+       0x00;
+       0x10;
+       0x00;
+       0x00;
+       0x48;
+       0x81;
+       0xf8;
+     ]
+    @ int32_bytes (-(frame / 4096 * 4096))
+    @ [ 0x7d; 0xec ]
+    @ if frame mod 4096 = 0 then [] else tail frame)
+    |> string_of_bytes
+
+let check_probe_code label frame code offset =
+  let expected = expected_probe frame in
+  require
+    (String.length expected = probe_size frame
+    && String.length code >= offset + String.length expected
+    && String.sub code offset (String.length expected) = expected)
+    (label ^ ": exact page-probe instructions, loop bound and branch target")
 
 let expected_unwind frame_bytes =
   require
-    (frame_bytes >= 8 && frame_bytes <= 65528 && frame_bytes mod 16 = 8)
+    (frame_bytes >= 8 && frame_bytes <= 524280 && frame_bytes mod 16 = 8)
     "test fixture frame is outside the bounded ABI shape";
   if frame_bytes <= 128 then
     string_of_bytes
@@ -239,6 +296,7 @@ let check_frame_code label frame_bytes code =
   let length = String.length code in
   let prefix = probe_size frame_bytes in
   require (length >= prefix + 15) (label ^ ": frameful image is too short");
+  check_probe_code label frame_bytes code 0;
   require
     (byte code prefix = 0x48
     && byte code (prefix + 1) = 0x81
@@ -259,6 +317,63 @@ let check_frame_code label frame_bytes code =
   require
     (byte code (length - 1) = 0xc3)
     (label ^ ": frameful image does not end in RET")
+
+let expected_callable_unwind frame =
+  require
+    (frame >= 0 && frame <= 524272 && frame mod 16 = 0)
+    "test fixture callable frame is outside the bounded ABI shape";
+  if frame = 0 then string_of_bytes [ 1; 4; 1; 0; 1; 0x50; 0; 0 ]
+  else
+    let endpoint = 11 + probe_size frame in
+    require (endpoint <= 255) "callable allocation endpoint exceeds one byte";
+    if frame <= 128 then
+      string_of_bytes
+        [
+          1; endpoint; 2; 0; endpoint; (((frame / 8) - 1) lsl 4) lor 2; 1; 0x50;
+        ]
+    else
+      let scaled = frame / 8 in
+      string_of_bytes
+        [
+          1;
+          endpoint;
+          3;
+          0;
+          endpoint;
+          1;
+          scaled land 0xff;
+          (scaled lsr 8) land 0xff;
+          1;
+          0x50;
+          0;
+          0;
+        ]
+
+let check_callable_frame_code label frame code (first, last, unwind) =
+  require
+    (first >= 0 && last <= String.length code && last - first >= 6)
+    (label ^ ": callable owner range");
+  require
+    (String.sub code first 4 = string_of_bytes [ 0x55; 0x48; 0x89; 0xe5 ])
+    (label ^ ": callable PUSH RBP; MOV RBP,RSP");
+  require
+    (unwind = expected_callable_unwind frame)
+    (label ^ ": exact callable Version 1 unwind bytes");
+  check_probe_code label frame code (first + 4);
+  if frame <> 0 then (
+    let allocation = first + 4 + probe_size frame in
+    require
+      (last - first >= 4 + probe_size frame + 7 + 9
+      && String.sub code allocation 3 = string_of_bytes [ 0x48; 0x81; 0xec ]
+      && uint32_le code (allocation + 3) = frame)
+      (label ^ ": callable allocation endpoint");
+    require
+      (String.sub code (last - 9) 3 = string_of_bytes [ 0x48; 0x81; 0xc4 ]
+      && uint32_le code (last - 6) = frame)
+      (label ^ ": callable frame deallocation"));
+  require
+    (String.sub code (last - 2) 2 = string_of_bytes [ 0x5d; 0xc3 ])
+    (label ^ ": callable POP RBP; RET")
 
 let check_unwind_copy label expected image =
   let first = Image.windows_unwind_info image in
@@ -485,6 +600,162 @@ let check_retained_probe_validation ~windows image =
   bad_owners.(1) <- (first, last, Bytes.to_string bad_unwind);
   rejected "stale allocation unwind offset" code bad_owners
 
+let check_compact_probe_validation ~windows ~code ~owners ~entry_stack_bytes
+    ~owner_index ~probe_offset ~frame =
+  require (frame > 65528) "compact mutation fixture needs a large frame";
+  let retain code owners =
+    retain_probe
+      ( code,
+        owners,
+        (if windows then 1 else 2),
+        entry_stack_bytes,
+        (0, 0, 0, "") )
+  in
+  release_probe (retain code owners);
+  let rejected label code owners =
+    match retain code owners with
+    | handle ->
+        release_probe handle;
+        failwith (label ^ ": corrupt compact frame admitted")
+    | exception Invalid_argument _ -> ()
+  in
+  let mutate label offset value =
+    let bad = Bytes.of_string code in
+    Bytes.set bad (probe_offset + offset) (Char.chr value);
+    rejected label (Bytes.to_string bad) owners
+  in
+  mutate "altered loop bound" 21 (byte code (probe_offset + 21) lxor 0x10);
+  mutate "altered loop target" 26 0xed;
+  mutate "reversed loop condition" 25 0x7c;
+  mutate "reversed probe direction" 13 0xc0;
+  mutate "altered probe stride" 15 0x20;
+  mutate "altered probe index" 10 0x0c;
+  if frame mod 4096 <> 0 then (
+    let bad = Bytes.of_string code in
+    Bytes.fill bad (probe_offset + 27) 8 '\x90';
+    rejected "missing partial-page probe" (Bytes.to_string bad) owners);
+  let corrupt_unwind label change =
+    let bad_owners = Array.copy owners in
+    let first, last, unwind = bad_owners.(owner_index) in
+    let bad = Bytes.of_string unwind in
+    change bad;
+    bad_owners.(owner_index) <- (first, last, Bytes.to_string bad);
+    rejected label code bad_owners
+  in
+  corrupt_unwind "stale compact allocation endpoint" (fun bad ->
+      let endpoint = Char.code (Bytes.get bad 1) - 1 in
+      Bytes.set bad 1 (Char.chr endpoint);
+      Bytes.set bad 4 (Char.chr endpoint));
+  corrupt_unwind "mismatched scaled allocation" (fun bad ->
+      Bytes.set bad 6 (Char.chr (Char.code (Bytes.get bad 6) lxor 2)))
+
+let check_encoded_boundary_frames ~windows =
+  let encode instructions =
+    List.map Encoder.encode instructions |> String.concat ""
+  in
+  let capture =
+    Encoder.Capture_status
+      (if windows then Encoder.Windows_x64 else Encoder.System_v_x64)
+  in
+  require
+    (expected_unwind 524280 = string_of_bytes [ 1; 42; 2; 0; 42; 1; 0xff; 0xff ])
+    "maximum spill frame must use scaled UWOP_ALLOC_LARGE 0xffff";
+  require
+    (expected_callable_unwind 524272
+    = string_of_bytes [ 1; 46; 3; 0; 46; 1; 0xfe; 0xff; 1; 0x50; 0; 0 ])
+    "maximum callable frame must use scaled UWOP_ALLOC_LARGE 0xfffe";
+  List.iter
+    (fun frame ->
+      let stack = Encoder.stack_frame ~bytes:frame |> require_ok Fun.id in
+      let code =
+        encode
+          [
+            Encoder.Alloc_stack stack;
+            capture;
+            Encoder.Mov_imm64 (Encoder.Rax, 42L);
+            Encoder.Free_stack stack;
+            Encoder.Ret;
+          ]
+      in
+      let unwind = expected_unwind frame in
+      let label = Printf.sprintf "encoded %d-byte spill boundary" frame in
+      check_frame_code label frame code;
+      require
+        (byte unwind 1
+        = String.length (Encoder.encode (Encoder.Alloc_stack stack)))
+        (label ^ ": allocation endpoint differs from encoded prologue");
+      if windows then probe_windows_unwind code unwind frame;
+      (* Execute only trusted, unmodified ABI-neutral encoder fixtures. The
+         malformed variants below remain admission-only tests. *)
+      let execution_code =
+        encode
+          [
+            Encoder.Alloc_stack stack;
+            Encoder.Mov_imm64 (Encoder.Rax, 42L);
+            Encoder.Free_stack stack;
+            Encoder.Ret;
+          ]
+      in
+      check_frame_code label frame execution_code;
+      require
+        (execute_encoded_probe execution_code unwind 0 = (42L, 0L, 0L))
+        (label ^ ": native guard growth must return 42 without a fault");
+      if frame > 65528 then
+        check_compact_probe_validation ~windows ~code
+          ~owners:[| (0, String.length code, unwind) |]
+          ~entry_stack_bytes:(frame + 8) ~owner_index:0 ~probe_offset:0 ~frame)
+    [ 65528; 65544; 524280 ];
+  List.iter
+    (fun frame ->
+      let stack = Encoder.call_frame ~bytes:frame |> require_ok Fun.id in
+      let code =
+        encode
+          [
+            Encoder.Push_rbp;
+            Encoder.Mov_rbp_rsp;
+            Encoder.Alloc_call_frame stack;
+            capture;
+            Encoder.Mov_imm64 (Encoder.Rax, 42L);
+            Encoder.Free_call_frame stack;
+            Encoder.Pop_rbp;
+            Encoder.Ret;
+          ]
+      in
+      let unwind = expected_callable_unwind frame in
+      let owner = (0, String.length code, unwind) in
+      let label = Printf.sprintf "encoded %d-byte callable boundary" frame in
+      check_callable_frame_code label frame code owner;
+      require
+        (byte unwind 1
+        = 4 + String.length (Encoder.encode (Encoder.Alloc_call_frame stack)))
+        (label ^ ": allocation endpoint differs from encoded prologue");
+      if windows then probe_windows_program_unwind code [| owner |];
+      if frame > 65528 then
+        check_compact_probe_validation ~windows ~code ~owners:[| owner |]
+          ~entry_stack_bytes:(frame + 16) ~owner_index:0 ~probe_offset:4 ~frame)
+    [ 65520; 65536; 65552; 524272 ]
+
+let check_compiled_compact_callable ~windows ~mode ~elements ~frame =
+  let image =
+    compile_program_source ~max_stack_bytes:524280 ~max_code_bytes:1048576 ~mode
+      (Printf.sprintf
+         "I64 F(){I64 a[%d];a[0]=20;a[%d]=22;return a[0]+a[%d];}F();" elements
+         (elements - 1) (elements - 1))
+  in
+  let label =
+    Printf.sprintf "%s compact callable / %d-byte frame" (mode_name mode) frame
+  in
+  require (Program.frame_bytes image = frame) (label ^ ": exact frame size");
+  let code = Program.code image in
+  let owners = Array.of_list (Program.windows_unwind_functions image) in
+  require (Array.length owners = 2) (label ^ ": entry and named owner");
+  check_callable_frame_code label frame code owners.(1);
+  let first, _, _ = owners.(1) in
+  check_compact_probe_validation ~windows ~code ~owners
+    ~entry_stack_bytes:(Program.entry_stack_bytes image)
+    ~owner_index:1 ~probe_offset:(first + 4) ~frame;
+  if windows then probe_windows_program_unwind code owners
+
 let () =
   let windows =
     match Runtime.platform () with
@@ -495,6 +766,7 @@ let () =
           "native unwind tests explicitly require Windows x86-64 or Linux \
            x86-64"
   in
+  check_encoded_boundary_frames ~windows;
   List.iter
     (fun mode ->
       check_source_image ~windows ~mode ~literals:7 ~expected_frame:0;
@@ -547,4 +819,9 @@ let () =
       if windows then
         probe_windows_program_unwind (Program.code image)
           (Array.of_list (Program.windows_unwind_functions image)))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun mode ->
+      check_compiled_compact_callable ~windows ~mode ~elements:4087 ~frame:65536;
+      check_compiled_compact_callable ~windows ~mode ~elements:4088 ~frame:65552)
     [ Preprocessor.Jit; Preprocessor.Aot ]

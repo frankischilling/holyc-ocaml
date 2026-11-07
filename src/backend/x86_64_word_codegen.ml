@@ -64,7 +64,7 @@ type expression_image = {
 }
 
 let hard_ir_limit = 100_000
-let hard_max_stack_bytes = 65528
+let hard_max_stack_bytes = 524280
 let default_stack_bytes = 4088
 let hard_block_limit = 100_000
 let hard_max_global_bytes = Global_storage.hard_max_global_bytes
@@ -12587,7 +12587,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           rbp_bytes + ((fixed_stack_slots + local_subroutine_slots) * 8)
         in
         let base_frame = if base_bytes = 0 then 0 else align_up base_bytes 16 in
-        if base_frame > max_stack_bytes || base_frame > 65520 then
+        if base_frame > max_stack_bytes || base_frame > 524272 then
           reject "HCBACK0004"
             (Printf.sprintf
                "native callable fixed frame requires %d bytes, exceeding \
@@ -12642,7 +12642,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                      })
                 block.program_instructions
             in
-            if allocation.frame_size > 65520 then
+            if allocation.frame_size > 524272 then
               reject "HCBACK0004"
                 "native callable frame exceeds the probed allocation bound";
             frame_size := max !frame_size allocation.frame_size;
@@ -12939,7 +12939,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               let frame_size =
                 align_up ((7 + Option_codegen.scratch_slots) * 8) 16
               in
-              if frame_size > max_stack_bytes || frame_size > 65520 then
+              if frame_size > max_stack_bytes || frame_size > 524272 then
                 reject "HCBACK0004"
                   "native compiler option entry exceeds its private scratch \
                    frame";
@@ -13026,7 +13026,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   * 8)
                   16
               in
-              if frame_size > max_stack_bytes || frame_size > 65520 then
+              if frame_size > max_stack_bytes || frame_size > 524272 then
                 reject "HCBACK0004"
                   "native Print entry exceeds its private scratch frame";
               let frame = encoder_call_frame None frame_size in

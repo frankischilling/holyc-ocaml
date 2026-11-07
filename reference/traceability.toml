@@ -12450,11 +12450,11 @@ authority = "compile_callable requires the exact Runtime_call_context entry/body
 default_admission = "zero storage bytes and prepared storage steps do not establish absence of saved defaults; callable argument preflight rejects the exact Runtime.is_prepared_default producer and original selected/definition headers reject defaults even with explicit arguments or unused functions"
 default_preparation_followup = 660
 extended_by = ["HC-NATIVE-INTEGER-DEFAULTS (#660): original source-owned scalar preparation extends the historical default rejection boundary without changing ordinary entry execution"]
-private_call_convention = "PUSH RBP, MOV RBP,RSP and an optional at-most4080-byte aligned16 allocation; body RSP remains fixed; exact parameters start at RBP+16 and autos use checked negative displacements; every owner ends through stack restore, POP RBP and plain RET"
+private_call_convention = "PUSH RBP, MOV RBP,RSP and an optional bounded 16-byte-aligned allocation (current limits in HC-NATIVE-COMPACT-STACK-PROBES); body RSP remains fixed; exact parameters start at RBP+16 and autos use checked negative displacements; every owner ends through stack restore, POP RBP and plain RET"
 argument_lifetime = "provided arguments follow the original right-to-left evaluation order; each open call has distinct staging; formal-order copies populate one fixed outgoing area immediately before a real rel32 CALL; caller-live values spill and the returned RAX word is captured by the original CALL_END result; cleanup IR is validated and metered but needs no machine argument pop under this private convention"
 storage = "automatic locals and parameters live in each native activation; fresh hidden init flags guard local reads/updates before any host-stack data read; assignment sets the flag; flags/spills/staging are physical storage only and do not inflate the checked semantic frame quota"
 meter = "all reached IR instructions share R10 across the call chain; housekeeping and fault propagation add no IR steps; the original Add42 fixture executes29 steps in both modes; only reached entry END_EXP publishes the final value"
-resources = "runtime max_frame_bytes defaults1048576 and charges checked local frame plus8 bytes per fixed argument; max_call_depth defaults128 and counts active named calls, excluding entry; max_active_stack_bytes is1..65536 and independently charges return addresses, savedRBP and actual allocations including entry; root footprint is checked before native entry and calls reserve before allocation"
+resources = "runtime max_frame_bytes defaults1048576 and charges checked local frame plus8 bytes per fixed argument; max_call_depth defaults128 and counts active named calls, excluding entry; max_active_stack_bytes defaults to 65536, accepts 1..524288 and independently charges return addresses, savedRBP and actual allocations including entry; root footprint is checked before native entry and calls reserve before allocation"
 faults = "kind1 division-by-zero,2 signed overflow,3 exact step exhaustion,4 call-depth,5 semantic-frame,6 physical-stack,7 uninitialized read; diagnostics HCIRVM0009/0010/0007/0015/0011, HCNATIVE0006 and HCIRVM0012 preserve exact source/function/block/instruction identity and reached steps"
 unwind = "checked faults return through every generated callee epilogue; callers restore their successful reservations before propagating without charging skipped cleanup/end; C verifies semantic/depth/physical counters restored before boxing status; Windows registers one sorted per-owner table with fixedRSP RBP-save/alloc unwind records and retains a mapping if table removal fails"
 context = "closed image six-word ABI remains unchanged; callable context adds remaining semantic frame/depth/physical bytes at48/56/64; only the opaque image grants native execution authority and inspection getters return fresh bytes"
@@ -15063,7 +15063,7 @@ documentation = ["docs/native-stack-probing.md", "docs/native-programs.md", "doc
 status = "partial"
 issue = 703
 verification = "Independent probe bytes, bounded unwind offsets, source arrays, recursion, repeated calls, arithmetic and initialization faults, private frame quotas and separate semantic and active-stack limits. Windows RtlVirtualUnwind checks every probe position and allocation boundary."
-evidence_limit = "Hosted ABI adaptation, not a new TempleOS capture or complete register allocator. Default frame quota remains 4088; simultaneous physical stack remains capped at 65536."
+evidence_limit = "Hosted ABI adaptation, not a new TempleOS capture or complete register allocator. Default frame quota remains 4088. This initial extension capped simultaneous physical stack at 65536; HC-NATIVE-COMPACT-STACK-PROBES preserves that default and adds a larger opt-in ceiling."
 
 [[feature]]
 id = "HC-HOSTED-SHARED-VALUE-LIVENESS"
@@ -15256,3 +15256,15 @@ status = "partial"
 issue = 703
 verification = "Six narrow widths and three selected qualifiers across conditions, loops, direct returns and comparisons. Stack destinations, consumed compound updates and cast operands remain unproved."
 evidence_limit = "Only independently guaranteed register destinations agree with hosted RHS forwarding. By-value memory result normalization, unknown-pressure selection and general physical allocation remain open. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-NATIVE-COMPACT-STACK-PROBES"
+description = "Bounded native frames above 64 KiB with compact downward page probes and checked host unwind metadata."
+sources = ["Compiler/OptPass789A.HC:387-405,698-719", "Compiler/OpCodes.DD:284,368,437,461,642", "Compiler/Asm.HC:580-638"]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/native_execution_stubs.c", "src/runtime/native_program_execution.ml", "src/hosted/native_program.ml", "src/hosted/native_source_execution.ml"]
+tests = ["test/test_native_expression.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/test_large_native_frames_cli.ml", "examples/compact-native-frame.hc"]
+documentation = ["docs/native-stack-probing.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Exact old/new probe bytes, signed loop back edge and bounds, maximum scaled unwind allocation, host admission mutations, unwind instruction states, large source arrays, recursion/fault cleanup and independent exact/one-below quotas."
+evidence_limit = "Host stack growth and unwind follow the linked Microsoft x64 specifications. Spill frames stop at 524280 bytes, callable frames at 524272; defaults remain unchanged. Does not establish physical source-register placement, floating allocation or new TempleOS runtime captures."

@@ -464,11 +464,24 @@ static uint64_t native_execute_checked_image(value code, value unwind,
 #define HOLYC_NATIVE_MAX_ARENA_BYTES (32u * 1024u * 1024u)
 #define HOLYC_NATIVE_MAX_OUTPUT_BYTES (16u * 1024u * 1024u)
 
-/* Page probes leave RSP and all registers unchanged until the one fixed
-   allocation. Validate the exact sequence as well as its unwind endpoint. */
+/* All probes preserve RSP and nonvolatile/argument registers. Large frames
+   use RAX as a volatile downward page cursor before the fixed allocation. */
 static unsigned native_stack_probe_bytes(unsigned allocation)
 {
+  if (allocation > 65528u)
+    return 27u + ((allocation & 4095u) != 0u ? 8u : 0u);
   return allocation < 4096u ? 0u : 8u * ((allocation + 4095u) / 4096u);
+}
+
+static void native_validate_stack_probe(const unsigned char *code,
+                                        unsigned distance)
+{
+  uint32_t displacement;
+  memcpy(&displacement, code + 4u, sizeof(displacement));
+  if (code[0] != 0x48 || code[1] != 0x85 ||
+      code[2] != 0x84 || code[3] != 0x24 ||
+      displacement != 0u - distance)
+    caml_invalid_argument("native stack allocation has missing or invalid page probes");
 }
 
 static void native_validate_stack_allocation(const unsigned char *code,
@@ -477,19 +490,35 @@ static void native_validate_stack_allocation(const unsigned char *code,
                                               const char *allocation_error)
 {
   unsigned offset = 0;
-  unsigned distance;
   const unsigned probes = native_stack_probe_bytes(allocation);
   if (length < (size_t)probes + 7u)
     caml_invalid_argument("native stack allocation prologue is truncated");
-  for (distance = 4096u; offset < probes; distance += 4096u, offset += 8u) {
-    uint32_t displacement;
-    const uint32_t expected = 0u - (distance < allocation ? distance : allocation);
-    memcpy(&displacement, code + offset + 4u, sizeof(displacement));
-    if (code[offset] != 0x48 || code[offset + 1u] != 0x85 ||
-        code[offset + 2u] != 0x84 || code[offset + 3u] != 0x24 ||
-        displacement != expected)
-      caml_invalid_argument("native stack allocation has missing or invalid page probes");
+  if (allocation > 65528u) {
+    static const unsigned char loop_start[18] = {
+      0x48, 0xc7, 0xc0, 0x00, 0xf0, 0xff, 0xff,
+      0x48, 0x85, 0x04, 0x04,
+      0x48, 0x81, 0xe8, 0x00, 0x10, 0x00, 0x00
+    };
+    uint32_t floor_displacement;
+    memcpy(&floor_displacement, code + 21u, sizeof(floor_displacement));
+    if (memcmp(code, loop_start, sizeof(loop_start)) != 0 ||
+        code[18] != 0x48 || code[19] != 0x81 || code[20] != 0xf8 ||
+        floor_displacement != 0u - (allocation & ~4095u) ||
+        code[25] != 0x7d || code[26] != 0xec)
+      caml_invalid_argument("native stack allocation has an invalid compact probe loop");
+    offset = 27u;
+    if ((allocation & 4095u) != 0u) {
+      native_validate_stack_probe(code + offset, allocation);
+      offset += 8u;
+    }
+  } else {
+    unsigned distance;
+    for (distance = 4096u; offset < probes; distance += 4096u, offset += 8u)
+      native_validate_stack_probe(code + offset,
+                                 distance < allocation ? distance : allocation);
   }
+  if (offset != probes)
+    caml_invalid_argument("native stack allocation probe length is inconsistent");
   {
     uint32_t encoded;
     memcpy(&encoded, code + probes + 3u, sizeof(encoded));
@@ -572,7 +601,7 @@ static unsigned native_validate_program_unwind(value unwind)
     caml_invalid_argument("native program unwind record does not save RBP");
   if (saw_allocation) {
     if (bytes[1] != 11u + native_stack_probe_bytes(allocation_bytes) ||
-        allocation_bytes < 16u || allocation_bytes > 65520u ||
+        allocation_bytes < 16u || allocation_bytes > 524272u ||
         (allocation_bytes & 15u) != 0u)
       caml_invalid_argument("native program unwind allocation is outside the callable frame bound");
     if ((allocation_bytes <= 128u && count != 2u) ||
@@ -965,7 +994,7 @@ static unsigned native_validate_retained_functions(value code, value functions,
           } else {
             caml_invalid_argument("retained native closed entry unwind allocation is malformed");
           }
-          if (allocation < 8u || allocation > 65528u ||
+          if (allocation < 8u || allocation > 524280u ||
               (allocation & 15u) != 8u)
             caml_invalid_argument("retained native closed entry unwind allocation exceeds its frame bound");
           if (bytes[1] != 7u + native_stack_probe_bytes(allocation))
@@ -1509,8 +1538,8 @@ CAMLprim value holyc_native_execute_program_functions(value code, value function
     caml_invalid_argument("native program max_frame_bytes must be greater than zero");
   if (depth_limit <= 0)
     caml_invalid_argument("native program max_call_depth must be greater than zero");
-  if (active_stack_limit <= 0 || active_stack_limit > 65536)
-    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 65536");
+  if (active_stack_limit <= 0 || active_stack_limit > 524288)
+    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 524288");
   if (entry_stack_bytes <= 0 || entry_stack_bytes > active_stack_limit)
     caml_invalid_argument("native program entry stack exceeds max_active_stack_bytes");
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
@@ -1618,8 +1647,8 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
     caml_invalid_argument("native program max_frame_bytes must be greater than zero");
   if (depth_limit <= 0)
     caml_invalid_argument("native program max_call_depth must be greater than zero");
-  if (active_stack_limit <= 0 || active_stack_limit > 65536)
-    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 65536");
+  if (active_stack_limit <= 0 || active_stack_limit > 524288)
+    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 524288");
   if (entry_stack_bytes <= 0 || entry_stack_bytes > active_stack_limit)
     caml_invalid_argument("native program entry stack exceeds max_active_stack_bytes");
   if (global_limit <= 0 || (uintnat)global_limit > HOLYC_NATIVE_MAX_GLOBAL_BYTES)
@@ -2605,8 +2634,8 @@ static value native_execute_program_output(value code, value functions,
     caml_invalid_argument("native program max_frame_bytes must be greater than zero");
   if (depth_limit <= 0)
     caml_invalid_argument("native program max_call_depth must be greater than zero");
-  if (active_stack_limit <= 0 || active_stack_limit > 65536)
-    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 65536");
+  if (active_stack_limit <= 0 || active_stack_limit > 524288)
+    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 524288");
   if (entry_stack_bytes <= 0 || entry_stack_bytes > active_stack_limit)
     caml_invalid_argument("native program entry stack exceeds max_active_stack_bytes");
   if (global_limit <= 0 || (uintnat)global_limit > HOLYC_NATIVE_MAX_GLOBAL_BYTES)

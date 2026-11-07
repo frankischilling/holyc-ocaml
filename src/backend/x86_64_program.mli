@@ -89,7 +89,7 @@ val default_stack_bytes : int
 (** Default private frame quota: 4088 bytes. *)
 
 val hard_max_stack_bytes : int
-(** Maximum shared spill frame size: 65528 bytes. *)
+(** Maximum shared spill frame size: 524280 bytes. *)
 
 val validate_limits :
   max_ir_instructions:int -> max_code_bytes:int -> (unit, error list) result

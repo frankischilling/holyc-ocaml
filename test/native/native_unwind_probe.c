@@ -36,7 +36,9 @@ static uint32_t read_u32(const unsigned char *bytes)
 
 static unsigned probe_prefix_size(unsigned frame)
 {
-  return frame < 4096u ? 0u : ((frame + 4095u) / 4096u) * 8u;
+  if (frame < 4096u) return 0u;
+  if (frame <= 65528u) return ((frame + 4095u) / 4096u) * 8u;
+  return 27u + (frame % 4096u == 0u ? 0u : 8u);
 }
 
 static int valid_probe_prefix(const unsigned char *code, size_t length, unsigned frame)
@@ -44,6 +46,22 @@ static int valid_probe_prefix(const unsigned char *code, size_t length, unsigned
   unsigned offset;
   unsigned size = probe_prefix_size(frame);
   if (length < size + 7u) return 0;
+  if (frame > 65528u) {
+    static const unsigned char loop[] = {
+      0x48, 0xc7, 0xc0, 0x00, 0xf0, 0xff, 0xff, /* MOV RAX,-4096 */
+      0x48, 0x85, 0x04, 0x04,                   /* TEST [RSP+RAX],RAX */
+      0x48, 0x81, 0xe8, 0x00, 0x10, 0x00, 0x00, /* SUB RAX,4096 */
+      0x48, 0x81, 0xf8                          /* CMP RAX,-floor */
+    };
+    unsigned floor = (frame / 4096u) * 4096u;
+    if (memcmp(code, loop, sizeof(loop)) != 0 ||
+        read_u32(code + 21u) != 0u - floor ||
+        code[25] != 0x7d || code[26] != 0xec) return 0;
+    if (size == 35u &&
+        (code[27] != 0x48 || code[28] != 0x85 || code[29] != 0x84 ||
+         code[30] != 0x24 || read_u32(code + 31u) != 0u - frame)) return 0;
+    return 1;
+  }
   for (offset = 0; offset < size; offset += 8u) {
     unsigned distance = (offset / 8u + 1u) * 4096u;
     if (distance > frame) distance = frame;
@@ -61,14 +79,14 @@ static void check_fixed_image(const unsigned char *code, size_t length,
   unsigned char expected_op;
   uint16_t scaled;
 
-  if (frame_bytes < 8 || frame_bytes > 65528 || (frame_bytes & 15u) != 8u)
-    caml_invalid_argument("unwind probe frame is outside 8..65528 / 8 mod 16");
+  if (frame_bytes < 8 || frame_bytes > 524280 || (frame_bytes & 15u) != 8u)
+    caml_invalid_argument("unwind probe frame is outside 8..524280 / 8 mod 16");
   if (length < 15 || length > UINT32_MAX)
     caml_invalid_argument("unwind probe code length is outside the checked range");
   if (unwind_length != 8)
     caml_invalid_argument("unwind probe requires the fixed eight-byte blob");
   unsigned prefix = probe_prefix_size(frame_bytes);
-  if (!valid_probe_prefix(code, length, frame_bytes) ||
+  if (length < prefix + 15u || !valid_probe_prefix(code, length, frame_bytes) ||
       code[prefix] != 0x48 || code[prefix+1] != 0x81 || code[prefix+2] != 0xec ||
       read_u32(code + prefix + 3) != frame_bytes)
     caml_invalid_argument("unwind probe image has an unexpected stack prologue");
@@ -122,10 +140,10 @@ static int nonvolatile_registers_preserved(const CONTEXT *context)
       && context->R15 == UINT64_C(0x88889999aaaabbbb);
 }
 
-static void unwind_at(void *code_mapping, void *stack_mapping,
-                      PRUNTIME_FUNCTION function_entry, size_t code_length,
-                      uint32_t frame_bytes, size_t offset, DWORD64 rsp,
-                      DWORD64 entry_rsp, DWORD64 return_rip)
+static const char *unwind_at(void *code_mapping,
+                            PRUNTIME_FUNCTION function_entry, size_t offset,
+                            DWORD64 rsp, DWORD64 rbp, DWORD64 rax,
+                            DWORD64 entry_rsp, DWORD64 return_rip)
 {
   CONTEXT context;
   KNONVOLATILE_CONTEXT_POINTERS pointers;
@@ -134,23 +152,73 @@ static void unwind_at(void *code_mapping, void *stack_mapping,
   PEXCEPTION_ROUTINE handler;
   const DWORD64 image_base = (DWORD64)(uintptr_t)code_mapping;
 
-  if (offset >= code_length)
-    probe_fail(code_mapping, stack_mapping, "unwind probe PC is outside the image");
+  if (offset < function_entry->BeginAddress || offset >= function_entry->EndAddress)
+    return "unwind probe PC is outside the owner";
   initialize_context(&context, image_base + (DWORD64)offset, rsp);
+  context.Rbp = rbp;
+  context.Rax = rax;
   memset(&pointers, 0, sizeof(pointers));
   handler = RtlVirtualUnwind((DWORD)0, image_base, context.Rip,
                              function_entry, &context, &handler_data,
                              &establisher_frame, &pointers);
   if (handler != NULL)
-    probe_fail(code_mapping, stack_mapping,
-               "unwind probe unexpectedly resolved an exception handler");
+    return "unwind probe unexpectedly resolved an exception handler";
   if (context.Rip != return_rip || context.Rsp != entry_rsp + 8u)
-    probe_fail(code_mapping, stack_mapping,
-               "RtlVirtualUnwind did not restore the caller RIP/RSP");
+    return "RtlVirtualUnwind did not restore the caller RIP/RSP";
   if (!nonvolatile_registers_preserved(&context))
-    probe_fail(code_mapping, stack_mapping,
-               "RtlVirtualUnwind changed a nonvolatile register");
-  (void)frame_bytes;
+    return "RtlVirtualUnwind changed a nonvolatile register";
+  return NULL;
+}
+
+static const char *unwind_allocation_prologue(
+    void *mapping, PRUNTIME_FUNCTION function_entry, size_t begin,
+    unsigned frame, DWORD64 rsp, DWORD64 rbp,
+    DWORD64 entry_rsp, DWORD64 return_rip)
+{
+  const unsigned prefix = probe_prefix_size(frame);
+  const DWORD64 initial_rax = UINT64_C(0x123456789abcdef0);
+  const char *failure;
+  size_t offset;
+
+  if (frame <= 65528u) {
+    /* Include every probe and every byte before the SUB allocation endpoint. */
+    for (offset = 0; offset < prefix + 7u; ++offset) {
+      failure = unwind_at(mapping, function_entry, begin + offset, rsp, rbp,
+                          initial_rax, entry_rsp, return_rip);
+      if (failure != NULL) return failure;
+    }
+  } else {
+    const unsigned floor = (frame / 4096u) * 4096u;
+    const unsigned distances[] = {
+      4096u, 8192u, ((floor / 4096u) / 2u) * 4096u, floor
+    };
+    size_t sample;
+    for (offset = 0; offset < 7u; ++offset) {
+      failure = unwind_at(mapping, function_entry, begin + offset, rsp, rbp,
+                          initial_rax, entry_rsp, return_rip);
+      if (failure != NULL) return failure;
+    }
+    /* The same PCs occur on every iteration. Check first, second, middle and
+       final pages with the RAX value live before/during each instruction.
+       CMP/JGE see the decremented value, including the final untaken branch. */
+    for (sample = 0; sample < sizeof(distances) / sizeof(distances[0]); ++sample) {
+      for (offset = 7u; offset < 27u; ++offset) {
+        DWORD64 distance = (DWORD64)distances[sample];
+        if (offset >= 18u) distance += 4096u;
+        failure = unwind_at(mapping, function_entry, begin + offset, rsp, rbp,
+                            (DWORD64)0 - distance, entry_rsp, return_rip);
+        if (failure != NULL) return failure;
+      }
+    }
+    /* The optional tail and final SUB both see RAX one page past the loop. */
+    for (offset = 27u; offset < prefix + 7u; ++offset) {
+      failure = unwind_at(mapping, function_entry, begin + offset, rsp, rbp,
+                          (DWORD64)0 - ((DWORD64)floor + 4096u),
+                          entry_rsp, return_rip);
+      if (failure != NULL) return failure;
+    }
+  }
+  return NULL;
 }
 
 static const char *check_callable_owner(const unsigned char *code,
@@ -172,18 +240,24 @@ static const char *check_callable_owner(const unsigned char *code,
       code[begin + 2u] != 0x89u || code[begin + 3u] != 0xe5u)
     return "callable owner does not begin with PUSH RBP; MOV RBP,RSP";
 
+  if (unwind_length != 8u && unwind_length != 12u)
+    return "callable owner has an invalid unwind metadata size";
   body = begin + 4u;
-  while (end - body >= 8u && code[body] == 0x48u && code[body+1u] == 0x85u)
-    body += 8u;
-  if (end - body >= 7u && code[body] == 0x48u && code[body + 1u] == 0x81u &&
-      code[body + 2u] == 0xecu) {
-    frame = read_u32(code + body + 3u);
-    if (frame == 0u || (frame & 15u) != 0u || frame > 65520u)
+  if (unwind[2] != 1u) {
+    size_t allocation;
+    if (unwind[1] < 11u || unwind[1] > end - begin)
+      return "callable owner has an invalid allocation endpoint";
+    allocation = begin + unwind[1] - 7u;
+    if (code[allocation] != 0x48u || code[allocation + 1u] != 0x81u ||
+        code[allocation + 2u] != 0xecu)
+      return "callable owner does not allocate at its unwind endpoint";
+    frame = read_u32(code + allocation + 3u);
+    if (frame == 0u || (frame & 15u) != 0u || frame > 524272u)
       return "callable owner has an invalid fixed stack allocation";
     if (!valid_probe_prefix(code + begin + 4u, end - begin - 4u, frame) ||
-        body != begin + 4u + probe_prefix_size(frame))
+        allocation != begin + 4u + probe_prefix_size(frame))
       return "callable owner has an invalid page-probe sequence";
-    body += 7u;
+    body = allocation + 7u;
   }
 
   if (frame == 0u) {
@@ -227,32 +301,6 @@ static const char *check_callable_owner(const unsigned char *code,
   return NULL;
 }
 
-static const char *unwind_callable_at(void *code_mapping,
-                                      PRUNTIME_FUNCTION function_entry,
-                                      DWORD64 rip, DWORD64 rsp, DWORD64 rbp,
-                                      DWORD64 entry_rsp, DWORD64 return_rip)
-{
-  CONTEXT context;
-  KNONVOLATILE_CONTEXT_POINTERS pointers;
-  PVOID handler_data = NULL;
-  DWORD64 establisher_frame = 0;
-  PEXCEPTION_ROUTINE handler;
-  const DWORD64 image_base = (DWORD64)(uintptr_t)code_mapping;
-
-  initialize_context(&context, rip, rsp);
-  context.Rbp = rbp;
-  memset(&pointers, 0, sizeof(pointers));
-  handler = RtlVirtualUnwind((DWORD)0, image_base, context.Rip, function_entry,
-                             &context, &handler_data, &establisher_frame,
-                             &pointers);
-  if (handler != NULL)
-    return "callable virtual unwind unexpectedly resolved an exception handler";
-  if (context.Rip != return_rip || context.Rsp != entry_rsp + 8u)
-    return "callable virtual unwind did not restore caller RIP/RSP";
-  if (!nonvolatile_registers_preserved(&context))
-    return "callable virtual unwind did not restore nonvolatile registers";
-  return NULL;
-}
 #endif
 
 CAMLprim value holyc_test_native_unwind(value code_value, value unwind_value,
@@ -270,7 +318,7 @@ CAMLprim value holyc_test_native_unwind(value code_value, value unwind_value,
   const unsigned char *unwind = (const unsigned char *)String_val(unwind_value);
   const size_t unwind_offset = (code_length + 3u) & ~(size_t)3u;
   const size_t mapping_length = unwind_offset + unwind_length;
-  const size_t stack_length = 128u * 1024u;
+  size_t stack_length;
   unsigned char *code_mapping = NULL;
   unsigned char *stack_mapping = NULL;
   unsigned char *entry_stack;
@@ -278,10 +326,13 @@ CAMLprim value holyc_test_native_unwind(value code_value, value unwind_value,
   DWORD64 return_rip = UINT64_C(0x0000123456789abc);
   RUNTIME_FUNCTION function_entry;
   size_t epilogue_offset;
+  const DWORD64 saved_rbp = UINT64_C(0x2222333344445555);
+  const char *failure;
 
-  if (frame_signed < 0)
-    caml_invalid_argument("unwind probe frame cannot be negative");
+  if (frame_signed < 0 || (uintnat)frame_signed > 524280u)
+    caml_invalid_argument("unwind probe frame is outside the host bound");
   check_fixed_image(code, code_length, unwind, unwind_length, frame_bytes);
+  stack_length = (((size_t)frame_bytes + 4095u) & ~(size_t)4095u) + 12288u;
   if (unwind_offset > UINT32_MAX || mapping_length < unwind_offset)
     caml_invalid_argument("unwind probe metadata offset is outside RUNTIME_FUNCTION");
 
@@ -302,9 +353,9 @@ CAMLprim value holyc_test_native_unwind(value code_value, value unwind_value,
   if (stack_mapping == NULL)
     probe_fail(code_mapping, NULL,
                "unwind probe could not allocate the synthetic stack");
-  /* VirtualAlloc is page aligned. +8192+8 has the Windows entry alignment and
-     leaves more than the maximum 65528-byte frame mapped below the body RSP. */
-  entry_stack = stack_mapping + (96u * 1024u) + 8u;
+  /* Reserve the actual frame plus guard-free headroom on both sides. Entry
+     RSP is 8 mod 16 and even the largest admitted frame remains mapped. */
+  entry_stack = stack_mapping + stack_length - 4096u + 8u;
   entry_rsp = (DWORD64)(uintptr_t)entry_stack;
   memcpy(entry_stack, &return_rip, sizeof(return_rip));
 
@@ -313,20 +364,21 @@ CAMLprim value holyc_test_native_unwind(value code_value, value unwind_value,
   function_entry.UnwindData = (DWORD)unwind_offset;
   epilogue_offset = code_length - 8u;
 
-  /* At the function start the SUB has not executed. Offset 7 is the first body
-     byte after the real prologue. At the epilogue start the ADD has not executed;
-     at RET it has. Each state must unwind to the same synthetic caller. */
-  unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
-            0u, entry_rsp, entry_rsp, return_rip);
-  for (size_t offset = 0; offset <= probe_prefix_size(frame_bytes); offset += 8u)
-    unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
-              offset, entry_rsp, entry_rsp, return_rip);
-  unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
-            (size_t)unwind[1], entry_rsp - frame_bytes, entry_rsp, return_rip);
-  unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
-            epilogue_offset, entry_rsp - frame_bytes, entry_rsp, return_rip);
-  unwind_at(code_mapping, stack_mapping, &function_entry, code_length, frame_bytes,
-            code_length - 1u, entry_rsp, entry_rsp, return_rip);
+  /* Only the final SUB changes the unwind state. Probe-loop iteration and its
+     volatile RAX value must not matter to caller recovery. */
+  failure = unwind_allocation_prologue(code_mapping, &function_entry, 0u,
+      frame_bytes, entry_rsp, saved_rbp, entry_rsp, return_rip);
+  if (failure == NULL)
+    failure = unwind_at(code_mapping, &function_entry, (size_t)unwind[1],
+        entry_rsp - frame_bytes, saved_rbp, 0u, entry_rsp, return_rip);
+  if (failure == NULL)
+    failure = unwind_at(code_mapping, &function_entry, epilogue_offset,
+        entry_rsp - frame_bytes, saved_rbp, 0u, entry_rsp, return_rip);
+  if (failure == NULL)
+    failure = unwind_at(code_mapping, &function_entry, code_length - 1u,
+        entry_rsp, saved_rbp, 0u, entry_rsp, return_rip);
+  if (failure != NULL)
+    probe_fail(code_mapping, stack_mapping, failure);
 
   if (!VirtualFree(stack_mapping, 0, MEM_RELEASE))
     probe_fail(code_mapping, NULL,
@@ -362,6 +414,8 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
   PRUNTIME_FUNCTION table = NULL;
   int registered = 0;
   const char *failure = NULL;
+  uint32_t maximum_frame = 0;
+  size_t stack_length;
   mlsize_t index;
 
   if (!Is_block(functions_value) || Tag_val(functions_value) != 0 ||
@@ -378,6 +432,9 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
     intnat begin;
     intnat end;
     size_t unwind_length;
+    uint32_t frame = 0;
+    size_t body = 0;
+    size_t epilogue = 0;
     if (!Is_block(descriptor) || Tag_val(descriptor) != 0 ||
         Wosize_val(descriptor) != 3)
       caml_invalid_argument("callable unwind descriptor is malformed");
@@ -398,6 +455,12 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
       caml_invalid_argument("callable unwind metadata has an unexpected size");
     if (unwind_length > SIZE_MAX - unwind_end)
       caml_invalid_argument("callable unwind metadata size overflow");
+    failure = check_callable_owner(code, code_length, (size_t)begin, (size_t)end,
+        (const unsigned char *)String_val(unwind_value), unwind_length,
+        &frame, &body, &epilogue);
+    if (failure != NULL)
+      caml_invalid_argument(failure);
+    if (frame > maximum_frame) maximum_frame = frame;
     unwind_end += unwind_length;
   }
   if ((uintnat)Long_val(Field(Field(functions_value, function_count - 1u), 1)) !=
@@ -433,7 +496,8 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
   }
   registered = 1;
 
-  stack_mapping = (unsigned char *)VirtualAlloc(NULL, 128u * 1024u,
+  stack_length = (((size_t)maximum_frame + 4095u) & ~(size_t)4095u) + 12288u;
+  stack_mapping = (unsigned char *)VirtualAlloc(NULL, stack_length,
                                                 MEM_RESERVE | MEM_COMMIT,
                                                 PAGE_READWRITE);
   if (stack_mapping == NULL)
@@ -447,7 +511,7 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
     uint32_t frame_bytes = 0;
     size_t body_offset = 0;
     size_t epilogue_offset = 0;
-    unsigned char *entry_stack = stack_mapping + (96u * 1024u) + 8u;
+    unsigned char *entry_stack = stack_mapping + stack_length - 4096u + 8u;
     DWORD64 entry_rsp = (DWORD64)(uintptr_t)entry_stack;
     DWORD64 saved_rbp = UINT64_C(0x2222333344445555);
     DWORD64 return_rip = UINT64_C(0x0000123456789abc) + (DWORD64)index;
@@ -473,20 +537,29 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
       failure = "RtlLookupFunctionEntry did not return the registered owner";
       break;
     }
-    for (size_t offset = begin + 4u; failure == NULL && offset < body_offset; offset += 8u)
-      failure = unwind_callable_at(mapping, found, image_base + offset,
-          entry_rsp - 8u, entry_rsp - 8u, entry_rsp, return_rip);
+    failure = unwind_at(mapping, found, begin, entry_rsp, saved_rbp, 0u,
+                        entry_rsp, return_rip);
+    for (size_t offset = begin + 1u; failure == NULL && offset < begin + 4u; ++offset)
+      failure = unwind_at(mapping, found, offset, entry_rsp - 8u, saved_rbp,
+                          0u, entry_rsp, return_rip);
+    if (failure == NULL && frame_bytes != 0u)
+      failure = unwind_allocation_prologue(mapping, found, begin + 4u,
+          frame_bytes, entry_rsp - 8u, entry_rsp - 8u, entry_rsp, return_rip);
     if (failure != NULL) break;
-    failure = unwind_callable_at(
-        mapping, found, image_base + (DWORD64)body_offset,
-        entry_rsp - 8u - (DWORD64)frame_bytes, entry_rsp - 8u, entry_rsp,
-        return_rip);
+    failure = unwind_at(mapping, found, body_offset,
+        entry_rsp - 8u - (DWORD64)frame_bytes, entry_rsp - 8u, 0u,
+        entry_rsp, return_rip);
     if (failure != NULL)
       break;
-    failure = unwind_callable_at(
-        mapping, found, image_base + (DWORD64)epilogue_offset,
-        entry_rsp - 8u - (DWORD64)frame_bytes, entry_rsp - 8u, entry_rsp,
-        return_rip);
+    failure = unwind_at(mapping, found, epilogue_offset,
+        entry_rsp - 8u - (DWORD64)frame_bytes, entry_rsp - 8u, 0u,
+        entry_rsp, return_rip);
+    if (failure == NULL)
+      failure = unwind_at(mapping, found, end - 2u, entry_rsp - 8u,
+                          entry_rsp - 8u, 0u, entry_rsp, return_rip);
+    if (failure == NULL)
+      failure = unwind_at(mapping, found, end - 1u, entry_rsp, saved_rbp, 0u,
+                          entry_rsp, return_rip);
   }
 
   if (registered && !RtlDeleteFunctionTable(table)) {

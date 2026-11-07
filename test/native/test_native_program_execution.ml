@@ -1198,6 +1198,11 @@ let uninitialized_automatic_locals_match_hosted_policy () =
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let physical_native_stack_is_bounded_independently () =
+  Alcotest.(check int)
+    "physical stack default is unchanged" 65536
+    Runtime.default_active_stack_bytes;
+  Alcotest.(check int)
+    "physical stack opt-in ceiling" 524288 Runtime.hard_max_active_stack_bytes;
   let root_only = "42;" in
   let identity = "I64 Identity(I64 value){return value;}\nIdentity(42);" in
   let recursive = "I64 Recur(){return Recur();}\nRecur();" in

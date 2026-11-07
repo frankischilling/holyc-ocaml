@@ -1293,7 +1293,7 @@ let eval_native_command =
       & info [ "stack-byte-limit" ] ~docv:"BYTES"
           ~doc:
             "Maximum private spill-frame bytes, including alignment padding. \
-             Must be between 0 and 65528; zero disables spilling.")
+             Must be between 0 and 524280; zero disables spilling.")
   in
   Cmd.v
     (Cmd.info "eval-native" ~exits:expression_exits
@@ -1541,14 +1541,14 @@ let run_command =
   let native_active_stack_bytes =
     Arg.(
       value
-      & opt int Holyc_lib.Native_program_execution.hard_max_active_stack_bytes
+      & opt int Holyc_lib.Native_program_execution.default_active_stack_bytes
       & info
           [ "active-stack-byte-limit" ]
           ~docv:"BYTES"
           ~doc:
-            "host-jit only: maximum simultaneous physical native stack bytes, \
+            "Native targets: maximum simultaneous physical native stack bytes, \
              including private frames, saved frame pointers and return \
-             addresses. Must be between 1 and 65536.")
+             addresses. Must be between 1 and 524288.")
   in
   let native_default_bytes =
     Arg.(

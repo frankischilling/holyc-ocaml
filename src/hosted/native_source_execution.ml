@@ -115,7 +115,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
-    ?(max_active_stack_bytes = Native.hard_max_active_stack_bytes) ?status_abi
+    ?(max_active_stack_bytes = Native.default_active_stack_bytes) ?status_abi
     session ~config ~source ~max_steps =
   let span = Driver.Integer_source.source_span source in
   let platform_ = Native.platform () in

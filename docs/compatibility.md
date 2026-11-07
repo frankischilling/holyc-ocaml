@@ -573,7 +573,8 @@ and padded-frame bytes are bounded. Windows registers the generated unwind
 record for the mapping's execution lifetime. This adds hosted expression
 spilling, not the complete ABI. The later #703 frame extension adds
 [page-probed native frames](native-stack-probing.md), with an explicit quota
-through 65,528 bytes and a separate unchanged 65,536-byte active-stack cap.
+through 524,280 bytes and a separate 524,288-byte active-stack ceiling.
+The active-stack default remains 65,536 bytes.
 The default private-frame quota remains 4,088 bytes. General register
 allocation remains unfinished.
 

@@ -388,3 +388,10 @@ unproved.
 retain register storage when a plain assignment feeds a condition or return.
 Stack-selected and unknown-pressure destinations remain excluded because their
 by-value expression results need separate optimizer rules.
+
+[Compact stack probes](native-stack-probing.md) extend opt-in private frames
+beyond 64 KiB while keeping small-frame bytes and default budgets unchanged.
+Large-frame allocation may clobber RAX, which is free at each generated
+allocation entry; argument, context, nonvolatile and stack registers survive
+until the final allocation. The callable and retained-closed admission paths validate the exact loop
+and unwind endpoint before execution.

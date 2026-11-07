@@ -90,10 +90,10 @@ let limit_validation () =
   List.iter
     (fun active_stack ->
       rejects "invalid active stack limit"
-        "native program max_active_stack_bytes must be between 1 and 65536"
+        "native program max_active_stack_bytes must be between 1 and 524288"
         ~limits:(Obj.repr (100, 1024, 8, active_stack, 32, 1024, 1024, 16, 16))
         ())
-    [ 0; 65_537 ];
+    [ 0; 524_289 ];
   List.iter
     (fun global_limit ->
       rejects "invalid global limit"

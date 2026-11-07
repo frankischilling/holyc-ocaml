@@ -152,8 +152,8 @@ A frame uses one fixed `SUB RSP,imm32` prologue and matching `ADD RSP,imm32`
 epilogue before `RET`. Stack loads and stores use full-word `[RSP+disp32]`
 addressing. A nonzero frame is eight modulo sixteen bytes, which aligns the
 body stack after the host's call. Alignment padding counts toward its quota.
-The default quota is 4,088 bytes. An explicit quota can admit up to 65,528
-bytes, or 8,191 qword slots. [Page probes](native-stack-probing.md) precede
+The default quota is 4,088 bytes. An explicit quota can admit up to 524,280
+bytes, or 65,535 qword slots. [Page probes](native-stack-probing.md) precede
 allocations of at least 4,096 bytes and are included in the unwind prologue.
 Source-visible memory, arguments, saved nonvolatile registers and calls remain
 outside this expression gate. These hosted frames do not establish the general
@@ -224,7 +224,7 @@ allocating bytes. The five-instruction, 25-byte fixture succeeds at both
 exact limits; either corresponding one-below limit fails. These counts are
 compiler resource bounds, not measured CPU cycles or a native timeout.
 The optional API `max_stack_bytes` and CLI `--stack-byte-limit` default to
-4,088. Values from zero through 65,528 are valid; zero disables spilling.
+4,088. Values from zero through 524,280 are valid; zero disables spilling.
 The compiler rejects an image whose actual padded frame exceeds the requested
 limit before allocating executable memory. The eight-live fixture needs eight
 bytes: eight succeeds, seven and zero fail. A limit need not itself be aligned;

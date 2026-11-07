@@ -90,14 +90,14 @@ let registers = [ Rax; Rcx; Rdx; R8; R9; R10; R11 ]
 let max_code_bytes = min (16 * 1024 * 1024) Sys.max_string_length
 
 let stack_slot ~offset =
-  if offset < 0 || offset > 65520 || offset mod 8 <> 0 then
-    Error "stack slot offset must be an aligned value between 0 and 65520"
+  if offset < 0 || offset > 524272 || offset mod 8 <> 0 then
+    Error "stack slot offset must be an aligned value between 0 and 524272"
   else Ok { offset }
 
 let stack_frame ~bytes =
-  if bytes < 8 || bytes > 65528 || bytes mod 16 <> 8 then
+  if bytes < 8 || bytes > 524280 || bytes mod 16 <> 8 then
     Error
-      "stack frame size must be between 8 and 65528 and congruent to 8 mod 16"
+      "stack frame size must be between 8 and 524280 and congruent to 8 mod 16"
   else Ok { bytes }
 
 let frame_slot ~offset =
@@ -124,9 +124,9 @@ let arena_slot ~offset =
   else Ok { arena_offset = offset }
 
 let call_frame ~bytes =
-  if bytes < 16 || bytes > 65520 || bytes mod 16 <> 0 then
+  if bytes < 16 || bytes > 524272 || bytes mod 16 <> 0 then
     Error
-      "call frame size must be a 16-byte multiple between 16 and 65520 bytes"
+      "call frame size must be a 16-byte multiple between 16 and 524272 bytes"
   else Ok { call_bytes = bytes }
 
 let register_spelling = function
@@ -239,6 +239,7 @@ let shift_left_one = source_form "SHL1" 1120
 let shift_right_one = source_form "SHR1" 1138
 let shift_arithmetic_right_one = source_form "SAR1" 1156
 let compare_immediate_byte = source_form "CMP" 365
+let compare_immediate = source_form "CMP" 368
 let zero_register32 = source_form "XOR" 496
 let divide = source_form "DIV" 708
 let signed_divide = source_form "IDIV" 713
@@ -249,6 +250,7 @@ let jump_equal = source_form "JE" 608
 let jump_not_equal = source_form "JNE" 612
 let jump_below = source_form "JB" 600
 let jump_less = source_form "JL" 640
+let jump_greater_equal_short = source_form "JGE" 642
 let jump_overflow = source_form "JO" 592
 let store_immediate = source_form "MOV" 284
 let decrement = source_form "DEC" 670
@@ -463,29 +465,76 @@ let checked = function
 let signed bytes value =
   Encoding.field ~bytes ~range:Encoding.Signed value |> checked
 
-(* Probe before moving RSP. TEST only changes flags, so argument and status
-   registers survive. Every touched word lies inside the future allocation. *)
+(* Probe downward before moving RSP. Every touched word lies inside the future
+   allocation. Preserve the original unrolled bytes through 65528; larger
+   frames use a bounded loop that also clobbers the caller-scratch RAX. *)
 let stack_probe_offsets bytes =
-  if bytes < 0 || bytes > 65528 then
-    invalid_arg "stack allocation outside 0..65528";
+  if bytes < 0 || bytes > 524280 then
+    invalid_arg "stack allocation outside 0..524280";
   if bytes < 4096 then []
   else
     List.init
       ((bytes + 4095) / 4096)
       (fun index -> min bytes ((index + 1) * 4096))
 
+let stack_probe_plan offset =
+  Encoding.plan ~mode:Asm.Operand.Use64 ~form:test ~prefixes:[ 0x48 ]
+    ~modrm:0x84 ~sib:0x24
+    ~displacement:(signed 4 (Int64.of_int (-offset)))
+    ()
+  |> checked
+
 let stack_probe_plans bytes =
-  List.map
-    (fun offset ->
-      Encoding.plan ~mode:Asm.Operand.Use64 ~form:test ~prefixes:[ 0x48 ]
-        ~modrm:0x84 ~sib:0x24
-        ~displacement:(signed 4 (Int64.of_int (-offset)))
+  let offsets = stack_probe_offsets bytes in
+  if bytes <= 65528 then List.map stack_probe_plan offsets
+  else
+    let rax_immediate ~reg selected immediate =
+      Encoding.plan ~mode:Asm.Operand.Use64 ~form:selected ~prefixes:[ 0x48 ]
+        ~modrm:(0xc0 lor (reg lsl 3))
+        ~immediate:(signed 4 (Int64.of_int immediate))
         ()
-      |> checked)
-    (stack_probe_offsets bytes)
+      |> checked
+    in
+    (* OpCodes.DD:284/461/437/368/642 supplies MOV RM64,IMM32, TEST
+       RM64,R64, SUB/CMP RM64,IMM32 and JGE REL8. Asm.HC's ModR/M and SIB
+       rules encode [RSP+RAX] with scale=1, index=RAX and base=RSP. Starting
+       at -4096 and subtracting before signed JGE touches pages in descending
+       address order, stopping after the last complete page. RSP, argument,
+       context and nonvolatile registers remain intact throughout the loop. *)
+    let initialize = rax_immediate ~reg:0 store_immediate (-4096) in
+    let probe =
+      Encoding.plan ~mode:Asm.Operand.Use64 ~form:test ~prefixes:[ 0x48 ]
+        ~modrm:0x04 ~sib:0x04 ()
+      |> checked
+    in
+    let body =
+      [
+        probe;
+        rax_immediate ~reg:subtract_immediate.slash_value subtract_immediate
+          4096;
+        rax_immediate ~reg:compare_immediate.slash_value compare_immediate
+          (-(bytes / 4096 * 4096));
+      ]
+    in
+    let branch displacement =
+      Encoding.plan ~mode:Asm.Operand.Use64 ~form:jump_greater_equal_short
+        ~immediate:(signed 1 (Int64.of_int displacement))
+        ()
+      |> checked
+    in
+    let distance =
+      List.fold_left
+        (fun total plan -> total + Encoding.size plan)
+        (Encoding.size (branch 0))
+        body
+    in
+    let tail = if bytes mod 4096 = 0 then [] else [ stack_probe_plan bytes ] in
+    initialize :: (body @ (branch (-distance) :: tail))
 
 let stack_allocation_size bytes =
-  7 + (8 * List.length (stack_probe_offsets bytes))
+  List.fold_left
+    (fun total plan -> total + Encoding.size plan)
+    7 (stack_probe_plans bytes)
 
 let plans instruction =
   validate instruction;
