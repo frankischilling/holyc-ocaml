@@ -1024,3 +1024,8 @@ selected endpoint; later extern completion cannot retarget an already selected
 primitive endpoint. Root extents, member offsets and zero array strides remain
 separate. Isolated AOT declarations retain their original table while `#exe`
 uses the task's JIT table. See [backed values](backed-aggregate-values.md).
+
+Native temporary spill homes now use [control-flow liveness](native-value-liveness.md)
+to share space across disjoint block lifetimes. Loop backedges preserve overlapping
+values. Reference-dependent callable graphs keep permanent homes; general source
+and floating register allocation remain open under issue #703.

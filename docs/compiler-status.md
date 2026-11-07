@@ -1049,3 +1049,8 @@ captures `target:1;A:1` with a target call that runs once.
 ## License and attribution
 
 New project code is licensed under the MIT License. TempleOS is retained as a pinned reference and is not covered by this project's license. The upstream credits call TempleOS public domain while also listing material with separate provenance or uncertain permission. [THIRD_PARTY_NOTICES.md](third-party-notices.md) records the narrow reference use and those caveats.
+
+Native temporary spill homes now use [control-flow liveness](native-value-liveness.md)
+to share space across disjoint block lifetimes. Loop backedges preserve overlapping
+values. Reference-dependent callable graphs keep permanent homes; general source
+and floating register allocation remain open under issue #703.

@@ -15064,3 +15064,15 @@ status = "partial"
 issue = 703
 verification = "Independent probe bytes, bounded unwind offsets, source arrays, recursion, repeated calls, arithmetic and initialization faults, private frame quotas and separate semantic and active-stack limits. Windows RtlVirtualUnwind checks every probe position and allocation boundary."
 evidence_limit = "Hosted ABI adaptation, not a new TempleOS capture or complete register allocator. Default frame quota remains 4088; simultaneous physical stack remains capped at 65536."
+
+[[feature]]
+id = "HC-HOSTED-SHARED-VALUE-LIVENESS"
+description = "Reuse native integer spill homes across disjoint control-flow lifetimes."
+sources = ["Compiler/OptPass6.HC:32-176", "Compiler/OptPass3.HC:511-621"]
+implementation = ["src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_native_program.ml", "test/native/test_native_program_execution.ml"]
+documentation = ["docs/native-value-liveness.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Independent exact frame sizes and one-below limits for sequential, reordered, diamond and loop-backedge graphs; native expected values, VM comparison, repeated execution and cleanup after budget faults. Both host ABIs compile the graph fixtures."
+evidence_limit = "Hosted temporary homes, not TempleOS machine-code parity or a new source capture. Callable graphs with hidden reference dependencies or shared pointer values keep permanent homes. General source and floating register allocation remain open."

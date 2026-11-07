@@ -306,3 +306,8 @@ Hosted native entries can now use checked, page-probed private frames beyond
 [native stack probing](native-stack-probing.md) for the limits, prologues and
 Windows unwind checks. This is a host adapter extension, not the full HolyC
 register allocation or native exception ABI.
+
+Native temporary spill homes now use [control-flow liveness](native-value-liveness.md)
+to share space across disjoint block lifetimes. Loop backedges preserve overlapping
+values. Reference-dependent callable graphs keep permanent homes; general source
+and floating register allocation remain open under issue #703.

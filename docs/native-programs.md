@@ -400,3 +400,8 @@ frame quota does not raise semantic frame bytes, recursion depth, generated
 code or active-stack limits. A large callee can still fail its active-stack
 check before entry. The usual epilogues restore reservations after normal
 returns and hosted faults.
+
+Native temporary spill homes now use [control-flow liveness](native-value-liveness.md)
+to share space across disjoint block lifetimes. Loop backedges preserve overlapping
+values. Reference-dependent callable graphs keep permanent homes; general source
+and floating register allocation remain open under issue #703.

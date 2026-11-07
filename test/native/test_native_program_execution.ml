@@ -76,6 +76,39 @@ let compare_vm label ~max_steps graph =
         expected.bits actual.bits
   | _ -> Alcotest.failf "%s: VM/native final-value presence differs" label
 
+let shared_home_liveness () =
+  List.iter
+    (fun (label, graph, bytes, expected) ->
+      let image =
+        Fixture.compile ~max_stack_bytes:bytes graph
+        |> require_ok Fixture.program_errors
+      in
+      for _ = 1 to 8 do
+        let result = execute label image |> completed label in
+        check_program_word
+          (label ^ " independent expected value")
+          "I64" expected result.final_value
+      done;
+      compare_vm label ~max_steps:1000 graph;
+      let fault = execute ~max_steps:1 label image |> faulted label in
+      Alcotest.(check string)
+        (label ^ " bounded cleanup")
+        "step-limit"
+        (Fixture.kind_name fault.kind);
+      let result = execute label image |> completed label in
+      check_program_word (label ^ " after fault") "I64" expected
+        result.final_value)
+    [
+      ("sequential homes", Fixture.sequential_shared_values 40, 8, 40L);
+      ( "reordered homes",
+        Fixture.sequential_shared_values ~reverse:true 40,
+        8,
+        40L );
+      ("backedge homes", Fixture.loop_shared_values (), 24, 0L);
+      ("diamond fallthrough", Fixture.diamond_shared_values 0L, 8, 42L);
+      ("diamond taken", Fixture.diamond_shared_values 1L, 8, 99L);
+    ]
+
 let basic_execution_and_meter () =
   let image = Fixture.image (Fixture.multiply_graph ()) in
   let execution = execute ~max_steps:5 "6*7" image |> completed "6*7" in
@@ -1767,6 +1800,8 @@ let () =
             [
               Alcotest.test_case "exact per-IR meter and VM differential" `Quick
                 basic_execution_and_meter;
+              Alcotest.test_case "shared homes reuse disjoint graph lifetimes"
+                `Quick shared_home_liveness;
               Alcotest.test_case "typed arithmetic fault metadata" `Quick
                 arithmetic_faults;
               Alcotest.test_case "closed source control flow in both modes"

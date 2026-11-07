@@ -1382,10 +1382,10 @@ let print_argument_kind type_ =
     | _ -> Print_codegen.Other_pointer
 
 let allocate_body ?callable_frame ?(shared_values = [])
-    ?(local_subroutine_capacity = 0) ?(provider_entry_start = Int.max_int)
-    ?(function_code_owners = [||]) ?undefined_code_owner
-    ?(status_abi = Encoder.System_v_x64) ~max_stack_bytes ~reserved_registers
-    ~supply ~mode prepared =
+    ?(shared_home_indices = Value_map.empty) ?(local_subroutine_capacity = 0)
+    ?(provider_entry_start = Int.max_int) ?(function_code_owners = [||])
+    ?undefined_code_owner ?(status_abi = Encoder.System_v_x64) ~max_stack_bytes
+    ~reserved_registers ~supply ~mode prepared =
   let function_owner index =
     if index < Array.length function_code_owners then
       function_code_owners.(index)
@@ -1413,7 +1413,26 @@ let allocate_body ?callable_frame ?(shared_values = [])
   let reserved = List.map register_index reserved_registers in
   let owners : value option array = Array.make (Array.length registers) None in
   let slots : value option array = Array.make (max_stack_bytes / 8) None in
-  let shared_count = List.length shared_values in
+  let shared_slots =
+    List.mapi
+      (fun index value ->
+        let index =
+          Option.value
+            (Value_map.find_opt value.value_id shared_home_indices)
+            ~default:index
+        in
+        (value.value_id, (index, value)))
+      shared_values
+    |> List.fold_left
+         (fun map (id, entry) -> Value_map.add id entry map)
+         Value_map.empty
+  in
+  let shared_slot value = Value_map.find_opt value.value_id shared_slots in
+  let shared_count =
+    Value_map.fold
+      (fun _ (index, _) count -> max count (index + 1))
+      shared_slots 0
+  in
   if shared_count > max_stack_bytes / 8 then
     reject "HCBACK0004" "native shared-value frame exceeds the stack limit";
   let slot_high_water = ref shared_count in
@@ -1448,7 +1467,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
         | Some owner when same_value owner value -> Some index
         | Some _ | None -> find (index + 1)
     in
-    find 0
+    match shared_slot value with
+    | Some (index, _) -> Some index
+    | None -> find 0
   in
   let source_fixed_stack_slots =
     Option.fold ~none:0
@@ -1473,17 +1494,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
     | Ok slot -> slot
     | Error message -> reject ?span "HCBACK0003" message
   in
-  let shared_slots =
-    List.mapi
-      (fun index value -> (value.value_id, (index, value)))
-      shared_values
-    |> List.fold_left
-         (fun map (id, entry) -> Value_map.add id entry map)
-         Value_map.empty
-  in
-  let shared_slot value = Value_map.find_opt value.value_id shared_slots in
-  (* Graph dominance prevents loading a shared home before its producer. *)
-  List.iteri (fun index value -> slots.(index) <- Some value) shared_values;
+  (* Shared homes are reserved below [shared_count]. Their ownership is
+     resolved by value identity, including when disjoint blocks reuse a home. *)
   if frame_size_for_spills shared_count > max_stack_bytes then
     reject "HCBACK0004" "native shared-value frame exceeds max_stack_bytes";
   let published = ref Value_set.empty in
@@ -4672,7 +4684,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
             owner_stage)
         instruction.push_stage;
       (* Publish each reached shared producer before the next branch. Its
-         permanent home belongs to this activation and survives calls. *)
+         home belongs to this activation and survives calls. *)
       Array.iteri
         (fun register owner ->
           match owner with
@@ -4990,6 +5002,128 @@ let shared_runtime_values ~external_ids ~extra values =
   |> List.map (fun (_, value) ->
       value.last_use <- Int.max_int;
       value)
+
+(* For values without hidden reference dependencies, keep each
+   shared value live for every block from its producer through its last reachable
+   use, including backedges. Homes can overlap only when these block sets are
+   disjoint. Reserving the whole block also protects still-owned registers from
+   republishing a dead value over a newer producer's home. *)
+let shared_home_indices graph shared_values =
+  if List.length shared_values < 2 then Value_map.empty
+  else
+    let ids =
+      List.fold_left
+        (fun ids value -> Value_set.add value.value_id ids)
+        Value_set.empty shared_values
+    in
+    let blocks = Graph.blocks graph in
+    let facts =
+      List.fold_left
+        (fun facts block ->
+          let defs, uses =
+            Sequence.instructions (Graph.instructions block)
+            |> List.fold_left
+                 (fun (defs, uses) instruction ->
+                   let description = Sequence.description instruction in
+                   let uses =
+                     List.fold_left
+                       (fun uses id ->
+                         if Value_set.mem id ids && not (Value_set.mem id defs)
+                         then Value_set.add id uses
+                         else uses)
+                       uses description.operands
+                   in
+                   let defs =
+                     match description.result with
+                     | Some result when Value_set.mem result.value_id ids ->
+                         Value_set.add result.value_id defs
+                     | _ -> defs
+                   in
+                   (defs, uses))
+                 (Value_set.empty, Value_set.empty)
+          in
+          Block_map.add (Graph.block_id block) (defs, uses) facts)
+        Block_map.empty blocks
+    in
+    let live = ref Block_map.empty in
+    let at id =
+      Option.value (Block_map.find_opt id !live) ~default:Value_set.empty
+    in
+    let predecessors =
+      List.fold_left
+        (fun map block ->
+          List.fold_left
+            (fun map successor ->
+              let previous =
+                Option.value (Block_map.find_opt successor map) ~default:[]
+              in
+              Block_map.add successor (block :: previous) map)
+            map (Graph.successors block))
+        Block_map.empty blocks
+    in
+    let pending = Queue.create () in
+    let queued = ref Block_set.empty in
+    let enqueue block =
+      let id = Graph.block_id block in
+      if not (Block_set.mem id !queued) then (
+        Queue.add block pending;
+        queued := Block_set.add id !queued)
+    in
+    List.iter enqueue (List.rev blocks);
+    while not (Queue.is_empty pending) do
+      let block = Queue.take pending in
+      let id = Graph.block_id block in
+      queued := Block_set.remove id !queued;
+      let defs, uses = Block_map.find id facts in
+      let outgoing =
+        List.fold_left
+          (fun set successor -> Value_set.union set (at successor))
+          Value_set.empty (Graph.successors block)
+      in
+      let incoming = Value_set.union uses (Value_set.diff outgoing defs) in
+      if not (Value_set.equal incoming (at id)) then (
+        live := Block_map.add id incoming !live;
+        List.iter enqueue
+          (Option.value (Block_map.find_opt id predecessors) ~default:[]))
+    done;
+    let occupied =
+      List.fold_left
+        (fun occupied block ->
+          let id = Graph.block_id block in
+          let defs, _ = Block_map.find id facts in
+          let values =
+            List.fold_left
+              (fun set successor -> Value_set.union set (at successor))
+              (Value_set.union defs (at id))
+              (Graph.successors block)
+          in
+          Value_set.fold
+            (fun value occupied ->
+              let previous =
+                Option.value
+                  (Value_map.find_opt value occupied)
+                  ~default:Block_set.empty
+              in
+              Value_map.add value (Block_set.add id previous) occupied)
+            values occupied)
+        Value_map.empty blocks
+    in
+    let homes = ref [] in
+    List.fold_left
+      (fun indices value ->
+        let needed = Value_map.find value.value_id occupied in
+        let rec assign index = function
+          | [] -> (index, [ needed ])
+          | used :: rest when Block_set.disjoint needed used ->
+              (index, Block_set.union needed used :: rest)
+          | used :: rest ->
+              let selected, rest = assign (index + 1) rest in
+              (selected, used :: rest)
+        in
+        let index, updated = assign 0 !homes in
+        homes := updated;
+        Value_map.add value.value_id index indices)
+      Value_map.empty shared_values
 
 let preflight_program graph =
   let lock_validation = Lock_validation.of_graph graph in
@@ -5574,6 +5708,7 @@ type prepared_callable_body = {
   callable_stage_slots : int;
   callable_reference_bytes : int;
   callable_shared_values : value list;
+  callable_shared_home_indices : int Value_map.t;
 }
 
 type allocated_callable_body = {
@@ -10950,6 +11085,17 @@ let preflight_callable_graph ~runtime_calls ~source_globals
   let callable_shared_values =
     shared_runtime_values ~external_ids ~extra !values
   in
+  let callable_shared_home_indices =
+    (* Reference lowering can introduce uses absent from the source graph.
+       Retain permanent homes whenever that dependency expansion is present. *)
+    if
+      Value_map.is_empty extra
+      && List.for_all
+           (fun value -> Type.pointer_depth value.declared_type = 0)
+           callable_shared_values
+    then shared_home_indices graph callable_shared_values
+    else Value_map.empty
+  in
   (if not is_entry then
      let return_kind =
        match expected_return with
@@ -10970,6 +11116,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     callable_stage_slots = !stage_high_water;
     callable_reference_bytes = !reference_bytes;
     callable_shared_values;
+    callable_shared_home_indices;
   }
 
 let bounded_program_counts ~max_ir_instructions ~max_blocks graph =
@@ -11644,6 +11791,9 @@ let compile_program ?status_abi ?(max_stack_bytes = default_stack_bytes)
                 let prepared_blocks, sites, preflight_ir_count, shared_values =
                   preflight_program graph
                 in
+                let shared_home_indices =
+                  shared_home_indices graph shared_values
+                in
                 let local_subroutine_capacity =
                   Graph.local_subroutine_capacity graph
                 in
@@ -11681,7 +11831,8 @@ let compile_program ?status_abi ?(max_stack_bytes = default_stack_bytes)
                     in
                     let allocation =
                       allocate_body ~status_abi:abi ~shared_values
-                        ~local_subroutine_capacity ~max_stack_bytes
+                        ~shared_home_indices ~local_subroutine_capacity
+                        ~max_stack_bytes
                         ~reserved_registers:[ Encoder.R10; Encoder.R11 ]
                         ~supply
                         ~mode:
@@ -12465,6 +12616,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             let allocation =
               allocate_body ~status_abi:abi ~local_subroutine_capacity
                 ~shared_values:prepared.callable_shared_values
+                ~shared_home_indices:prepared.callable_shared_home_indices
                 ~function_code_owners ?undefined_code_owner
                 ~provider_entry_start:(Array.length function_infos)
                 ~callable_frame:
