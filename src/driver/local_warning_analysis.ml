@@ -65,8 +65,8 @@ let named_parameter_facts typed =
         | None -> Error "local warning analysis cannot find a typed parameter"
         | Some parameter ->
             if
-              Sema.Function_type_resolution.parameter_name parameter
-              <> Some (Sema.Symbol.name symbol)
+              Sema.Function_type_resolution.parameter_lookup_name parameter
+              <> Sema.Symbol.name symbol
             then
               Error
                 "local warning typed parameter does not match its binding name"

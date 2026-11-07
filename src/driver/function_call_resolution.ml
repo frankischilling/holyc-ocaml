@@ -561,6 +561,10 @@ type state = {
   next_initializer : int;
   initializers_rev : Sema.Function_call_resolution.initializer_input list;
   locals : Sema.Local_type_resolution.local list;
+  initializer_header : Sema.Function_type_resolution.resolved_function;
+  initializer_locals : Sema.Local_type_resolution.resolved_function;
+  initializer_resets :
+    Sema.Function_expression_binding.initializer_use_reset list;
   visible_aggregates : Sema.Module_expression_binding.publication String_map.t;
   body_aggregates :
     (Frontend.Ast.item * Sema.Module_expression_binding.publication) list;
@@ -572,7 +576,7 @@ type state = {
 
 let empty_state call_phases member_index before_item_index visible_aggregates
     body_aggregates typed_values global_values occurrences defined_queries
-    locals =
+    locals initializer_header initializer_locals initializer_resets =
   {
     call_phases;
     member_index;
@@ -595,6 +599,9 @@ let empty_state call_phases member_index before_item_index visible_aggregates
     next_initializer = 0;
     initializers_rev = [];
     locals;
+    initializer_header;
+    initializer_locals;
+    initializer_resets;
     visible_aggregates;
     body_aggregates;
     typed_values;
@@ -1452,6 +1459,28 @@ let local_initializer state (declarator : Frontend.Ast.local_declarator)
                       ~calls
                       ~origin:(origin initial.local_initializer_location)
               in
+              let prepared =
+                Result.bind prepared (fun input ->
+                    match
+                      List.find_opt
+                        (fun reset ->
+                          Sema.Function_expression_binding
+                          .initializer_use_reset_binding reset
+                          |> Sema.Function_binding_index.binding_symbol
+                          |> ( == )
+                               (Sema.Local_type_resolution.local_symbol local))
+                        state.initializer_resets
+                    with
+                    | None ->
+                        Error
+                          "initializer declaration has no original \
+                           assignment/reset receipt"
+                    | Some reset ->
+                        Sema.Function_call_resolution
+                        .with_initializer_assignment ~reset
+                          ~header:state.initializer_header
+                          ~locals:state.initializer_locals input)
+              in
               match prepared with
               | Error _ as error -> error
               | Ok input ->
@@ -2019,6 +2048,9 @@ let function_input call_phases table member_index visible_aggregates
               (occurrence_map expected_occurrences)
               defined_queries
               (Sema.Local_type_resolution.function_locals locals)
+              typed locals
+              (Sema.Module_expression_binding.function_initializer_use_resets
+                 expected)
           in
           match body with
           | None -> Ok state

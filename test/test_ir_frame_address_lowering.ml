@@ -518,6 +518,80 @@ let pointer_and_identity_limits_fail_without_partial_ir () =
   check_exhaustion "instruction identity exhaustion" near_limit 0;
   check_exhaustion "value identity exhaustion" 0 near_limit
 
+let initializer_target_types_remain_checked_before_early_returns () =
+  let byte_type =
+    Type.make_primitive ~form:Type.Internal_storage ~primitive:Primitive_type.I8
+      ~pointer_depth:0
+    |> checked
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, frame_backed) ->
+          let frames, results = analyze ~compilation_mode:mode source in
+          let function_ = function_named results "F" in
+          let frame = frame_for frames function_ in
+          let initial =
+            match Result.function_initializers function_ with
+            | [ initial ] -> initial
+            | _ -> Alcotest.fail (label ^ " needs one typed initializer")
+          in
+          let check_original () =
+            match Lowering.prepare_initializer ~frame initial with
+            | Ok address ->
+                Alcotest.(check bool)
+                  (label ^ " original address disposition")
+                  frame_backed (Option.is_some address)
+            | Error errors ->
+                Alcotest.failf "%s rejected original metadata: %s" label
+                  (errors
+                  |> List.map (fun (error : Sequence.error) -> error.message)
+                  |> String.concat ", ")
+          in
+          check_original ();
+          let original_type = Result.initializer_target_type initial in
+          Alcotest.(check bool)
+            (label ^ " changes the target type")
+            false
+            (Type.equal original_type byte_type);
+          (* initializer_result field 2 is its independently checked target
+             type; the source declaration and assignment receipt stay intact. *)
+          Fun.protect
+            ~finally:(fun () ->
+              Obj.set_field (Obj.repr initial) 2 (Obj.repr original_type))
+            (fun () ->
+              Obj.set_field (Obj.repr initial) 2 (Obj.repr byte_type);
+              match Lowering.prepare_initializer ~frame initial with
+              | Error [ error ] ->
+                  Alcotest.(check string)
+                    (label ^ " forged target diagnostic")
+                    "HCIRL0004" error.Sequence.code
+              | Error _ -> Alcotest.fail (label ^ " returned several errors")
+              | Ok _ -> Alcotest.fail (label ^ " accepted a forged target type"));
+          check_original ())
+        [
+          ("static scalar", "U0 F(){static I64 value=42;}", false);
+          ("static U0", "U0 F(){static U0 value=42;}", false);
+          ("static I0", "U0 F(){static I0 value=42;}", false);
+          ( "static aggregate",
+            "U16 class Word{U16 value;};U0 F(){static Word value=42;}",
+            false );
+          ( "static empty aggregate",
+            "class Empty{};U0 F(){static Empty value=42;}",
+            false );
+          ("automatic U0", "U0 F(){U0 value=42;}", true);
+          ("automatic I0", "U0 F(){I0 value=42;}", true);
+          ( "automatic aggregate",
+            "U16 class Word{U16 value;};U0 F(){Word value=42;}",
+            true );
+          ( "automatic empty aggregate",
+            "class Empty{};U0 F(){Empty value=42;}",
+            true );
+          ("automatic array", "U0 F(){I64 values[1]=42;}", false);
+          ("redirected scalar", "U0 F(I64 noreg){I8 _anon_=42;}", true);
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let tests =
   [
     Alcotest.test_case "named parameter RBP-relative address" `Quick
@@ -532,4 +606,6 @@ let tests =
       same_spelling_bindings_cannot_exchange_function_frames;
     Alcotest.test_case "pointer and identity limits" `Quick
       pointer_and_identity_limits_fail_without_partial_ir;
+    Alcotest.test_case "initializer target types before early returns" `Quick
+      initializer_target_types_remain_checked_before_early_returns;
   ]

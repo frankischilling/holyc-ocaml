@@ -5986,3 +5986,20 @@
    %{exe:test_owned_member_register_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(executable
+ (name test_formal_member_cli)
+ (modules test_formal_member_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/formal-member-identity.hc)
+ (action
+  (run %{exe:test_formal_member_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/formal-member-identity.hc)
+ (action
+  (run %{exe:test_formal_member_cli.exe} %{exe:../bin/holyc.exe} --native)))

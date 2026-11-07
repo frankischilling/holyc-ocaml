@@ -1,6 +1,13 @@
 type selection = Register_candidate | Stack | Unknown
 type t
 
+type explicit_conflict = private {
+  register : int;
+  previous : Sema.Symbol.t;
+  replacement : Sema.Symbol.t;
+  origin : Sema.Symbol.origin;
+}
+
 val analyze :
   frame:Sema.Function_frame_layout.function_layout ->
   body:Function_body.t ->
@@ -88,18 +95,26 @@ val analyze :
     original named definitions, provided fixed arguments and integer or U0
     results; callbacks, defaults and variadic calls remain outside this proof.
 
-    Distinct RSI, RDI and R10 through R15 requests are supported. Outside the
-    exact subsets, automatic candidates must fit the unreserved variable banks
-    unless forced requests have guaranteed capacity and remaining ordinary
-    members are I64/U64. Those ordinary pressured members retain [Unknown]
-    selection. Other explicit registers and duplicate requests remain unproved;
-    address formation and Boolean frame members require the owned-member path.
-    Every original signature parameter must have its own named frame location.
-    Unnamed formals are rejected because their original _anon_ members can still
-    reserve or compete for registers, but are not represented by this frame API.
-    Limits are 64 blocks, 512 instructions and 32 expression levels. Calls,
-    casts, short-circuit expressions, power and unmatched optimizer rewrites
-    cannot acquire an expression-tree proof.
+    RSI, RDI and R10 through R15 requests are supported. Only the complete
+    owned-member path admits repeated requests: each later member replaces the
+    prior owner, which remains stack-backed and excluded from automatic
+    candidates. A source-zero final owner in a duplicate group is [Unknown] and
+    still reserves the slot; this does not grant a readable physical home or
+    claim the original unused parameter load/save bytes. Conflicts are retained
+    as pure facts; analysis never emits a warning.
+
+    Outside that path, only distinct requests are supported. Outside the exact
+    subsets, automatic candidates must fit the unreserved variable banks unless
+    forced requests have guaranteed capacity and remaining ordinary members are
+    I64/U64. Those ordinary pressured members retain [Unknown] selection. Other
+    explicit registers and unproved duplicates remain unsupported; address
+    formation and Boolean frame members require the owned-member path. Every
+    original signature parameter must have its own authenticated frame location,
+    including each anonymous [_anon_] member. First-visible name lookup does not
+    remove later members or their register reservations. Limits are 64 blocks,
+    512 instructions and 32 expression levels. Calls, casts, short-circuit
+    expressions, power and unmatched optimizer rewrites cannot acquire an
+    expression-tree proof.
 
     The four warning bits, ECHO, TRACE, KEEP_PRIVATE and NO_REG_VAR may differ
     from default options. Warning/output/symbol-retention options do not change
@@ -131,6 +146,28 @@ val selection :
   selection option
 (** Recheck the original frame, body and instruction identities. Foreign or
     modified inputs return [None], not a reconstructed allocation decision. *)
+
+val shadowed_explicit_request :
+  t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  symbol:Sema.Symbol.t ->
+  int option
+(** Revalidate a stack-backed explicit member displaced by a later original
+    member requesting the same supported bank. Requires complete ordered source
+    membership, distinct nonoverlapping frame extents and zero address balance.
+    A plain stack selection or matching request number alone grants no evidence.
+    Shadowed members never acquire an automatic or physical register home. *)
+
+val explicit_conflicts :
+  t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  explicit_conflict list option
+(** Revalidate retained OptPass3 conflicts in original traversal order. Each
+    subsequent request yields one fact, with its displaced and replacement
+    owners and original explicit request origin. This query has no diagnostic
+    side effect; the compilation driver owns once-per-function emission. *)
 
 val unused_explicit_reservation :
   t ->
@@ -171,13 +208,14 @@ val physical_register :
     placement. Stack and unknown selections remain unproved, regardless of their
     requests.
 
-    Every original formal must be represented by an authenticated named frame
-    member before any physical grant, including an explicit request. Every
-    member contributing to these facts must retain semantic ownership and its
-    original request identities. Request contents, source origins, frame types
-    and instruction data are sealed by independent primitive snapshots; changes
-    invalidate the witness. This query authorizes only this bounded physical
-    placement, not a general register allocation decision. *)
+    Every original formal must be represented by an authenticated frame member
+    (including anonymous formals) before any physical grant, including an
+    explicit request. Every member contributing to these facts must retain
+    semantic ownership and its original request identities. Request contents,
+    source origins, frame types and instruction data are sealed by independent
+    primitive snapshots; changes invalidate the witness. This query authorizes
+    only this bounded physical placement, not a general register allocation
+    decision. *)
 
 val authenticates_mixed_scalar_source :
   runtime:Runtime_call_context.t ->

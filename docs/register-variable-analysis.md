@@ -938,9 +938,10 @@ would be a different algorithm. An unused supported explicit request can reserve
 its bank slot without emitting a physical home. The IR guard independently
 reconstructs the complete source and proves zero reads, writes and address
 formations before admitting that reservation. No hosted-load omission can stand
-in for this proof. Duplicate explicit requests, reserved/fixed
-registers, unnamed formals, array and aggregate member allocation, callback
-members, pointer arithmetic and consumed writes remain outside this proof.
+in for this proof. The [formal-member extension](formal-member-identity.md)
+adds unnamed formals and ordered duplicate requests. Reserved/fixed registers,
+array and aggregate member allocation, callback members, pointer arithmetic
+and consumed writes remain outside this proof.
 Executable pointer members remain one-level integer pointers; taking a pointer
 member's own address (`&p`) does not gain new provenance or lowering support.
 Floating execution continues to require its independent operation receipts.

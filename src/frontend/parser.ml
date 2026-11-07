@@ -2335,7 +2335,7 @@ let rec pull cursor =
         | Some (_, Symbol_visibility.Shadowed_by_local) ->
             List.find_opt
               (fun publication -> publication.local_spelling = token.raw)
-              cursor.local_publications
+              (List.rev cursor.local_publications)
         | _ -> None
       in
       {
@@ -3636,11 +3636,12 @@ let with_function_local_context cursor function_ parameters variadic run =
   cursor.assembly_local_storage <- [];
   List.iter
     (fun (parameter : Ast.function_parameter) ->
-      Option.iter
-        (fun (name : Ast.identifier) ->
-          publish_local cursor ~spelling:name.spelling
-            (Local_parameter parameter))
-        parameter.name)
+      let spelling =
+        match parameter.name with
+        | Some name -> name.Ast.spelling
+        | None -> "_anon_"
+      in
+      publish_local cursor ~spelling (Local_parameter parameter))
     parameters;
   Option.iter
     (fun marker ->
@@ -7499,6 +7500,9 @@ let rec parse_function_parameter ?default_context ?callback_context cursor
               ~register_qualifiers ~type_specifier ~type_selection
               ~pointer_layers ~name:(Some name) ~function_pointer:None
               ~tokens:(leading_tokens @ [ name_item.token ])
+          else if next_item.token.kind = Token_kind.Punctuation '=' then
+            declaration_failure cursor next_item ~code:"HCPARSE0010"
+              ~message:"a default value requires a function parameter name"
           else
             finish_function_parameter ?default_context ?callback_context cursor
               ~register_qualifiers ~type_specifier ~type_selection

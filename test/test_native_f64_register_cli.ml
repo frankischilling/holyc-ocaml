@@ -361,6 +361,16 @@ let explicit_cases =
 
 let mixed_cases =
   [
+    (* OptPass3 replaces the owner even when the later request has no uses.
+       The source-zero final reservation has no emitted physical-home grant;
+       the earlier F64 member remains stack-backed. *)
+    case ~entries:[] ~forbidden:[ 0; 1 ] "mixed duplicate explicit register"
+      "F64 F(F64 reg R10 x,I64 reg R10 n){return x;}F(1.5,1);"
+      0x3ff8000000000000L;
+    case ~entries:[] ~required:[ "R11" ] ~forbidden:[ 0 ]
+      "mixed duplicate explicit local"
+      "F64 F(F64 x){F64 reg R11 y=x;I64 reg R11 n=1;return y;}F(1.5);"
+      0x3ff8000000000000L;
     case
       ~entries:[ (1, "RSI") ]
       ~required:[ "RSI" ] ~forbidden:[ 0 ] "ordinary F64 is noncandidate"
@@ -516,10 +526,6 @@ let cases =
 
 let excluded =
   [
-    ( "mixed duplicate explicit register",
-      "F64 F(F64 reg R10 x,I64 reg R10 n){return x;}F(1.5,1);" );
-    ( "mixed duplicate explicit local",
-      "F64 F(F64 x){F64 reg R11 y=x;I64 reg R11 n=1;return y;}F(1.5);" );
     ("F64 update", "F64 F(F64 reg RSI x){x+=1.0;return x;}F(1.5);");
     ("unsupported register", "F64 F(F64 reg RAX x){return x;}F(1.5);");
   ]

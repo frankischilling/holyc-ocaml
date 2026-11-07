@@ -321,7 +321,7 @@ let reconstructed_declarations () =
         "replay retains the original physical header" true
         (header replayed_definition == original_header);
       reject_binding (bind ~records:replayed ~definition:replayed_definition ());
-      let rebuild signature =
+      let rebuild_input signature =
         Headers.make_function
           ~symbol:(Headers.function_symbol original_header)
           ~scope:(Headers.function_scope original_header)
@@ -331,8 +331,9 @@ let reconstructed_declarations () =
           ~parameter_bindings:
             (Headers.function_parameter_bindings original_header)
           ~variadic_bindings:None
-        |> checked
-        |> fun input ->
+      in
+      let rebuild signature =
+        rebuild_input signature |> checked |> fun input ->
         Headers.resolve
           ~table:(Session.semantic_symbols p.session)
           ~parent:(Semantic_declaration_collection.scope p.declarations)
@@ -368,14 +369,19 @@ let reconstructed_declarations () =
           ()
         |> checked
       in
-      List.iter
-        (fun signature ->
-          let reconstructed = rebuild signature |> replay in
-          reject_binding
-            (bind ~records:reconstructed
-               ~definition:(List.hd (Records.declarations reconstructed))
-               ()))
-        [ signature; changed_signature ])
+      let reconstructed = rebuild signature |> replay in
+      reject_binding
+        (bind ~records:reconstructed
+           ~definition:(List.hd (Records.declarations reconstructed))
+           ());
+      match rebuild_input changed_signature with
+      | Error message ->
+          Alcotest.(check string)
+            "changed parameter provenance rejects before header resolution"
+            "semantic parameter binding has another original source parameter"
+            message
+      | Ok _ ->
+          Alcotest.fail "changed parameter provenance rebuilt the source header")
     G.modes
 
 let gates =

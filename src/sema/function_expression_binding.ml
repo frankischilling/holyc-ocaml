@@ -68,10 +68,14 @@ type initializer_use_reset = {
   index : int;
   origin : Symbol.origin;
   binding : Function_binding_index.binding;
+  target : Function_binding_index.binding;
+  indexed : Function_binding_index.indexed_function;
+  reset_owns : initializer_use_reset -> bool;
 }
 
 type binding_event =
   | Bound_use of occurrence
+  | Member_lookup of Function_binding_index.binding
   | Bound_query of query
   | No_warn_suppression of suppression
   | Initializer_use_reset of initializer_use_reset
@@ -156,6 +160,20 @@ let initializer_use_reset_origin (reset : initializer_use_reset) = reset.origin
 
 let initializer_use_reset_binding (reset : initializer_use_reset) =
   reset.binding
+
+let initializer_use_reset_target (reset : initializer_use_reset) = reset.target
+
+let initializer_use_reset_valid (reset : initializer_use_reset) =
+  let bindings = Function_binding_index.function_bindings reset.indexed in
+  reset.reset_owns reset
+  && List.exists (( == ) reset.binding) bindings
+  && reset.origin = Symbol.origin reset.binding.symbol
+  && Option.equal ( == ) (Some reset.target)
+       (List.find_opt
+          (fun (binding : Function_binding_index.binding) ->
+            binding.ordinal <= reset.binding.ordinal
+            && Symbol.name binding.symbol = Symbol.name reset.binding.symbol)
+          bindings)
 
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 
@@ -465,6 +483,8 @@ let resolve_function table indexed (input : function_input) =
                 (fun (occurrences, queries, suppressions, resets) -> function
                   | Bound_use occurrence ->
                       (occurrence :: occurrences, queries, suppressions, resets)
+                  | Member_lookup _ ->
+                      (occurrences, queries, suppressions, resets)
                   | Bound_query query ->
                       (occurrences, query :: queries, suppressions, resets)
                   | No_warn_suppression suppression ->
@@ -577,6 +597,11 @@ let resolve_function table indexed (input : function_input) =
     | (Publish_local publication as event) :: rest -> (
         match remaining_locals with
         | binding :: local_rest when publication_matches event binding ->
+            let binding_events_rev =
+              match String_map.find_opt publication.name environment with
+              | None -> binding_events_rev
+              | Some original -> Member_lookup original :: binding_events_rev
+            in
             let environment = add_first publication.name binding environment in
             events environment
               (Int_set.add (symbol_number binding.symbol) published)
@@ -620,7 +645,17 @@ let resolve_function table indexed (input : function_input) =
                 (invalid_input
                    "function initializer use-reset space is exhausted")
             else
-              let reset = { index = next_reset; origin; binding } in
+              let target = String_map.find name environment in
+              let rec reset =
+                {
+                  index = next_reset;
+                  origin;
+                  binding;
+                  target;
+                  indexed;
+                  reset_owns = (fun other -> other == reset);
+                }
+              in
               events environment published remaining_locals
                 (Initializer_use_reset reset :: binding_events_rev)
                 next_occurrence next_query next_suppression (next_reset + 1)
@@ -630,9 +665,21 @@ let resolve_function table indexed (input : function_input) =
               (initializer_reset_mismatch input.symbol name declaration_index
                  declarator_index origin))
   in
+  let _, parameter_lookups_rev =
+    List.fold_left
+      (fun (seen, events) (binding : Function_binding_index.binding) ->
+        if not (binding_is_parameter binding) then (seen, events)
+        else
+          let name = Symbol.name binding.symbol in
+          match String_map.find_opt name seen with
+          | Some original -> (seen, Member_lookup original :: events)
+          | None -> (String_map.add name binding seen, events))
+      (String_map.empty, []) bindings
+  in
   events
     (initial_environment bindings)
-    Int_set.empty (local_bindings bindings) [] 0 0 0 0 input.events
+    Int_set.empty (local_bindings bindings) parameter_lookups_rev 0 0 0 0
+    input.events
 
 let resolve_validated table indexed_functions inputs =
   let rec loop functions_rev by_symbol indexed_functions inputs =

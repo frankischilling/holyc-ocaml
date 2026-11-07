@@ -504,9 +504,11 @@ let source_order ?(owned = false) ~frame ~body () =
           | _ -> raise Unproved
         in
         let original = get (Headers.parameter_source parameter) in
-        let name = get original.name in
         require
-          (Sema.Symbol.name (Frame.location_symbol location) = name.spelling);
+          (Sema.Symbol.name (Frame.location_symbol location)
+           = Headers.parameter_lookup_name parameter
+          && Sema.Symbol.origin (Frame.location_symbol location)
+             = Headers.parameter_lookup_origin parameter);
         if owned then (
           require (original.function_pointer = None);
           authenticate_type location
@@ -1005,18 +1007,21 @@ let analyze ~frame ~body =
               get
                 (List.find_opt
                    (fun location ->
-                     Option.equal ( == )
-                       (Frame.location_local_source location)
-                       (Some original))
+                     Frame.location_symbol location
+                     == Typed.initializer_target_symbol initial)
                    locations)
             in
-            require (not (List.exists (( == ) location) !initialized));
+            (match
+               Frame_address_lowering.prepare_initializer ~frame initial
+             with
+            | Ok (Some _) -> ()
+            | _ -> raise Unproved);
             initialized := location :: !initialized;
             accesses :=
               {
                 location;
                 span =
-                  Sema.Symbol.origin (Frame.location_symbol location)
+                  Sema.Symbol.origin (Local.local_symbol original)
                   |> source_span;
                 kind = Write;
               }
@@ -1504,18 +1509,19 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
                 get
                   (List.find_opt
                      (fun location ->
-                       Option.equal ( == ) (Some local)
-                         (Frame.location_local_source location))
+                       Frame.location_symbol location
+                       == Typed.initializer_target_symbol root)
                      locations)
               in
-              require (not (List.exists (( == ) location) !initialized));
+              (match Frame_address_lowering.prepare_initializer ~frame root with
+              | Ok (Some _) -> ()
+              | _ -> raise Unproved);
               initialized := location :: !initialized;
               accesses :=
                 {
                   location;
                   span =
-                    source_span
-                      (Sema.Symbol.origin (Frame.location_symbol location));
+                    source_span (Sema.Symbol.origin (Local.local_symbol local));
                   kind = Write;
                 }
                 :: !accesses

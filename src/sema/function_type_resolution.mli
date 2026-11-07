@@ -70,6 +70,12 @@ val make_signature :
 val make_parameter_binding :
   parameter_index:int -> symbol:Symbol.t -> (parameter_binding, string) result
 
+val make_source_parameter_binding :
+  source:Frontend.Ast.function_parameter ->
+  parameter_index:int ->
+  symbol:Symbol.t ->
+  (parameter_binding, string) result
+
 val make_synthetic_binding :
   synthetic_parameter ->
   symbol:Symbol.t ->
@@ -243,6 +249,8 @@ val parameter_register_requests : parameter -> Register_request.t list
 val parameter_register_selection : parameter -> Register_request.selection
 val parameter_name : parameter -> string option
 val parameter_name_origin : parameter -> Symbol.origin option
+val parameter_lookup_name : parameter -> string
+val parameter_lookup_origin : parameter -> Symbol.origin
 val parameter_type_reference : parameter -> Type_reference.t
 val parameter_declarator_kind : parameter -> declarator_kind
 val parameter_default : parameter -> parameter_default option
@@ -263,6 +271,10 @@ val function_pointer_closing_origin : function_pointer -> Symbol.origin
 val function_pointer_signature : function_pointer -> signature
 val parameter_binding_index : parameter_binding -> int
 val parameter_binding_symbol : parameter_binding -> Symbol.t
+
+val parameter_binding_source :
+  parameter_binding -> Frontend.Ast.function_parameter option
+
 val variadic_marker_origin : variadic_bindings -> Symbol.origin
 val variadic_argc : variadic_bindings -> synthetic_binding
 val variadic_argv : variadic_bindings -> synthetic_binding

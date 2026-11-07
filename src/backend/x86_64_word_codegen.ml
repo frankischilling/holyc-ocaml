@@ -6173,7 +6173,14 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
                 with
                 | Some (Ir.Register_variable_analysis.Register_candidate | Stack)
                   -> true
-                | Some Unknown | None -> false)
+                | Some Unknown ->
+                    (* A source-zero explicit reservation has no readable home
+                       and no narrow accesses whose semantics need widening. *)
+                    Option.is_some
+                      (Ir.Register_variable_analysis.unused_explicit_reservation
+                         proof ~frame ~body
+                         ~symbol:(Frame.location_symbol location))
+                | None -> false)
               register_proof)
     then
       reject ?span "HCBACK0002"
@@ -6237,9 +6244,36 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
                  before pass 4 replaces the home with a physical GPR. *)
               Option.is_some (physical_register location)
           | Some Stack ->
-              (* NO_REG_VAR suppresses plain reg, but not explicit requests. *)
+              (* NO_REG_VAR suppresses plain reg, but an explicit member can
+                 remain on the stack only after a later source member replaces
+                 its requested slot. Stack selection alone is insufficient. *)
               request = Sema.Register_request.Allocatable
-          | Some Unknown | None -> false)
+              || Option.fold ~none:false
+                   ~some:(fun proof ->
+                     match request with
+                     | Sema.Register_request.Explicit register ->
+                         Ir.Register_variable_analysis.shadowed_explicit_request
+                           proof ~frame ~body
+                           ~symbol:(Frame.location_symbol location)
+                         = Some
+                             (Sema.Register_request.explicit_register_number
+                                register)
+                     | _ -> false)
+                   register_proof
+          | Some Unknown ->
+              Option.fold ~none:false
+                ~some:(fun proof ->
+                  match request with
+                  | Sema.Register_request.Explicit register ->
+                      Ir.Register_variable_analysis.unused_explicit_reservation
+                        proof ~frame ~body
+                        ~symbol:(Frame.location_symbol location)
+                      = Some
+                          (Sema.Register_request.explicit_register_number
+                             register)
+                  | _ -> false)
+                register_proof
+          | None -> false)
   in
   let proved_stack location =
     (* Authenticated stack selection enables direct assignment reloads and

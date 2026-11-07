@@ -76,6 +76,24 @@ let placement () =
         [
           ( "F64 F(reg R10 F64 x){return x;}42;",
             [ ("x", Analysis.Register_candidate, Some 10) ] );
+          ( "F64 F(reg RSI F64 x,reg RSI F64 y){return x+y;}42;",
+            [
+              ("x", Analysis.Stack, None);
+              ("y", Analysis.Register_candidate, Some 6);
+            ] );
+          ( "F64 F(I64 reg R10 n,F64 reg R10 x){return x;}42;",
+            [
+              ("n", Analysis.Stack, None);
+              ("x", Analysis.Register_candidate, Some 10);
+            ] );
+          ( "F64 F(reg R12 F64 x,reg R12 I8 unused){return x;}42;",
+            [ ("x", Analysis.Stack, None); ("unused", Analysis.Unknown, None) ]
+          );
+          ( "F64 F(reg R10 F64 x,F64){return x;}42;",
+            [
+              ("x", Analysis.Register_candidate, Some 10);
+              ("_anon_", Analysis.Stack, None);
+            ] );
           ( "F64 F(reg R10 F64 x){F64 y;return x;}42;",
             [
               ("x", Analysis.Register_candidate, Some 10);
@@ -227,12 +245,9 @@ let exclusions () =
                 (Option.is_none
                    (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "F64 F(reg RSI F64 x,reg RSI F64 y){return x+y;}42;";
-          "F64 F(I64 reg R10 n,F64 reg R10 x){return x;}42;";
           "F64 F(reg RAX F64 x){return x;}42;";
           "F64 F(reg R10 F64 x){x+=1.5;return x;}42;";
           "F64 F(reg R10 F64 x){x++;return x;}42;";
-          "F64 F(reg R10 F64 x,F64){return x;}42;";
         ])
 
 let descriptions fn =

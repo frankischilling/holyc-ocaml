@@ -6899,6 +6899,12 @@ let frame_context ?globals ?runtime_calls ?(pointer_arguments = false)
                      ~symbol:(Frame.location_symbol location)
                    = Some
                        (Sema.Register_request.explicit_register_number register)
+                   || Register_variable_analysis.shadowed_explicit_request proof
+                        ~frame ~body:function_
+                        ~symbol:(Frame.location_symbol location)
+                      = Some
+                          (Sema.Register_request.explicit_register_number
+                             register)
                    || Register_variable_analysis.unused_explicit_reservation
                         proof ~frame ~body:function_
                         ~symbol:(Frame.location_symbol location)
@@ -6911,8 +6917,8 @@ let frame_context ?globals ?runtime_calls ?(pointer_arguments = false)
   then
     invalid
       "explicit register requests require a source-authenticated supported \
-       physical home or unused reservation; addressed, conflicting and \
-       fixed-register members are unsupported"
+       physical home, unused reservation or shadowed stack member; addressed \
+       and fixed-register members are unsupported"
   else if
     Option.is_none (checked_return_kind (Function.return_value_type function_))
   then

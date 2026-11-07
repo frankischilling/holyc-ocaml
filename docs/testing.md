@@ -2573,3 +2573,15 @@ uninitialized reads, explicit request boundaries and independent decoded homes.
 Exact code, IR, frame, call-depth and active-stack limits accompany same-image
 recovery from bounds, initialization and arithmetic faults. See
 [member shapes and address balances](register-variable-analysis.md#owned-member-shapes-and-address-balances).
+
+The formal-member CLI matrix covers original unnamed fixed arguments, first
+lookup among duplicate names, initializer assignment conversion and declaration
+reset ownership. It distinguishes simple anonymous defaults from callback
+syntax and preserves U0/I0 arity without granting zero-sized value execution.
+Literal expected maps cover all eight variable-register banks, final duplicate
+owners, shadowed stack members, mixed pointer/F64 cases and unused reservations.
+Warning checks distinguish implicit unnamed suppression, explicitly named
+members and once-per-conflict register diagnostics. Direct frame/binding checks,
+source-owner mutations, exact quotas and retained-image fault recovery accompany
+the IR and native JIT/AOT reports. See [formal members](formal-member-identity.md)
+and `examples/formal-member-identity.hc`.

@@ -1,5 +1,11 @@
 # Compiler status and implementation notes
 
+[Formal member identity](formal-member-identity.md) now preserves unnamed fixed
+arguments, first-member duplicate lookup and initializer assignment targets.
+Supported duplicate explicit register requests keep the final source owner and
+leave earlier members on the stack. This is a bounded source-backed extension,
+not completion of register allocation or the HolyC ABI.
+
 [Large native frames](native-stack-probing.md) now use page probes and
 matching Windows unwind offsets. The larger quota is opt-in; default frame
 and active-stack limits are unchanged. General register allocation in #703

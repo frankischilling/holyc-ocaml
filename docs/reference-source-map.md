@@ -2654,3 +2654,19 @@ save/restore paths. Uninitialized storage remains unreadable; unsupported
 explicit requests never acquire substitute homes. See
 [member shapes and address balances](register-variable-analysis.md#owned-member-shapes-and-address-balances)
 for the admitted domain, phase evidence and remaining boundaries.
+
+## Formal member identity and duplicate requests
+
+`Compiler/PrsVar.HC:339-344,529,619-628` creates unnamed fixed members and their
+eight-byte slots. `PrsStmt.HC:114-123` determines fixed arity and formal offsets;
+`PrsVar.HC:378-402` appends variadic members. `LexLib.HC:67-84,103-147` resolves
+the first equal member and permits the existing duplicate-name exceptions.
+`PrsVar.HC:607-614` reparses local initialization as assignment, then resets the
+new declaration's use count. Declaration ownership therefore differs from the
+assignment target when an earlier equal member exists.
+
+`OptPass3.HC:29-36` records the last explicit register owner and warns for each
+conflict. `OptPass4.HC:198-215` uses the final offset table;
+`OptPass789A.HC:712-716` loads only final positive-offset owners on entry. See
+[formal members](formal-member-identity.md) for the source rules and the hosted
+physical-home projection.

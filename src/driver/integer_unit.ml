@@ -1365,6 +1365,74 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               ~functions:(List.rev !function_contexts)
               ()
           in
+          let register_warnings =
+            definitions
+            |> List.concat_map
+                 (fun
+                   (definition : Ir.Integer_interpreter.function_definition) ->
+                   let frame = definition.frame and body = definition.body in
+                   let rec conflicts seen = function
+                     | [] -> false
+                     | location :: rest -> (
+                         match Frame.location_register_selection location with
+                         | Sema.Register_request.Explicit register ->
+                             let number =
+                               Sema.Register_request.explicit_register_number
+                                 register
+                             in
+                             List.mem number seen
+                             || conflicts (number :: seen) rest
+                         | Unspecified | Allocatable | Disabled ->
+                             conflicts seen rest)
+                   in
+                   if not (conflicts [] (Frame.function_locations frame)) then
+                     []
+                   else
+                     match
+                       Ir.Register_variable_analysis.analyze_with_runtime
+                         ~runtime:runtime_calls_ ~frame ~body
+                     with
+                     | None -> []
+                     | Some proof ->
+                         Ir.Register_variable_analysis.explicit_conflicts proof
+                           ~frame ~body
+                         |> Option.value ~default:[]
+                         |> List.map
+                              (fun
+                                (conflict :
+                                  Ir.Register_variable_analysis
+                                  .explicit_conflict)
+                              ->
+                                let primary =
+                                  match conflict.origin with
+                                  | Sema.Symbol.Source_location location ->
+                                      location.span
+                                  | _ -> ast.span
+                                in
+                                let register_name =
+                                  Sema.Register_request.canonical_u64_registers
+                                  |> List.find_map (fun (name, number) ->
+                                      if number = conflict.register then
+                                        Some name
+                                      else None)
+                                  |> Option.value
+                                       ~default:
+                                         (string_of_int conflict.register)
+                                in
+                                Common.Diagnostic.make
+                                  ~severity:Common.Diagnostic.Warning
+                                  ~code:"HCREG0001"
+                                  ~message:
+                                    (Printf.sprintf
+                                       "register %s is already in use; member \
+                                        %S in function %S replaces %S"
+                                       register_name
+                                       (Sema.Symbol.name conflict.replacement)
+                                       (Sema.Symbol.name
+                                          (Frame.function_symbol frame))
+                                       (Sema.Symbol.name conflict.previous))
+                                  ~primary ()))
+          in
           Ok
             {
               entry_;
@@ -1389,7 +1457,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               static_sources_;
               runtime_calls_;
               entry_has_calls_ = entry_calls <> [];
-              compiler_warnings_ = Integer_source.compiler_warnings prepared;
+              compiler_warnings_ =
+                Integer_source.compiler_warnings prepared @ register_warnings;
             }
         with Invalid diagnostics -> Error diagnostics
       in

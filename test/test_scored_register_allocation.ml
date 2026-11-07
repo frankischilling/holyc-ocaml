@@ -125,12 +125,64 @@ let member_shapes () =
     [ (5, 6); (6, 7); (3, 10); (0, 11); (1, 14); (2, 15) ]
     (Allocation.allocate ~reserved:[] escaped)
 
+let explicit_requests () =
+  let check label requests owners shadowed conflicts =
+    let result = Allocation.resolve_explicit requests in
+    Alcotest.(check (list (pair int int)))
+      (label ^ " final owners") owners result.owners;
+    Alcotest.(check (list (pair int int)))
+      (label ^ " displaced members")
+      shadowed result.shadowed;
+    Alcotest.(check (list (triple int int int)))
+      (label ^ " original warnings")
+      conflicts
+      (List.map
+         (fun (conflict : Allocation.explicit_conflict) ->
+           ( conflict.previous_member,
+             conflict.replacement_member,
+             conflict.register ))
+         result.conflicts)
+  in
+  check "empty" [] [] [] [];
+  check "one owner" [ (0, 12) ] [ (0, 12) ] [] [];
+  check "three owners of one bank"
+    [ (0, 12); (2, 12); (5, 12) ]
+    [ (5, 12) ]
+    [ (0, 12); (2, 12) ]
+    [ (0, 2, 12); (2, 5, 12) ];
+  check "interleaved replacement order"
+    [ (0, 12); (1, 6); (2, 12); (4, 6); (7, 12) ]
+    [ (4, 6); (7, 12) ]
+    [ (0, 12); (1, 6); (2, 12) ]
+    [ (0, 2, 12); (1, 4, 6); (2, 7, 12) ];
+  check "reversed source traversal"
+    [ (7, 12); (2, 12); (0, 12) ]
+    [ (0, 12) ]
+    [ (7, 12); (2, 12) ]
+    [ (7, 2, 12); (2, 0, 12) ];
+  List.iter
+    (fun register ->
+      check "supported variable bank"
+        [ (0, register); (1, register) ]
+        [ (1, register) ]
+        [ (0, register) ]
+        [ (0, 1, register) ])
+    [ 6; 7; 10; 11; 12; 13; 14; 15 ];
+  let resolved = Allocation.resolve_explicit [ (1, 6); (2, 6) ] in
+  Alcotest.(check (list (pair int int)))
+    "one final reservation still excludes RSI from automatic allocation"
+    [ (0, 7) ]
+    (Allocation.allocate
+       ~reserved:(List.map snd resolved.owners)
+       (candidates [ 2L ]))
+
 let () =
   Alcotest.run "TempleOS scored register allocation"
     [
       ( "source algorithm",
         [
           Alcotest.test_case "unstable ties" `Quick ties;
+          Alcotest.test_case "ordered explicit owners" `Quick explicit_requests;
           Alcotest.test_case "member shapes" `Quick member_shapes;
           Alcotest.test_case "register banks and filters" `Quick allocate;
         ] );

@@ -48,6 +48,7 @@ and signature = {
 type parameter_binding = {
   binding_parameter_index : int;
   binding_symbol : Symbol.t;
+  binding_source : Frontend.Ast.function_parameter option;
 }
 
 type synthetic_parameter = Argc | Argv
@@ -134,6 +135,14 @@ let parameter_register_selection parameter =
 
 let parameter_name parameter = parameter.parameter_name_
 let parameter_name_origin parameter = parameter.parameter_name_origin_
+
+let parameter_lookup_name parameter =
+  Option.value parameter.parameter_name_ ~default:"_anon_"
+
+let parameter_lookup_origin parameter =
+  Option.value parameter.parameter_name_origin_
+    ~default:parameter.parameter_origin_
+
 let parameter_type_reference parameter = parameter.parameter_type_reference_
 let parameter_declarator_kind parameter = parameter.parameter_declarator_kind_
 let parameter_default parameter = parameter.parameter_default_
@@ -157,6 +166,7 @@ let function_pointer_closing_origin pointer = pointer.pointer_closing_origin
 let function_pointer_signature pointer = pointer.pointer_signature
 let parameter_binding_index binding = binding.binding_parameter_index
 let parameter_binding_symbol binding = binding.binding_symbol
+let parameter_binding_source binding = binding.binding_source
 let variadic_marker_origin variadic = variadic.variadic_marker_origin_
 let variadic_argc variadic = variadic.variadic_argc_
 let variadic_argv variadic = variadic.variadic_argv_
@@ -391,7 +401,18 @@ let make_parameter_binding ~parameter_index ~symbol =
     Error "semantic parameter binding index cannot be negative"
   else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Parameter) then
     Error "semantic function parameter binding requires a parameter symbol"
-  else Ok { binding_parameter_index = parameter_index; binding_symbol = symbol }
+  else
+    Ok
+      {
+        binding_parameter_index = parameter_index;
+        binding_symbol = symbol;
+        binding_source = None;
+      }
+
+let make_source_parameter_binding ~source ~parameter_index ~symbol =
+  Result.map
+    (fun binding -> { binding with binding_source = Some source })
+    (make_parameter_binding ~parameter_index ~symbol)
 
 let internal_i64 type_ =
   Type.pointer_depth type_ = 0
@@ -458,22 +479,23 @@ let make_variadic_bindings ~marker_origin ~argc ~argv =
         variadic_argv_ = argv;
       }
 
-let named_parameters signature =
-  List.filter_map
-    (fun parameter ->
-      match (parameter.parameter_name_, parameter.parameter_name_origin_) with
-      | Some name, Some origin -> Some (parameter.parameter_index_, name, origin)
-      | None, None -> None
-      | None, Some _ | Some _, None -> assert false)
-    signature.signature_parameters_
-
 let validate_parameter_bindings signature bindings =
-  let expected = named_parameters signature in
+  let expected = signature.signature_parameters_ in
   let rec validate expected bindings =
     match (expected, bindings) with
     | [], [] -> Ok ()
-    | (index, name, origin) :: expected_rest, binding :: binding_rest ->
-        if binding.binding_parameter_index <> index then
+    | parameter :: expected_rest, binding :: binding_rest ->
+        let index = parameter_index parameter in
+        let name = parameter_lookup_name parameter in
+        let origin = parameter_lookup_origin parameter in
+        if
+          not
+            (Option.equal ( == ) binding.binding_source
+               parameter.parameter_source_)
+        then
+          Error
+            "semantic parameter binding has another original source parameter"
+        else if binding.binding_parameter_index <> index then
           Error "semantic parameter binding has the wrong signature slot"
         else if not (String.equal (Symbol.name binding.binding_symbol) name)
         then Error "semantic parameter binding has the wrong name"
@@ -481,7 +503,7 @@ let validate_parameter_bindings signature bindings =
           Error "semantic parameter binding has the wrong source origin"
         else validate expected_rest binding_rest
     | [], _ :: _ | _ :: _, [] ->
-        Error "semantic parameter bindings do not match the named parameters"
+        Error "semantic parameter bindings do not match all fixed parameters"
   in
   validate expected bindings
 
@@ -643,6 +665,7 @@ let validate_variadic_ownership ~table ~scope seen = function
             binding_parameter_index =
               variadic.variadic_argc_.synthetic_parameter_index;
             binding_symbol = variadic.variadic_argc_.synthetic_symbol;
+            binding_source = None;
           }
       with
       | Error _ as error -> error
@@ -652,6 +675,7 @@ let validate_variadic_ownership ~table ~scope seen = function
               binding_parameter_index =
                 variadic.variadic_argv_.synthetic_parameter_index;
               binding_symbol = variadic.variadic_argv_.synthetic_symbol;
+              binding_source = None;
             })
 
 let validate_function ~table ~parent previous_item seen_symbols seen_scopes
@@ -776,6 +800,7 @@ and same_declarator_kind left right =
 let same_parameter_binding left right =
   left.binding_parameter_index = right.binding_parameter_index
   && left.binding_symbol == right.binding_symbol
+  && Option.equal ( == ) left.binding_source right.binding_source
 
 let same_synthetic_shape left right =
   match (left, right) with

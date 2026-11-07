@@ -544,6 +544,9 @@ let initializer_source (initial : initializer_result) =
 
 let initializer_value (initial : initializer_result) = initial.initializer_value
 
+let initializer_target_symbol (initial : initializer_result) =
+  Function_call_resolution.initializer_target_symbol initial.initializer_source
+
 let initializer_target_type (initial : initializer_result) =
   initial.initializer_target_type
 
@@ -5659,13 +5662,21 @@ let type_initializer table members policies ~before_item_index state source =
   in
   let local = Function_call_resolution.initializer_local source in
   let target_type =
-    match Local_type_resolution.local_declarator_kind local with
-    | Local_type_resolution.Object ->
-        Ok
-          (local |> Local_type_resolution.local_type_reference
-         |> Type_reference.resolved_type)
-    | Local_type_resolution.Function_pointer pointer ->
-        Function_type_resolution.function_pointer_storage_type pointer
+    if
+      Function_call_resolution.initializer_target_symbol source
+      != Local_type_resolution.local_symbol local
+    then
+      Ok
+        (Type_reference.resolved_type
+           (Function_call_resolution.initializer_target_reference source))
+    else
+      match Local_type_resolution.local_declarator_kind local with
+      | Local_type_resolution.Object ->
+          Ok
+            (local |> Local_type_resolution.local_type_reference
+           |> Type_reference.resolved_type)
+      | Local_type_resolution.Function_pointer pointer ->
+          Function_type_resolution.function_pointer_storage_type pointer
   in
   match
     Result.bind
@@ -5679,9 +5690,14 @@ let type_initializer table members policies ~before_item_index state source =
         | None ->
             Aggregate_backing_storage.create ~table ~members ~policies
               ~before_item_index ~source_type:initializer_target_type
-        | Some visibility ->
+        | Some visibility
+          when Function_call_resolution.initializer_target_symbol source
+               == Local_type_resolution.local_symbol local ->
             Aggregate_backing_storage.create_local ~visibility ~local ~table
               ~members ~policies
+        | Some _ ->
+            Aggregate_backing_storage.create ~table ~members ~policies
+              ~before_item_index ~source_type:initializer_target_type
       in
       match
         type_expression table members policies ~before_item_index

@@ -17,6 +17,7 @@ type binding = {
   kind : binding_kind;
   origin : Symbol.origin;
   position : binding_position;
+  parameter_source : Frontend.Ast.function_parameter option;
 }
 
 type function_declaration = {
@@ -30,6 +31,7 @@ type entry = {
   symbol : Symbol.t;
   kind : binding_kind;
   position : binding_position;
+  parameter_source : Frontend.Ast.function_parameter option;
 }
 
 type collected_function = {
@@ -114,6 +116,7 @@ let declare_static ?activation ~table (function_ : collected_function)
 
 let entry_symbol (entry : entry) = entry.symbol
 let entry_kind (entry : entry) = entry.kind
+let entry_parameter_source (entry : entry) = entry.parameter_source
 
 let entry_parameter_index (entry : entry) =
   match entry.position with
@@ -170,7 +173,28 @@ let make_named_parameter ~name ~origin ~parameter_index =
                 kind = Named_parameter;
                 origin;
                 position = Parameter_position parameter_index;
+                parameter_source = None;
               })
+
+let make_source_parameter ~parameter_index
+    (source : Frontend.Ast.function_parameter) =
+  let name, location =
+    match source.name with
+    | Some identifier -> (identifier.spelling, identifier.location)
+    | None -> ("_anon_", source.location)
+  in
+  let origin =
+    Symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  Result.map
+    (fun (binding : binding) -> { binding with parameter_source = Some source })
+    (make_named_parameter ~name ~origin ~parameter_index)
 
 let make_variadic_parameter parameter ~origin ~parameter_index =
   match check_origin origin with
@@ -184,7 +208,14 @@ let make_variadic_parameter parameter ~origin ~parameter_index =
           | Argc -> ("argc", Variadic_argc)
           | Argv -> ("argv", Variadic_argv)
         in
-        Ok { name; kind; origin; position = Parameter_position parameter_index }
+        Ok
+          {
+            name;
+            kind;
+            origin;
+            position = Parameter_position parameter_index;
+            parameter_source = None;
+          }
 
 let make_local ~name ~origin ~storage ~declaration_index ~declarator_index =
   match check_name name with
@@ -210,6 +241,7 @@ let make_local ~name ~origin ~storage ~declaration_index ~declarator_index =
                 origin;
                 position =
                   Local_position { declaration_index; declarator_index };
+                parameter_source = None;
               })
 
 let make_function ?completed_header ~symbol ~item_index bindings =
@@ -372,7 +404,12 @@ let add_bindings table scope bindings =
         | Error _ as error -> error
         | Ok symbol ->
             add
-              ({ symbol; kind = binding.kind; position = binding.position }
+              ({
+                 symbol;
+                 kind = binding.kind;
+                 position = binding.position;
+                 parameter_source = binding.parameter_source;
+               }
               :: entries_rev)
               rest)
   in
@@ -427,6 +464,7 @@ let entry_matches_binding (entry : entry) (binding : binding) =
   && same_position entry.position binding.position
   && String.equal (Symbol.name entry.symbol) binding.name
   && Symbol.origin entry.symbol = binding.origin
+  && Option.equal ( == ) entry.parameter_source binding.parameter_source
 
 let parameter_bindings (bindings : binding list) =
   let rec split (parameters_rev : binding list) (remaining : binding list) =
@@ -552,8 +590,12 @@ let collect_reused_function table (function_ : function_declaration) retained =
               else
                 Ok
                   ( allocation :: used_rev,
-                    { symbol; kind = binding.kind; position = binding.position }
-                  )
+                    {
+                      symbol;
+                      kind = binding.kind;
+                      position = binding.position;
+                      parameter_source = binding.parameter_source;
+                    } )
         in
         Result.bind checked (fun (used_rev, entry) ->
             add used_rev (entry :: entries_rev) rest)

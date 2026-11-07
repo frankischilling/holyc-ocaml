@@ -5,6 +5,14 @@ module Values = Map.Make (Seq.Value_id)
 module O = Opcode
 
 type selection = Register_candidate | Stack | Unknown
+
+type explicit_conflict = {
+  register : int;
+  previous : Sema.Symbol.t;
+  replacement : Sema.Symbol.t;
+  origin : Sema.Symbol.origin;
+}
+
 type snapshot = Seq.Block_id.t * Seq.description list * Seq.Block_id.t list
 
 type payload_stamp =
@@ -176,27 +184,25 @@ let source_requests ~frame location =
     | Frame.Named_parameter ->
         Option.bind (Bindings.binding_parameter_index binding) (fun index ->
             let header = Frame.function_header frame in
-            if
-              not
-                (List.exists
-                   (fun parameter ->
-                     Headers.parameter_binding_index parameter = index
-                     && Headers.parameter_binding_symbol parameter == symbol)
-                   (Headers.function_parameter_bindings header))
-            then None
-            else
-              header |> Headers.function_signature
-              |> Headers.signature_parameters
-              |> List.find_opt (fun parameter ->
-                  Headers.parameter_index parameter = index
-                  && Option.is_some (Headers.parameter_source parameter))
-              |> Option.map (fun parameter ->
-                  {
-                    owner = Parameter_owner parameter;
-                    requests =
-                      List.map source_request_stamp
-                        (Headers.parameter_register_requests parameter);
-                  }))
+            header |> Headers.function_signature |> Headers.signature_parameters
+            |> List.find_opt (fun parameter ->
+                Headers.parameter_index parameter = index
+                && Option.is_some (Headers.parameter_source parameter)
+                && List.exists
+                     (fun original ->
+                       Headers.parameter_binding_index original = index
+                       && Headers.parameter_binding_symbol original == symbol
+                       && Option.equal ( == )
+                            (Headers.parameter_binding_source original)
+                            (Headers.parameter_source parameter))
+                     (Headers.function_parameter_bindings header))
+            |> Option.map (fun parameter ->
+                {
+                  owner = Parameter_owner parameter;
+                  requests =
+                    List.map source_request_stamp
+                      (Headers.parameter_register_requests parameter);
+                }))
     | Automatic_local ->
         Option.bind (Frame.location_local_source location) (fun local ->
             if
@@ -329,6 +335,8 @@ type t = {
   stamps_ : (Seq.description * instruction_stamp) list;
   selections_ : (Sema.Symbol.t * selection) list;
   exact_registers_ : (Sema.Symbol.t * int) list option;
+  shadowed_explicit_ : (Sema.Symbol.t * int) list;
+  explicit_conflicts_ : explicit_conflict list;
   exact_source_ : Exact_register_scores.source_stamp option;
   runtime_ : Runtime_call_context.t option;
 }
@@ -363,6 +371,19 @@ let nonpointer_variable_registers = [ 12; 13 ]
 
 let variable_registers =
   general_variable_registers @ nonpointer_variable_registers
+
+let supported_register_requests locations =
+  List.for_all
+    (fun location ->
+      match Frame.location_register_selection location with
+      | Request.Explicit register ->
+          let number = Request.explicit_register_number register in
+          List.mem number variable_registers
+          && Request.canonical_u64_register_number
+               (Request.explicit_register_spelling register)
+             = Some number
+      | Unspecified | Allocatable | Disabled -> true)
+    locations
 
 let safe_register_requests locations =
   let rec check used = function
@@ -1370,6 +1391,8 @@ let analyze_parameter ~frame ~body =
                 code;
             selections_ = selections;
             exact_registers_ = None;
+            shadowed_explicit_ = [];
+            explicit_conflicts_ = [];
             exact_source_ = None;
             runtime_ = None;
           }
@@ -1580,8 +1603,6 @@ let analyze_local ~frame ~body =
                 Typed.function_returns source )
             with
             | [ initialization ], [ statement ], [ returned ] -> (
-                let initial_source = Typed.initializer_source initialization in
-                let local = Calls.initializer_local initial_source in
                 let value = Typed.expression_statement_value statement in
                 match
                   ( Calls.argument_expression_source (Typed.result_source value),
@@ -1608,7 +1629,7 @@ let analyze_local ~frame ~body =
                       | _ -> false
                     in
                     operator
-                    && Sema.Local_type_resolution.local_symbol local
+                    && Typed.initializer_target_symbol initialization
                        == Frame.location_symbol location
                     && (match (argument, initial) with
                       | _, Some bits ->
@@ -1646,11 +1667,7 @@ let analyze_local ~frame ~body =
                 Typed.function_returns source )
             with
             | [ initialization ], [], [ returned ] ->
-                let local =
-                  initialization |> Typed.initializer_source
-                  |> Calls.initializer_local
-                in
-                Sema.Local_type_resolution.local_symbol local
+                Typed.initializer_target_symbol initialization
                 == Frame.location_symbol location
                 && literal (Typed.initializer_value initialization)
                    = Some initial
@@ -1672,11 +1689,7 @@ let analyze_local ~frame ~body =
                 Typed.function_returns source )
             with
             | [ initialization ], [], [ returned ] ->
-                let local =
-                  initialization |> Typed.initializer_source
-                  |> Calls.initializer_local
-                in
-                Sema.Local_type_resolution.local_symbol local
+                Typed.initializer_target_symbol initialization
                 == Frame.location_symbol location
                 && Option.fold ~none:false
                      ~some:(( == ) (Frame.location_binding argument))
@@ -1699,10 +1712,6 @@ let analyze_local ~frame ~body =
                 Typed.function_returns source )
             with
             | [ initialization ], [ statement ], [ returned ] -> (
-                let local =
-                  initialization |> Typed.initializer_source
-                  |> Calls.initializer_local
-                in
                 let value = Typed.expression_statement_value statement in
                 match
                   ( Calls.argument_expression_source (Typed.result_source value),
@@ -1726,7 +1735,7 @@ let analyze_local ~frame ~body =
                       | "|=", Ic_or_equ
                       | "^=", Ic_xor_equ -> true
                       | _ -> false)
-                    && Sema.Local_type_resolution.local_symbol local
+                    && Typed.initializer_target_symbol initialization
                        == Frame.location_symbol location
                     && literal (Typed.initializer_value initialization)
                        = Some initial
@@ -1757,9 +1766,7 @@ let analyze_local ~frame ~body =
                   | None, [] -> unary_parameter location
                   | Some bits, [ initialization ] ->
                       supported location
-                      && Sema.Local_type_resolution.local_symbol
-                           (initialization |> Typed.initializer_source
-                          |> Calls.initializer_local)
+                      && Typed.initializer_target_symbol initialization
                          == Frame.location_symbol location
                       && literal (Typed.initializer_value initialization)
                          = Some bits
@@ -1816,9 +1823,7 @@ let analyze_local ~frame ~body =
                   | None, [] -> unary_parameter location
                   | Some bits, [ initialization ] ->
                       supported location
-                      && Sema.Local_type_resolution.local_symbol
-                           (initialization |> Typed.initializer_source
-                          |> Calls.initializer_local)
+                      && Typed.initializer_target_symbol initialization
                          == Frame.location_symbol location
                       && literal (Typed.initializer_value initialization)
                          = Some bits
@@ -1873,9 +1878,7 @@ let analyze_local ~frame ~body =
                   | None, [] -> unary_parameter location
                   | Some bits, [ initialization ] ->
                       supported location
-                      && Sema.Local_type_resolution.local_symbol
-                           (initialization |> Typed.initializer_source
-                          |> Calls.initializer_local)
+                      && Typed.initializer_target_symbol initialization
                          == Frame.location_symbol location
                       && literal (Typed.initializer_value initialization)
                          = Some bits
@@ -2610,6 +2613,8 @@ let analyze_local ~frame ~body =
                 (fun item -> (item, Option.get (instruction_stamp item)))
                 code;
             exact_registers_ = None;
+            shadowed_explicit_ = [];
+            explicit_conflicts_ = [];
             exact_source_ = None;
             runtime_ = None;
             selections_ =
@@ -3619,18 +3624,28 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
       | O.Ic_assign, [ target; _ ], Some result when item.payload = None -> (
           match address target with
           | Some (_, location)
-            when Frame.location_kind location = Frame.Automatic_local
-                 && List.exists (( == ) item) entry_code
+            when List.exists (( == ) item) entry_code
                  &&
                  match users result.value_id with
                  | [ consumer ] -> consumer.opcode = O.Ic_end_exp
                  | _ -> false -> (
-              match
-                ( Sema.Symbol.origin (Frame.location_symbol location),
-                  Values.find_opt target produced )
-              with
-              | Sema.Symbol.Source_location { span; _ }, Some address
-                when address.span = Some span -> Some location
+              match Values.find_opt target produced with
+              | Some address
+                when List.exists
+                       (fun initialization ->
+                         Typed.initializer_target_symbol initialization
+                         == Frame.location_symbol location
+                         &&
+                         match
+                           Sema.Symbol.origin
+                             (Sema.Local_type_resolution.local_symbol
+                                (Calls.initializer_local
+                                   (Typed.initializer_source initialization)))
+                         with
+                         | Sema.Symbol.Source_location { span; _ } ->
+                             address.span = Some span
+                         | _ -> false)
+                       local_initializers -> Some location
               | _ -> None)
           | _ -> None)
       | _ -> None
@@ -3668,10 +3683,7 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
       in
       List.exists
         (fun initialization ->
-          let local =
-            Typed.initializer_source initialization |> Calls.initializer_local
-          in
-          Sema.Local_type_resolution.local_symbol local
+          Typed.initializer_target_symbol initialization
           == Frame.location_symbol location
           &&
           let source = Typed.initializer_value initialization in
@@ -3969,6 +3981,8 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
                   else Register_candidate ))
               locations;
           exact_registers_ = exact_registers;
+          shadowed_explicit_ = [];
+          explicit_conflicts_ = [];
           runtime_ = runtime;
           exact_source_ =
             Option.bind exact (fun _ -> Exact_register_scores.stamp_source body);
@@ -3982,21 +3996,28 @@ let complete_parameter_coverage ~frame =
       (fun location -> Frame.location_kind location = Frame.Named_parameter)
       (Frame.function_locations frame)
   in
-  (* PrsVar.HC:341-344,525-529 creates _anon_ members for unnamed formals.
-     They still compete and reserve registers in OptPass3, but this frame API
-     deliberately has no invented binding for them. Reject incomplete coverage
-     before selection as well as placement; do not invent anonymous members. *)
+  (* PrsVar.HC:341-344,525-529 creates an original _anon_ member for every
+     unnamed formal. Name lookup may select the first such member, but all of
+     them must retain their own frame slot, binding and register request. *)
   List.length parameters = List.length named_locations
+  && same_list
+       (fun binding parameter ->
+         Headers.parameter_binding_index binding
+         = Headers.parameter_index parameter
+         && Option.equal ( == )
+              (Headers.parameter_binding_source binding)
+              (Headers.parameter_source parameter))
+       (Headers.function_parameter_bindings (Frame.function_header frame))
+       parameters
   && List.for_all
        (fun (index, parameter) ->
          Headers.parameter_index parameter = index
          && Option.fold ~none:false
               ~some:(fun (source : Frontend.Ast.function_parameter) ->
-                Option.is_some source.name
-                && Headers.parameter_name parameter
-                   = Option.map
-                       (fun (name : Frontend.Ast.identifier) -> name.spelling)
-                       source.name)
+                Headers.parameter_name parameter
+                = Option.map
+                    (fun (name : Frontend.Ast.identifier) -> name.spelling)
+                    source.name)
               (Headers.parameter_source parameter))
        (List.mapi (fun index parameter -> (index, parameter)) parameters)
   (* Legacy isolated compilation and source-task compilation retain the same
@@ -4018,6 +4039,10 @@ let complete_parameter_coverage ~frame =
                 match source_requests ~frame location with
                 | Some { owner = Parameter_owner original; _ } ->
                     original == parameter
+                    && Sema.Symbol.name (Frame.location_symbol location)
+                       = Headers.parameter_lookup_name parameter
+                    && Sema.Symbol.origin (Frame.location_symbol location)
+                       = Headers.parameter_lookup_origin parameter
                 | _ -> false)
               named_locations)
          = 1)
@@ -4074,7 +4099,7 @@ let source_owned_requests ~frame ~body (original : location_stamp) =
 let analyze_owned_members ?runtime ~frame ~body () =
   let locations = Frame.function_locations frame in
   if
-    (not (supported_options body && safe_register_requests locations))
+    (not (supported_options body && supported_register_requests locations))
     || Int64.logand
          (Function_body.stored_flags body)
          (Int64.lognot Function_body.ordinary_calling_flag_mask)
@@ -4108,16 +4133,45 @@ let analyze_owned_members ?runtime ~frame ~body () =
                 members
             then None
             else
-              let explicit =
-                List.filter_map
-                  (fun (member : Exact_register_scores.member_score) ->
+              let resolution =
+                List.mapi
+                  (fun index (member : Exact_register_scores.member_score) ->
                     match Frame.location_register_selection member.location with
                     | Request.Explicit register ->
-                        Some
-                          ( Frame.location_symbol member.location,
-                            Request.explicit_register_number register )
+                        Some (index, Request.explicit_register_number register)
                     | _ -> None)
                   members
+                |> List.filter_map Fun.id
+                |> Scored_register_allocation.resolve_explicit
+              in
+              let symbol index =
+                Frame.location_symbol (List.nth members index).location
+              in
+              let symbol_registers =
+                List.map (fun (index, number) -> (symbol index, number))
+              in
+              let explicit = symbol_registers resolution.owners in
+              let shadowed = symbol_registers resolution.shadowed in
+              let conflicts =
+                List.map
+                  (fun (conflict : Scored_register_allocation.explicit_conflict)
+                     ->
+                    let location =
+                      (List.nth members conflict.replacement_member).location
+                    in
+                    let origin =
+                      match Frame.location_register_selection location with
+                      | Request.Explicit register ->
+                          Request.explicit_register_origin register
+                      | _ -> assert false
+                    in
+                    {
+                      register = conflict.register;
+                      previous = symbol conflict.previous_member;
+                      replacement = symbol conflict.replacement_member;
+                      origin;
+                    })
+                  resolution.conflicts
               in
               let candidates =
                 List.mapi
@@ -4202,6 +4256,22 @@ let analyze_owned_members ?runtime ~frame ~body () =
                             if
                               List.exists
                                 (fun (original, _) -> original == symbol)
+                                shadowed
+                            then Stack
+                            else if
+                              member.score = 0L && member.lea_balance = 0L
+                              && List.exists
+                                   (fun (original, number) ->
+                                     original == symbol
+                                     && List.exists
+                                          (fun conflict ->
+                                            conflict.register = number)
+                                          conflicts)
+                                   explicit
+                            then Unknown
+                            else if
+                              List.exists
+                                (fun (original, _) -> original == symbol)
                                 registers
                             then Register_candidate
                             else if
@@ -4213,6 +4283,8 @@ let analyze_owned_members ?runtime ~frame ~body () =
                             else Unknown ))
                         members;
                     exact_registers_ = Some registers;
+                    shadowed_explicit_ = shadowed;
+                    explicit_conflicts_ = conflicts;
                     exact_source_ = Exact_register_scores.stamp_source body;
                     runtime_ = runtime;
                   }))
@@ -4221,7 +4293,19 @@ let analyze_with_context ?runtime ~frame ~body () =
   if
     (not (complete_parameter_coverage ~frame))
     || (not (Exact_register_scores.permits_automatic_analysis body))
-    || not (Exact_register_scores.source_requests_match ~frame ~body)
+    || (not (Exact_register_scores.source_requests_match ~frame ~body))
+    || not
+         (Option.fold ~none:false
+            ~some:(fun source ->
+              List.for_all
+                (fun initialization ->
+                  Sema.Function_call_resolution.initializer_assignment_valid
+                    ~header:(Frame.function_header frame)
+                    (Sema.Function_call_expression_result.initializer_source
+                       initialization))
+                (Sema.Function_call_expression_result.function_initializers
+                   source))
+            (Function_body.definition_source body))
   then None
   else
     let mixed =
@@ -4260,19 +4344,38 @@ let analyze_with_context ?runtime ~frame ~body () =
       else None
     in
     let extended =
-      List.exists
-        (fun location ->
-          Sema.Type.pointer_depth (Frame.location_checked_type location) > 0
-          || (match Sema.Type.base (Frame.location_checked_type location) with
-            | Sema.Type.Primitive (_, Sema.Primitive_type.Bool) -> true
-            | _ -> false)
-          || Frame.location_kind location = Frame.Automatic_local
-             && Option.fold ~none:false
-                  ~some:(fun local ->
-                    Option.is_none
-                      (Sema.Local_type_resolution.local_initializer local))
-                  (Frame.location_local_source location))
-        (Frame.function_locations frame)
+      (* Only the complete owned-member ledger can resolve collisions. A failed
+         reconstruction must not fall back to a uniqueness-blind proof. *)
+      supported_register_requests (Frame.function_locations frame)
+      && not (safe_register_requests (Frame.function_locations frame))
+      || List.exists
+           (fun location ->
+             Sema.Type.pointer_depth (Frame.location_checked_type location) > 0
+             || (match
+                   Sema.Type.base (Frame.location_checked_type location)
+                 with
+               | Sema.Type.Primitive (_, Sema.Primitive_type.Bool) -> true
+               | _ -> false)
+             || Frame.location_kind location = Frame.Automatic_local
+                && Option.fold ~none:false
+                     ~some:(fun local ->
+                       Option.is_none
+                         (Sema.Local_type_resolution.local_initializer local))
+                     (Frame.location_local_source location))
+           (Frame.function_locations frame)
+      || Option.fold ~none:false
+           ~some:(fun source ->
+             List.exists
+               (fun initialization ->
+                 Sema.Function_call_expression_result.initializer_target_symbol
+                   initialization
+                 != Sema.Local_type_resolution.local_symbol
+                      (Sema.Function_call_resolution.initializer_local
+                         (Sema.Function_call_expression_result
+                          .initializer_source initialization)))
+               (Sema.Function_call_expression_result.function_initializers
+                  source))
+           (Function_body.definition_source body)
       || List.exists
            (fun (_, items, _) ->
              List.exists
@@ -4360,8 +4463,37 @@ let selection t ~frame ~body ~symbol =
            && Option.equal
                 (same_list (fun (left, register) (right, other) ->
                      left == right && register = other))
-                t.exact_registers_ current.exact_registers_ -> Some expected
+                t.exact_registers_ current.exact_registers_
+           && same_list
+                (fun (left, register) (right, other) ->
+                  left == right && register = other)
+                t.shadowed_explicit_ current.shadowed_explicit_
+           && same_list
+                (fun left right ->
+                  left.register = right.register
+                  && left.previous == right.previous
+                  && left.replacement == right.replacement
+                  && origin_stamp left.origin = origin_stamp right.origin)
+                t.explicit_conflicts_ current.explicit_conflicts_ ->
+        Some expected
     | _ -> None
+
+let shadowed_explicit_request t ~frame ~body ~symbol =
+  match selection t ~frame ~body ~symbol with
+  | Some Stack ->
+      List.find_map
+        (fun (original, number) ->
+          if original == symbol then Some number else None)
+        t.shadowed_explicit_
+  | Some Register_candidate | Some Unknown | None -> None
+
+let explicit_conflicts t ~frame ~body =
+  match t.locations_ with
+  | original :: _ ->
+      Option.map
+        (fun _ -> t.explicit_conflicts_)
+        (selection t ~frame ~body ~symbol:original.symbol)
+  | [] -> None
 
 (* A reservation can be real without a materialized home. Prove its lack of
    accesses from the original complete source ledger, not absence of hosted
@@ -4369,7 +4501,8 @@ let selection t ~frame ~body ~symbol =
 let unused_explicit_reservation t ~frame ~body ~symbol =
   match selection t ~frame ~body ~symbol with
   | Some Unknown
-    when safe_register_requests (Frame.function_locations frame)
+    when (safe_register_requests (Frame.function_locations frame)
+         || t.explicit_conflicts_ <> [])
          && List.for_all (source_owned_requests ~frame ~body) t.locations_ ->
       Option.bind
         (List.find_opt (fun original -> original.symbol == symbol) t.locations_)

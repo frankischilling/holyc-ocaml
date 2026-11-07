@@ -375,6 +375,25 @@ val make_return :
   origin:Symbol.origin ->
   (return_input, string) result
 
+val with_initializer_assignment :
+  reset:Function_expression_binding.initializer_use_reset ->
+  header:Function_type_resolution.resolved_function ->
+  locals:Local_type_resolution.resolved_function ->
+  initializer_input ->
+  (initializer_input, string) result
+
+val initializer_target_symbol : initializer_input -> Symbol.t
+val initializer_target_reference : initializer_input -> Type_reference.t
+
+val initializer_target_local :
+  initializer_input -> Local_type_resolution.local option
+
+val initializer_assignment_binding :
+  initializer_input -> Function_binding_index.binding option
+
+val initializer_assignment_valid :
+  header:Function_type_resolution.resolved_function -> initializer_input -> bool
+
 val make_initializer :
   index:int ->
   local:Local_type_resolution.local ->

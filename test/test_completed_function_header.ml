@@ -256,7 +256,7 @@ let signature_parity () =
     [
       "extern I64i *F(I64 plain,I64,U8 *byte,I16i **storage,F64 ****wide);";
       "extern U8 *F(I64 first=1,I64 middle,I64 last=lastclass,U0 \
-       (**handler)(U8 *node,I64=lastclass,U8 *(*nested)(I64 \
+       (**handler)(U8 *node,I64 _anon_=lastclass,U8 *(*nested)(I64 \
        value,...),...),...);";
       "extern U0 F(I64 plain,reg I64 allocate,noreg U8 stack,I64 reg R15 \
        exact,reg RAX U16,reg R14 noreg I32 reg R13 last,I64 (*callback)(reg \

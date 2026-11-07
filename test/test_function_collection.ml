@@ -73,23 +73,27 @@ let signature_slots_and_scopes () =
       Alcotest.(check (list string))
         (function_name function_ ^ " parameter names")
         (if String.equal (function_name function_) "Proto" then
-           [ "named"; "tail"; "argc"; "argv" ]
-         else [ "first"; "third"; "argc"; "argv" ])
+           [ "named"; "_anon_"; "tail"; "argc"; "argv" ]
+         else [ "first"; "_anon_"; "third"; "argc"; "argv" ])
         (entry_names function_);
       Alcotest.(check (list (option int)))
         (function_name function_ ^ " parameter indexes")
-        [ Some 0; Some 2; Some 3; Some 4 ]
+        [ Some 0; Some 1; Some 2; Some 3; Some 4 ]
         (entries function_
         |> List.map Semantic_function_collection.entry_parameter_index);
       Alcotest.(check (list string))
         (function_name function_ ^ " binding kinds")
         [
-          "named-parameter"; "named-parameter"; "variadic-argc"; "variadic-argv";
+          "named-parameter";
+          "named-parameter";
+          "named-parameter";
+          "variadic-argc";
+          "variadic-argv";
         ]
         (entry_kinds function_);
       Alcotest.(check (list string))
         (function_name function_ ^ " symbol kinds")
-        [ "parameter"; "parameter"; "parameter"; "parameter" ]
+        [ "parameter"; "parameter"; "parameter"; "parameter"; "parameter" ]
         (entries function_
         |> List.map (fun entry ->
             Semantic_function_collection.entry_symbol entry

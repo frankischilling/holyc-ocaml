@@ -11,6 +11,12 @@ for native observations, execution checks and the separate AOT boundary.
 
 ## Unreleased
 
+- Preserve unnamed fixed formal members and first-member lookup for supported
+  duplicate names. Keep initializer assignment targets separate from declaration
+  and warning-reset owners. Resolve supported duplicate explicit register
+  requests in source order, with the last owner in the register and earlier
+  members on the stack. See [formal members](formal-member-identity.md).
+
 - Allocate source-authenticated owned pointer members alongside scalar members,
   keeping pointer pressure separate from R12/R13 eligibility and retaining exact
   address balances. Include Bool and uninitialized local membership without

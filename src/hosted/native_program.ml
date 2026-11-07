@@ -304,8 +304,6 @@ let function_source_error (definition : Ast.function_definition) =
             "native functions admit only one-level scalar pointer parameters"
         else if not (bounded_register_qualifiers parameter.register_qualifiers)
         then reject "native functions do not admit explicit parameter registers"
-        else if Option.is_none parameter.name then
-          reject "native function definitions require named fixed parameters"
         else None)
       definition.parameters
 

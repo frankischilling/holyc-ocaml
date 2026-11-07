@@ -321,6 +321,7 @@ val initializer_source :
 
 val initializer_value : initializer_result -> expression_result
 val initializer_target_type : initializer_result -> Type.t
+val initializer_target_symbol : initializer_result -> Symbol.t
 
 val initializer_backing_storage :
   initializer_result -> Aggregate_backing_storage.t option

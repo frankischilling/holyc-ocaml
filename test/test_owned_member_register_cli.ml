@@ -692,12 +692,8 @@ let rejection_cases =
       "I64 V=42;I64 F(I64 *p){return p(I64);}F(&V);" );
     ( "raw integer cannot fabricate a descriptor",
       "I64 F(){I64 *p=42;return *p;}F();" );
-    ( "duplicate explicit register requests remain deferred",
-      "I64 F(I64 reg RSI a,I64 reg RSI b){return a+b;}F(20,22);" );
     ( "reserved instruction register remains deferred",
       "I64 F(I64 reg RAX a){return a;}F(42);" );
-    ( "unnamed formal remains outside authenticated source membership",
-      "I64 F(I64){return 42;}F(0);" );
     ( "pointer return cannot smuggle an expired local descriptor",
       "I64 *Make(){I64 x=42;return &x;}I64 F(){I64 *p=Make();return *p;}F();" );
     ( "pointer-to-pointer address requires its separate ownership proof",
@@ -887,7 +883,6 @@ let () =
                     "explicit address-taken scalar";
                     "explicit address retained through star-address";
                     "explicit address retained in constant-dead source arm";
-                    "duplicate explicit register requests remain deferred";
                     "reserved instruction register remains deferred";
                   ]
               then [ "ir" ]

@@ -3053,10 +3053,7 @@ let remainder_selection () =
           Alcotest.(check bool)
             "remainder proof rejects aliases and effects" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
-        [
-          "I64 F(I8 reg RAX x,I64 c){x%=c;return x;}42;";
-          "I64 F(I8 reg R12 x,I64 reg R12 c){x%=c;return x;}42;";
-        ])
+        [ "I64 F(I8 reg RAX x,I64 c){x%=c;return x;}42;" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let repeated_selection () =
@@ -3339,8 +3336,8 @@ let pair_selection () =
         (fun source ->
           let fn = compile mode source in
           Alcotest.(check bool)
-            "unproved two-update shape" true
-            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+            "ordered two-update collision has complete source evidence" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [ "I64 F(I8 reg R12 x,I8 reg R12 y,I64 c){x+=c;y+=c;return x+y;}42;" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -3717,7 +3714,6 @@ let explicit_register_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 reg RAX x,I64 c){x<<=c;return x;}42;";
-          "I64 F(I8 reg R12 x,I64 reg R12 c){x<<=c;return x;}42;";
           "I64 F(){I8 reg RAX x=127;x<<=1;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -4001,28 +3997,18 @@ let physical_register_unnamed_parameters () =
             (fun unnamed ->
               List.iter
                 (fun source ->
-                  let fn =
-                    try Some (compile mode source)
-                    with
-                    | Failure message
-                    when String.ends_with
-                           ~suffix:
-                             "HCIR0027: function body members do not belong to \
-                              its definition header and frame"
-                           message
-                    ->
-                      None
-                  in
+                  let fn = compile mode source in
                   Alcotest.(check bool)
-                    "unnamed formal cannot be omitted from selection or \
-                     placement"
+                    "every original unnamed formal participates in allocation"
                     true
-                    (Option.fold ~none:true
-                       ~some:(fun
-                           (fn : Ir_integer_interpreter.function_definition) ->
-                         Option.is_none
-                           (Analysis.analyze ~frame:fn.frame ~body:fn.body))
-                       fn))
+                    (Option.is_some
+                       (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+                  Alcotest.(check int)
+                    "original anonymous binding is retained" 1
+                    (Frame.function_locations fn.frame
+                    |> List.filter (fun member ->
+                        Symbol.name (Frame.location_symbol member) = "_anon_")
+                    |> List.length))
                 [
                   Printf.sprintf "I64 F(I8 %s x,%s){x+=1;return x;}42;"
                     qualifier unnamed;
@@ -4039,10 +4025,20 @@ let physical_register_unnamed_parameters () =
            reg){x+=1;return x+a+b+c+d+e;}42;"
       in
       Alcotest.(check bool)
-        "unnamed forced competitors cannot acquire a false capacity witness"
+        "complete unnamed forced competitors acquire an exact capacity witness"
         true
-        (Option.is_none
+        (Option.is_some
            (Analysis.analyze ~frame:pressured.frame ~body:pressured.body));
+      let proof =
+        Analysis.analyze ~frame:pressured.frame ~body:pressured.body
+        |> Option.get
+      in
+      Alcotest.(check (option int))
+        "three anonymous forced seeds precede the highest ordinary score"
+        (Some 7)
+        (Analysis.physical_register proof ~frame:pressured.frame
+           ~body:pressured.body
+           ~symbol:(Frame.location_symbol (location pressured.frame "x")));
       let omitted = compile mode "I64 F(I8 x,I64 reg RSI){x+=1;return x;}42;" in
       let signature =
         Frame.function_header omitted.frame |> Headers.function_signature
@@ -5668,11 +5664,10 @@ let register_bank_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [ "RAX"; "RCX"; "RDX"; "RBX"; "RSP"; "RBP"; "R8"; "R9" ];
       List.iteri
-        (fun index source ->
+        (fun _index source ->
           let fn = compile ~name:"F" mode source in
           Alcotest.(check bool)
-            "exact pressure is proved; duplicate requests still reject"
-            (index < 3)
+            "exact pressure and ordered duplicate requests are proved" true
             (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
@@ -6482,7 +6477,6 @@ let unsupported_selection () =
         [
           "I64 F(I8 x,I64 c){if(c)x+=2147483648;return x;}42;";
           "I64 F(I8 x,I64 c){if(c)return x+=c;return x;}42;";
-          "I64 F(I8 reg R12 x,I64 reg R12 c){if(c)x+=c;return x;}42;";
           "I64 F(){I8 x=255;return x+=2147483648;}42;";
           "I64 F(I8 x){return x+=2147483648;}42;";
           "I64 F(I64 c,I8 n){I8 x=c;x/=2;return x;}42;";
@@ -7276,7 +7270,6 @@ let owned_member_selection () =
           "I64 F(I8 reg R12 x){return *(&x);}42;";
           "I64 F(I8 reg R12 x){I8 *p=&x;return *p;}42;";
           "I64 F(I64 reg RAX *p){return *p;}42;";
-          "I64 F(I64 reg R12 *p,I64 reg R12 x){return *p+x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -7527,11 +7520,491 @@ let owned_member_authority () =
         mutations)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let duplicate_explicit_selection () =
+  let inspect fn expected expected_conflicts =
+    let proof =
+      match
+        Analysis.analyze ~frame:fn.Ir_integer_interpreter.frame ~body:fn.body
+      with
+      | Some proof -> proof
+      | None -> Alcotest.fail "missing original duplicate-member evidence"
+    in
+    List.iter
+      (fun (name, selection, physical, shadowed, reservation) ->
+        let symbol = Frame.location_symbol (location fn.frame name) in
+        Alcotest.(check bool)
+          (name ^ " selection") true
+          (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+          = Some selection);
+        Alcotest.(check (option int))
+          (name ^ " physical owner") physical
+          (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+             ~symbol);
+        Alcotest.(check (option int))
+          (name ^ " shadowed request")
+          shadowed
+          (Analysis.shadowed_explicit_request proof ~frame:fn.frame
+             ~body:fn.body ~symbol);
+        Alcotest.(check (option int))
+          (name ^ " unused reservation")
+          reservation
+          (Analysis.unused_explicit_reservation proof ~frame:fn.frame
+             ~body:fn.body ~symbol))
+      expected;
+    let conflicts () =
+      Analysis.explicit_conflicts proof ~frame:fn.frame ~body:fn.body
+      |> Option.get
+      |> List.map (fun (fact : Analysis.explicit_conflict) ->
+          ( Symbol.name fact.previous,
+            Symbol.name fact.replacement,
+            fact.register ))
+    in
+    Alcotest.(check (list (triple string string int)))
+      "original pass3 conflicts" expected_conflicts (conflicts ());
+    Alcotest.(check (list (triple string string int)))
+      "repeated analysis retains facts without consuming them"
+      expected_conflicts (conflicts ())
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, number) ->
+          let source =
+            Printf.sprintf "I64 F(reg %s I8 a,reg %s I8 b){a=128;return a;}42;"
+              name name
+          in
+          inspect
+            (compile ~name:"F" mode source)
+            [
+              ("a", Analysis.Stack, None, Some number, None);
+              ("b", Analysis.Unknown, None, None, Some number);
+            ]
+            [ ("a", "b", number) ];
+          let source =
+            Printf.sprintf "I64 F(reg %s I8 a,reg %s I8 b){b=128;return b;}42;"
+              name name
+          in
+          inspect
+            (compile ~name:"F" mode source)
+            [
+              ("a", Analysis.Stack, None, Some number, None);
+              ("b", Analysis.Register_candidate, Some number, None, None);
+            ]
+            [ ("a", "b", number) ])
+        [
+          ("RSI", 6);
+          ("RDI", 7);
+          ("R10", 10);
+          ("R11", 11);
+          ("R12", 12);
+          ("R13", 13);
+          ("R14", 14);
+          ("R15", 15);
+        ];
+      List.iter
+        (fun (source, expected, conflicts) ->
+          inspect (compile ~name:"F" mode source) expected conflicts)
+        [
+          ( "I64 F(reg R12 I8 b,reg R12 I8 a){a=128;return a;}42;",
+            [
+              ("b", Analysis.Stack, None, Some 12, None);
+              ("a", Analysis.Register_candidate, Some 12, None, None);
+            ],
+            [ ("b", "a", 12) ] );
+          ( "I64 F(reg R12 I8 a){I8 reg R12 b;a=128;return a;}42;",
+            [
+              ("a", Analysis.Stack, None, Some 12, None);
+              ("b", Analysis.Unknown, None, None, Some 12);
+            ],
+            [ ("a", "b", 12) ] );
+          ( "I64 F(reg R12 I8 a){I8 reg R12 b=128;return b;}42;",
+            [
+              ("a", Analysis.Stack, None, Some 12, None);
+              ("b", Analysis.Register_candidate, Some 12, None, None);
+            ],
+            [ ("a", "b", 12) ] );
+          ( "I64 F(reg R12 I8 a,reg R12 I8 b,reg R12 I8 \
+             c){a=128;b=128;c=128;return a+b+c;}42;",
+            [
+              ("a", Analysis.Stack, None, Some 12, None);
+              ("b", Analysis.Stack, None, Some 12, None);
+              ("c", Analysis.Register_candidate, Some 12, None, None);
+            ],
+            [ ("a", "b", 12); ("b", "c", 12) ] );
+          ( "I64 F(reg RSI I8 a,reg RSI I8 b,I8 c){c=128;return c;}42;",
+            [
+              ("a", Analysis.Stack, None, Some 6, None);
+              ("b", Analysis.Unknown, None, None, Some 6);
+              ("c", Analysis.Register_candidate, Some 7, None, None);
+            ],
+            [ ("a", "b", 6) ] );
+          ( "F64 F(reg R12 F64 a,reg R12 F64 b){return a;}42;",
+            [
+              ("a", Analysis.Stack, None, Some 12, None);
+              ("b", Analysis.Unknown, None, None, Some 12);
+            ],
+            [ ("a", "b", 12) ] );
+          ( "F64 F(reg R12 F64 a,reg R12 F64 b){return b;}42;",
+            [
+              ("a", Analysis.Stack, None, Some 12, None);
+              ("b", Analysis.Register_candidate, Some 12, None, None);
+            ],
+            [ ("a", "b", 12) ] );
+          ( "I64 F(I64 reg R12 *p,I64 reg R12 x){return *p+x;}42;",
+            [
+              ("p", Analysis.Stack, None, Some 12, None);
+              ("x", Analysis.Register_candidate, Some 12, None, None);
+            ],
+            [ ("p", "x", 12) ] );
+          ( "I64 F(I64 reg R12 x,I64 reg R12 *p){return *p+x;}42;",
+            [
+              ("x", Analysis.Stack, None, Some 12, None);
+              ("p", Analysis.Register_candidate, Some 12, None, None);
+            ],
+            [ ("x", "p", 12) ] );
+        ];
+      inspect
+        (compile_option mode
+           "#exe {Option(34,1);}I64 F(reg RSI I8 a,reg RSI I8 b,I8 \
+            c){a=128;b=128;c=128;return a+b+c;}42;")
+        [
+          ("a", Analysis.Stack, None, Some 6, None);
+          ("b", Analysis.Register_candidate, Some 6, None, None);
+          ("c", Analysis.Stack, None, None, None);
+        ]
+        [ ("a", "b", 6) ];
+      List.iter
+        (fun suffix ->
+          let fn =
+            compile ~name:"F" mode
+              ("I64 F(reg R12 I8 a,reg R12 I8 b){" ^ suffix ^ "}42;")
+          in
+          inspect fn
+            [
+              ("a", Analysis.Stack, None, Some 12, None);
+              ("b", Analysis.Register_candidate, Some 12, None, None);
+            ]
+            [ ("a", "b", 12) ])
+        [ "if(0)b;return a;"; "return a;b=1;" ];
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "unsupported collision cannot acquire source authority" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(reg RAX I8 a,reg RAX I8 b){return a;}42;";
+          "I64 F(reg R12 I8 a,reg R12 I8 b){return *(&a);}42;";
+          "I64 F(reg R12 I8 a,reg R12 I8 b){return *(&b);}42;";
+          "I64 F(reg R12 I8 a,reg R12 I8 b){return a+=1;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let anonymous_formal_source_authority () =
+  let module Headers = Semantic_function_type_resolution in
+  let source = "I64 F(reg R12 I8,reg R12 I8){_anon_=128;return _anon_;}42;" in
+  let bindings fn =
+    Headers.function_parameter_bindings
+      (Frame.function_header fn.Ir_integer_interpreter.frame)
+  in
+  let mutations =
+    [
+      ( "removed bound formal source",
+        fun fn ->
+          Obj.set_field (Obj.repr (List.hd (bindings fn))) 2 (Obj.repr None) );
+      ( "copied bound formal source",
+        fun fn ->
+          let binding = List.hd (bindings fn) in
+          let original =
+            Headers.parameter_binding_source binding |> Option.get
+          in
+          let copied : Holyc_lib__Frontend.Ast.function_parameter =
+            Obj.obj (Obj.dup (Obj.repr original))
+          in
+          Obj.set_field (Obj.repr binding) 2 (Obj.repr (Some copied)) );
+      ( "swapped bound formal source",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (List.hd (bindings fn)))
+            2
+            (Obj.repr
+               (Headers.parameter_binding_source (List.nth (bindings fn) 1))) );
+      ( "reordered header bindings",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (Frame.function_header fn.Ir_integer_interpreter.frame))
+            6
+            (Obj.repr (List.rev (bindings fn))) );
+      ( "duplicated header binding",
+        fun fn ->
+          let first = List.hd (bindings fn) in
+          Obj.set_field
+            (Obj.repr (Frame.function_header fn.Ir_integer_interpreter.frame))
+            6
+            (Obj.repr [ first; first ]) );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, mutate) ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Analysis.analyze ~frame:fn.frame ~body:fn.body |> Option.get
+          in
+          let symbol =
+            Frame.location_symbol (List.hd (Frame.function_locations fn.frame))
+          in
+          mutate fn;
+          Alcotest.(check bool)
+            (label ^ " revokes saved anonymous proof")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+          Alcotest.(check bool)
+            (label ^ " cannot mint fresh anonymous proof")
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        mutations)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let conservative_initializer_authority () =
+  let module Typed = Semantic_function_call_expression_result in
+  let module Source = Semantic_function_call_resolution in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          List.iter
+            (fun copy_assignment ->
+              let fn = compile ~name:"F" mode source in
+              let proof =
+                Analysis.analyze ~frame:fn.frame ~body:fn.body |> Option.get
+              in
+              let symbol = Frame.location_symbol (location fn.frame "x") in
+              let root =
+                Body.definition_source fn.body
+                |> Option.get |> Typed.function_initializers |> List.hd
+              in
+              let original = Typed.initializer_source root in
+              (if copy_assignment then
+                 let assignment =
+                   Obj.field (Obj.field (Obj.repr original) 6) 0
+                 in
+                 Obj.set_field (Obj.repr original) 6
+                   (Obj.repr (Some (Obj.obj (Obj.dup assignment))))
+               else
+                 let copied : Source.initializer_input =
+                   Obj.obj (Obj.dup (Obj.repr original))
+                 in
+                 Obj.set_field (Obj.repr root) 0 (Obj.repr copied));
+              Alcotest.(check bool)
+                "copied initializer cannot retain fallback proof" true
+                (Option.is_none
+                   (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                      ~symbol));
+              Alcotest.(check bool)
+                "copied initializer cannot mint fallback proof" true
+                (Option.is_none
+                   (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+            [ false; true ])
+        [
+          "I64 F(){I8 x=128;return x;}42;"; "I64 F(I64 a){I8 x=a;return x;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let redirected_initializer_authority () =
+  let module Typed = Semantic_function_call_expression_result in
+  let module Source = Semantic_function_call_resolution in
+  let module Local = Semantic_local_type_resolution in
+  let source = "I64 F(I8 _anon_){I64 _anon_=128;return _anon_;}42;" in
+  let initial fn =
+    Body.definition_source fn.Ir_integer_interpreter.body
+    |> Option.get |> Typed.function_initializers |> List.hd
+  in
+  let assignment fn =
+    Obj.field (Obj.field (Obj.repr (Typed.initializer_source (initial fn))) 6) 0
+  in
+  let mutations =
+    [
+      ( "redirected target symbol",
+        fun fn ->
+          let owner =
+            Typed.initializer_source (initial fn) |> Source.initializer_local
+          in
+          Obj.set_field (assignment fn) 3 (Obj.repr (Local.local_symbol owner))
+      );
+      ( "redirected target type reference",
+        fun fn ->
+          let owner =
+            Typed.initializer_source (initial fn) |> Source.initializer_local
+          in
+          Obj.set_field (assignment fn) 4
+            (Obj.repr (Local.local_type_reference owner)) );
+      ( "foreign function assignment receipt",
+        fun fn ->
+          let foreign = compile ~name:"F" Preprocessor.Jit source in
+          let foreign_source = Typed.initializer_source (initial foreign) in
+          Obj.set_field
+            (Obj.repr (Typed.initializer_source (initial fn)))
+            6
+            (Obj.field (Obj.repr foreign_source) 6) );
+      ( "foreign target header",
+        fun fn ->
+          let foreign = compile ~name:"F" Preprocessor.Jit source in
+          Obj.set_field (assignment fn) 1
+            (Obj.repr (Frame.function_header foreign.frame)) );
+      ( "copied assignment receipt",
+        fun fn ->
+          let source = Typed.initializer_source (initial fn) in
+          let copied = Obj.dup (assignment fn) in
+          Obj.set_field (Obj.repr source) 6 (Obj.repr (Some (Obj.obj copied)))
+      );
+      ( "copied source initializer",
+        fun fn ->
+          let root = initial fn in
+          let copied : Source.initializer_input =
+            Obj.obj (Obj.dup (Obj.repr (Typed.initializer_source root)))
+          in
+          Obj.set_field (Obj.repr root) 0 (Obj.repr copied) );
+      ( "missing assignment receipt",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (Typed.initializer_source (initial fn)))
+            6 (Obj.repr None) );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, mutate) ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Analysis.analyze ~frame:fn.frame ~body:fn.body |> Option.get
+          in
+          let symbol =
+            Frame.location_symbol (List.hd (Frame.function_locations fn.frame))
+          in
+          mutate fn;
+          Alcotest.(check bool)
+            (label ^ " revokes saved proof")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+          Alcotest.(check bool)
+            (label ^ " cannot mint fresh proof")
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        mutations)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let duplicate_explicit_authority () =
+  let module Request = Semantic_register_request in
+  let module Typed = Semantic_function_call_expression_result in
+  let source = "I64 F(reg R12 I8 a,reg R12 I8 b){a=128;return a;}42;" in
+  let explicit fn name =
+    match
+      Frame.location_register_selection
+        (location fn.Ir_integer_interpreter.frame name)
+    with
+    | Request.Explicit request -> request
+    | _ -> assert false
+  in
+  let mutations =
+    [
+      ( "member traversal order",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr fn.Ir_integer_interpreter.frame)
+            4
+            (Obj.repr (List.rev (Frame.function_locations fn.frame))) );
+      ( "source formal order",
+        fun fn ->
+          let ast =
+            Body.definition_source fn.Ir_integer_interpreter.body
+            |> Option.get |> Typed.function_source_body |> Option.get
+          in
+          Obj.set_field (Obj.repr ast) 5 (Obj.repr (List.rev ast.parameters)) );
+      ( "overlapping offsets",
+        fun fn ->
+          let slot =
+            location fn.Ir_integer_interpreter.frame "b"
+            |> Frame.location_frame_slot |> Option.get
+          in
+          Obj.set_field (Obj.repr slot) 0 (Obj.repr 16L) );
+      ( "owner binding",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (location fn.Ir_integer_interpreter.frame "b"))
+            0
+            (Obj.repr (Frame.location_binding (location fn.frame "a"))) );
+      ( "request contents",
+        fun fn -> Obj.set_field (Obj.repr (explicit fn "b")) 1 (Obj.repr 13) );
+      ( "equal foreign request",
+        fun fn ->
+          let copied : Request.explicit_register =
+            Obj.obj (Obj.dup (Obj.repr (explicit fn "b")))
+          in
+          Obj.set_field
+            (Obj.repr (location fn.Ir_integer_interpreter.frame "b"))
+            12
+            (Obj.repr (Request.Explicit copied)) );
+      ( "omitted winning reservation",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr fn.Ir_integer_interpreter.frame)
+            4
+            (Obj.repr [ location fn.frame "a" ]) );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, mutate) ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Analysis.analyze ~frame:fn.frame ~body:fn.body |> Option.get
+          in
+          let a = Frame.location_symbol (location fn.frame "a") in
+          let b = Frame.location_symbol (location fn.frame "b") in
+          mutate fn;
+          Alcotest.(check (option int))
+            (label ^ " revokes shadow")
+            None
+            (Analysis.shadowed_explicit_request proof ~frame:fn.frame
+               ~body:fn.body ~symbol:a);
+          Alcotest.(check (option int))
+            (label ^ " revokes reservation")
+            None
+            (Analysis.unused_explicit_reservation proof ~frame:fn.frame
+               ~body:fn.body ~symbol:b);
+          Alcotest.(check bool)
+            (label ^ " revokes conflict facts")
+            true
+            (Option.is_none
+               (Analysis.explicit_conflicts proof ~frame:fn.frame ~body:fn.body));
+          Alcotest.(check bool)
+            (label ^ " cannot mint fresh evidence")
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        mutations)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Register variable analysis"
     [
       ( "source",
         [
+          Alcotest.test_case "duplicate explicit selection" `Quick
+            duplicate_explicit_selection;
+          Alcotest.test_case "anonymous formal source authority" `Quick
+            anonymous_formal_source_authority;
+          Alcotest.test_case "conservative initializer authority" `Quick
+            conservative_initializer_authority;
+          Alcotest.test_case "redirected initializer authority" `Quick
+            redirected_initializer_authority;
+          Alcotest.test_case "duplicate explicit authority" `Quick
+            duplicate_explicit_authority;
           Alcotest.test_case "owned member selection" `Quick
             owned_member_selection;
           Alcotest.test_case "owned member authority" `Quick

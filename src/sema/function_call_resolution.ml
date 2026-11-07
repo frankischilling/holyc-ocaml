@@ -324,6 +324,17 @@ type return_input = {
   origin : Symbol.origin;
 }
 
+type initializer_assignment = {
+  assignment_reset : Function_expression_binding.initializer_use_reset;
+  assignment_header : Function_type_resolution.resolved_function;
+  assignment_locals : Local_type_resolution.resolved_function;
+  assignment_symbol : Symbol.t;
+  assignment_reference : Type_reference.t;
+  assignment_local : Local_type_resolution.local option;
+  assignment_parameter : Function_type_resolution.parameter option;
+  assignment_owns : initializer_assignment -> bool;
+}
+
 type initializer_input = {
   index : int;
   local : Local_type_resolution.local;
@@ -331,6 +342,8 @@ type initializer_input = {
   origin : Symbol.origin;
   source_leaf : Initializer_source.leaf option;
   source_calls : call list;
+  assignment : initializer_assignment option;
+  initializer_owns : initializer_input -> bool;
 }
 
 type function_input = {
@@ -480,6 +493,197 @@ let initializer_expression (initial : initializer_input) = initial.expression
 let initializer_origin (initial : initializer_input) = initial.origin
 let initializer_leaf (initial : initializer_input) = initial.source_leaf
 let initializer_calls (initial : initializer_input) = initial.source_calls
+
+let seal_initializer (initial : initializer_input) =
+  let rec sealed =
+    { initial with initializer_owns = (fun other -> other == sealed) }
+  in
+  sealed
+
+let initializer_target_symbol (initial : initializer_input) =
+  match initial.assignment with
+  | None -> Local_type_resolution.local_symbol initial.local
+  | Some target -> target.assignment_symbol
+
+let initializer_target_reference (initial : initializer_input) =
+  match initial.assignment with
+  | None -> Local_type_resolution.local_type_reference initial.local
+  | Some target -> target.assignment_reference
+
+let initializer_target_local (initial : initializer_input) =
+  match initial.assignment with
+  | None -> Some initial.local
+  | Some target -> target.assignment_local
+
+let initializer_assignment_binding (initial : initializer_input) =
+  Option.map
+    (fun target ->
+      Function_expression_binding.initializer_use_reset_target
+        target.assignment_reset)
+    initial.assignment
+
+let assignment_target ~reset ~header ~locals local =
+  let module B = Function_binding_index in
+  let module H = Function_type_resolution in
+  let module L = Local_type_resolution in
+  let owner = Function_expression_binding.initializer_use_reset_binding reset in
+  let target = Function_expression_binding.initializer_use_reset_target reset in
+  let same_scope symbol =
+    Symbol.Scope_id.equal (Symbol.scope_id symbol)
+      (Symbol_table.scope_id (H.function_scope header))
+  in
+  if
+    (not (Function_expression_binding.initializer_use_reset_valid reset))
+    || B.binding_symbol owner != L.local_symbol local
+    || H.function_symbol header != L.function_symbol locals
+    || H.function_scope header != L.function_scope locals
+    || (not (List.exists (( == ) local) (L.function_locals locals)))
+    || (not (same_scope (B.binding_symbol target)))
+    || B.binding_local_declaration_index owner
+       <> Some (L.local_declaration_index local)
+    || B.binding_local_declarator_index owner
+       <> Some (L.local_declarator_index local)
+  then
+    Error
+      "initializer assignment has a foreign declaration or first-name lookup \
+       receipt"
+  else
+    let target_symbol = B.binding_symbol target in
+    let redirected = target_symbol != L.local_symbol local in
+    let finish reference target_local target_parameter supported =
+      if redirected && not supported then
+        Error
+          "redirected initializer requires ordinary nonzero scalar or pointer \
+           members"
+      else
+        let rec assignment =
+          {
+            assignment_reset = reset;
+            assignment_header = header;
+            assignment_locals = locals;
+            assignment_symbol = target_symbol;
+            assignment_reference = reference;
+            assignment_local = target_local;
+            assignment_parameter = target_parameter;
+            assignment_owns = (fun other -> other == assignment);
+          }
+        in
+        Ok assignment
+    in
+    let supported reference =
+      let type_ = Type_reference.resolved_type reference in
+      Type.pointer_depth type_ > 0
+      ||
+      match Type.base type_ with
+      | Type.Primitive
+          (_, (Primitive_type.I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64 | F64))
+        -> true
+      | _ -> false
+    in
+    match B.binding_kind target with
+    | B.Named_parameter -> (
+        let parameter =
+          List.find_opt
+            (fun parameter ->
+              Some (H.parameter_index parameter)
+              = B.binding_parameter_index target)
+            (H.signature_parameters (H.function_signature header))
+        in
+        match parameter with
+        | Some parameter
+          when List.exists
+                 (fun binding ->
+                   H.parameter_binding_symbol binding == target_symbol
+                   && Some (H.parameter_binding_index binding)
+                      = B.binding_parameter_index target)
+                 (H.function_parameter_bindings header) ->
+            let reference = H.parameter_type_reference parameter in
+            finish reference None (Some parameter)
+              (H.parameter_declarator_kind parameter = H.Object
+              && supported reference)
+        | _ ->
+            Error "initializer assignment target has no original fixed formal")
+    | B.Automatic_local -> (
+        match
+          List.find_opt
+            (fun local -> L.local_symbol local == target_symbol)
+            (L.function_locals locals)
+        with
+        | None -> Error "initializer assignment target has no original local"
+        | Some local ->
+            let reference = L.local_type_reference local in
+            finish reference (Some local) None
+              (L.local_declarator_kind local = L.Object
+              && L.local_array_dimensions local = []
+              && supported reference))
+    | B.Static_local | B.Variadic_argc | B.Variadic_argv ->
+        Error "initializer first-name target has unsupported storage"
+
+let with_initializer_assignment ~reset ~header ~locals
+    (initial : initializer_input) =
+  let module L = Local_type_resolution in
+  let local = initial.local in
+  if not (initial.initializer_owns initial) then
+    Error "initializer assignment substituted its original input"
+  else if L.local_storage local <> L.Automatic then Ok initial
+  else
+    Result.bind (assignment_target ~reset ~header ~locals local)
+      (fun assignment ->
+        let redirected = assignment.assignment_symbol != L.local_symbol local in
+        let owner_type =
+          Type_reference.resolved_type (L.local_type_reference local)
+        in
+        let owner_scalar =
+          Type.pointer_depth owner_type > 0
+          ||
+          match Type.base owner_type with
+          | Type.Primitive
+              ( _,
+                ( Primitive_type.I8
+                | U8
+                | I16
+                | U16
+                | I32
+                | U32
+                | I64
+                | U64
+                | F64 ) ) -> true
+          | _ -> false
+        in
+        if
+          redirected
+          && ((not owner_scalar)
+             || L.local_array_dimensions local <> []
+             || L.local_declarator_kind local <> L.Object
+             || Option.fold ~none:false
+                  ~some:(fun value ->
+                    L.initializer_kind value <> L.Scalar_initializer)
+                  (L.local_initializer local))
+        then Error "redirected initializer requires a scalar object declaration"
+        else Ok (seal_initializer { initial with assignment = Some assignment }))
+
+let initializer_assignment_valid ~header (initial : initializer_input) =
+  initial.initializer_owns initial
+  &&
+  match initial.assignment with
+  | None -> true
+  | Some target -> (
+      target.assignment_owns target
+      && target.assignment_header == header
+      &&
+      match
+        assignment_target ~reset:target.assignment_reset ~header
+          ~locals:target.assignment_locals initial.local
+      with
+      | Error _ -> false
+      | Ok current ->
+          current.assignment_symbol == target.assignment_symbol
+          && current.assignment_reference == target.assignment_reference
+          && Option.equal ( == ) current.assignment_local
+               target.assignment_local
+          && Option.equal ( == ) current.assignment_parameter
+               target.assignment_parameter)
+
 let call_index (call : call) = call.index
 let call_callee_occurrence_index (call : call) = call.callee_occurrence_index
 let call_callee_name (call : call) = call.callee_name
@@ -2257,14 +2461,17 @@ let make_initializer ~index ~local ~expression ~origin =
           Error "array initializer requires a retained source leaf"
         else
           Ok
-            {
-              index;
-              local;
-              expression;
-              origin;
-              source_leaf = None;
-              source_calls = [];
-            }
+            (seal_initializer
+               {
+                 index;
+                 local;
+                 expression;
+                 origin;
+                 source_leaf = None;
+                 source_calls = [];
+                 assignment = None;
+                 initializer_owns = (fun _ -> false);
+               })
     | _ ->
         Error
           "function initializer does not match its checked local declaration"
@@ -2284,14 +2491,17 @@ let make_initializer_leaf ~index ~local ~leaf ~expression ~calls ~origin =
         | Error _ as error -> error
         | Ok () ->
             Ok
-              {
-                index;
-                local;
-                expression;
-                origin;
-                source_leaf = Some leaf;
-                source_calls = calls;
-              })
+              (seal_initializer
+                 {
+                   index;
+                   local;
+                   expression;
+                   origin;
+                   source_leaf = Some leaf;
+                   source_calls = calls;
+                   assignment = None;
+                   initializer_owns = (fun _ -> false);
+                 }))
     | _ -> Error "function initializer leaf has a foreign declaration owner"
 
 let make_condition ~index ~role ~keyword_origin ~expression ~origin =
@@ -2651,7 +2861,8 @@ let make_function ~symbol ~scope ~item_index ?(expression_statements = [])
   else if
     not
       (List.mapi
-         (fun index (initial : initializer_input) -> initial.index = index)
+         (fun index (initial : initializer_input) ->
+           initial.index = index && initial.initializer_owns initial)
          initializers
       |> List.for_all Fun.id)
   then Error "function initializer indexes are not contiguous"

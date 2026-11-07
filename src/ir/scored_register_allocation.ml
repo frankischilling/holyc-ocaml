@@ -8,6 +8,40 @@ type candidate = {
   name : string;
 }
 
+type explicit_conflict = {
+  previous_member : int;
+  replacement_member : int;
+  register : int;
+}
+
+type explicit_resolution = {
+  owners : (int * int) list;
+  shadowed : (int * int) list;
+  conflicts : explicit_conflict list;
+}
+
+let resolve_explicit requests =
+  (* OptPass3.HC:29-36 warns on every subsequent request and overwrites the
+     register's offset/member pair. The displaced member never enters mv. *)
+  let owners, shadowed, conflicts =
+    List.fold_left
+      (fun (owners, shadowed, conflicts) (member, register) ->
+        let shadowed, conflicts =
+          match List.find_opt (fun (_, number) -> number = register) owners with
+          | None -> (shadowed, conflicts)
+          | Some (previous_member, _) ->
+              ( (previous_member, register) :: shadowed,
+                { previous_member; replacement_member = member; register }
+                :: conflicts )
+        in
+        ( List.filter (fun (_, number) -> number <> register) owners
+          @ [ (member, register) ],
+          shadowed,
+          conflicts ))
+      ([], [], []) requests
+  in
+  { owners; shadowed = List.rev shadowed; conflicts = List.rev conflicts }
+
 let sort candidates =
   let members = Array.of_list candidates in
   (* COptMemberVar is 40 bytes, hence QSort dispatches to QSort2b, not the

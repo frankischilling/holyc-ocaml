@@ -4174,9 +4174,8 @@ let () =
               (if target = "host-jit" || mode = "aot" then "HCRUN0001"
                else "HCBACK0002")
               target mode;
-            run ~fault:true
-              "I64 F(I8 reg R12 x,I64 reg R12 c){x<<=c;return x;}F(127,1);"
-              "HCBACK0002" target mode)
+            run "I64 F(I8 reg R12 x,I64 reg R12 c){x<<=c;return x;}F(127,1);"
+              "-2" target mode)
           [ "host-jit"; "host-jit-task" ])
       [ "jit"; "aot" ];
   List.iter
