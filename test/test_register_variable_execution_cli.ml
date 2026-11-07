@@ -346,6 +346,17 @@ let straight_line_cases =
             if n = 0 then value else repeat (n - 1) (store (Int64.succ value))
           in
           [
+            ( Printf.sprintf "I64 F(){%s %s x=%Ld;x+=1;%s y=x+1;return y;}F;"
+                type_ qualifier high type_,
+              Int64.to_string (Int64.succ once) );
+            ( Printf.sprintf
+                "I64 F(){%s %s x=%Ld;x+=1;%s noreg y=x+1;return y;}F;" type_
+                qualifier high type_,
+              Int64.to_string (normalize (Int64.succ once)) );
+            ( Printf.sprintf
+                "I64 F(){%s %s x=%Ld;x+=1;%s y=x+1;%s z=y+x;return z;}F;" type_
+                qualifier high type_ type_,
+              Int64.to_string (Int64.add once (Int64.succ once)) );
             ( Printf.sprintf "I64 F(){%s %s x=%Ld;x+=1;x*=3;return x;}F;" type_
                 qualifier high,
               triple );

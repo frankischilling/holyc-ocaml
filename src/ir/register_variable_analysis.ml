@@ -2397,8 +2397,8 @@ let analyze_local ~frame ~body =
    remain outside the proof. Named calls retain their original typed targets;
    OptPass789A saves and restores selected variable registers around each ordinary
    activation. IC_CALL_INDIRECT2 is admitted only for a named definition's JIT
-   address slot, not for a callback. Locals require a single source-owned literal
-   or parameter initializer in the entry block. *)
+   address slot, not for a callback. Locals require a single source-owned initializer in the entry block, with
+   local dependencies initialized before each read. *)
 let analyze_integer_function ~frame ~body =
   let locations = Frame.function_locations frame in
   let integer_member location =
@@ -2743,15 +2743,13 @@ let analyze_integer_function ~frame ~body =
               actual = if normalize_shift then Int64.logand bits 63L else bits
           | _ -> false)
     in
-    let rec matches_expression_operand ?(parameters_only = false) depth value
-        operand =
+    let rec matches_expression_operand ?(allowed_load = fun _ _ -> true) depth
+        value operand =
       if depth = 0 then false
       else if
-        parameters_only
-        && Option.fold ~none:false
-             ~some:(fun (_, location) ->
-               Frame.location_kind location <> Frame.Named_parameter)
-             (load operand)
+        Option.fold ~none:false
+          ~some:(fun (_, location) -> not (allowed_load operand location))
+          (load operand)
       then false
       else if matches_operand value operand then true
       else if
@@ -2763,8 +2761,7 @@ let analyze_integer_function ~frame ~body =
       then
         Option.fold ~none:false
           ~some:(fun inner ->
-            matches_expression_operand ~parameters_only (depth - 1) inner
-              operand)
+            matches_expression_operand ~allowed_load (depth - 1) inner operand)
           (Typed.result_operand value)
       else
         match
@@ -2791,7 +2788,7 @@ let analyze_integer_function ~frame ~body =
             with
             | [ input ], Some (Seq.Integer count), Calls.Integer_literal bits ->
                 count = bits
-                && matches_expression_operand ~parameters_only (depth - 1) left
+                && matches_expression_operand ~allowed_load (depth - 1) left
                      input
             | _ -> false)
         | ( Some (Frontend.Ast.Binary_expression binary),
@@ -2823,9 +2820,9 @@ let analyze_integer_function ~frame ~body =
             &&
             match expression.operands with
             | [ left_operand; right_operand ] ->
-                matches_expression_operand ~parameters_only (depth - 1) left
+                matches_expression_operand ~allowed_load (depth - 1) left
                   left_operand
-                && matches_expression_operand ~parameters_only (depth - 1) right
+                && matches_expression_operand ~allowed_load (depth - 1) right
                      right_operand
             | _ -> false)
         | Some (Frontend.Ast.Prefix_expression prefix), None, Some expression
@@ -2841,12 +2838,62 @@ let analyze_integer_function ~frame ~body =
             &&
             match (Typed.result_operand value, expression.operands) with
             | Some inner, [ input ] ->
-                matches_expression_operand ~parameters_only (depth - 1) inner
-                  input
+                matches_expression_operand ~allowed_load (depth - 1) inner input
             | _ -> false)
         | _ -> false
     in
-    let initializer_matches location operand =
+    let original_initializer_location (item : Seq.description) =
+      match (item.opcode, item.operands, item.result) with
+      | O.Ic_assign, [ target; _ ], Some result when item.payload = None -> (
+          match address target with
+          | Some (_, location)
+            when Frame.location_kind location = Frame.Automatic_local
+                 && List.exists (( == ) item) entry_code
+                 &&
+                 match users result.value_id with
+                 | [ consumer ] -> consumer.opcode = O.Ic_end_exp
+                 | _ -> false -> (
+              match
+                ( Sema.Symbol.origin (Frame.location_symbol location),
+                  Values.find_opt target produced )
+              with
+              | Sema.Symbol.Source_location { span; _ }, Some address
+                when address.span = Some span -> Some location
+              | _ -> None)
+          | _ -> None)
+      | _ -> None
+    in
+    let entry_position item =
+      let rec find index = function
+        | [] -> None
+        | candidate :: rest ->
+            if candidate == item then Some index else find (index + 1) rest
+      in
+      find 0 entry_code
+    in
+    let precedes left right =
+      match (entry_position left, entry_position right) with
+      | Some left, Some right -> left < right
+      | _ -> false
+    in
+    let initializer_matches item location operand =
+      (* PrsVar parses automatic initialization as an ordinary expression.
+         Earlier initialized locals are available, but a declaration address
+         alone does not prove that its store preceded this read. Every local's
+         initializer is independently authenticated by initialized_once below. *)
+      let allowed_load operand dependency =
+        Frame.location_kind dependency = Frame.Named_parameter
+        || Option.fold ~none:false
+             ~some:(fun read ->
+               precedes read item
+               && List.exists
+                    (fun store ->
+                      Option.fold ~none:false ~some:(( == ) dependency)
+                        (original_initializer_location store)
+                      && precedes store read)
+                    entry_code)
+             (Values.find_opt operand produced)
+      in
       List.exists
         (fun initialization ->
           let local =
@@ -2856,30 +2903,13 @@ let analyze_integer_function ~frame ~body =
           == Frame.location_symbol location
           &&
           let source = Typed.initializer_value initialization in
-          matches_expression_operand ~parameters_only:true 32 source operand)
+          matches_expression_operand ~allowed_load 32 source operand)
         local_initializers
     in
     let initialization (item : Seq.description) =
-      match (item.opcode, item.operands, item.result) with
-      | O.Ic_assign, [ target; operand ], Some result -> (
-          match address target with
-          | Some (_, location)
-            when Frame.location_kind location = Frame.Automatic_local -> (
-              item.payload = None
-              && (match
-                    ( Sema.Symbol.origin (Frame.location_symbol location),
-                      Values.find_opt target produced )
-                  with
-                | Sema.Symbol.Source_location { span; _ }, Some address ->
-                    address.span = Some span
-                | _ -> false)
-              && List.exists (( == ) item) entry_code
-              && initializer_matches location operand
-              &&
-              match users result.value_id with
-              | [ consumer ] -> consumer.opcode = O.Ic_end_exp
-              | _ -> false)
-          | _ -> false)
+      match (original_initializer_location item, item.operands) with
+      | Some location, [ _; operand ] ->
+          initializer_matches item location operand
       | _ -> false
     in
     let initialized_once location =

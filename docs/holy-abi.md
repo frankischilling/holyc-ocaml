@@ -377,3 +377,9 @@ shift-count ownership are checked; calls, casts and general allocation remain op
 use the same owned integer storage proof without requiring a branch or call.
 Dependent updates, self-updates, multiple locals and longer sequences retain
 selected values under the existing capacity and ownership bounds.
+
+[Ordered local initializers](register-variable-analysis.md#ordered-local-initializers)
+may read earlier initialized integer locals in the entry block. The proof
+requires each dependency store to precede its read and each read to precede
+the consuming initializer; self-initialization and uninitialized reads remain
+unproved.

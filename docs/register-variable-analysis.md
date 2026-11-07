@@ -410,9 +410,9 @@ declaration address occurrence. Reordering an arithmetic node's operands
 invalidates both an existing proof and a fresh analysis.
 
 The tests cover six narrow widths, four qualifiers, nested expressions,
-branches, loops and named calls. Initializer leaves remain restricted to
-parameters and literals, so this does not infer initialization order between
-locals. Conditional declarations, uninitialized locals, calls, casts and
+branches, loops and named calls. Initializer leaves may also read earlier
+initialized locals under the entry-order checks described below. Conditional
+declarations, uninitialized locals, calls, casts and
 unsupported expression operators remain unproved. These expectations come
 from pinned source and existing storage semantics, not new TempleOS captures.
 
@@ -437,7 +437,7 @@ to substitute a different literal inside a surrounding expression.
 
 Six-width/four-qualifier tests exercise assignment, compound-update and initializer
 paths. Division by zero and signed division overflow are checked for quotient
-and remainder in all three paths. Parameter-only initializer leaves remain
+and remainder in all three paths. Initializer dependency checks remain
 required even for shift counts. Calls, casts, short-circuit operators, power,
 consumed assignments and optimizer rewrites that no longer match this source
 tree remain outside the proof. These are hosted, source-derived checks, not new
@@ -478,3 +478,23 @@ full word. Raw-class tests intended to compare narrowed memory operands use
 blocked retained initializers that use these now-proved shapes have positive
 regressions, while unsupported literal-bitwise shapes still test rejection
 before execution.
+
+## Ordered local initializers
+
+An initializer can read a local whose original initialization has already run
+in the entry block. `I8 x=127; I8 y=x+1;` therefore leaves selected `y` at 128,
+while `noreg y` stores -128. A chain of three locals is shown in the
+[dependent-initializer example](../examples/register-dependent-initializers.hc).
+
+`PrsVar.HC:605-615` parses automatic initialization as an ordinary expression.
+The existing OptPass3 selection and OptPass4 assignment rules apply to its
+local operands. The proof checks each declaration's symbol, address and source
+expression, then requires a dependency's original store to precede its read
+and that read to precede the consuming initializer. Every local still needs
+exactly one authenticated entry-block initializer. Self-initialization,
+uninitialized dependencies and conditional initialization remain unproved.
+
+Tests cover six narrow widths, four storage qualifiers, intervening updates,
+stack destinations and three-local chains. Reordering the initializer stores
+invalidates the saved witness and cannot acquire a new proof. These are source
+and hosted execution checks, not new TempleOS runtime captures.

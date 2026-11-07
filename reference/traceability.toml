@@ -15206,8 +15206,8 @@ tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable
 documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
 status = "partial"
 issue = 703
-verification = "Six narrow widths and four qualifiers across arithmetic/bitwise initializers, branches, loops and named calls. Operand substitution, conditional initialization and local-dependent initializer negatives preserve ownership."
-evidence_limit = "Original entry-block initialization with parameter/literal leaves only. Does not infer ordering between locals, support arbitrary expressions or claim a new TempleOS capture."
+verification = "Six narrow widths and four qualifiers across arithmetic/bitwise initializers, branches, loops and named calls. Operand substitution and conditional initialization negatives preserve ownership; ordered local dependencies are covered by HC-REGISTER-ORDERED-INITIALIZERS."
+evidence_limit = "Original entry-block initialization; ordered local dependencies are covered by HC-REGISTER-ORDERED-INITIALIZERS. Does not support arbitrary expressions or claim a new TempleOS capture."
 
 [[feature]]
 id = "HC-REGISTER-INTEGER-EXPRESSION-TREES"
@@ -15218,7 +15218,7 @@ tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable
 documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
 status = "partial"
 issue = 703
-verification = "Six widths and four qualifiers across assignment, compound update and initializer trees; division-by-zero/overflow faults, unary payload rejection and parameter-only shift initializer checks."
+verification = "Six widths and four qualifiers across assignment, compound update and initializer trees; division-by-zero/overflow faults, unary payload rejection and shift initializer dependency checks."
 evidence_limit = "Source-owned bounded expression trees only. Calls, casts, short-circuit operators, power and unmatched optimizer rewrites remain unproved. No new TempleOS runtime capture or general physical allocation claim."
 
 [[feature]]
@@ -15232,3 +15232,15 @@ status = "partial"
 issue = 703
 verification = "Six widths and four qualifiers across single-local functions, dependent and self updates, multiple locals, computed initialization/reassignment, seven parameters and twelve-update sequences. Existing unsupported cases were retained as positive controls where now proved."
 evidence_limit = "One to 32 integer frame members within existing source-ownership, capacity and graph bounds. No general physical allocation, floating allocation or new TempleOS runtime capture is claimed."
+
+[[feature]]
+id = "HC-REGISTER-ORDERED-INITIALIZERS"
+description = "Preserve selected integer storage through entry-ordered local initializer dependencies."
+sources = ["Compiler/PrsVar.HC:605-615", "Compiler/OptPass3.HC:516-621", "Compiler/OptPass4.HC:351-405"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/register_variable_analysis.mli"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-dependent-initializers.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six widths and four qualifiers across local dependencies, intervening updates, stack destinations and three-local chains. Self-initialization, uninitialized dependencies and reordered stores remain unproved."
+evidence_limit = "Every local requires one original entry-block initializer; each dependency store must precede its read. No general physical allocation or new TempleOS runtime capture is claimed."

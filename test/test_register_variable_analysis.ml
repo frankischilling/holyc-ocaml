@@ -5106,8 +5106,8 @@ let integer_expression_selection () =
           "I64 F(I64 a,I64 b){I64 y=b;I8 x=a<<y;if(b)x+=1;return x;}42;"
       in
       Alcotest.(check bool)
-        "shift initializer cannot bypass parameter-only leaves" true
-        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        "shift initializer reads an earlier initialized local" true
+        (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let computed_initializer_selection () =
@@ -5162,11 +5162,11 @@ let computed_initializer_selection () =
         (fun source ->
           let fn = compile ~name:"F" mode source in
           Alcotest.(check bool)
-            "initializer needs entry placement and parameter leaves" true
+            "initializer needs entry placement and authenticated expressions"
+            true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I64 a,I64 b){if(b){I8 x=a+1;x+=1;return x;}return 0;}42;";
-          "I64 F(I64 a,I64 b){I64 y=a;I8 x=y+1;if(b)x+=1;return x;}42;";
           "I64 F(I64 a,I64 b){I8 x=a(I8);if(b)x+=1;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -5260,6 +5260,49 @@ let assignment_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let dependent_initializer_selection () =
+  let module O = Holyc_lib__Ir.Opcode in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "uninitialized dependency is not proved" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(){I8 x=x+1;return x;}42;";
+          "I64 F(){I8 x;I8 y=x+1;return y;}42;";
+        ];
+      let fn =
+        compile ~name:"F" mode "I64 F(){I8 x=127;I8 y=x+1;return y;}42;"
+      in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "y" |> Frame.location_symbol in
+      let entry = Body.body fn.body |> Graph.entry in
+      let items = Graph.instructions entry |> Seq.instructions in
+      let stores =
+        List.filter
+          (fun item -> (Seq.description item).opcode = O.Ic_assign)
+          items
+      in
+      let first = List.hd stores and last = List.hd (List.rev stores) in
+      let reordered =
+        List.map
+          (fun item ->
+            if item == first then last else if item == last then first else item)
+          items
+      in
+      Obj.set_field (Obj.repr entry) 1 (Obj.repr reordered);
+      Alcotest.(check bool)
+        "initializer reordering invalidates witness" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+      Alcotest.(check bool)
+        "read before initialization cannot acquire proof" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let straight_line_selection () =
   List.iter
     (fun mode ->
@@ -5277,6 +5320,9 @@ let straight_line_selection () =
           "I64 F(I64 x,I64 y,I64 c){x+=c;y+=c;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=x;return x+y;}42;";
           "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return x+y+0;}42;";
+          "I64 F(){I8 x=127;I8 y=x+1;return y;}42;";
+          "I64 F(I64 a,I64 b){I64 y=a;I8 x=y+1;if(b)x+=1;return x;}42;";
+          "I64 F(){I8 x=127;x+=1;I8 y=x+1;I8 z=y+x;return z;}42;";
           "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
           "I64 F(){I8 x=255;x++;x++;return x;}42;";
           "I64 F(){I8 x=1,y=2;x<<=1;return x;}42;";
@@ -5547,6 +5593,8 @@ let () =
             computed_assignment_selection;
           Alcotest.test_case "parameter and local reassignment" `Quick
             assignment_selection;
+          Alcotest.test_case "ordered local initializers" `Quick
+            dependent_initializer_selection;
           Alcotest.test_case "whole straight-line functions" `Quick
             straight_line_selection;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;

@@ -12,15 +12,16 @@ val analyze :
     members across straight-line code, branches, loops and original named calls.
 
     Automatic locals require one original entry-block initializer. Initializer
-    expressions use parameter/literal leaves; later assignments and compound
-    operands may read any checked integer frame member. Source-owned arithmetic,
-    bitwise, unary, division/remainder, shift and comparison trees are
-    supported. Assignment and update results must be discarded in the
-    whole-function proof. Literal-only add/subtract/multiply updates remain
-    limited to nonnegative signed-32-bit operands. Each operation retains its
-    original typed operator, ordered operands and source position. Calls require
-    original named definitions, provided fixed arguments and integer or U0
-    results; callbacks, defaults and variadic calls remain outside this proof.
+    expressions use parameters, literals and locals initialized before each read
+    in the entry block; later assignments and compound operands may read any
+    checked integer frame member. Source-owned arithmetic, bitwise, unary,
+    division/remainder, shift and comparison trees are supported. Assignment and
+    update results must be discarded in the whole-function proof. Literal-only
+    add/subtract/multiply updates remain limited to nonnegative signed-32-bit
+    operands. Each operation retains its original typed operator, ordered
+    operands and source position. Calls require original named definitions,
+    provided fixed arguments and integer or U0 results; callbacks, defaults and
+    variadic calls remain outside this proof.
 
     Distinct RSI, RDI and R10 through R15 requests are supported. Automatic
     candidates must fit the unreserved variable banks unless forced requests
