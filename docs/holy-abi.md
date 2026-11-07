@@ -341,3 +341,8 @@ retain selected narrow values through bounded constant updates and discarded
 prefix/postfix increment/decrement, including locals and named calls. Typed
 operators, operand bindings and source positions are checked before selection.
 General allocation remains open under #703.
+
+[Reassignment to selected variables](register-variable-analysis.md#reassignment-to-selected-variables)
+now preserves full integer values in parameters and initialized locals when the
+right-hand side is a direct member read or literal. Stack destinations still
+narrow. Computed assignments and general register allocation remain unproved.

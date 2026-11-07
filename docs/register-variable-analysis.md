@@ -152,8 +152,10 @@ its entry block. Parameters and locals together must pass the register-bank
 capacity check below.
 Each local needs exactly one initializer from its original typed source: an
 integer literal or a direct parameter read. The initializer must be a standalone
-assignment. Later assignments, conditional initializers, computed initializers,
-address escapes, Boolean members and unsupported options remain unproved.
+assignment. Later direct-member and literal assignments are covered by the
+[reassignment proof](#reassignment-to-selected-variables) below. Conditional or
+computed initializers, address escapes, Boolean members and unsupported options
+remain unproved.
 Compound updates may read another checked frame member.
 
 `OptPass3.HC:22-48,223-247,511-621` scores local and parameter frame members in
@@ -285,3 +287,27 @@ single-entry local initialization requirements are unchanged. The tests use
 six widths, four register qualifiers and four loop/call shapes, with independent
 expected register and stack arithmetic. These are hosted tests backed by pinned
 source and existing captures, not new TempleOS runtime captures.
+
+## Reassignment to selected variables
+
+Parameters and locals with one original entry-block initializer may now receive
+statement-only assignments from another integer frame member or an integer
+literal. A selected `I8` assigned the `I64` value 257 retains 257; `noreg` stores
+1. A selected narrow source also passes its full register value to the
+assignment. A stack source is first loaded at its declared width.
+[The reassignment example](../examples/register-reassignment.hc) exercises both
+paths through a loop.
+
+`OptPass4.HC:351-405` replaces the frame address with a selected register and
+marks the assignment by value. `BackC.HC:159-171` then uses `ICMov`.
+`BackLib.HC:445-520` writes the full immediate or register value for a register
+destination; its memory path stores at the destination's width. These are the
+same source paths used by the existing local-initializer captures. The new
+reassignment tests use source-derived expectations, not a new TempleOS capture.
+
+Assignments retain the original typed operator, operand bindings and source
+position checks. Local initialization also requires the original declaration's
+address occurrence, so a later assignment of the same literal cannot stand in
+for the initializer. Uninitialized locals, conditional initialization,
+computed right-hand sides, address escapes and consumed assignment results
+remain outside this proof. Capacity and calling restrictions are unchanged.

@@ -4715,7 +4715,6 @@ let local_control_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I64 n,I64 c){I8 x;if(n)x=c;return x;}42;";
-          "I64 F(I64 n,I64 c){I8 x=127;if(n)x=c;return x;}42;";
           "I64 F(I64 n,I64 c){I8 x=n+c;if(n)x+=c;return x;}42;";
           "I64 F(I64 n,I64 c){I8 x=127;I8 *p=&x;if(n)*p+=c;return x;}42;";
           "I64 F(I64 n,I64 c){if(n){I8 x=127;x+=c;return x;}return 0;}42;";
@@ -4919,6 +4918,49 @@ let loop_update_ownership () =
       Alcotest.(check bool)
         "unary loop payload cannot acquire a proof" true
         (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let assignment_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun qualifier ->
+          List.iter
+            (fun source ->
+              let fn =
+                compile ~name:"F" mode (Printf.sprintf source qualifier)
+              in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let symbol = location fn.frame "x" |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "reassignment retains original storage selection" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some
+                    (if qualifier = "noreg" then Analysis.Stack
+                     else Analysis.Register_candidate)))
+            [
+              "I64 F(I8 %s x,I64 value){if(value)x=value;return x;}42;";
+              "I64 F(I64 n,I64 c){I8 %s x=127;if(n)x=c;return x;}42;";
+              "I64 F(I64 n){I8 %s x=257;x=257;if(n)x=257;return x;}42;";
+              "I64 F(I8 %s x,I64 n){if(n)x=0x7FFFFFFFFFFFFFFF;return x;}42;";
+            ])
+        [ ""; "reg"; "noreg"; "reg R12" ];
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "assignment needs initialized storage and direct source operands"
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I64 n,I64 value){I8 x;if(n)x=value;return x;}42;";
+          "I64 F(I64 n){I8 x;x=257;if(n)x=257;return x;}42;";
+          "I64 F(I8 x,I64 value){if(value)x=value+1;return x;}42;";
+          "I64 F(I8 x,I64 value){if(value)return x=value;return x;}42;";
+          "I64 F(I64 n,I64 value){if(n){I8 x=0;x=value;return x;}return 0;}42;";
+        ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let unsupported_selection () =
@@ -5167,6 +5209,8 @@ let () =
             loop_update_selection;
           Alcotest.test_case "loop update ownership" `Quick
             loop_update_ownership;
+          Alcotest.test_case "parameter and local reassignment" `Quick
+            assignment_selection;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;
           Alcotest.test_case "original ownership" `Quick ownership;
         ] );

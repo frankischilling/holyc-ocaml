@@ -34,17 +34,19 @@ val analyze :
     normalized counts below 64. Discarded prefix/postfix increment and decrement
     are also supported. Each update must match its exact typed source operator,
     operand bindings and source position. Automatic locals require one original
-    literal or parameter initializer in the entry block; reassignments remain
-    unproved. Original named definitions with provided fixed arguments and
-    integer or U0 results may be called, including recursive calls and the named
-    JIT address-slot path. Callbacks, defaults and variadic calls remain
-    unproved. The proof accepts up to 64 blocks and 512 instructions, no address
-    escapes, no Boolean parameters and default options apart from the four
-    warning bits and NO_REG_VAR. Warning settings do not change allocation.
-    NO_REG_VAR disables automatic selection, including plain reg requests, but
-    leaves supported explicit register requests selected. The option mask must
-    match the original definition snapshot. Other control flow remains unproved.
-    The witness itself does not alter execution. *)
+    literal or parameter initializer in the entry block. Parameters and those
+    initialized locals may subsequently receive statement-only assignments from
+    direct member reads or integer literals. Computed right-hand sides and
+    consumed assignment results remain unproved. Original named definitions with
+    provided fixed arguments and integer or U0 results may be called, including
+    recursive calls and the named JIT address-slot path. Callbacks, defaults and
+    variadic calls remain unproved. The proof accepts up to 64 blocks and 512
+    instructions, no address escapes, no Boolean parameters and default options
+    apart from the four warning bits and NO_REG_VAR. Warning settings do not
+    change allocation. NO_REG_VAR disables automatic selection, including plain
+    reg requests, but leaves supported explicit register requests selected. The
+    option mask must match the original definition snapshot. Other control flow
+    remains unproved. The witness itself does not alter execution. *)
 
 val selection :
   t ->

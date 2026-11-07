@@ -245,12 +245,89 @@ let loop_update_cases =
       ("U32", 32, false);
     ]
 
+let assignment_cases =
+  List.concat_map
+    (fun (type_, bits, signed) ->
+      let normalize value =
+        let shift = 64 - bits in
+        let shifted = Int64.shift_left value shift in
+        if signed then Int64.shift_right shifted shift
+        else Int64.shift_right_logical shifted shift
+      in
+      let high =
+        Int64.pred (Int64.shift_left 1L (if signed then bits - 1 else bits))
+      in
+      List.concat_map
+        (fun qualifier ->
+          let stored value =
+            if qualifier = "noreg" then normalize value else value
+          in
+          let value = Int64.add high 3L in
+          let expected = Int64.to_string (stored value) in
+          [
+            ( Printf.sprintf
+                "I64 F(%s %s x,I64 value){if(value)x=value;return x;}F(0,%Ld);"
+                type_ qualifier value,
+              expected );
+            ( Printf.sprintf
+                "I64 F(I64 value,I64 n){%s %s x=0;while(n){x=value;--n;}return \
+                 x;}F(%Ld,2);"
+                type_ qualifier value,
+              expected );
+            ( Printf.sprintf
+                "I64 G(I64 v){return v;}I64 F(%s %s x,I64 \
+                 value){x=value;G(x);x=value;return x;}F(0,%Ld);"
+                type_ qualifier value,
+              expected );
+            ( Printf.sprintf
+                "I64 F(I64 n){%s %s x=%Ld;x=%Ld;if(n)x=%Ld;return x;}F(1);"
+                type_ qualifier value value value,
+              expected );
+          ]
+          @ List.concat_map
+              (fun source_qualifier ->
+                let source =
+                  if source_qualifier = "noreg" then normalize (Int64.succ high)
+                  else Int64.succ high
+                in
+                let expected = Int64.to_string (stored source) in
+                [
+                  ( Printf.sprintf
+                      "I64 F(%s %s x,%s %s y,I64 n){y+=1;if(n)x=y;return \
+                       x;}F(0,%Ld,1);"
+                      type_ qualifier type_ source_qualifier high,
+                    expected );
+                  ( Printf.sprintf
+                      "I64 F(%s %s y,I64 n){%s %s \
+                       x=0;y+=1;while(n){x=y;--n;}return x;}F(%Ld,2);"
+                      type_ source_qualifier type_ qualifier high,
+                    expected );
+                ])
+              [ ""; "noreg" ]
+          @ List.map
+              (fun literal ->
+                ( Printf.sprintf
+                    "I64 F(%s %s x,I64 n){if(n)x=0x%Lx;return x;}F(0,1);" type_
+                    qualifier literal,
+                  Int64.to_string (stored literal) ))
+              [ 0L; 2147483648L; 4294967296L; Int64.max_int ])
+        [ ""; "reg"; "noreg"; "reg R12" ])
+    [
+      ("I8", 8, true);
+      ("U8", 8, false);
+      ("I16", 16, true);
+      ("U16", 16, false);
+      ("I32", 32, true);
+      ("U32", 32, false);
+    ]
+
 let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
   let cases =
-    loop_update_cases
+    assignment_cases @ loop_update_cases
     @ [
         (read "../examples/register-loop-updates.hc", "256");
+        (read "../examples/register-reassignment.hc", "256");
         ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
         ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
            c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",

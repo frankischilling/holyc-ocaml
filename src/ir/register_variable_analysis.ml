@@ -2731,6 +2731,13 @@ let analyze_control_parameters ~frame ~body =
           | Some (_, location)
             when Frame.location_kind location = Frame.Automatic_local -> (
               item.payload = None
+              && (match
+                    ( Sema.Symbol.origin (Frame.location_symbol location),
+                      Values.find_opt target produced )
+                  with
+                | Sema.Symbol.Source_location { span; _ }, Some address ->
+                    address.span = Some span
+                | _ -> false)
               && List.exists (( == ) item) entry_code
               && initializer_matches location operand
               &&
@@ -2754,8 +2761,8 @@ let analyze_control_parameters ~frame ~body =
               | _ -> false)
             code
         in
-        match stores with
-        | [ store ] -> initialization store
+        match List.filter initialization stores with
+        | [ _ ] -> true
         | _ -> false
     in
     let source_matches_update (item : Seq.description) =
@@ -2809,6 +2816,7 @@ let analyze_control_parameters ~frame ~body =
                 && matches_operand right operand
                 &&
                 match (binary.binary_operator_spec.spelling, item.opcode) with
+                | "=", O.Ic_assign
                 | "+=", O.Ic_add_equ
                 | "-=", Ic_sub_equ
                 | "*=", Ic_mul_equ
@@ -2874,7 +2882,18 @@ let analyze_control_parameters ~frame ~body =
           && List.for_all
                (fun item -> Option.is_some (frame_address item))
                consumers
-      | O.Ic_assign, _, _ -> initialization item
+      | O.Ic_assign, [ target; operand ], Some result ->
+          initialization item
+          || Option.is_some (address target)
+             && (Option.is_some (load operand)
+                ||
+                match Values.find_opt operand produced with
+                | Some
+                    { opcode = O.Ic_imm_i64; payload = Some (Seq.Integer _); _ }
+                  -> true
+                | _ -> false)
+             && source_matches_update item && discarded result
+      | O.Ic_assign, _, _ -> false
       | O.Ic_deref, [ target ], _ -> Option.is_some (address target)
       | opcode, [ target; operand ], Some result when update opcode ->
           Option.is_some (address target)

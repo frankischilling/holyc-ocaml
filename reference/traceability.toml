@@ -15148,3 +15148,15 @@ status = "partial"
 issue = 703
 verification = "Six narrow widths, four qualifiers, literal and unary updates, for/while/do loops, initialized locals and named calls. Typed operator and operand substitution checks preserve ownership."
 evidence_limit = "Statement-only bounded updates with sufficient variable-register capacity. Large add/subtract/multiply literals, division/remainder and bitwise literals, consumed update results and general allocation are not claimed. No new TempleOS capture is claimed."
+
+[[feature]]
+id = "HC-REGISTER-VARIABLE-REASSIGNMENT"
+description = "Preserve full selected integer values when assigning parameters and initialized locals."
+sources = ["Compiler/OptPass4.HC:351-405", "Compiler/BackC.HC:159-171", "Compiler/BackLib.HC:445-575"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-reassignment.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six widths, four destination qualifiers, register and stack narrow sources, wide literals, loops, named calls and repeated same-value assignments. Original entry initialization remains required."
+evidence_limit = "Only direct member and literal right-hand sides with discarded assignment results, enough register capacity and no address escapes. Computed assignments and general allocation remain open; no new TempleOS runtime capture."
