@@ -15208,3 +15208,15 @@ status = "partial"
 issue = 703
 verification = "Six narrow widths and four qualifiers across arithmetic/bitwise initializers, branches, loops and named calls. Operand substitution, conditional initialization and local-dependent initializer negatives preserve ownership."
 evidence_limit = "Original entry-block initialization with parameter/literal leaves only. Does not infer ordering between locals, support arbitrary expressions or claim a new TempleOS capture."
+
+[[feature]]
+id = "HC-REGISTER-INTEGER-EXPRESSION-TREES"
+description = "Preserve selected integer storage through unary, division, shift and comparison expression trees."
+sources = ["Compiler/OptPass4.HC:351-405,570-617", "Compiler/BackC.HC:159-171", "Compiler/BackLib.HC:445-520"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-integer-expressions.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six widths and four qualifiers across assignment, compound update and initializer trees; division-by-zero/overflow faults, unary payload rejection and parameter-only shift initializer checks."
+evidence_limit = "Source-owned bounded expression trees only. Calls, casts, short-circuit operators, power and unmatched optimizer rewrites remain unproved. No new TempleOS runtime capture or general physical allocation claim."

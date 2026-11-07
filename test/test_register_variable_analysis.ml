@@ -4715,7 +4715,7 @@ let local_control_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I64 n,I64 c){I8 x;if(n)x=c;return x;}42;";
-          "I64 F(I64 n,I64 c){I8 x=n/c;if(n)x+=c;return x;}42;";
+          "I64 F(I64 n,I64 c){I8 x=n(I8);if(n)x+=c;return x;}42;";
           "I64 F(I64 n,I64 c){I8 x=127;I8 *p=&x;if(n)*p+=c;return x;}42;";
           "I64 F(I64 n,I64 c){if(n){I8 x=127;x+=c;return x;}return 0;}42;";
         ])
@@ -4842,7 +4842,7 @@ let loop_update_selection () =
         [
           "x+=2147483648";
           "x*=2147483648";
-          "x<<=n/3";
+          "x<<=n(I8)";
           "x/=2";
           "x%=2";
           "x|=1";
@@ -5050,10 +5050,72 @@ let computed_update_selection () =
             "unsupported computed update remains unproved" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "I64 F(I8 x,I64 a){if(a)x+=a/3;return x;}42;";
+          "I64 F(I8 x,I64 a){if(a)x+=a(I8);return x;}42;";
           "I64 F(I8 x,I64 a){if(a)return x+=a+1;return x;}42;";
           "I64 F(I8 x,I64 a){if(a)x/=3;return x;}42;";
         ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let integer_expression_selection () =
+  let module O = Holyc_lib__Ir.Opcode in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun expression ->
+          let fn =
+            compile ~name:"F" mode
+              (Printf.sprintf
+                 "I64 F(I64 a,I64 b){I8 x=%s;if(b)x+=1;return x;}42;" expression)
+          in
+          Alcotest.(check bool)
+            ("integer initializer tree: " ^ expression)
+            true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "-a";
+          "+a";
+          "~a";
+          "!a";
+          "a/b";
+          "a%b";
+          "a<<b";
+          "a>>b";
+          "a<<65";
+          "a==b";
+          "a!=b";
+          "a<b";
+          "a<=b";
+          "a>b";
+          "a>=b";
+          "-(a/b)";
+        ];
+      let fn =
+        compile ~name:"F" mode "I64 F(I8 x,I64 a){if(a)x=~a;return x;}42;"
+      in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      let expression =
+        Body.body fn.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+        |> List.find (fun (d : Seq.description) -> d.opcode = O.Ic_com)
+      in
+      Obj.set_field (Obj.repr expression) 5 (Obj.repr (Some (Seq.Integer 1L)));
+      Alcotest.(check bool)
+        "unary payload mutation invalidates proof" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+      Alcotest.(check bool)
+        "unary payload cannot acquire proof" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      let fn =
+        compile ~name:"F" mode
+          "I64 F(I64 a,I64 b){I64 y=b;I8 x=a<<y;if(b)x+=1;return x;}42;"
+      in
+      Alcotest.(check bool)
+        "shift initializer cannot bypass parameter-only leaves" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let computed_initializer_selection () =
@@ -5113,7 +5175,7 @@ let computed_initializer_selection () =
         [
           "I64 F(I64 a,I64 b){if(b){I8 x=a+1;x+=1;return x;}return 0;}42;";
           "I64 F(I64 a,I64 b){I64 y=a;I8 x=y+1;if(b)x+=1;return x;}42;";
-          "I64 F(I64 a,I64 b){I8 x=a/3;if(b)x+=1;return x;}42;";
+          "I64 F(I64 a,I64 b){I8 x=a(I8);if(b)x+=1;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -5200,7 +5262,7 @@ let assignment_selection () =
         [
           "I64 F(I64 n,I64 value){I8 x;if(n)x=value;return x;}42;";
           "I64 F(I64 n){I8 x;x=257;if(n)x=257;return x;}42;";
-          "I64 F(I8 x,I64 value){if(value)x=value/3;return x;}42;";
+          "I64 F(I8 x,I64 value){if(value)x=value(I8);return x;}42;";
           "I64 F(I8 x,I64 value){if(value)return x=value;return x;}42;";
           "I64 F(I64 n,I64 value){if(n){I8 x=0;x=value;return x;}return 0;}42;";
         ])
@@ -5456,6 +5518,8 @@ let () =
             forced_pressure_selection;
           Alcotest.test_case "computed update ownership" `Quick
             computed_update_selection;
+          Alcotest.test_case "integer expression ownership" `Quick
+            integer_expression_selection;
           Alcotest.test_case "computed initializer ownership" `Quick
             computed_initializer_selection;
           Alcotest.test_case "computed assignment ownership" `Quick

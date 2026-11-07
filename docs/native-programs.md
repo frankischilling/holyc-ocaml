@@ -461,3 +461,8 @@ nested shift-count literals retain their exact source values.
 retain full selected integer values from source-owned arithmetic/bitwise trees
 over parameters and literals. Original entry-block declaration ownership remains
 required; ordering between local initializers is not inferred.
+
+[Integer expression operands](register-variable-analysis.md#integer-expression-operands)
+add source-owned unary, division/remainder, shift and comparison trees to the
+bounded assignment/update/initializer proof. Division faults and original
+shift-count ownership are checked; calls, casts and general allocation remain open.

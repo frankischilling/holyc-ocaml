@@ -2527,6 +2527,8 @@ let analyze_control_parameters ~frame ~body =
        | Ic_xor
        | Ic_shl
        | Ic_shr
+       | Ic_shl_const
+       | Ic_shr_const
        | Ic_com
        | Ic_not
        | Ic_unary_minus
@@ -2759,6 +2761,8 @@ let analyze_control_parameters ~frame ~body =
       else if
         match Calls.argument_expression_kind (Typed.result_source value) with
         | Calls.Parenthesized_expression _ -> true
+        | Calls.Prefix_expression prefix ->
+            Calls.prefix_operator prefix = Calls.Unary_plus
         | _ -> false
       then
         Option.fold ~none:false
@@ -2774,6 +2778,28 @@ let analyze_control_parameters ~frame ~body =
         with
         | ( Some (Frontend.Ast.Binary_expression binary),
             Some (left, right),
+            Some expression )
+          when expression.opcode = O.Ic_shl_const
+               || expression.opcode = O.Ic_shr_const -> (
+            expression.span = Some binary.binary_operator.operator_location.span
+            && (match
+                  (binary.binary_operator_spec.spelling, expression.opcode)
+                with
+              | "<<", O.Ic_shl_const | ">>", Ic_shr_const -> true
+              | _ -> false)
+            &&
+            match
+              ( expression.operands,
+                expression.payload,
+                Calls.argument_expression_kind (Typed.result_source right) )
+            with
+            | [ input ], Some (Seq.Integer count), Calls.Integer_literal bits ->
+                count = bits
+                && matches_expression_operand ~parameters_only (depth - 1) left
+                     input
+            | _ -> false)
+        | ( Some (Frontend.Ast.Binary_expression binary),
+            Some (left, right),
             Some expression ) -> (
             expression.payload = None
             && expression.span
@@ -2784,6 +2810,16 @@ let analyze_control_parameters ~frame ~body =
               | "+", O.Ic_add
               | "-", Ic_sub
               | "*", Ic_mul
+              | "/", Ic_div
+              | "%", Ic_mod
+              | "<<", Ic_shl
+              | ">>", Ic_shr
+              | "==", Ic_equ_equ
+              | "!=", Ic_not_equ
+              | "<", Ic_less
+              | "<=", Ic_less_equ
+              | ">", Ic_greater
+              | ">=", Ic_greater_equ
               | "&", Ic_and
               | "|", Ic_or
               | "^", Ic_xor -> true
@@ -2795,6 +2831,22 @@ let analyze_control_parameters ~frame ~body =
                   left_operand
                 && matches_expression_operand ~parameters_only (depth - 1) right
                      right_operand
+            | _ -> false)
+        | Some (Frontend.Ast.Prefix_expression prefix), None, Some expression
+          -> (
+            expression.payload = None
+            && expression.span
+               = Some prefix.prefix_operator.operator_location.span
+            && (match (prefix.prefix_operator_kind, expression.opcode) with
+              | Frontend.Ast.Unary_minus, O.Ic_unary_minus
+              | Frontend.Ast.Bitwise_not, Ic_com
+              | Frontend.Ast.Logical_not, Ic_not -> true
+              | _ -> false)
+            &&
+            match (Typed.result_operand value, expression.operands) with
+            | Some inner, [ input ] ->
+                matches_expression_operand ~parameters_only (depth - 1) inner
+                  input
             | _ -> false)
         | _ -> false
     in
@@ -2953,8 +3005,27 @@ let analyze_control_parameters ~frame ~body =
              || Option.fold ~none:false
                   ~some:(fun (expression : Seq.description) ->
                     match expression.opcode with
-                    | O.Ic_add | Ic_sub | Ic_mul | Ic_and | Ic_or | Ic_xor ->
-                        true
+                    | O.Ic_add
+                    | Ic_sub
+                    | Ic_mul
+                    | Ic_div
+                    | Ic_mod
+                    | Ic_shl
+                    | Ic_shr
+                    | Ic_shl_const
+                    | Ic_shr_const
+                    | Ic_and
+                    | Ic_or
+                    | Ic_xor
+                    | Ic_equ_equ
+                    | Ic_not_equ
+                    | Ic_less
+                    | Ic_less_equ
+                    | Ic_greater
+                    | Ic_greater_equ
+                    | Ic_unary_minus
+                    | Ic_com
+                    | Ic_not -> true
                     | _ -> false)
                   (Values.find_opt operand produced))
           && source_matches_update item && discarded result

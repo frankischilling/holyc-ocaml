@@ -321,6 +321,70 @@ let assignment_cases =
       ("U32", 32, false);
     ]
 
+let integer_expression_cases =
+  List.concat_map
+    (fun (type_, bits, signed) ->
+      let normalize value =
+        let shift = 64 - bits in
+        let value = Int64.shift_left value shift in
+        if signed then Int64.shift_right value shift
+        else Int64.shift_right_logical value shift
+      in
+      let a =
+        Int64.pred (Int64.shift_left 1L (if signed then bits - 1 else bits))
+      in
+      List.concat_map
+        (fun qualifier ->
+          let store value =
+            if qualifier = "noreg" then normalize value else value
+          in
+          List.concat_map
+            (fun (expression, value) ->
+              let expected = Int64.to_string (store value) in
+              [
+                ( Printf.sprintf
+                    "I64 F(%s %s x,I64 a,I64 b){if(b)x=%s;return x;}F(0,%Ld,3);"
+                    type_ qualifier expression a,
+                  expected );
+                ( Printf.sprintf
+                    "I64 F(I64 a,I64 b){%s %s x=%s;if(b)x+=0;return \
+                     x;}F(%Ld,3);"
+                    type_ qualifier expression a,
+                  expected );
+                ( Printf.sprintf
+                    "I64 F(%s %s x,I64 a,I64 b){if(b)x+=%s;return \
+                     x;}F(0,%Ld,3);"
+                    type_ qualifier expression a,
+                  expected );
+              ])
+            [
+              ("-a", Int64.neg a);
+              ("+(a+1)", Int64.succ a);
+              ("~a", Int64.lognot a);
+              ("!b", 0L);
+              ("(a/b)*16", Int64.mul (Int64.div a 3L) 16L);
+              ("(a%b)+a", Int64.add (Int64.rem a 3L) a);
+              ("a<<b", Int64.shift_left a 3);
+              ("a>>b", Int64.shift_right a 3);
+              ("a<<65", Int64.shift_left a 1);
+              ("(a==b)*(a+1)", 0L);
+              ("(a!=b)*(a+1)", Int64.succ a);
+              ("(a<b)*(a+1)", 0L);
+              ("(a<=b)*(a+1)", 0L);
+              ("(a>b)*(a+1)", Int64.succ a);
+              ("(a>=b)*(a+1)", Int64.succ a);
+              ("-(a/b)", Int64.neg (Int64.div a 3L));
+            ])
+        [ ""; "reg"; "noreg"; "reg R12" ])
+    [
+      ("I8", 8, true);
+      ("U8", 8, false);
+      ("I16", 16, true);
+      ("U16", 16, false);
+      ("I32", 32, true);
+      ("U32", 32, false);
+    ]
+
 let computed_update_cases =
   List.concat_map
     (fun (type_, bits, signed) ->
@@ -507,8 +571,8 @@ let forced_pressure_cases =
 let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
   let cases =
-    computed_update_cases @ computed_assignment_cases @ forced_pressure_cases
-    @ assignment_cases @ loop_update_cases
+    integer_expression_cases @ computed_update_cases @ computed_assignment_cases
+    @ forced_pressure_cases @ assignment_cases @ loop_update_cases
     @ [
         (read "../examples/register-loop-updates.hc", "256");
         (read "../examples/register-reassignment.hc", "256");
@@ -516,6 +580,7 @@ let () =
         (read "../examples/register-computed-assignment.hc", "256");
         (read "../examples/register-computed-updates.hc", "256");
         (read "../examples/register-computed-initializers.hc", "256");
+        (read "../examples/register-integer-expressions.hc", "-512");
         ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
         ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
            c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",
@@ -3903,32 +3968,56 @@ let () =
         "HCIRVM0010" );
     ]
   in
+  let expression_faults =
+    List.concat_map
+      (fun (a, b, code) ->
+        List.concat_map
+          (fun operator ->
+            [
+              ( Printf.sprintf
+                  "I64 F(I64 a,I64 b){I8 x=a%sb;if(a)x+=1;return x;}F(%s,%s);"
+                  operator a b,
+                code );
+              ( Printf.sprintf
+                  "I64 F(I8 x,I64 a,I64 b){if(a)x=a%sb;return x;}F(0,%s,%s);"
+                  operator a b,
+                code );
+              ( Printf.sprintf
+                  "I64 F(I8 x,I64 a,I64 b){if(a)x+=a%sb;return x;}F(0,%s,%s);"
+                  operator a b,
+                code );
+            ])
+          [ "/"; "%" ])
+      [ ("42", "0", "HCIRVM0009"); ("0x8000000000000000", "-1", "HCIRVM0010") ]
+  in
   let faults =
-    [
-      ( "I64 G(I64 n){return 42/n;}I64 F(I8 x,I64 c,I64 z){x+=c;G(z);return \
-         x;}F(127,2,0);",
-        "HCIRVM0009" );
-      ( "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x/=c;n-=one;}return \
-         x;}F(127,3,0,1);",
-        "HCIRVM0009" );
-      ( "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x%=c;n-=one;}return \
-         x;}F(127,3,0,1);",
-        "HCIRVM0009" );
-      ("I64 F(I8 x,I64 c){x%=c;return x;}F(1,0);", "HCIRVM0009");
-      ("I64 F(U8 x,I64 c,I64 d){x+=c;x%=d;return x;}F(255,2,0);", "HCIRVM0009");
-      ( "I64 F(I8 x,I64 c,I64 d){x*=c;x%=d;return x;}F(1,0x8000000000000000,-1);",
-        "HCIRVM0010" );
-      ("I64 F(I8 x,I8 y,I64 c){x%=c;y%=c;return x+y;}F(1,1,0);", "HCIRVM0009");
-      ("I64 F(I8 x,I8 y,I64 c){x/=c;y/=c;return x+y;}F(1,1,0);", "HCIRVM0009");
-      ( "I64 F(U8 x,U8 y,U8 z,I64 c){x/=c;y/=c;z/=c;return x+y+z;}F(1,1,1,0);",
-        "HCIRVM0009" );
-      ("I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(1,0);", "HCIRVM0009");
-      ("I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(1,0);", "HCIRVM0009");
-      ( "I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(0x8000000000000000,-1);",
-        "HCIRVM0010" );
-      ( "I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(0x8000000000000000,-1);",
-        "HCIRVM0010" );
-    ]
+    expression_faults
+    @ [
+        ( "I64 G(I64 n){return 42/n;}I64 F(I8 x,I64 c,I64 z){x+=c;G(z);return \
+           x;}F(127,2,0);",
+          "HCIRVM0009" );
+        ( "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x/=c;n-=one;}return \
+           x;}F(127,3,0,1);",
+          "HCIRVM0009" );
+        ( "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x%=c;n-=one;}return \
+           x;}F(127,3,0,1);",
+          "HCIRVM0009" );
+        ("I64 F(I8 x,I64 c){x%=c;return x;}F(1,0);", "HCIRVM0009");
+        ("I64 F(U8 x,I64 c,I64 d){x+=c;x%=d;return x;}F(255,2,0);", "HCIRVM0009");
+        ( "I64 F(I8 x,I64 c,I64 d){x*=c;x%=d;return \
+           x;}F(1,0x8000000000000000,-1);",
+          "HCIRVM0010" );
+        ("I64 F(I8 x,I8 y,I64 c){x%=c;y%=c;return x+y;}F(1,1,0);", "HCIRVM0009");
+        ("I64 F(I8 x,I8 y,I64 c){x/=c;y/=c;return x+y;}F(1,1,0);", "HCIRVM0009");
+        ( "I64 F(U8 x,U8 y,U8 z,I64 c){x/=c;y/=c;z/=c;return x+y+z;}F(1,1,1,0);",
+          "HCIRVM0009" );
+        ("I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(1,0);", "HCIRVM0009");
+        ("I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(1,0);", "HCIRVM0009");
+        ( "I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(0x8000000000000000,-1);",
+          "HCIRVM0010" );
+        ( "I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(0x8000000000000000,-1);",
+          "HCIRVM0010" );
+      ]
     @ literal_faults
   in
   List.iter

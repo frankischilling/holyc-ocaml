@@ -5704,7 +5704,8 @@
   ../examples/register-pressure.hc
   ../examples/register-computed-assignment.hc
   ../examples/register-computed-updates.hc
-  ../examples/register-computed-initializers.hc)
+  ../examples/register-computed-initializers.hc
+  ../examples/register-integer-expressions.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5726,7 +5727,8 @@
   ../examples/register-pressure.hc
   ../examples/register-computed-assignment.hc
   ../examples/register-computed-updates.hc
-  ../examples/register-computed-initializers.hc)
+  ../examples/register-computed-initializers.hc
+  ../examples/register-integer-expressions.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}

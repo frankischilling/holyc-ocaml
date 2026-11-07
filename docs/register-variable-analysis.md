@@ -415,3 +415,30 @@ parameters and literals, so this does not infer initialization order between
 locals. Conditional declarations, uninitialized locals, calls, casts and
 unsupported expression operators remain unproved. These expectations come
 from pinned source and existing storage semantics, not new TempleOS captures.
+
+## Integer expression operands
+
+The shared expression proof also covers unary plus/minus, complement and
+logical NOT, division/remainder, shifts and the six integer comparisons. These
+operations may appear in discarded assignments, compound-update operands or
+original local initializers. For example, a selected I8 initialized from
+`-(a/b)` with a=1024 and b=2 retains -512. After subtraction by 1 it returns
+-513, while the stack variant returns -1. The
+[integer-expression example](../examples/register-integer-expressions.hc)
+compares these paths.
+
+The destination remains selected by `OptPass4.HC:351-405`; expression operations
+pass through its ordinary integer cases at lines 570-617. The existing integer
+execution rules supply arithmetic, comparison, division-fault and shift-count
+behavior. Matching checks each operator and ordered operand against the typed
+source, including unary payloads. Direct constant shifts retain their original
+literal count in the constant-shift IR node. A count literal is not permission
+to substitute a different literal inside a surrounding expression.
+
+Six-width/four-qualifier tests exercise assignment, compound-update and initializer
+paths. Division by zero and signed division overflow are checked for quotient
+and remainder in all three paths. Parameter-only initializer leaves remain
+required even for shift counts. Calls, casts, short-circuit operators, power,
+consumed assignments and optimizer rewrites that no longer match this source
+tree remain outside the proof. These are hosted, source-derived checks, not new
+TempleOS runtime captures or a general physical register allocator.
