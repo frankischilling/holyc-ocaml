@@ -364,3 +364,30 @@ expressions, branches, loops, locals and values retained across named calls.
 Expectations are source-derived, not a new TempleOS capture. Division, shifts,
 casts, calls within the right-hand expression and consumed assignment results
 remain outside this extension.
+
+## Computed compound operands
+
+The same source-owned arithmetic and bitwise trees can now supply the operand
+of a discarded compound update: `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`,
+`<<=` or `>>=`. For example, `x+=a+b` retains 129 in a selected I8 when x starts
+at 127 and a and b are both 1. A stack I8 wraps to -127. The
+[computed-update example](../examples/register-computed-updates.hc) compares
+these paths.
+
+`OptPass4.HC:351-380` maps the destination of all ten compound operators to a
+selected register independently of the computed right-hand value. Existing
+register/stack update captures supply the arithmetic rules; the new operand
+trees are checked against the original typed source. Literal-only updates keep
+their earlier restrictions, including the conservative limits on immediate
+addition, subtraction and multiplication.
+
+Only a direct shift-count literal is normalized during ownership matching.
+Leaves inside `x<<=a+65` must retain their exact values: replacing 65 with 1
+cannot acquire a fresh proof, even though those two literals differ by 64.
+Runtime shift-count handling still applies to the completed expression.
+
+Tests cover six widths, four qualifiers, all ten operators, locals, branches,
+loops and values retained across named calls. Consumed update results, calls
+or unsupported operators within the operand tree, address escapes and general
+allocation remain outside this proof. Expectations are source-derived; no new
+TempleOS runtime capture is claimed.

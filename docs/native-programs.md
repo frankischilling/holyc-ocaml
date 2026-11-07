@@ -451,3 +451,8 @@ still requires the general allocator.
 now preserve full selected values for source-owned addition, subtraction,
 multiplication and bitwise trees. Stack stores still narrow; calls, casts,
 division and shifts inside those trees remain outside the proof.
+
+[Computed compound operands](register-variable-analysis.md#computed-compound-operands)
+extend all ten discarded integer compound updates to source-owned arithmetic
+and bitwise operand trees. Literal-only restrictions remain in force, and
+nested shift-count literals retain their exact source values.

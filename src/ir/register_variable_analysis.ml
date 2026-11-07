@@ -2806,7 +2806,7 @@ let analyze_control_parameters ~frame ~body =
       let span_matches (operator : Frontend.Ast.expression_operator) =
         item.span = Some operator.operator_location.span
       in
-      let matches_operand value operand =
+      let matches_operand ?(normalize_shift = false) value operand =
         match load operand with
         | Some (_, location) -> binding_matches value location
         | None -> (
@@ -2823,12 +2823,14 @@ let analyze_control_parameters ~frame ~body =
                   } ) ->
                 actual
                 =
-                if item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ then
-                  Int64.logand bits 63L
+                if
+                  normalize_shift
+                  && (item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ)
+                then Int64.logand bits 63L
                 else bits
             | _ -> false)
       in
-      let rec matches_assignment_operand depth value operand =
+      let rec matches_expression_operand depth value operand =
         if depth = 0 then false
         else if matches_operand value operand then true
         else if
@@ -2838,7 +2840,7 @@ let analyze_control_parameters ~frame ~body =
         then
           Option.fold ~none:false
             ~some:(fun inner ->
-              matches_assignment_operand (depth - 1) inner operand)
+              matches_expression_operand (depth - 1) inner operand)
             (Typed.result_operand value)
         else
           match
@@ -2865,8 +2867,8 @@ let analyze_control_parameters ~frame ~body =
               &&
               match expression.operands with
               | [ left_operand; right_operand ] ->
-                  matches_assignment_operand (depth - 1) left left_operand
-                  && matches_assignment_operand (depth - 1) right right_operand
+                  matches_expression_operand (depth - 1) left left_operand
+                  && matches_expression_operand (depth - 1) right right_operand
               | _ -> false)
           | _ -> false
       in
@@ -2880,9 +2882,8 @@ let analyze_control_parameters ~frame ~body =
             | Some (_, location), Some (left, right) -> (
                 span_matches binary.binary_operator
                 && binding_matches left location
-                && (if item.opcode = O.Ic_assign then
-                      matches_assignment_operand 32 right operand
-                    else matches_operand right operand)
+                && (matches_operand ~normalize_shift:true right operand
+                   || matches_expression_operand 32 right operand)
                 &&
                 match (binary.binary_operator_spec.spelling, item.opcode) with
                 | "=", O.Ic_assign
@@ -2959,7 +2960,15 @@ let analyze_control_parameters ~frame ~body =
       | O.Ic_deref, [ target ], _ -> Option.is_some (address target)
       | opcode, [ target; operand ], Some result when update opcode ->
           Option.is_some (address target)
-          && (Option.is_some (load operand) || literal_operand opcode operand)
+          && (Option.is_some (load operand)
+             || literal_operand opcode operand
+             || Option.fold ~none:false
+                  ~some:(fun (expression : Seq.description) ->
+                    match expression.opcode with
+                    | O.Ic_add | Ic_sub | Ic_mul | Ic_and | Ic_or | Ic_xor ->
+                        true
+                    | _ -> false)
+                  (Values.find_opt operand produced))
           && source_matches_update item && discarded result
       | opcode, [ target ], Some result when unary_update opcode ->
           Option.is_some (address target)

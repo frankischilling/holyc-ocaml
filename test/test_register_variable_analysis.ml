@@ -4842,7 +4842,7 @@ let loop_update_selection () =
         [
           "x+=2147483648";
           "x*=2147483648";
-          "x<<=n+1";
+          "x<<=n/3";
           "x/=2";
           "x%=2";
           "x|=1";
@@ -5002,6 +5002,57 @@ let forced_pressure_selection () =
           "I64 F(I8 reg x,I64 reg a,I64 reg b,I64 reg c,I64 reg d,I64 reg \
            e,I64 reg f,I64 reg g,I64 reg h){if(a)x+=1;return \
            x+a+b+c+d+e+f+g+h;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let computed_update_selection () =
+  let module O = Holyc_lib__Ir.Opcode in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun operator ->
+          let fn =
+            compile ~name:"F" mode
+              (Printf.sprintf
+                 "I64 F(I8 x,I64 a,I64 b){if(a)x%s(a+65)*(b-1);return x;}42;"
+                 operator)
+          in
+          Alcotest.(check bool)
+            ("source-owned compound tree: " ^ operator)
+            true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [ "+="; "-="; "*="; "/="; "%="; "&="; "|="; "^="; "<<="; ">>=" ];
+      let fn =
+        compile ~name:"F" mode "I64 F(I8 x,I64 a){if(a)x<<=a+65;return x;}42;"
+      in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      let literal =
+        Body.body fn.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+        |> List.find (fun (d : Seq.description) ->
+            d.opcode = O.Ic_imm_i64 && d.payload = Some (Seq.Integer 65L))
+      in
+      Obj.set_field (Obj.repr literal) 5 (Obj.repr (Some (Seq.Integer 1L)));
+      Alcotest.(check bool)
+        "changed nested shift leaf invalidates proof" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+      Alcotest.(check bool)
+        "nested shift literals are not masked" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "unsupported computed update remains unproved" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I64 a){if(a)x+=a/3;return x;}42;";
+          "I64 F(I8 x,I64 a){if(a)return x+=a+1;return x;}42;";
+          "I64 F(I8 x,I64 a){if(a)x/=3;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -5342,6 +5393,8 @@ let () =
             loop_update_ownership;
           Alcotest.test_case "forced register pressure" `Quick
             forced_pressure_selection;
+          Alcotest.test_case "computed update ownership" `Quick
+            computed_update_selection;
           Alcotest.test_case "computed assignment ownership" `Quick
             computed_assignment_selection;
           Alcotest.test_case "parameter and local reassignment" `Quick

@@ -15184,3 +15184,15 @@ status = "partial"
 issue = 703
 verification = "Six narrow widths and four qualifiers across nested arithmetic and bitwise assignments, parameters, locals, branches, loops and named calls. Operand substitution and payload injection cannot acquire a fresh proof."
 evidence_limit = "Bounded discarded assignments with direct member/literal leaves and source-owned arithmetic/bitwise nodes. Excludes calls, casts, division and shifts within the right-hand tree; no new TempleOS capture."
+
+[[feature]]
+id = "HC-REGISTER-COMPUTED-UPDATES"
+description = "Preserve selected integer values through compound updates with source-owned computed operands."
+sources = ["Compiler/OptPass4.HC:351-380"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-computed-updates.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six widths and four qualifiers across all ten compound operators, parameters, locals, loops and named calls. Nested shift literals are authenticated without applying direct-count normalization."
+evidence_limit = "Bounded discarded updates with source-owned arithmetic/bitwise operand trees. Existing immediate limits remain; consumed results and unsupported tree operators remain unproved. No new TempleOS runtime capture."

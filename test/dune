@@ -5702,7 +5702,8 @@
   ../examples/register-loop-updates.hc
   ../examples/register-reassignment.hc
   ../examples/register-pressure.hc
-  ../examples/register-computed-assignment.hc)
+  ../examples/register-computed-assignment.hc
+  ../examples/register-computed-updates.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5722,7 +5723,8 @@
   ../examples/register-loop-updates.hc
   ../examples/register-reassignment.hc
   ../examples/register-pressure.hc
-  ../examples/register-computed-assignment.hc)
+  ../examples/register-computed-assignment.hc
+  ../examples/register-computed-updates.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
