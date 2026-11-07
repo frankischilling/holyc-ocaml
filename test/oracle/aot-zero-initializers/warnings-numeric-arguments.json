@@ -1,0 +1,21 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "83987ac7bb107002431cf72796a9488a146f7cffb029ccb844db2c8f2bc94aa7",
+  "capture_sha256": "17bf53d6b3cfa862be8b38605d67e1597f4dc4b0b70ccfd6e475cdb87a8e5e21",
+  "fields": {
+    "START": 0,
+    "I8": 1,
+    "U8": 2,
+    "I16": 3,
+    "U16": 4,
+    "I32": 5,
+    "U32": 6,
+    "I64": 7,
+    "U64": 8,
+    "F64": 9,
+    "Bool": 10,
+    "COMPILE_ERRORS": 0
+  },
+  "scope": "Original AOT warning counts for ten numeric parameter types receiving an integer literal, observed twice in one boot.",
+  "boot_iso_sha256": "4e5bba0ba66794897cdc84f2a66a64726b7e4449235b321cfe016b5d98a231b0"
+}

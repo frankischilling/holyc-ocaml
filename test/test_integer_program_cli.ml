@@ -1664,6 +1664,20 @@ let () =
           ("U0 Set(U8 *p){*p=42;}I64 F(U8 n){Set(&n);return n;}F(0);", "i64");
           ("I64 Id(U8 n){return n;}U8 G=Id(42);G;", "u64");
         ];
+      with_file ".hc" "I64 F(U8 n){return ++n;}I64 N=F(255);N;" (fun path ->
+          let status, report = run path in
+          require (status = Unix.WEXITED 0) "native parameter prefix return";
+          require
+            (report |> member "final_value" |> member "value" |> to_string
+           = "256")
+            "native parameter prefix return value");
+      with_file ".hc" "I64 F(U8 n){n=554;return n;}I64 N=F(0);N;" (fun path ->
+          let status, report = run path in
+          require
+            (status = Unix.WEXITED 0
+            && report |> member "final_value" |> member "value" |> to_string
+               = "554")
+            "native selected parameter reassignment");
       List.iter
         (fun text ->
           with_file ".hc" text (fun path ->
@@ -1677,8 +1691,6 @@ let () =
                 && report |> member "output_work" |> to_int = 0)
                 "native parameter and return proof boundary"))
         [
-          "I64 F(U8 n){n=554;return n;}I64 N=F(0);N;";
-          "I64 F(U8 n){return ++n;}I64 N=F(255);N;";
           "U8 G=84;U8 Wide(){return 554;}I64 F(){U8 n=Wide();return G/=n;}I64 \
            N=F();N;";
         ];
@@ -1801,11 +1813,19 @@ let () =
                    = "HCRUN0006")
                 "signed native initializer proof boundary"))
         [
-          "I64 F(){I8 n=255;return n;}I64 N=F();N;";
           "I8 A=-1;I64 N=(A&=255);N;";
           "I8 A=-128;I64 D=-1;I64 F(){I8 n=(A/=D);return n;}I64 N=F();N;";
           "I8 A=-1;U16 N=(A&=255);N;";
         ];
+      with_file ".hc" "I64 F(){I8 n=255;return n;}I64 N=F();N;" (fun path ->
+          let status, report = run path in
+          require
+            (status = Unix.WEXITED 0
+            && report |> member "outcome" |> to_string = "success"
+            && report |> member "final_value" |> member "value" |> to_string
+               = "255"
+            && report |> member "output_hex" |> to_string = "")
+            "proven wide local initializer result");
       let legacy =
         success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
         |> Yojson.Safe.from_string

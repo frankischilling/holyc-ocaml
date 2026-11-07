@@ -1,0 +1,17 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "b85d88dcbb711d3a267c048c1b8754184d25ef01c6d57ee436377ec8cfbb8c4f",
+  "boot_iso_sha256": "a3fdafd32c2a47c508e4858295abf9828a9a9d9926e86a16e9fb73f5ae5fc484",
+  "capture_sha256": "bb8d2a19b8e1be3689ab4f2b166220b0e1de48ad0b10ec9d937a8d3a38122907",
+  "fields": {
+    "PLAIN_REACHED": 1,
+    "PLAIN_RESULT": 42,
+    "INTEGER_REACHED": 1,
+    "INTEGER_RESULT": 1,
+    "INTEGER_CALLS": 1,
+    "VOID_REACHED": 1,
+    "VOID_RESULT": 1,
+    "VOID_CALLS": 1
+  },
+  "scope": "Plain automatic U0 declarations only. Initializer observations are retained as unsupported boundaries, not no-write evidence."
+}

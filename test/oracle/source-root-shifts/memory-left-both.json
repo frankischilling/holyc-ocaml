@@ -1,0 +1,12 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "118326db036150cc1f620b68ef669bfbb2828f4d0ed7233285a2600767b41a56",
+  "capture_sha256": "66d104186aea011ef6b6665c9c07c1fab5f18a42e23686f787abcf51d0d41e57",
+  "boot_iso_sha256": "86bf2be514c486ce130584a236433ce0039f06b757efd75b793d6719da2a74bf",
+  "fields": {
+    "VALUE": "253998",
+    "CALLS": "1",
+    "COMPILE_ERRORS": "0"
+  },
+  "scope": "Repeated original compile-time observations of exposed addressed narrow compound-shift results."
+}

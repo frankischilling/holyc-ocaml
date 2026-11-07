@@ -34,5 +34,24 @@ val is_load_root :
   bool
 (** Check physical membership of one load-time root in its original storage. *)
 
+val is_static_load_root :
+  t ->
+  Ir.Integer_globals.static_slot ->
+  Sema.Function_call_expression_result.initializer_result ->
+  bool
+
+val is_static_load_slot : t -> Ir.Integer_globals.static_slot -> bool
+(** Exact original static roots sealed to their checked AOT load-time regions.
+*)
+
+val owns_static_load_address :
+  t ->
+  globals:Ir.Integer_globals.t ->
+  slot:Ir.Integer_globals.static_slot ->
+  instruction:Ir.Instruction_sequence.Instruction_id.t ->
+  bool
+(** Static addresses in the original entry require an instruction inside a
+    checked load-time region of the same declaring frame and storage bundle. *)
+
 val matches_storage :
   t -> initialization:Ir.Global_initialization.t -> entry:Ir.X87_stack.t -> bool

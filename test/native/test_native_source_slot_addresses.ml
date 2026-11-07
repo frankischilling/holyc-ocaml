@@ -87,6 +87,20 @@ let original_placeholder () =
       "extern I64 F();I64 (*p)()[2]={0,&F};I64 F(){return 42;}p[1]();";
     ]
 
+let placeholder_with_register_value () =
+  (* The undefined-owner suffix is encoded separately from the callable plan.
+     R11 is a source variable here, never an alias for the private context. *)
+  List.iter
+    (fun argument ->
+      fault Image.Undefined_extern
+        (run
+           (Printf.sprintf
+              "extern I64 F();I64 (*p)()=&F;I64 Indirect(){p();return 0;}I64 \
+               Call(I64 reg R11 x){x+=1;Indirect();return x;}Call(%Ld);"
+              argument)))
+    [ -1L; 0L; 42L ];
+  value 42L (run "I64 F(I64 reg R11 x){x+=1;return x;}F(41);")
+
 let capture_before_arguments () =
   let report =
     run
@@ -231,6 +245,8 @@ let () =
             installed_slot;
           Alcotest.test_case "shared placeholder and pre-installation capture"
             `Quick original_placeholder;
+          Alcotest.test_case "undefined suffix preserves callable context"
+            `Quick placeholder_with_register_value;
           Alcotest.test_case "capture precedes argument effects" `Quick
             capture_before_arguments;
           Alcotest.test_case "cumulative quotas and independent tasks" `Quick

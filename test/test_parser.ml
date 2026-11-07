@@ -20764,8 +20764,73 @@ let variadic_header_completed_children () =
            !events))
     [ ""; ")" ]
 
+let pending_prefix_update_binding () =
+  let expression output =
+    match List.hd (List.rev (expect_ast output).items) with
+    | Ast.Top_level_statement (Ast.Expression_statement statement) ->
+        statement.expression_statement_expression
+    | _ -> Alcotest.fail "expected the original prefix expression"
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (spelling, outer_kind, update_kind) ->
+          let header = "I64 *p;" in
+          let _, _, output =
+            parse_string ~compilation_mode:mode (header ^ spelling ^ ";")
+          in
+          let outer = expression output |> expect_prefix_expression in
+          Alcotest.(check bool)
+            "pending unary operator stays outside the update" true
+            (outer.prefix_operator_kind = outer_kind);
+          let update = outer.prefix_operand |> expect_prefix_expression in
+          Alcotest.(check bool)
+            "update reaches the term before pending operators" true
+            (update.prefix_operator_kind = update_kind);
+          Alcotest.(check string)
+            "original selected identifier" "p"
+            (expect_identifier_expression update.prefix_operand).spelling;
+          Alcotest.(check int)
+            "whole expression retains its leading update span"
+            (String.length header) outer.prefix_location.span.start;
+          Alcotest.(check int)
+            "whole expression retains its final token"
+            (String.length header + String.length spelling)
+            outer.prefix_location.span.stop)
+        [
+          ("++*p", Ast.Dereference, Ast.Pre_increment);
+          ("--*p", Ast.Dereference, Ast.Pre_decrement);
+          ("++-p", Ast.Unary_minus, Ast.Pre_increment);
+          ("--!p", Ast.Logical_not, Ast.Pre_decrement);
+          ("++~p", Ast.Bitwise_not, Ast.Pre_increment);
+        ];
+      let _, _, output = parse_string ~compilation_mode:mode "I64 *p;++(*p);" in
+      let update = expression output |> expect_prefix_expression in
+      Alcotest.(check bool)
+        "group retains the outer update" true
+        (update.prefix_operator_kind = Ast.Pre_increment);
+      let group = update.prefix_operand |> expect_parenthesized_expression in
+      let dereference = group.grouped_expression |> expect_prefix_expression in
+      Alcotest.(check bool)
+        "group retains its own dereference" true
+        (dereference.prefix_operator_kind = Ast.Dereference);
+      let _, _, output =
+        parse_string ~compilation_mode:mode "#define STEP ++\nI64 *p;STEP *p;"
+      in
+      let dereference = expression output |> expect_prefix_expression in
+      let update = dereference.prefix_operand |> expect_prefix_expression in
+      Alcotest.(check bool)
+        "generated update retains invocation provenance" true
+        (Option.is_some update.prefix_operator.operator_location.generated_from);
+      Alcotest.(check bool)
+        "generated update retains definition provenance" true
+        (Option.is_some update.prefix_operator.operator_location.defined_at))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let tests =
   [
+    Alcotest.test_case "pending prefix update binding and source provenance"
+      `Quick pending_prefix_update_binding;
     Alcotest.test_case "variadic header caller termination" `Quick
       variadic_header_caller_termination;
     Alcotest.test_case "variadic header locations and dumps" `Quick

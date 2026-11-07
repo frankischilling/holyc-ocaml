@@ -532,19 +532,34 @@ let faults_and_loops () =
       ("85%0;", "HCIRVM0009");
       ("I64 F(I64 x){return x/-1;}F(0x8000000000000000);", "HCIRVM0010");
       ("I64 F(I64 x){return x%-1;}F(0x8000000000000000);", "HCIRVM0010");
+      ("I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(1,0);", "HCIRVM0009");
+      ("I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(1,0);", "HCIRVM0009");
+      ("I64 F(I64 c){I8 x=1;x/=c;return x;}F(0);", "HCIRVM0009");
+      ("I64 F(I64 c){I8 x=1;x%=c;return x;}F(0);", "HCIRVM0009");
+      ( "I64 F(I64 c){I8 x=0x8000000000000000;x/=c;return x;}F(-1);",
+        "HCIRVM0010" );
+      ( "I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}F(0x8000000000000000,-1);",
+        "HCIRVM0010" );
+      ( "I64 F(I64 c){I8 x=0x8000000000000000;x%=c;return x;}F(-1);",
+        "HCIRVM0010" );
+      ( "I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}F(0x8000000000000000,-1);",
+        "HCIRVM0010" );
     ]
   in
   List.iter
-    (fun (contents, code) ->
-      with_file ".hc" contents (fun source ->
-          let report = native_json ~status:1 source in
-          require
-            (report |> member "outcome" |> to_string = "error"
-            && report |> member "executed_steps" <> `Null
-            && member "final_value" report = `Null
-            && first_code report = code)
-            (contents ^ " native arithmetic fault report")))
-    cases;
+    (fun mode ->
+      List.iter
+        (fun (contents, code) ->
+          with_file ".hc" contents (fun source ->
+              let report = native_json ~status:1 ~mode source in
+              require
+                (report |> member "outcome" |> to_string = "error"
+                && report |> member "executed_steps" <> `Null
+                && member "final_value" report = `Null
+                && first_code report = code)
+                (contents ^ " native arithmetic fault report")))
+        cases)
+    [ "jit"; "aot" ];
   List.iter
     (fun mode ->
       List.iter
@@ -584,7 +599,7 @@ let source_rejection_has_no_native_outcome () =
             (contents ^ " rejects before native entry")))
     [
       "I64 N=1;I64 x=N<<2;";
-      "I64 Bad(){F64 x=1.0;return 0;} 42;";
+      "I64 Bad(){reg F64 x=1.0;return 0;} 42;";
       "1/0; I64 F(I64 n=42){return n;} F();";
       "I64 N;I64 F(I64 n=N<<3){return n;} F();";
       "extern I64 Add(I64 x); 42;";

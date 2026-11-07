@@ -64,6 +64,8 @@ let contexts () =
             (integer_program_report_output_bytes report))
         [
           retained "return X/2;";
+          retained "I64 n=1;return X>>n;";
+          retained "I8 x=-7;I8 n=1;return x>>n;";
           retained "I64 x=X;x/=2;return x;";
           retained "I8 x=-7;x/=2;return x;";
           retained "I8 x=-7;I8 *p=&x;*p/=2;return x;";
@@ -138,6 +140,13 @@ let authority () =
           ("I64 F(I64 x){return x/2;}F(-7);", Op.Ic_shr_const, -4L);
           ("I64 F(I64 x){return x<<1;}F(-7);", Op.Ic_shl_const, -14L);
           ("I64 F(I64 x){x/=2;return x;}F(-7);", Op.Ic_shr_equ, -4L);
+          ("I64 F(I64 x,I64 n){return x>>n;}F(-7,1);", Op.Ic_shr, -4L);
+          ("I64 F(I64 x,I64 n){x<<=n;return x;}F(7,1);", Op.Ic_shl_equ, 14L);
+          ("I64 F(I64 x,I64 n){x>>=n;return x;}F(-8,1);", Op.Ic_shr_equ, -4L);
+          ("I64 F(I8 x,I64 n){x>>=n;return x;}F(-7,65);", Op.Ic_shr_equ, -4L);
+          ( "I64 F(I8 x,I8 n){I8 *p=&x;*p<<=n;return x;}F(127,1);",
+            Op.Ic_shl_equ,
+            -2L );
         ])
     modes
 
@@ -184,8 +193,18 @@ let transitive_authority () =
       let proof = Option.get (collected raw) in
       let cell, shift = S.find_cell raw Op.Ic_shr in
       Alcotest.(check bool)
-        "raw shift has no preparation authority" false
+        "original raw shift retains preparation authority" true
         (Calls.is_original_preparation_shift proof shift);
+      let changed = A.fixture ~source mode in
+      let _ = Option.get (collected changed) in
+      let input_cell, input = S.find_cell changed Op.Ic_deref in
+      Obj.set_field (Obj.repr input_cell) 0
+        (Obj.repr { input with operands = List.map Fun.id input.operands });
+      Alcotest.(check bool)
+        "copied raw shift input cannot collect" true
+        (Option.is_none (collected changed));
+      A.rejects "VM rejects changed raw shift input" (A.execute changed);
+      A.rejects "native rejects changed raw shift input" (A.compile changed);
       Obj.set_field (Obj.repr cell) 0
         (Obj.repr
            {
@@ -235,7 +254,31 @@ let ranges_and_boundaries () =
           Alcotest.(check (option int64))
             "bounded narrow right shift" (Some 42L)
             (Option.map (fun w -> w.VM.bits) (VM.final_value e)))
-        [ "I8 x=-7;x/=2;return x;"; "I8 x=-7;I8 y=x;y>>=1;return y;" ];
+        [
+          "I8 x=-7;x/=2;return x;";
+          "I8 x=-7;I8 y=x;y>>=1;return y;";
+          "I8 x=-7;I64 n=65;x>>=n;return x;";
+        ];
+      let _, addressed =
+        success mode
+          (retained ~expected:"-2" "I8 x=127;I8 n=1;I8 *p=&x;*p<<=n;return x;")
+      in
+      Alcotest.(check (option int64))
+        "addressed narrow update stores low byte" (Some 44L)
+        (Option.map (fun w -> w.VM.bits) (VM.final_value addressed));
+      let _, expression =
+        success mode
+          (retained ~expected:"254" "I8 x=127;I8 *p=&x;return *p<<=1;")
+      in
+      Alcotest.(check (option int64))
+        "addressed narrow update keeps full result" (Some 300L)
+        (Option.map (fun w -> w.VM.bits) (VM.final_value expression));
+      let _, shifted =
+        success mode (retained ~expected:"-7" "I64 x=X;x>>=64;return x;")
+      in
+      Alcotest.(check (option int64))
+        "masked retained update count" (Some 39L)
+        (Option.map (fun w -> w.VM.bits) (VM.final_value shifted));
       List.iter
         (fun source ->
           match integer_program_report_outcome (run mode source) with
@@ -248,8 +291,6 @@ let ranges_and_boundaries () =
           retained "I8 x=-7;x*=3;x/=2;return x;";
           retained "I8 x=-7;x/=2;x=249;return x;";
           retained "I8 reg RAX x=-7;x/=2;return x;";
-          retained "I64 n=1;return X>>n;";
-          retained "I64 x=X;x>>=64;return x;";
           "I64 F(I64 x){return x/2;}I64 G=F(-7);G;";
         ])
     modes

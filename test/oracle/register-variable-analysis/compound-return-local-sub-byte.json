@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "d81cf5b7b92398fd8f0172baa9bb84b7ef3db689590c6e7c61d88293ba08333a",
+  "boot_payload_sha256": "40db86df79618f117814d663877f50d766f32a98ceee89f984d3f948b38c5067",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "df67d80fd5978c115245d95f771e3c93714e237ec1029c68a1c4651993e0be0a",
+  "boot_iso_sha256": "a6085217131f15e78f60cb8be826b391891c5ff8c0e93480c2ccbccc214ec9e3",
+  "fields": {
+    "J_S": "254",
+    "J_U": "255",
+    "J_SN": "-2",
+    "J_UN": "255",
+    "ERR": "0",
+    "A_S": "254",
+    "A_U": "255",
+    "A_SN": "-2",
+    "A_UN": "255"
+  },
+  "scope": "Repeated original JIT and compiled observations of directly returned local compound updates. Stored source omits boot padding."
+}

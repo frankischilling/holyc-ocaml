@@ -211,8 +211,19 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               ast
           in
           let typed = Integer_source.top_level prepared in
+          let* initializer_layouts =
+            match source_command with
+            | None -> Ok []
+            | Some command ->
+                Task_declarations.source_initializer_layouts
+                  ~table:(Session.semantic_symbols session)
+                  ~ast command
+          in
           let* globals_ =
-            Ir.Integer_globals.create_with_layout
+            Ir.Integer_globals.create_with_layout ?task_view
+              ~initializer_layouts
+              ~members:(Integer_source.aggregate_members prepared)
+              ~headers:(Integer_source.aggregate_headers prepared)
               ~layout:(Integer_source.global_layouts prepared)
               ~initializers:typed ~span:ast.span
               (Integer_source.global_records prepared)
@@ -303,8 +314,20 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     ]))
               task_view
           in
+          let* initializer_snapshots =
+            match source_command with
+            | None -> Ok []
+            | Some command ->
+                Task_declarations.source_static_initializer_snapshots
+                  ~table:(Session.semantic_symbols session)
+                  ~ast command
+          in
           let* globals_ =
             Ir.Integer_globals.with_statics ~span:ast.span
+              ~initializer_snapshots
+              ?source_allocations:
+                (Option.map Ir.Integer_globals.private_static_allocations
+                   task_view)
               ~frames:(Integer_source.frames prepared)
               ~functions:(Integer_source.functions prepared)
               ~records:(Integer_source.records prepared)
@@ -629,6 +652,49 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       "switch case does not own its original checked endpoint \
                        roots"
             in
+            let empty_static_initializer (declarator : Ast.local_declarator)
+                (ast_initial : Ast.local_initializer) =
+              Option.fold ~none:false
+                ~some:(fun owner ->
+                  List.exists
+                    (fun slot ->
+                      let location = Ir.Integer_globals.static_location slot in
+                      Frame.function_symbol
+                        (Ir.Integer_globals.static_frame slot)
+                      == owner
+                      && Frame.location_kind location = Frame.Static_local
+                      && Frame.location_dimensions location <> []
+                      && Frame.location_allocated_size location = 0L
+                      && Frame.location_source_dimensions_checked location
+                      && Ir.Integer_globals.static_initializers slot = []
+                      && Option.fold ~none:false
+                           ~some:(fun initializers ->
+                             Ir.Integer_array_initializers.entries initializers
+                             = [])
+                           (Ir.Integer_globals.static_array_initializers slot)
+                      && Option.fold ~none:false
+                           ~some:(fun local ->
+                             Sema.Local_type_resolution.local_storage local
+                             = Sema.Local_type_resolution.Static
+                             && source_span
+                                  (Sema.Local_type_resolution
+                                   .local_declarator_origin local)
+                                = declarator.local_declarator_location.span
+                             && Option.fold ~none:false
+                                  ~some:(fun manifest ->
+                                    Sema.Initializer_source.matches_ast manifest
+                                      ast_initial.local_initializer_value
+                                    && Sema.Initializer_source.leaves manifest
+                                       = [])
+                                  (Option.bind
+                                     (Sema.Local_type_resolution
+                                      .local_initializer local)
+                                     Sema.Local_type_resolution
+                                     .initializer_source))
+                           (Frame.location_local_source location))
+                    (Ir.Integer_globals.statics globals_))
+                function_symbol
+            in
             let rec statement source_statement =
               match source_statement with
               | Ast.Empty_statement empty ->
@@ -672,6 +738,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                        (fun (declarator : Ast.local_declarator) ->
                          match declarator.local_initializer with
                          | None -> None
+                         | Some ast_initial
+                           when empty_static_initializer declarator ast_initial
+                           -> None
                          | Some ast_initial ->
                              let batch =
                                consume initializers
@@ -1378,6 +1447,16 @@ let compile_source_in_task_budget ~task ~source_command session ~config parsed =
     VM.settle_isolated_aggregate_offsets task
       ~table:(Session.semantic_symbols session)
       (Task_declarations.source_offsets source_command)
+    |> Result.map_error (fun message ->
+        [
+          Integer_source.message_diagnostic
+            ~span:(Option.get parsed.Frontend.Parser.ast).span message;
+        ])
+  in
+  let* () =
+    VM.settle_isolated_member_metadata task
+      ~table:(Session.semantic_symbols session)
+      (Task_declarations.source_member_metadata source_command)
     |> Result.map_error (fun message ->
         [
           Integer_source.message_diagnostic

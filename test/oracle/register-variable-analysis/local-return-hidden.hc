@@ -1,0 +1,1 @@
+U0 P(U8 *n,I64 v){U8 b[80],*p=b;StrPrint(b,"%s=%d\n",n,v);while(*p)OutU8(0xE9,*p++);}U8 *s="#include \"/Kernel/KernelA.HH\"\n#exe {U8 G=84;I64 D(){U8 d=554;return d;}I64 F(){return G/=D();}I64 N=F();P(\"VALUE\",N);P(\"STORED\",G);}\n";FileWrite("B:/HID.HC",s,StrLen(s));P("ERR",Cmp("B:/HID.HC"));U8 *z="POINTER_DONE\n";while(*z)OutU8(0xE9,*z++);

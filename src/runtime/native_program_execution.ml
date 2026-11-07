@@ -116,6 +116,22 @@ external copy_task_static_bytes :
   Ir.Native_source_suspension.t option ->
   int = "holyc_native_task_static_copy"
 
+external copy_task_initializer_bytes :
+  task_arena_handle ->
+  int * int * int * string ->
+  Ir.Native_source_suspension.t option ->
+  Ir.Integer_interpreter.native_initializer_copy ->
+  Ir.Integer_interpreter.native_initializer_copy
+  Ir.Native_initializer_copy_receipt.t = "holyc_native_task_initializer_copy"
+
+external copy_task_static_initializer_bytes :
+  task_arena_handle ->
+  int * int * int * string ->
+  Ir.Native_source_suspension.t option ->
+  Ir.Integer_interpreter.native_static_initializer_copy ->
+  Ir.Integer_interpreter.native_static_initializer_copy
+  Ir.Native_initializer_copy_receipt.t = "holyc_native_task_initializer_copy"
+
 external read_task_default_string :
   task_arena_handle ->
   int * int * int * int ->
@@ -186,6 +202,12 @@ type scalar_capture =
   | Switch_case_capture of
       Ir.Switch_case_fragment_program.t Ir.Native_scalar_capture.t
   | Offset_capture of Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t
+  | Metadata_capture of
+      Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t
+  | Initializer_capture of
+      Ir.Initializer_fragment_program.t Ir.Native_scalar_capture.t * Domain.id
+  | Static_initializer_capture of
+      Ir.Static_initializer_program.t Ir.Native_scalar_capture.t * Domain.id
 
 type task_arena = {
   layout_ : Task_storage.task_layout;
@@ -223,7 +245,8 @@ type retained = {
 
 let platform = Native_execution.platform
 let platform_name = Native_execution.platform_name
-let hard_max_active_stack_bytes = 65_536
+let default_active_stack_bytes = 65_536
+let hard_max_active_stack_bytes = 524_288
 let hard_max_global_bytes = 16_777_216
 let hard_max_literal_bytes = 16_777_216
 let hard_max_arena_bytes = 33_554_432
@@ -294,14 +317,19 @@ let release_arena_lease arena borrowed =
 let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
     ?source_callback_state ?consumed_after_source ?activation_step_restriction
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
-    ?(max_active_stack_bytes = hard_max_active_stack_bytes)
+    ?(max_active_stack_bytes = default_active_stack_bytes)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~max_steps
     image =
   let prior_steps, prior_output, prior_work =
     Option.value ~default:(0, 0, 0) consumed
   in
-  if max_steps <= 0 then
+  if Image.requires_x87 image && not (Native_execution.x87_supported ()) then
+    error_report Native_execution.x87_unavailable_message
+  else if
+    Image.requires_fisttp image && not (Native_execution.fisttp_supported ())
+  then error_report Native_execution.fisttp_unavailable_message
+  else if max_steps <= 0 then
     error_report "native program max_steps must be greater than zero"
   else if max_frame_bytes <= 0 then
     error_report "native program max_frame_bytes must be greater than zero"
@@ -398,13 +426,7 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
         else if arena_bytes > hard_max_arena_bytes then
           error_report
             "native program private arena exceeds the hard host byte bound"
-        else if
-          global_bytes = 0 && literal_bytes = 0 && arena_bytes <> 0
-          && Image.code_owner_bindings image = []
-        then
-          error_report
-            "native program without persistent data has a nonempty private \
-             arena image"
+          (* Empty roots can retain owner metadata without any data bytes. *)
         else if arena_bytes <> global_bytes + literal_bytes + metadata_bytes
         then
           error_report
@@ -585,6 +607,42 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                   Option.map
                                     (fun value -> Offset_capture value)
                                     capture;
+                                report
+                            | Some (Image.Member_metadata program) ->
+                                let report, capture =
+                                  execute_retained_budget_scalar_program
+                                    (Option.get retained) task limits consumed
+                                    (Option.get entered, program)
+                                in
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value -> Metadata_capture value)
+                                    capture;
+                                report
+                            | Some (Image.Initializer program) ->
+                                let report, capture =
+                                  execute_retained_budget_scalar_program
+                                    (Option.get retained) task limits consumed
+                                    (Option.get entered, program)
+                                in
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value ->
+                                      Initializer_capture (value, Domain.self ()))
+                                    capture;
+                                report
+                            | Some (Image.Static_initializer program) ->
+                                let report, capture =
+                                  execute_retained_budget_scalar_program
+                                    (Option.get retained) task limits consumed
+                                    (Option.get entered, program)
+                                in
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value ->
+                                      Static_initializer_capture
+                                        (value, Domain.self ()))
+                                    capture;
                                 report)
                         | None, Some _ ->
                             invalid_arg
@@ -626,7 +684,7 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                 literal_bytes,
                                 metadata_bytes,
                                 global_image )
-                          else if function_count = 0 then
+                          else if not (Image.is_callable image) then
                             execute_program_image (Image.code image)
                               (Image.windows_unwind_info image)
                               abi_code max_steps
@@ -723,10 +781,30 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                 capture;
                               let internal =
                                 match outcome_ with
-                                | Image.Completed { final_value = Some _; _ } ->
-                                    Option.map
-                                      (fun value -> (image, value))
-                                      !scalar_capture
+                                | Image.Completed completed ->
+                                    let accepts_void =
+                                      match Image.scalar_program image with
+                                      | Some (Image.Initializer program) ->
+                                          Ir.Initializer_fragment_destination
+                                          .discards_value
+                                            (Ir.Initializer_fragment_program
+                                             .destination program)
+                                      | Some (Image.Static_initializer program)
+                                        ->
+                                          Ir.Static_initializer_destination
+                                          .discards_value
+                                            (Ir.Static_initializer_program
+                                             .destination program)
+                                      | _ -> false
+                                    in
+                                    if
+                                      Option.is_some completed.final_value
+                                      || accepts_void
+                                    then
+                                      Option.map
+                                        (fun value -> (image, value))
+                                        !scalar_capture
+                                    else None
                                 | _ -> None
                               in
                               Atomic.set binding.task_arena_.scalar_capture_
@@ -751,7 +829,7 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
 
 let retained_identity_prefix ?(max_global_bytes = 1_048_576)
     ?(max_literal_bytes = 1_048_576)
-    ?(max_active_stack_bytes = hard_max_active_stack_bytes) image =
+    ?(max_active_stack_bytes = default_active_stack_bytes) image =
   let abi = Image.status_abi image in
   let abi_code =
     match (platform (), abi) with
@@ -759,7 +837,12 @@ let retained_identity_prefix ?(max_global_bytes = 1_048_576)
     | Linux_x86_64, Image.System_v_x64 -> Some 2
     | _ -> None
   in
-  if max_global_bytes <= 0 || max_global_bytes > hard_max_global_bytes then
+  if Image.requires_x87 image && not (Native_execution.x87_supported ()) then
+    Error Native_execution.x87_unavailable_message
+  else if
+    Image.requires_fisttp image && not (Native_execution.fisttp_supported ())
+  then Error Native_execution.fisttp_unavailable_message
+  else if max_global_bytes <= 0 || max_global_bytes > hard_max_global_bytes then
     Error "retained native max_global_bytes is outside the host bound"
   else if max_literal_bytes <= 0 || max_literal_bytes > hard_max_literal_bytes
   then Error "retained native max_literal_bytes is outside the host bound"
@@ -1049,6 +1132,75 @@ let finish_task_offset ?scope arena image =
           Error
             "native scalar capture has another original image, kind or arena")
 
+let finish_task_member_metadata ?scope arena image =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let reached = Atomic.get arena.scalar_capture_ in
+      match
+        (Image.task_snapshot image, Image.member_metadata image, reached)
+      with
+      | Some snapshot, Some _, Some (entered, Metadata_capture captured)
+        when (not (Atomic.get arena.arena_revoked_))
+             && entered == image
+             && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
+          Ok captured
+      | _ ->
+          Error
+            "native scalar capture has another original image, kind or arena")
+
+let finish_task_initializer ?scope arena image =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let reached = Atomic.get arena.scalar_capture_ in
+      match
+        (Image.task_snapshot image, Image.scalar_initializer image, reached)
+      with
+      | ( Some snapshot,
+          Some _,
+          Some (entered, Initializer_capture (captured, domain)) )
+        when (not (Atomic.get arena.arena_revoked_))
+             && domain = Domain.self ()
+             && entered == image
+             && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
+          Ok captured
+      | _ ->
+          Error
+            "native initializer scalar capture has another image, kind or arena")
+
+let finish_task_static_initializer ?scope arena image =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let reached = Atomic.get arena.scalar_capture_ in
+      match
+        ( Image.task_snapshot image,
+          Image.scalar_static_initializer image,
+          reached )
+      with
+      | ( Some snapshot,
+          Some _,
+          Some (entered, Static_initializer_capture (capture, domain)) )
+        when (not (Atomic.get arena.arena_revoked_))
+             && domain = Domain.self ()
+             && entered == image
+             && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
+          Ok capture
+      | _ ->
+          Error
+            "native static scalar capture has another original image, kind or \
+             arena")
+
 let finish_task_data_default ?scope ?max_copy_bytes arena image captured
     ~max_copy_steps =
   let failure message = (Error message, 0) in
@@ -1220,6 +1372,50 @@ let allocate_task_static ?scope ?max_global_bytes arena request =
               Atomic.set arena.admitted_bytes_ observed;
               Ok ())
           with Failure message | Invalid_argument message -> Error message)
+
+let copy_task_initializer ?scope arena request token =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let* plan =
+        Task_storage.prepare_initializer_copy arena.layout_ request token
+          ~admitted_arena_bytes:(Atomic.get arena.admitted_bytes_)
+      in
+      let* () =
+        Task_storage.check_initializer_copy plan ~layout:arena.layout_ ~request
+          ~token
+      in
+      let payload = Task_storage.initializer_copy_payload plan in
+      let* () =
+        Driver.Integer_task.Native_dispatch.claim_initializer_copy request token
+      in
+      try Ok (copy_task_initializer_bytes arena.handle_ payload scope token)
+      with Failure message | Invalid_argument message -> Error message)
+
+let copy_task_static_initializer ?scope arena request token =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let* plan =
+        Task_storage.prepare_static_initializer_copy arena.layout_ request token
+          ~admitted_arena_bytes:(Atomic.get arena.admitted_bytes_)
+      in
+      let* () =
+        Task_storage.check_static_initializer_copy plan ~layout:arena.layout_
+          ~request ~token
+      in
+      let payload = Task_storage.static_initializer_copy_payload plan in
+      let* () =
+        Driver.Integer_task.Native_static_initializer.claim_copy request token
+      in
+      try
+        Ok
+          (copy_task_static_initializer_bytes arena.handle_ payload scope token)
+      with Failure message | Invalid_argument message -> Error message)
 
 let copy_task_static ?scope arena request =
   let module Request = Driver.Integer_task.Native_static_copy in

@@ -159,6 +159,7 @@ type graph_context = {
 type t = {
   records_ : Records.t;
   typed_top_level : Typed.top_level_t;
+  function_source_owners : (Function_body.t * Typed.resolved_function) list;
   dimension_dependencies_ :
     Sema.Compiler_record.runtime_dimension_proposal list;
   offset_dependencies_ : Sema.Compiler_record.aggregate_offset list;
@@ -270,7 +271,16 @@ let pointer_difference_division produced (description : Seq.description) =
 
 let integer_reduction (description : Seq.description) =
   List.mem description.opcode
-    [ Opcode.Ic_shl_const; Ic_shr_const; Ic_and; Ic_and_equ; Ic_shr_equ ]
+    [
+      Opcode.Ic_shl_const;
+      Ic_shr_const;
+      Ic_shl;
+      Ic_shr;
+      Ic_and;
+      Ic_and_equ;
+      Ic_shl_equ;
+      Ic_shr_equ;
+    ]
 
 let source_producers_match context =
   List.for_all
@@ -370,6 +380,64 @@ let matches_graph context ~owner graph =
     | Entry -> X87_stack.graph context.entry == graph
     | Function body -> Function_body.body body == graph)
   && source_producers_match context
+
+let function_call_targets context ~body =
+  let owner = Function body in
+  if not (matches_graph context ~owner (Function_body.body body)) then None
+  else
+    match
+      ( find_graph context owner,
+        Function_body.definition_source body,
+        List.find_opt
+          (fun (original, _) -> original == body)
+          context.function_source_owners )
+    with
+    | Some graph, Some source, Some (_, original_source)
+      when source == original_source
+           && Typed.function_source_body_valid source
+           && Instructions.is_empty graph.callback_calls
+           && Instructions.is_empty graph.intrinsic_starts ->
+        let expected =
+          Typed.function_calls source
+          |> List.filter_map (function
+            | Typed.Direct_call_result call -> Some call
+            | _ -> None)
+        in
+        let targets =
+          Instructions.bindings graph.calls
+          |> List.map (fun (_, (call : call)) ->
+              match call.description.source with
+              | Function_call target
+                when Sema.Function_call_target_classification.declaration target
+                     == call.declaration_
+                     && List.exists
+                          (fun original ->
+                            original
+                            == Sema.Function_call_target_classification.source
+                                 target)
+                          expected -> Some target
+              | _ -> None)
+        in
+        if
+          List.length targets <> List.length expected
+          || List.exists Option.is_none targets
+        then None
+        else
+          let targets = List.map Option.get targets in
+          if
+            List.for_all
+              (fun original ->
+                List.length
+                  (List.filter
+                     (fun target ->
+                       Sema.Function_call_target_classification.source target
+                       == original)
+                     targets)
+                = 1)
+              expected
+          then Some targets
+          else None
+    | _ -> None
 
 let exception_regions context ~owner =
   if source_producers_match context then
@@ -562,14 +630,9 @@ let is_original_pointer_difference_division divisions
 type preparation_shifts = Seq.description Instructions.t
 
 let original_preparation_shifts context ~owner =
-  let word (item : Seq.description) =
+  let scalar (item : Seq.description) =
     Option.fold ~none:false
-      ~some:(fun type_ ->
-        Type.pointer_depth type_ = 0
-        &&
-        match Type.base type_ with
-        | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
-        | _ -> false)
+      ~some:(fun type_ -> Option.is_some (Integer_scalar_storage.of_type type_))
       item.target_type
   in
   if not (source_producers_match context) then None
@@ -592,29 +655,20 @@ let original_preparation_shifts context ~owner =
             | ( (Opcode.Ic_shl_const | Ic_shr_const),
                 [ operand ],
                 Some (Seq.Integer _) ) ->
-                word item
-                && Option.fold ~none:false ~some:word
+                scalar item
+                && Option.fold ~none:false ~some:scalar
                      (Values.find_opt operand produced)
-            | Opcode.Ic_shr_equ, [ _; count ], None ->
-                Option.is_some
-                  (Option.bind item.target_type Integer_scalar_storage.of_type)
-                && Option.fold ~none:false
-                     ~some:(fun (right : Seq.description) ->
-                       right.opcode = Opcode.Ic_imm_i64
-                       && Lock_semantics.clear_flag right.flags = 0L
-                       && right.operands = []
-                       && Option.fold ~none:false
-                            ~some:(fun type_ ->
-                              Type.pointer_depth type_ = 0
-                              && Type.base type_
-                                 = Type.Primitive
-                                     ( Type.Internal_storage,
-                                       Sema.Primitive_type.I64 ))
-                            right.target_type
-                       &&
-                       match right.payload with
-                       | Some (Seq.Integer bits) -> bits >= 0L && bits <= 63L
-                       | _ -> false)
+            | (Opcode.Ic_shl | Ic_shr), [ left; right ], None ->
+                scalar item
+                && List.for_all
+                     (fun operand ->
+                       Option.fold ~none:false ~some:scalar
+                         (Values.find_opt operand produced))
+                     [ left; right ]
+            | (Opcode.Ic_shl_equ | Ic_shr_equ), [ target; count ], None ->
+                scalar item
+                && Option.is_some (Values.find_opt target produced)
+                && Option.fold ~none:false ~some:scalar
                      (Values.find_opt count produced)
             | _ -> false)
           graph.source_producers)
@@ -855,7 +909,8 @@ let intrinsic_opcode_of_source source =
           if value < 0L || value > Int64.of_int Int.max_int then None
           else
             match Generated.Intermediate_codes.of_code (Int64.to_int value) with
-            | Some opcode when Integer_intrinsic.supports opcode -> Some opcode
+            | Some opcode when Numeric_intrinsic.runtime_supports opcode ->
+                Some opcode
             | Some _ | None -> None)
   | Some _ | None -> None
 
@@ -1371,15 +1426,15 @@ let approved_provider shape =
 let approved_intrinsic shape opcode =
   Option.fold ~none:false
     ~some:(fun count -> List.length shape.fixed = count)
-    (Integer_intrinsic.arity opcode)
+    (Numeric_intrinsic.runtime_arity opcode)
   && Records.call_access shape.selected_record = Records.Internal_operation
   && Records.is_internal shape.selected_record
-  && Integer_intrinsic.result_matches opcode shape.result_type
+  && Numeric_intrinsic.runtime_result_matches opcode shape.result_type
   && List.for_all
        (fun (index, (parameter, argument)) ->
          Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
-         && Integer_intrinsic.argument_matches opcode ~index
+         && Numeric_intrinsic.runtime_argument_matches opcode ~index
               (parameter_type parameter)
          &&
          match argument with
@@ -1442,6 +1497,11 @@ let rec producer_origin result =
   if Typed.result_is_array_address result then own ()
   else
     match Typed.result_source result |> Resolution.argument_expression_kind with
+    | Resolution.Prefix_expression _
+      when Option.is_some (Typed.result_canceled_callback_update_operand result)
+      ->
+        producer_origin
+          (Option.get (Typed.result_canceled_callback_update_operand result))
     | Resolution.Prefix_expression _
       when Option.is_some (Typed.result_canceled_callback_operand result) ->
         producer_origin
@@ -2259,7 +2319,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                    slots";
                 pending.phase <- Cleaned (call, item.instruction_id)
             | opcode, pending :: _
-              when Integer_intrinsic.supports opcode
+              when Numeric_intrinsic.runtime_supports opcode
                    && pending.intrinsic_opcode = Some opcode ->
                 require ?span
                   (pending.phase = Collecting && item.result = None
@@ -2270,7 +2330,9 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                        item.target_type)
                   "checked internal operation has an invalid instruction shape";
                 let expected = List.rev pending.expected in
-                let count = Option.get (Integer_intrinsic.arity opcode) in
+                let count =
+                  Option.get (Numeric_intrinsic.runtime_arity opcode)
+                in
                 require ?span
                   (List.length expected = count
                   && List.length item.operands = count)
@@ -2362,7 +2424,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                 let arguments_ = pending.pushes in
                 require ?span
                   (List.length arguments_
-                  = Option.get (Integer_intrinsic.arity opcode_))
+                  = Option.get (Numeric_intrinsic.runtime_arity opcode_))
                   "intrinsic call has no complete sealed arguments";
                 let intrinsic =
                   {
@@ -2480,7 +2542,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                 [] ) ->
                 fail ?span
                   "runtime call instruction has no checked enclosing scope"
-            | opcode, _ when Integer_intrinsic.supports opcode ->
+            | opcode, _ when Numeric_intrinsic.runtime_supports opcode ->
                 fail ?span
                   "intrinsic instruction has no matching checked intrinsic \
                    scope"
@@ -3601,6 +3663,14 @@ let create_with_exceptions ?entry_exceptions ?(function_exceptions = [])
       {
         records_ = records;
         typed_top_level = top_level;
+        function_source_owners =
+          List.filter_map
+            (fun (body, _) ->
+              Typed.functions function_sources
+              |> List.find_opt (fun source ->
+                  Typed.function_symbol source == Function_body.symbol body)
+              |> Option.map (fun source -> (body, source)))
+            functions;
         dimension_dependencies_ =
           Dimension_requirements.top_level top_level
           @ Dimension_requirements.functions function_sources;

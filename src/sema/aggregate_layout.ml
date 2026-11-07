@@ -1,5 +1,34 @@
 include Aggregate_layout_core.Make (Query_selection)
 
+let reached_member ~table ~symbol field =
+  let name = Compiler_record.aggregate_field_name field in
+  let origin = Closed_numeric_expression.origin name.location in
+  if
+    (not (Symbol_table.owns_symbol table symbol))
+    || Symbol.name symbol <> name.spelling
+    || Symbol.origin symbol <> origin
+    || not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Member)
+  then Error "reached member layout has another original member identity"
+  else
+    let type_ = Compiler_record.aggregate_field_type field in
+    let signedness =
+      if Type.pointer_depth type_ > 0 then Unsigned
+      else
+        match Type.base type_ with
+        | Type.Aggregate _ -> Not_applicable
+        | Type.Primitive (_, primitive) -> (
+            match (Primitive_type.info primitive).signedness with
+            | Primitive_type.Signed -> Signed
+            | Primitive_type.Unsigned -> Unsigned
+            | Primitive_type.Not_applicable -> Not_applicable)
+    in
+    placed_member_layout ~symbol ~origin
+      ~offset:(Compiler_record.aggregate_field_offset field)
+      ~element_size:(Compiler_record.aggregate_field_placement_size field)
+      ~dimensions:(Compiler_record.aggregate_field_counts field)
+      ~signedness
+    |> Result.map_error error_to_string
+
 type original_member = {
   original_table : Symbol_table.t;
   original_parent : Symbol_table.scope;

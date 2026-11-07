@@ -1,4 +1,4 @@
-type word_type = X86_64_expression.word_type = I64 | U64
+type word_type = X86_64_expression.word_type = I64 | U64 | F64
 type status_abi = X86_64_encoder.status_abi = Windows_x64 | System_v_x64
 
 type error = X86_64_expression.error = {
@@ -33,6 +33,8 @@ type fault_kind =
   | Output_invalid_pointer
   | Output_invalid_byte
   | Pointer_object_mismatch
+  | Pointer_ownership_unavailable
+  | Reference_shadow_limit_exceeded
   | Pointer_difference_object_mismatch
   | Callback_unowned_address
   | Callback_signature_mismatch
@@ -83,8 +85,11 @@ type task_layout = X86_64_global_storage.task_layout
 val data_default : t -> Ir.Saved_parameter_value.t option
 val data_default_has_misc_data : t -> bool
 
+val default_stack_bytes : int
+(** Default private frame quota: 4088 bytes. *)
+
 val hard_max_stack_bytes : int
-(** Maximum shared spill frame size: 4088 bytes. *)
+(** Maximum shared spill frame size: 524280 bytes. *)
 
 val validate_limits :
   max_ir_instructions:int -> max_code_bytes:int -> (unit, error list) result
@@ -228,6 +233,16 @@ val compile_task_offset :
   Driver.Integer_task.Native_offset.request ->
   (t, error list) result
 
+val compile_task_member_metadata :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_member_metadata.request ->
+  (t, error list) result
+
 val compile_task_command :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
@@ -263,6 +278,10 @@ val check_task_activation : t -> (unit, string) result
     synchronous source request, once. Standalone images require no task claim.
 *)
 
+val requires_x87 : t -> bool
+(** Whether the original generated image executes x87 instructions. Raw F64
+    identity transport alone does not require an x87-capable entry thunk. *)
+
 val code : t -> string
 
 val code_bytes : t -> int
@@ -278,9 +297,11 @@ val machine_instructions : t -> int
 
 val register_peak : t -> int
 (** Peak allocator-visible register pressure. Storage-bearing callable images
-    also reserve R9 for the arena. Callable images reserve R10/R11 for the
-    shared runtime context/budget; dedicated RBP/RSP frame bases are not
-    allocator-visible and are excluded from this metric. *)
+    also reserve R9 for the arena. Callable images exclude R10/R11 from
+    temporary allocation so source owners survive unpinned callees; RBX carries
+    their private context and offset 280 holds the remaining step budget.
+    Dedicated RBP/RSP frame bases are not allocator-visible and are excluded
+    from this metric. *)
 
 val frame_bytes : t -> int
 val block_count : t -> int
@@ -288,6 +309,10 @@ val block_count : t -> int
 val function_count : t -> int
 (** Number of emitted named source functions. Closed native programs return 0.
 *)
+
+val is_callable : t -> bool
+(** Whether the compiler emitted the callable convention and its private runtime
+    context, including images with no named source functions. *)
 
 val has_output : t -> bool
 (** Whether the image contains an authenticated PutChars provider call and
@@ -344,11 +369,17 @@ type scalar_program =
   | Dimension of Ir.Dimension_fragment_program.t
   | Switch_case of Ir.Switch_case_fragment_program.t
   | Offset of Ir.Offset_fragment_program.t
+  | Member_metadata of Ir.Member_metadata_fragment_program.t
+  | Initializer of Ir.Initializer_fragment_program.t
+  | Static_initializer of Ir.Static_initializer_program.t
 
 val scalar_program : t -> scalar_program option
 val dimension : t -> Ir.Dimension_fragment_program.t option
 val switch_case : t -> Ir.Switch_case_fragment_program.t option
 val offset : t -> Ir.Offset_fragment_program.t option
+val member_metadata : t -> Ir.Member_metadata_fragment_program.t option
+val scalar_initializer : t -> Ir.Initializer_fragment_program.t option
+val scalar_static_initializer : t -> Ir.Static_initializer_program.t option
 val generation : t -> Ir.Integer_interpreter.native_generation option
 val source_callback : t -> Driver.Integer_task.native_source_callback option
 
@@ -356,3 +387,6 @@ val native_sections : t -> Asm.Native_sections.t
 (** The address-independent hosted object used for native label resolution.
     Inspecting or linking this object conveys no executable or storage
     authority. *)
+
+val requires_fisttp : t -> bool
+(** Whether the sealed image contains SSE3 FISTTP instructions. *)

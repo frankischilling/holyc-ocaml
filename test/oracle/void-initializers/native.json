@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "original_iso_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b",
+  "boot_iso_sha256": "8711501baa1d6759014d223e47a20eb62831323d29361919ad8249168c634086",
+  "payload_sha256": "861b76d44c41a304002548610542a53ddfd666678711414b879b8e0d276a01d7",
+  "capture_sha256": "b75da7f6db3377650391ba21f9ea4557d0a2c1bc5ded6038320c79e1caf25d90",
+  "mode": "native-jit",
+  "repetitions": 2,
+  "fields": {
+    "GLOBAL_COUNT": 1,
+    "GLOBAL_VALUE": 42,
+    "STATIC_VALUE": 84,
+    "STATIC_COUNT": 2
+  },
+  "runtime": "QEMU 10.0.13, x86-64 TCG, one CPU, 512 MiB, no network or persistent disk"
+}

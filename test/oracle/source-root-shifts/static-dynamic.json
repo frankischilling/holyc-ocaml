@@ -1,0 +1,18 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "0d5178eebef596dd0a470f9a2413ad0e449b43ac3fa633312a4087ad25943231",
+  "capture_sha256": "29a40457c1c7fb6c1a8c319badcaafae0f7327a6ef58afc6a8bf42228c5710a0",
+  "boot_iso_sha256": "326bf42b573134a8a2264b983a6df5689f72255d011de32a67d1ba1f086c0129",
+  "fields": {
+    "JIT_N": "8",
+    "JIT_C": "65",
+    "JIT_FIRST": "16",
+    "JIT_SAVED": "16",
+    "COMPILE_ERRORS": "0",
+    "AOT_N": "8",
+    "AOT_C": "65",
+    "AOT_FIRST": "16",
+    "AOT_SAVED": "16"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of full-word variable-count initializer shifts."
+}

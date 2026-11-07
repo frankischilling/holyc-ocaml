@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "f663df2f8460914270ff4ab0d2ddab5d9490859bd75ea1ea1a24fa706c205aa3",
+  "boot_payload_sha256": "63e15389545b036e2d3501c9fdda6acfb051d98ec9afd3bc17b9282e379da1b6",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "da33eb13315cd5f155b147523fc12ada49cff4608e5e242567abea03e4359caa",
+  "boot_iso_sha256": "18257d0f17d44941892c744c28519f8f5ed14c0fb86df78a6e466952784e5065",
+  "fields": {
+    "J_S": "-127",
+    "J_U": "1",
+    "J_SN": "-127",
+    "J_UN": "1",
+    "ERR": "0",
+    "A_S": "-127",
+    "A_U": "1",
+    "A_SN": "-127",
+    "A_UN": "1"
+  },
+  "scope": "Repeated original JIT and compiled observations of global updates inside literal addition expressions."
+}

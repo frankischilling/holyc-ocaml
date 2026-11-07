@@ -1,4 +1,23 @@
-type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
+type register =
+  | Rax
+  | Rbx
+  | Rcx
+  | Rdx
+  | Rsi
+  | Rdi
+  | R8
+  | R9
+  | R10
+  | R11
+  | R12
+  | R13
+  | R14
+  | R15
+      (** Encodable registers. RBX is the hosted callable context base and is
+          never in [registers]. RSI, RDI and R12 through R15 are also outside
+          that temporary bank. Callable allocation reserves R10/R11 from the
+          bank so source variables may own them. Callers own save/restore. *)
+
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 type shift = Shl | Shr | Sar
@@ -28,7 +47,44 @@ type condition =
           [B]/[AE]/[A]/[BE] use unsigned order. Conditions read the current
           processor flags; the encoder does not infer operand types. *)
 
+type x87_register
+type x87_memory = X87_frame of frame_slot | X87_stack of stack_slot
+type x87_binary = Fadd | Fmul | Fsub | Fsubr | Fdiv | Fdivr
+
+type x87_constant =
+  | Fzero
+  | Fone
+  | Fpi
+  | Flog2_10
+  | Flog2_e
+  | Flog10_2
+  | Floge_2
+
 type instruction =
+  | Fild64 of x87_memory
+      (** Push a signed I64 memory value converted to x87 floating point. The
+          pinned FILD m64 encoding interprets the input as signed, regardless of
+          the assembler operand type name. *)
+  | Fisttp64 of x87_memory
+      (** Truncate ST0 toward zero to signed I64 memory, then pop. This does not
+          use the rounding mode in the x87 control word. Callers own the
+          conversion domain and floating environment. *)
+  | Fld64 of x87_memory
+  | Fstp64 of x87_memory
+  | Fbinary64 of x87_binary * x87_memory
+  | Fbinary_st0 of x87_binary * x87_register
+  | Fbinary_sti of x87_binary * x87_register
+  | Fbinary_pop of x87_binary * x87_register
+  | Fchs
+  | Fld_constant of x87_constant
+      (** x87 arithmetic and numeric conversion, never raw F64 bit transport.
+          Memory operands use aligned checked RBP/RSP slots. [Fbinary_st0]
+          writes ST0 using STi; [Fbinary_sti] writes STi using ST0;
+          [Fbinary_pop] writes STi then pops ST0. Subtraction/division use
+          destination op source; reverse forms use source op destination.
+          Callers own stack depth, balanced pops and floating environment.
+          Constant selection belongs to source lowering (BackLib.HC:423-442),
+          including OPTf_NO_BUILTIN_CONST. *)
   | Mov_imm64 of register * int64
   | Mov of register * register
   | Load_stack of register * stack_slot
@@ -42,6 +98,11 @@ type instruction =
           layout must resolve the displacement from an owned code label. The
           encoder validates shape and range, not executable target authority. *)
   | Alloc_stack of stack_frame
+      (** Probe the future frame before subtracting RSP. Allocations through
+          65528 bytes preserve all other general registers; larger allocations
+          clobber RAX, which must be free at entry. All allocations clobber
+          flags. Argument, private-context and nonvolatile registers remain
+          unchanged, and RSP changes only after every probe completes. *)
   | Free_stack of stack_frame
   | Push_rbp
       (** Save the caller's RBP. RBP is intentionally not allocator-visible. *)
@@ -75,13 +136,13 @@ type instruction =
   | Address_arena of register * arena_slot
       (** Materialize an address relative to the private R9 arena base. *)
   | Load_indirect of register * register * int
-      (** Qword reference field load at displacement zero, eight, sixteen or
-          twenty-four. Callable preflight owns the base's reference provenance.
-      *)
+      (** Qword reference field load at an aligned displacement from zero
+          through thirty-two. Callable preflight owns the base's reference
+          provenance. *)
   | Store_indirect of register * register
   | Store_indirect_offset of register * int * register
       (** Store one qword to a checked private reference descriptor field. The
-          displacement is one of zero, eight, sixteen or twenty-four. *)
+          displacement is aligned from zero through thirty-two. *)
   | Load_indirect_narrow of
       register * register * narrow_frame_width * frame_extension
   | Store_indirect_narrow of register * narrow_frame_width * register
@@ -98,6 +159,8 @@ type instruction =
           failure. ZF reports success. The caller owns retry control and checked
           storage. *)
   | Alloc_call_frame of call_frame
+      (** Probe before subtracting RSP, with the same register and flags
+          contract as [Alloc_stack], including an RAX clobber above 65528. *)
   | Free_call_frame of call_frame
       (** Allocate/free a fixed 16-byte-aligned callable frame while keeping RSP
           constant throughout the function body. *)
@@ -105,6 +168,7 @@ type instruction =
       (** Direct CALL with a signed rel32 displacement from the instruction end.
       *)
   | Call_stack of stack_slot
+  | Jump_stack of stack_slot
       (** Indirect CALL through a checked fixed RSP-relative slot. The target
           uses the pinned CALL RM64 form without REX.W. This shape alone grants
           no executable authority; the caller must validate its captured owner.
@@ -122,6 +186,21 @@ type instruction =
       (** Shift the full-width destination by CL. [Shl] is left shift, [Shr]
           logical right shift, and [Sar] arithmetic right shift. The count is
           read from RCX implicitly; the destination may be any public register.
+      *)
+  | Callable_capture_status of status_abi
+  | Callable_source_arguments of status_abi
+  | Callable_compiler_option_arguments of status_abi
+  | Callable_store_status_kind of int
+  | Callable_store_status_site of int
+  | Callable_load_context of register * int
+  | Callable_store_context of int * register
+  | Callable_store_context_imm of int * int
+  | Callable_test_budget
+  | Callable_dec_budget
+      (** Callable context operations use RBX, never R10/R11. Reads and the
+          existing writable fields additionally admit offset 280 (remaining
+          steps). Budget test/decrement use qword memory CMP zero/DEC without
+          clobbering a register. Legacy context operations below are unchanged.
       *)
   | Capture_status of status_abi
       (** Copy the ABI's first pointer argument into private R11. Windows x64
@@ -159,18 +238,21 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 184. Arena, output, generation, temporary-buffer and
+          from zero through 272. Arena, output, generation, temporary-buffer and
           source callback pointers and generation activity are immutable. Output
           counters occupy offsets 88, 96 and 104; generation counters occupy 120
-          and 128. *)
+          and 128. Native reference requests occupy 208 through 232. Reference
+          return snapshots occupy 240 through 272. *)
   | Store_context of int * register
       (** Store one qword to the private R11 context at an aligned byte offset
           from zero through 64, or at counter offsets 88, 96, 104, 120, 128 and
-          the formatted-source length at 160. *)
+          the formatted-source length at 160, and reference request lanes 208,
+          216, 224 and 232, and the return snapshot at 240 through 272. *)
   | Store_context_imm of int * int
       (** Store a sign-extended imm32 qword to the private R11 context at an
           aligned byte offset from zero through 64, or 88, 96, 104, 120, 128 and
-          160. *)
+          160, 208, 216, 224 and 232, and the return snapshot at 240 through
+          272. *)
   | Dec of register
       (** Decrement one full-width register with the qword FF /1 form. *)
   | Cmp of register * register
@@ -181,7 +263,7 @@ type instruction =
           [TEST register,register], without changing the register. *)
   | Setcc of condition * register
       (** Write zero or one to the destination's low byte, preserving the higher
-          bits and flags. Only R8b through R11b need a REX prefix. *)
+          bits and flags. SIL, DIL and R8b through R15b need a REX prefix. *)
   | Movzx8 of register * register
       (** Destination then source: zero-extend the source's low byte into the
           full 64-bit destination, preserving flags. The registers may alias. *)
@@ -195,14 +277,20 @@ type instruction =
           slots. *)
 
 val registers : register list
-(** Deterministic allocation order: RAX, RCX, RDX, R8, R9, R10, R11. *)
+(** Deterministic temporary allocation order: RAX, RCX, RDX, R8, R9, R10, R11.
+    Encodable physical variable registers RSI, RDI and R12 through R15 are
+    excluded. *)
+
+val x87_register : index:int -> (x87_register, string) result
+(** Check the physical x87 stack index (0..7); does not prove stack occupancy.
+*)
 
 val stack_slot : offset:int -> (stack_slot, string) result
 (** Construct an eight-byte spill slot addressed from RSP. Offsets are aligned
-    multiples of eight from zero through 4080. *)
+    multiples of eight from zero through 524272. *)
 
 val stack_frame : bytes:int -> (stack_frame, string) result
-(** Construct a fixed spill frame. Sizes are 8..4088 bytes and 8 modulo 16,
+(** Construct a fixed spill frame. Sizes are 8..524280 bytes and 8 modulo 16,
     keeping the generated body aligned after the host call pushes its return
     address. *)
 
@@ -222,9 +310,9 @@ val arena_slot : offset:int -> (arena_slot, string) result
 
 val call_frame : bytes:int -> (call_frame, string) result
 (** Construct a fixed callable frame. Sizes are positive 16-byte multiples up to
-    4080 bytes, so PUSH RBP plus one frame allocation never skips a 4 KiB stack
-    guard page. Outgoing ABI home space, when required, is part of this fixed
-    allocation. *)
+    524272 bytes. Allocations of at least 4096 bytes probe each page and the
+    final word before changing RSP. Outgoing ABI home space, when required, is
+    part of this fixed allocation. *)
 
 val max_code_bytes : int
 (** Hard limit of 16 MiB for one encoded instruction sequence, further bounded
@@ -233,18 +321,21 @@ val max_code_bytes : int
 val size : instruction -> int
 (** Exact encoded byte count, including any REX prefix and immediate. [Shift_cl]
     is always three bytes (REX.W with REX.B when needed, D3, ModR/M). [Setcc]
-    uses three bytes for AL/CL/DL and four for R8b through R11b. Stack
-    loads/stores always use an eight-byte fixed-disp32 SIB form; stack
-    allocation/free always use seven-byte imm32 forms. Qword frame loads/stores
-    use a seven-byte RBP+disp32 form. Narrow frame loads/stores are seven or
-    eight bytes depending on width/prefix requirements. Callable allocation/free
-    uses a seven-byte imm32 RSP form. Direct CALL and branches use fixed rel32
-    forms. Private context accesses use disp8 through offset 120 and disp32 for
-    later generation fields; immediate stores have the corresponding eight or
-    eleven-byte size. Context pointer and activity words are immutable; stores
-    admit the original offsets through 64 and counters at 88, 96, 104, 120, 128
-    and 160. Arena qword/narrow accesses use fixed R9+disp32 forms. Invalid
-    immediate, branch or private-context operands raise [Invalid_argument]. *)
+    uses three bytes for AL/CL/DL and four for SIL/DIL and R8b through R15b.
+    Stack loads/stores always use an eight-byte fixed-disp32 SIB form; stack
+    allocation/free use seven-byte imm32 forms. Allocations from 4096 through
+    65528 bytes prepend eight-byte page probes; larger allocations prepend a
+    27-byte loop and an eight-byte tail probe for a partial page. Qword frame
+    loads/stores use a seven-byte RBP+disp32 form. Narrow frame loads/stores are
+    seven or eight bytes depending on width/prefix requirements. Callable
+    allocation/free uses a seven-byte imm32 RSP form. Direct CALL and branches
+    use fixed rel32 forms. Private context accesses use disp8 through offset 120
+    and disp32 for later generation fields; immediate stores have the
+    corresponding eight or eleven-byte size. Context pointer and activity words
+    are immutable; stores admit the original offsets through 64 and counters at
+    88, 96, 104, 120, 128 and 160. Arena qword/narrow accesses use fixed
+    R9+disp32 forms. Invalid immediate, branch or private-context operands raise
+    [Invalid_argument]. *)
 
 val encode : instruction -> string
 (** Build checked [Asm.Encoding] recipes from the pinned opcode facts and emit
@@ -255,3 +346,11 @@ val encode_all :
   max_code_bytes:int -> instruction list -> (string, string) result
 (** Validate the positive limit and exact total size before allocating a code
     buffer. A limit above [max_code_bytes] is rejected. *)
+
+val stack_allocation_size : int -> int
+(** Exact encoded size of the bounded page probes and fixed RSP allocation for
+    an allocation from zero through 524280 bytes. Alignment is checked by the
+    frame constructors. The encoded size stays below 255 bytes. *)
+
+val callable_instruction : instruction -> instruction
+(** Adapt only runtime-context operations for hosted callable code. *)

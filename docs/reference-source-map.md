@@ -1,5 +1,53 @@
 # Reference source map
 
+Assignment observations follow complete `PrsExpression2`
+(`Compiler/PrsExp.HC:65-263`), including dereference-class selection before the
+operator and the internal lvalue gate after its lookahead. `ICAdd`
+(`Compiler/PrsLib.HC:79-97`) retains that selected class. Complete `OptPass3`
+(`Compiler/OptPass3.HC:1-621`) uses the assignment result's raw class for storage.
+`CmpMinTypePointed` (`Compiler/OptLib.HC:528-533`) writes the existing field back
+to itself in this reference. The implementation preserves that behavior.
+Complete `PrsStreamBlk` (`Compiler/PrsStmt.HC:805-840`) supplies the separate
+JIT task table for `#exe`, including inside an AOT compiler context.
+Complete `PrsUnaryModifier` (`Compiler/PrsExp.HC:960-1115`) selects the reached
+class after '[' lookahead and emits its array stride before parsing the index.
+Each bracket retains its own observation and original dimension multiplier.
+
+Complete `PrsExpression2` at `Compiler/PrsExp.HC:65-263` applies the same lvalue
+check to every `IST_ASSIGN` binary operation. After operator lookahead it follows
+the destination with `OptClassFwd` and requires `IST_DEREF` plus a pointer or
+`Cf_INTERNAL_TYPE` endpoint (`PrsExp.HC:200-208`). The default `RT_PTR` raw class
+set by `PrsClassNew` does not set that flag. Raw-word reads and prefix/postfix
+updates use their separate producers. The hosted checker retains the original
+backing proof and applies this gate to simple and compound assignment; it does
+not grant a write from raw type alone.
+
+Automatic scalar class initializers follow complete `PrsVarLst` in
+`Compiler/PrsVar.HC:407-742`: the local branch allocates the reached class size,
+restores the original declaration input and parses its assignment expression.
+`Compiler/PrsExp.HC:65-263` forwards the lvalue class and produces the assignment;
+`Compiler/OptLib.HC:9-15` follows the selected backing chain.
+`Compiler/OptPass012.HC:866-885` chooses integer/floating conversion, and complete
+`ICAssign` in `Compiler/BackC.HC:159-204` stores at the pointed-to scalar width.
+The hosted destination retains its original allocation receipt and checked
+backing projection. Root bounds and unknown-byte checks are hosted policy;
+initialization does not copy the class's full extent.
+
+[Class pointer views](class-pointer-views.md) follow complete
+`Compiler/PrsExp.HC:960-1115` and `Compiler/PrsVar.HC:285-371` for original cast
+selection, member offsets and target strides. `Compiler/OptPass012.HC:87-110`
+retains the parenthesis distinction; complete `Compiler/OptLib.HC:9-15,508-525`
+and `Compiler/BackLib.HC:693-708` select forwarded pointed widths. Hosted
+descriptors preserve the original root independently of the chosen class view.
+
+[Aggregate value casts](aggregate-value-casts.md) use the same original cast
+producer and optimizer distinction. Complete `PrsExpression2` at
+`Compiler/PrsExp.HC:65-262` emits subsequent dereferences and updates.
+`Compiler/BackLib.HC:311-659` preserves register words through `ICPush`,
+`ICPop` and `ICMov`, while memory operands select their raw width and sign.
+`Compiler/OptPass789A.HC:445-448` sends a remaining cast to `ICMov`.
+Register classes supply no owned aggregate allocation.
+
 [BIN serialization](templeos-bin-format.md) follows the header and IET registry
 in `Kernel/KernelA.HH:375-436`, the AOT adjustments and final writer in
 `Compiler/CMain.HC:302-568`, and the import/export producers in
@@ -194,6 +242,27 @@ and frame placement, `660-671` packed and overlapping members, and
 original class identity. Byte initialization, ownership and extent guards are
 hosted policy. See [automatic aggregate byte views](automatic-aggregate-byte-views.md)
 for the exact execution subset, source-derived tests and remaining consumers.
+
+Empty automatic roots use the same complete `PrsVarLst` producer. At
+`PrsVar.HC:590-606`, zero size leaves the current displacement unchanged and
+records zero member bytes. `PrsUnaryTerm` emits that local's original RBP offset;
+explicit pointer casts preserve it. The hosted address fragment also retains the
+exact original frame location so coincident empty roots keep separate bounds and
+lifetimes. Owner metadata occupies no source frame bytes. Tests cover shared
+addresses, fixed-array zero strides, original dimensions, calls, recursion and
+replacement. These are pinned source expectations and hosted execution checks;
+no new TempleOS runtime or emitted-byte capture is included.
+
+Original automatic extents use `PrsVarLst` at `PrsVar.HC:530-531,590-606`:
+allocation reads the selected class's reached size, including forward or partial
+sizes, and records that extent in the local. `PrsClass` at `PrsStmt.HC:1-60`
+reuses a forward class record at completion and copies the reached base size into
+the child when its base is attached. `MemberFind` at `LexLib.HC:67-86` searches
+current direct fields and then the attached canonical base chain. The checked
+frame therefore retains original allocation geometry separately from the base
+member records observed later. Metadata fragment headers retain their original
+base identity even when no completed layout index exists. Current, copied and
+foreign observations remain distinct. These are source-derived hosted checks.
 
 Owned expression cleanup follows `Compiler/PrsExp.HC:264-303`: push two
 terminators, catch Compiler, then issue another `LexExcept` if the owned stack
@@ -786,6 +855,17 @@ probe cover this producer-to-consumer path.
 `OptLib.HC:9-14,101-122,196-202` and `OptPass012.HC:151-191` distinguish native
 node classes from result/stack classes, notably for direct calls and COM.
 
+[Repeated register updates](register-variable-analysis.md) follow
+`Compiler/OptPass3.HC:223-247,524-610`: each compound update scores the same
+frame member, then the allocator selects storage once per member. The bounded
+proof permits revisiting that member while keeping source order and unchanged
+operand parameters. Hosted tests cover wide register values and per-update
+narrow stack stores; this extension adds no native TempleOS capture.
+Parameter remainder uses the same scoring branch and
+`Compiler/BackA.HC:372-423`, which writes the division remainder from RDX
+to the selected register or narrow memory operand. Hosted cases cover signed
+and unsigned remainder, mixed sequences, zero divisors and signed overflow.
+
 [U8 signatures](integer-byte-signatures.md) in #631 follow
 `Compiler/PrsExp.HC:468-483` and `BackLib.HC:312-347` for argument transport,
 `OptPass789A.HC:710-717` and `BackLib.HC:528-530` for byte parameter entry,
@@ -818,8 +898,9 @@ for literal signedness and final F64 truncation, `Compiler/OptLib.HC:96-179`
 for operand classes, and `Compiler/OptPass012.HC:153-191,211-217,403-445,809-822`
 for unary results, unsigned operations and the explicit comparison-chain
 boundary. Ordinary first `[]` remains zero metadata, while the inferred-size
-branches require negative counts; inference and pass-count parity are still
-unresolved. AOT sparse prepared images, exact JIT publication receipts,
+branches require negative counts. [Zero-sized array execution](empty-arrays.md)
+now retains that ordinary syntax boundary. Negative-sentinel mutation and full
+replay parity remain outside this path. AOT sparse prepared images, exact JIT publication receipts,
 execution-private mutable cells and separate resource limits are the hosted
 implementation of the supported phase behavior. The reference remains
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`; no new native capture is claimed.
@@ -2297,3 +2378,245 @@ contract and remaining work under issue #686.
 ## Shared native object model
 
 `Compiler/BackLib.HC:215-268,661-690`, `AsmResolve.HC`, `CMain.HC:174-295` and `Kernel/KLoad.HC` supply the field bases, compiler AAT adjustments, import/export identities and BIN loader patches used by the [shared native section model](native-sections.md). The own-encoder native planner, assembly linker and BIN consumer use its checked layout and field resolution while preserving the distinction between instruction-end compiler fixups and field-end loader imports.
+
+## Persistent aggregate initializers
+
+`PrsVarInit` and `PrsVarInit2` at `Compiler/PrsVar.HC:1-221` supply the
+[initializer traversal](aggregate-initializers.md). `OptClassFwd` at
+`Compiler/OptLib.HC:9-15` selects backing before the array and direct-member
+branches. `MemberAdd` at `Compiler/LexLib.HC:103-148` preserves the direct member
+chain. The initializer cursor follows that chain and advances by bytes written;
+it does not use field offsets or visit inherited members.
+
+`PrsType` at `Compiler/PrsVar.HC:285-371` gives callback fields the selected
+`RT_PTR` pointer child, independently of their return class. Numeric callback
+initializer leaves therefore copy eight bytes. Their original anonymous header
+remains part of the initializer metadata; the copied word grants no callable
+field identity.
+
+`PrsGlblInit` and `PrsStaticInit` at `Compiler/PrsVar.HC:222-246` connect the
+traversal to global and static storage. Their allocation and publication inputs
+come from complete `PrsVarLst` at `Compiler/PrsVar.HC:405-742` and
+`PrsGlblVarLst` at `Compiler/PrsStmt.HC:209-463`.
+
+The layout tests check independent byte destinations, original leaf identities
+and invalid grammar. Shared source fixtures exercise integer leaves, fixed
+arrays, numeric callback words and strings through IR and native execution.
+[The testing notes](testing.md)
+describe ownership controls, resource limits and retained output on failure.
+`PrsClass` at `Compiler/PrsStmt.HC:1-60` completes the original extern record.
+Initializer metadata reads that exact canonical class at traversal, preserving
+earlier containing-object extents and unrelated same-name definitions. JIT
+lookahead can complete a member through the task table selected by `PrsStreamBlk`
+at `Compiler/PrsStmt.HC:805-840`. AOT directives retain their separate JIT table.
+Changes during a leaf, other leaf families and full aggregate parity remain
+open. This evidence includes no TempleOS runtime or emitted-byte capture.
+
+## Reached callback fields
+
+Complete `PrsType` at `Compiler/PrsVar.HC:285-371` retains the anonymous
+`PrsFunJoin` signature while assigning the physical pointer type. Complete
+`PrsVarLst` at lines 408-742 installs that signature with `MLF_FUN` and preserves
+the field's dimensions and placement. Complete `MemberFind` and `MemberAdd` at
+`Compiler/LexLib.HC:67-148` supply direct and inherited lookup on the operand's
+original class. Complete `PrsUnaryModifier` at `Compiler/PrsExp.HC:960-1115`
+selects the reached member after dot/arrow lookahead, retains `fun_ptr` and routes
+the following call to complete `PrsFunCall` at lines 383-592. That consumer
+captures the callee before argument evaluation and uses the selected header's
+defaults, variadic slots and return class.
+
+The hosted implementation retains the checked signature and return reference
+at original member placement. Original member-name observations authorize
+partial or completed lookup; later completion cannot authorize an earlier
+selection. Outer global bases keep their exact source occurrence and nominal
+type. Shared IR/native fixtures and the
+[maintained example](../examples/class-body-callback-fields.hc) exercise both
+modes, callback arrays, defaults, pointer arguments and returns, variadic slots,
+inherited lookup, replacement and argument mutation. Bounds and executable
+ownership guards are hosted policy. No TempleOS runtime or emitted-byte capture
+is included; wider callback and aggregate families remain open.
+
+## Ordinary-source aggregate initialization
+
+Complete `PrsGlblVarLst` at `Compiler/PrsStmt.HC:209-463` allocates and publishes
+the original global before invoking `PrsGlblInit`, then consumes the following
+separator. Complete `PrsGlblInit`, `PrsVarInit2` and `PrsVarInit` at
+`Compiler/PrsVar.HC:1-214` traverse backing, fixed array ranks and the direct
+member chain. A scalar expression executes even when the selected class has
+zero size; `MemCpy` writes no bytes and the destination cursor does not advance.
+The initializer does not add inherited field offsets to that cursor.
+
+The JIT source driver activates the existing original source task at a class or
+union object's initializer start. Earlier declarations are replayed through
+their retained source events; original initializer receipts select and settle
+each reached leaf. Shared IR/native tests cover zero-byte members, arrays,
+inherited layouts, later completion, shared globals, malformed later input and
+fault order. The [ordinary-source example](../examples/source-aggregate-initializers.hc)
+adds exact and one-below execution and initializer limits. This uses pinned
+source and hosted execution. Later [native AOT captures](aot-zero-byte-initializers.md)
+show a different load-time store for nonconstant zero-byte leaves. Bounded
+integer words now use that operation; unavailable words and windows reject.
+Constant copies and live JIT retain their existing behavior.
+
+## Isolated initializer layout snapshots
+
+Complete `PrsGlblVarLst` at `Compiler/PrsStmt.HC:209-463` publishes the selected
+allocation before calling `PrsGlblInit`. Complete `PrsVarInit`, `PrsVarInit2`,
+`PrsGlblInit` and `PrsStaticInit` at `Compiler/PrsVar.HC:1-246` traverse the
+reached classes and retain the scalar branch before evaluating each expression.
+The class's reached nominal size determines that copy; later member traversal
+does not replace the earlier branch. Complete `PrsVarLst` at lines 408-742
+allocates and initializes statics during function parsing. `PrsVarInit` retains
+AOT's nonconstant load-time assignment branch, while `PrsStaticInit` wraps its
+generated initialization in `IET_MAIN` code.
+
+The isolated source ledger retains pure global and static cursor metadata from
+the original parser events. Its completed consumers match the exact source
+leaves, class selection, dimensions and storage extent. Static joins also check
+the original function and local. That metadata grants no execution or successful
+copy receipt. Shared IR/native cases and the
+[retained-layout example](../examples/retained-aot-initializer-layouts.hc)
+check completion, replacement, zero-byte members, arrays, statics and quota
+edges. Source-seal, parser-replay and foreign-frame tests check rejection.
+Closed offset preparation is included in native AOT's initializer work meter.
+These checks add no TempleOS runtime or emitted-byte capture.
+
+The nonconstant AOT branch in complete `PrsVarInit` zeroes the selected
+destination and emits its load-time assignment. Complete `PrsStaticInit` wraps
+that work in `IET_MAIN`. Native scalar static-load receipts retain the original
+leaf, allocation and selected cursor without a computed value. Completed source
+typing checks original references, and the compiled bundle checks the exact
+scheduled root, frame and region. Native entry static addresses require an
+instruction in a sealed load region of the same declaring frame. Closed leaves
+retain prepared image bytes. The
+[static-load example](../examples/native-aot-static-initializers.hc) and shared
+IR/native cases check load order, zero-byte leaves, earlier statics, original
+function selection, repeated mutations and retained fault output. Nonconstant
+AOT statics with globals-on-data-heap and wider initializer families remain open.
+Its zero-byte forward leaf now uses the original raw I64 load store in AOT.
+That overwrites the constant following byte before later load leaves run, so the
+example returns 40 in AOT and 42 in JIT. See
+[load-assignment storage](aot-zero-byte-initializers.md).
+
+Static member references retain the class and dimensions allocated by complete
+`PrsVarLst` at `Compiler/PrsVar.HC:408-742`. Complete `PrsUnaryTerm` and
+`PrsUnaryModifier`, followed by `LexExpression2Bin`, at
+`Compiler/PrsExp.HC:593-1133` use the selected local's class,
+static address and dimensions, then select the member before skipping its name.
+Complete `MemberFind` at `Compiler/LexLib.HC:67-85` searches direct members before
+following the base class. Complete `PrsArrayDims` at `Compiler/PrsVar.HC:247-283`
+evaluates each reached dimension; defaults and member metadata use expression
+evaluation in complete `PrsVarLst`.
+
+Fragment views retain completed and partial records at those original member-name
+observations. They do not rebuild an AST or grant storage access. Static references
+use their original allocation type. Source-task global and static initializers,
+defaults, dimensions, offsets, switches and metadata share the checked context.
+Narrow-read analysis follows checked projections from known memory and original
+class-array strides. Shared cases check reads, writes, inheritance, nested arrays,
+replacement and once-only effects. Foreign-view and occurrence tests check
+rejection; unknown bytes, bounds and runtime ownership retain their existing
+checks. This adds no TempleOS runtime or emitted-byte capture.
+
+Empty global and static allocations follow complete `PrsGlblVarLst` at
+`Compiler/PrsStmt.HC:209-463` and complete `PrsVarLst` at
+`Compiler/PrsVar.HC:408-742`. Both compute storage from the selected class width
+and source element count. Static rounding preserves a zero allocation.
+Complete `PrsVarInit` and `PrsVarInit2` at `Compiler/PrsVar.HC:1-205` call each
+scalar expression before copying the selected width, including zero bytes, and
+recurse through every fixed array element. Complete `PrsGlblInit` and
+`PrsStaticInit` at `Compiler/PrsVar.HC:207-246` use that traversal for both kinds of
+persistent storage. Hosted tests check these effects, original dimensions,
+replacement, zero extents and native metadata-only images. They add no TempleOS
+runtime or emitted-byte capture.
+
+Compiler storage options come from native `CCmpCtrl.opts`, read and changed by
+complete `Option`/`GetOption` at `Compiler/CMisc.HC:1-10`. Complete `PrsStreamBlk`
+at `Compiler/PrsStmt.HC:805-840` switches flags and hash context without restoring
+options; complete `ExePutS` at `Compiler/CMain.HC:571-603` copies options for an
+ordinary child compiler. Complete `PrsGlblVarLst` at
+`Compiler/PrsStmt.HC:209-463` selects each reached global's heap and rejects an
+AOT data-heap initializer before advancing past `=`. Complete `PrsVarInit` at
+`Compiler/PrsVar.HC:1-112` checks the data-heap bit after expression compilation
+when selecting AOT deferral. Complete `PrsVarLst` at
+`Compiler/PrsVar.HC:408-742` keeps statics on the code heap.
+
+Original declaration and static allocation/expression snapshots carry these
+options into semantic records and hosted persistent storage. AOT metadata
+capture does not fabricate a live function record, runtime allocation or copy.
+Source tests distinguish allocation, expression and final-body masks and retain
+the original failure boundary before later effects. JIT data-heap storage and
+constant statics execute through IR and native source tasks; the nonconstant AOT
+compile-time phase and `IC_HEAP_GLBL` loader path remain open. These checks include
+no TempleOS runtime or emitted-byte capture.
+
+Top-level aggregate assignments use the same complete `PrsExpression2` at
+`Compiler/PrsExp.HC:65-263` and `PrsUnaryModifier` at `960-1115` as function
+bodies. The original endpoint precedes operator lookahead; the internal lvalue
+gate follows it. An index records the reached class width before parsing its
+value. Complete `LexExpression2Bin` and `LexExpressionI64` at
+`Compiler/PrsExp.HC:1117-1152` compile a whole reached expression before executing
+it. Initializer, default, dimension, offset, metadata, switch and internal-binding
+consumers retain their own expression boundaries. Hosted scalar consumers use
+the checked integer value type independently of the nominal destination class.
+The top-level assignment example and shared CLI cases check both outer modes
+and source executors. They contain no new TempleOS capture.
+
+## Owned aggregate pointer initializer leaves
+
+Complete `Compiler/PrsVar.HC:1-246` follows the original class/member traversal,
+copies pointer-sized results at the sequential byte cursor, and distinguishes
+JIT calls, AOT assignments and direct byte-string relocations. The original
+`STR_CONST` descriptor in `Compiler/CInit.HC:29` and the nonconstant flag update
+in `Compiler/OptPass012.HC:66-67` keep other literal-bearing expressions out of
+the numeric constant path. Hosted pointer stores preserve checked allocation
+and activation identities instead of reconstructing ownership from bytes.
+`test/oracle/pointer-initializers` retains two complete native JIT observations;
+`test/test_pointer_initializer_oracle.ml` checks hashes and the seven observed
+values. This fixture does not establish original AOT relocation-byte parity.
+
+## Pending prefix update binding
+
+Complete `Compiler/PrsExp.HC:65-263` consumes increment/decrement flags at the
+term's implicit dereference before reducing ordinary pending unary operators.
+`PrsUnaryTerm` at lines 591-958 places dereference, negation, not and complement
+on that stack. `PrsExpression` at lines 264-301 restores pending flags across a
+nested expression. Grouping therefore distinguishes `++*p` from `++(*p)`.
+Complete `Compiler/PrsLib.HC:21-29` removes one pending star when callback
+selection reaches it. The checked callback alias preserves that cancellation
+and the actual update producer's call-argument origin without creating an
+owned address. [Prefix update tests](prefix-updates.md) record the supported
+native observations and the remaining flag-combination boundaries.
+
+## Zero-count arrays and initializer completion
+
+Complete `Compiler/PrsVar.HC:123-283` distinguishes ordinary zero counts from
+negative inference sentinels, traverses zero-count rows without scalar leaves,
+and copies exactly the declared string count. Complete `PrsGlblVarLst` at
+`Compiler/PrsStmt.HC:209-463` and `PrsVarLst` at `Compiler/PrsVar.HC:405-742`
+allocate from the reached product and retain declaration-time static work.
+The hosted shape keeps original empty AST witnesses, zero-aware checked
+multiplication, delimiter completion and an unchanged source byte cursor.
+Native empty copies check their arena lease but do not touch memory or flags.
+`test/oracle/empty-arrays` retains repeated successful observations separately
+from an unqualified automatic-address probe that faulted in the reference VM.
+
+## Automatic U0 declarations
+
+`PrsVarLst` retains zero-sized uninitialized scalar locals but reparses an
+initialized local as an assignment. Assignment warning, register selection and
+move lowering are separate consumers in `OptPass012`, `OptPass3`, `OptPass4`,
+`BackC` and `BackLib`. The declaration-only path preserves that separation; see
+[automatic U0 declarations](automatic-void-declarations.md).
+
+## U0 initializer warning phase
+
+`PrsExpression`, `LexExpression2Bin`, `ICAdd` and `LexWarn` distinguish an original
+U0 initializer result from a discarded statement. JIT source tasks emit the
+warning through their active compiler control after the one-use initializer
+claim, before execution. See [U0 initializer warnings](void-initializer-warnings.md).
+
+[Large native frames](native-stack-probing.md) keep the semantic entry/leave
+contract from `Compiler/OptPass789A.HC:387-405,698-719`. Guard-page probes and
+variable allocation offsets in Windows unwind records are host adaptations,
+using the Microsoft x64 prologue and unwind specifications linked there.

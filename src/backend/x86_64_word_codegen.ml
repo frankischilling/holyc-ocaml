@@ -9,9 +9,11 @@ module Encoder = X86_64_encoder
 module Global_storage = X86_64_global_storage
 module Literal_storage = X86_64_literal_storage
 module Print_codegen = X86_64_print_format
+module Reference_service = X86_64_reference_service
 module Option_codegen = X86_64_compiler_options
 module Runtime = Ir.Runtime_call_context
 module Intrinsic = Ir.Integer_intrinsic
+module Numeric = Ir.Numeric_intrinsic
 module Lock = Ir.Lock_semantics
 module Lock_validation = Ir.Lock_validation
 module Defaults = Driver.Native_parameter_defaults
@@ -29,7 +31,7 @@ module Block_map = Map.Make (Sequence.Block_id)
 module Block_set = Set.Make (Sequence.Block_id)
 module Int_map = Map.Make (Int)
 
-type word_type = I64 | U64
+type word_type = I64 | U64 | F64
 type status_abi = Encoder.status_abi = Windows_x64 | System_v_x64
 type arithmetic_operation = Divide | Remainder
 type error = { code : string; message : string; span : Common.Span.t option }
@@ -63,7 +65,8 @@ type expression_image = {
 }
 
 let hard_ir_limit = 100_000
-let hard_max_stack_bytes = 4088
+let hard_max_stack_bytes = 524280
+let default_stack_bytes = 4088
 let hard_block_limit = 100_000
 let hard_max_global_bytes = Global_storage.hard_max_global_bytes
 
@@ -137,6 +140,8 @@ let scalar_value ?(allow_public = false) type_ =
     | Type.Aggregate _ -> false
   in
   if not form_allowed then None
+  else if X86_64_float_plan.is_f64 type_ then
+    Some { word_type = F64; byte_size = 8 }
   else
     Option.map
       (fun scalar ->
@@ -160,14 +165,54 @@ let checked_scalar ?(allow_public = false) description type_ =
 (* Runtime references retain the original object and its byte initialization
    state. Each reached view has its own descriptor snapshot. *)
 let checked_reference description type_ =
-  if Type.pointer_depth type_ <> 1 then
+  let pointer_field =
+    Option.fold ~none:false
+      ~some:Ir.Aggregate_member_projection.pointer_member_type
+      (Type.dereference type_ |> Result.to_option)
+  in
+  if Type.pointer_depth type_ <> 1 && not pointer_field then
     unsupported description "native references require one scalar indirection";
   match Type.dereference type_ with
+  | Ok pointee when pointer_field ->
+      (pointee, { word_type = U64; byte_size = 8 })
   | Ok pointee when Ir.Automatic_aggregate_storage.aggregate_pointer type_ ->
       (pointee, { word_type = U64; byte_size = 1 })
   | Ok pointee ->
       (pointee, checked_scalar ~allow_public:true description pointee)
   | Error message -> malformed description message
+
+let reference_value_scalar type_ =
+  let pointee = Type.dereference type_ |> Result.get_ok in
+  if Ir.Aggregate_member_projection.pointer_member_type pointee then
+    { word_type = U64; byte_size = 8 }
+  else if Ir.Automatic_aggregate_storage.aggregate_pointer type_ then
+    { word_type = U64; byte_size = 1 }
+  else scalar_value ~allow_public:true pointee |> Option.get
+
+let pointer_field_identity type_ =
+  match Type.base type_ with
+  | Type.Aggregate symbol ->
+      Int64.of_int (65536 + Sema.Symbol.execution_identity symbol)
+  | Type.Primitive (form, primitive) ->
+      let identity =
+        match primitive with
+        | Primitive.Bool -> 1
+        | Primitive.I8 -> 2
+        | Primitive.U8 -> 3
+        | Primitive.I16 -> 4
+        | Primitive.U16 -> 5
+        | Primitive.I32 -> 6
+        | Primitive.U32 -> 7
+        | Primitive.I64 -> 8
+        | Primitive.U64 -> 9
+        | Primitive.I0 | Primitive.U0 | Primitive.F64 -> assert false
+      in
+      Int64.of_int
+        (if
+           form = Type.Internal_storage
+           && primitive <> Primitive.U8 && primitive <> Primitive.I64
+         then identity + 32
+         else identity)
 
 let compatible_reference target source =
   Type.equal target source
@@ -181,6 +226,8 @@ let compatible_reference target source =
      | _ -> false
 
 let checked_copy description target source =
+  if X86_64_float_plan.is_f64 target <> X86_64_float_plan.is_f64 source then
+    unsupported description "native scalar copies cannot convert F64 values";
   if Type.pointer_depth target = 0 then (
     ignore (checked_scalar ~allow_public:true description target);
     ignore (checked_scalar ~allow_public:true description source))
@@ -192,7 +239,7 @@ let checked_copy description target source =
 
 let checked_word ?(allow_public = false) description type_ =
   let scalar = checked_scalar ~allow_public description type_ in
-  if scalar.byte_size <> 8 then
+  if scalar.byte_size <> 8 || scalar.word_type = F64 then
     unsupported description
       (if allow_public then
          "this native operation requires scalar I64 or U64 values"
@@ -201,14 +248,15 @@ let checked_word ?(allow_public = false) description type_ =
 
 type value = {
   value_id : Sequence.Value_id.t;
-  declared_type : Type.t;
-  computation_type : Type.t;
+  mutable declared_type : Type.t;
+  mutable computation_type : Type.t;
   mutable last_use : int;
   mutable code_owner_offset : int option;
   mutable reference_descriptor_offset : int option;
 }
 
 type frame_access = {
+  physical_register : Encoder.register option;
   frame_offset : int;
   frame_bytes : int;
   frame_word : word_type;
@@ -227,6 +275,8 @@ type reference_access = {
   reference : value;
   scalar : scalar_value;
   offset : value option;
+  callback :
+    (Sema.Function_type_resolution.function_pointer * int list ref) option;
 }
 
 type frame_reference_origin = { access : frame_access; extent_bytes : int }
@@ -298,6 +348,7 @@ type callback_access =
   | Callback_frame of frame_access * int
   | Callback_arena of arena_access * int
   | Callback_indexed of indexed_object_access * reference_table
+  | Callback_field of reference_access * int
 
 type operation =
   | Load_immediate of value * int64
@@ -306,6 +357,7 @@ type operation =
   | Load_function_slot_cursor of value * Global_storage.function_slot
   | Load_function_slot of value * Global_storage.function_slot * value
   | Load_undefined_function_address of value
+  | Apply_float of X86_64_float_plan.entry * value list * value
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
   | Apply_shift of Encoder.shift * value * value * value
@@ -322,13 +374,18 @@ type operation =
   | Apply_word_view of value * value
   | Frame_tick
   | Scale_index of word_type * int64 * value * value
-  | Apply_index_offset of Encoder.binary * index_add_base * value * value
+  | Apply_index_offset of
+      Encoder.binary * index_add_base * value * value * (value * int64) option
   | Materialize_reference of
       reference_origin * reference_table * value option * value
   | Materialize_existing_reference of reference_access * value
   | Project_reference of member_reference_source * int64 * scalar_value * value
   | Load_reference_value of reference_access * value
+  | Load_pointer_field of reference_access * value
   | Store_reference_value of reference_access * value * value
+  | Store_pointer_field of reference_access * value * value
+  | Load_code_field of reference_access * int * value
+  | Store_code_field of reference_access * int * value * value
   | Update_reference_value of
       reference_access
       * frame_update
@@ -353,13 +410,14 @@ type operation =
   | Load_frame_value of frame_access * value
   | Load_reference_frame of frame_access * value
   | Load_code_frame of frame_access * int * value
-  | Store_frame_value of frame_access * value * value
+  | Store_frame_value of frame_access * value * value * bool
   | Store_reference_frame of frame_access * int * value * value
   | Store_code_frame of frame_access * int * value * value
   | Update_frame_value of
       frame_access
       * frame_update
       * value option
+      * bool
       * bool
       * value
       * word_type
@@ -372,6 +430,7 @@ type operation =
       arena_access
       * frame_update
       * value option
+      * bool
       * bool
       * value
       * word_type
@@ -397,16 +456,20 @@ type operation =
   | Internal_bit of Intrinsic.bit * value * value * scalar_value * int
   | Internal_swap of value * scalar_value * value * scalar_value * int
   | Internal_integer of Intrinsic.unary * value * int
+  | Internal_numeric of X86_64_float_plan.intrinsic_entry * value * int
   | Internal_binary of Intrinsic.binary * value * value * int
   | Call_cleanup
   | Call_end of int * value
   | Call_end_void
   | Return_value of value
+  | Return_reference of value * scalar_value
+  | Call_end_reference of value
   | Return
   | Discard_value of value * word_type
   | Discard_callback_default of value
   | Discard_data_default of value * int
   | Discard_void
+  | Discard_reference of value * scalar_value
   | Jump_to of Sequence.Block_id.t
   | Branch_zero of value * Sequence.Block_id.t
   | Branch_not_zero of value * Sequence.Block_id.t
@@ -421,6 +484,7 @@ type prepared_instruction = {
   span : Common.Span.t option;
   site : int option;
   push_stage : (value * int * int option * int option) option;
+  numeric_conversion : (X86_64_float_plan.conversion * value * bool) option;
 }
 
 let prepare_lock ~lock_validation (description : Sequence.description) operation
@@ -658,12 +722,12 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               Some result,
               Some target_type,
               Some (Sequence.Integer (0L | 1L)) ) ) ->
-            (* OptPass012.HC:87-110 preserves bits for both parenthesis
-               forms in this checked full-word domain. Keep the original cast
-               instruction and target computation class; no floating or
-               narrow conversion is admitted by this path. *)
-            let _ = checked_word ~allow_public description target_type in
+            (* OptPass012.HC:87-110 and BackLib.HC:445-657 preserve register
+               bits. Storage casts have already selected their owned address
+               and read width; this instruction changes the computation class. *)
+            let _ = checked_value target_type in
             let input = operand operand_id in
+            ignore (checked_value input.declared_type);
             let result =
               define result target_type (Computation.declared target_type)
             in
@@ -696,6 +760,8 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               | `Left, (I64 | U64) -> Encoder.Shl
               | `Right, I64 -> Encoder.Sar
               | `Right, U64 -> Encoder.Shr
+              | _, F64 ->
+                  unsupported description "native F64 shifts are unsupported"
             in
             let result =
               define result target_type (Computation.forward target_type)
@@ -714,6 +780,8 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               | `Left, (I64 | U64) -> Encoder.Shl
               | `Right, I64 -> Encoder.Sar
               | `Right, U64 -> Encoder.Shr
+              | _, F64 ->
+                  unsupported description "native F64 shifts are unsupported"
             in
             let result =
               define result target_type (Computation.forward target_type)
@@ -762,6 +830,9 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               with
               | I64 -> signed
               | U64 -> unsigned
+              | F64 ->
+                  unsupported description
+                    "native F64 comparisons are unsupported"
             in
             let result =
               define result target_type (Computation.forward target_type)
@@ -853,6 +924,7 @@ let preflight ~count instructions =
           span = description.span;
           site = None;
           push_stage = None;
+          numeric_conversion = None;
         }
         :: !prepared)
     instructions;
@@ -888,6 +960,7 @@ type planned_item =
   | Planned_branch of branch_kind * int
   | Planned_call of int
   | Planned_function_address of Encoder.register * int
+  | Planned_label_address of Encoder.register * int
   | Planned_callee_stack of Encoder.register * int
   | Planned_label of int
 
@@ -907,8 +980,8 @@ let planned_size = function
   | Planned_instruction instruction -> Encoder.size instruction
   | Planned_branch (kind, _) -> Encoder.size (branch_instruction kind 0L)
   | Planned_call _ -> Encoder.size (Encoder.Call 0L)
-  | Planned_function_address (register, _) ->
-      Encoder.size (Encoder.Address_code_relative (register, 0L))
+  | Planned_function_address (register, _) | Planned_label_address (register, _)
+    -> Encoder.size (Encoder.Address_code_relative (register, 0L))
   | Planned_callee_stack (register, _) ->
       Encoder.size (Encoder.Mov_imm64 (register, 0L))
   | Planned_label _ -> 0
@@ -973,6 +1046,8 @@ let resolve_plan ~max_code_bytes ?(callee_labels = [||])
         | Planned_function_address (register, index) ->
             ( Some (label index),
               Some (Encoder.Address_code_relative (register, 0L)) )
+        | Planned_label_address (register, target) ->
+            (Some target, Some (Encoder.Address_code_relative (register, 0L)))
         | Planned_callee_stack (register, index) ->
             if index < 0 || index >= Array.length callee_stack_bytes then
               reject "HCBACK0003"
@@ -1062,7 +1137,8 @@ let resolve_plan ~max_code_bytes ?(callee_labels = [||])
         match planned with
         | Planned_branch (kind, _) -> branch_instruction kind (displacement ())
         | Planned_call _ -> Encoder.Call (displacement ())
-        | Planned_function_address (register, _) ->
+        | Planned_function_address (register, _)
+        | Planned_label_address (register, _) ->
             Encoder.Address_code_relative (register, displacement ())
         | _ -> instruction)
       provisional
@@ -1111,12 +1187,12 @@ let build_windows_unwind_info frame_size =
   else
     let info = Bytes.make 8 '\000' in
     let set index value = Bytes.set info index (Char.chr value) in
-    (* Conventional Windows x64 UNWIND_INFO version 1. The fixed prologue is
-       seven bytes, so its one stack-allocation unwind code ends at offset 7. *)
+    (* Version 1 records the allocation after any page probes. The probes
+       leave RSP and nonvolatile registers unchanged. *)
     set 0 1;
-    set 1 7;
+    set 1 (Encoder.stack_allocation_size frame_size);
     set 3 0;
-    set 4 7;
+    set 4 (Encoder.stack_allocation_size frame_size);
     (if frame_size <= 128 then (
        let opinfo = (frame_size / 8) - 1 in
        set 2 1;
@@ -1129,19 +1205,20 @@ let build_windows_unwind_info frame_size =
        set 7 ((scaled lsr 8) land 0xff));
     info
 
-let build_callable_windows_unwind_info frame_size =
+let build_callable_windows_unwind_info ?(register_saves = []) frame_size =
   let has_allocation = frame_size <> 0 in
+  let allocation_end = 4 + Encoder.stack_allocation_size frame_size in
   let large_allocation = frame_size > 128 in
   let info = Bytes.make (if large_allocation then 12 else 8) '\000' in
   let set index value = Bytes.set info index (Char.chr value) in
   (* Windows x64 UNWIND_INFO version 1. PUSH RBP ends at byte 1 and MOV
      RBP,RSP at byte 4. A callable allocation, when present, is the fixed
-     seven-byte SUB RSP,imm32 ending at byte 11. RSP stays fixed after that
+     seven-byte SUB RSP,imm32 after any page probes. RSP stays fixed after that
      allocation, so the unwind record does not establish a frame register;
      MOV RBP,RSP needs no unwind code. Codes are recorded in reverse prologue
      order and padded to an even slot count. *)
   set 0 1;
-  set 1 (if has_allocation then 11 else 4);
+  set 1 (if has_allocation then allocation_end else 4);
   set 3 0;
   (if not has_allocation then (
      set 2 1;
@@ -1149,20 +1226,50 @@ let build_callable_windows_unwind_info frame_size =
      set 5 (5 lsl 4))
    else if frame_size <= 128 then (
      set 2 2;
-     set 4 11;
+     set 4 allocation_end;
      set 5 ((((frame_size / 8) - 1) lsl 4) lor 2);
      set 6 1;
      set 7 (5 lsl 4))
    else
      let scaled = frame_size / 8 in
      set 2 3;
-     set 4 11;
+     set 4 allocation_end;
      set 5 1;
      set 6 (scaled land 0xff);
      set 7 ((scaled lsr 8) land 0xff);
      set 8 1;
      set 9 (5 lsl 4));
-  info
+  if register_saves = [] then info
+  else
+    let count = List.length register_saves in
+    let old_slots = Char.code (Bytes.get info 2) in
+    let slots = old_slots + (2 * count) in
+    let extended = Bytes.make (4 + (2 * (slots + (slots mod 2)))) '\000' in
+    Bytes.blit info 0 extended 0 4;
+    Bytes.set extended 1 (Char.chr (allocation_end + (7 * count)));
+    Bytes.set extended 2 (Char.chr slots);
+    List.iteri
+      (fun index (register, offset) ->
+        let number =
+          match register with
+          | Encoder.Rbx -> 3
+          | Encoder.Rsi -> 6
+          | Encoder.Rdi -> 7
+          | Encoder.R12 -> 12
+          | Encoder.R13 -> 13
+          | Encoder.R14 -> 14
+          | Encoder.R15 -> 15
+          | _ -> reject "HCBACK0003" "invalid saved variable register"
+        in
+        let code = 4 + (4 * (count - index - 1)) in
+        let scaled = (frame_size + offset) / 8 in
+        Bytes.set extended code (Char.chr (allocation_end + (7 * (index + 1))));
+        Bytes.set extended (code + 1) (Char.chr ((number lsl 4) lor 4));
+        Bytes.set extended (code + 2) (Char.chr (scaled land 255));
+        Bytes.set extended (code + 3) (Char.chr ((scaled lsr 8) land 255)))
+      register_saves;
+    Bytes.blit info 4 extended (4 + (4 * count)) (2 * old_slots);
+    extended
 
 type label_supply = { mutable next_label : int }
 
@@ -1176,7 +1283,13 @@ type control_mode =
       home_slots : int;
     }
 
-type callable_frame_layout = { rbp_bytes : int; fixed_stack_slots : int }
+type callable_frame_layout = {
+  rbp_bytes : int;
+  fixed_stack_slots : int;
+  reference_stage : int;
+  reference_frame : int;
+  reference_service_label : int;
+}
 
 type body_allocation = {
   plan : planned_item list;
@@ -1238,24 +1351,31 @@ let atomic_width ?span = function
         "LOCK requires an exact 8, 16, 32 or 64-bit scalar"
 
 let load_frame_scalar span destination access =
-  if access.frame_bytes = 8 then
-    Encoder.Load_frame (destination, encoder_frame_slot span access.frame_offset)
-  else
-    Encoder.Load_frame_narrow
-      ( destination,
-        encoder_scalar_frame_slot span access.frame_offset,
-        narrow_frame_width ?span access.frame_bytes,
-        if access.frame_word = I64 then Encoder.Sign_extend
-        else Encoder.Zero_extend )
+  match access.physical_register with
+  | Some register -> Encoder.Mov (destination, register)
+  | None ->
+      if access.frame_bytes = 8 then
+        Encoder.Load_frame
+          (destination, encoder_frame_slot span access.frame_offset)
+      else
+        Encoder.Load_frame_narrow
+          ( destination,
+            encoder_scalar_frame_slot span access.frame_offset,
+            narrow_frame_width ?span access.frame_bytes,
+            if access.frame_word = I64 then Encoder.Sign_extend
+            else Encoder.Zero_extend )
 
 let store_frame_scalar span access source =
-  if access.frame_bytes = 8 then
-    Encoder.Store_frame (encoder_frame_slot span access.frame_offset, source)
-  else
-    Encoder.Store_frame_narrow
-      ( encoder_scalar_frame_slot span access.frame_offset,
-        narrow_frame_width ?span access.frame_bytes,
-        source )
+  match access.physical_register with
+  | Some register -> Encoder.Mov (register, source)
+  | None ->
+      if access.frame_bytes = 8 then
+        Encoder.Store_frame (encoder_frame_slot span access.frame_offset, source)
+      else
+        Encoder.Store_frame_narrow
+          ( encoder_scalar_frame_slot span access.frame_offset,
+            narrow_frame_width ?span access.frame_bytes,
+            source )
 
 let load_arena_scalar span destination access =
   if access.arena_bytes = 8 then
@@ -1315,11 +1435,11 @@ let print_argument_kind type_ =
     | Type.Primitive (_, Primitive.I8) -> Print_codegen.Signed_byte_pointer
     | _ -> Print_codegen.Other_pointer
 
-let allocate_body ?callable_frame ?(shared_values = [])
-    ?(local_subroutine_capacity = 0) ?(provider_entry_start = Int.max_int)
-    ?(function_code_owners = [||]) ?undefined_code_owner
-    ?(status_abi = Encoder.System_v_x64) ~max_stack_bytes ~reserved_registers
-    ~supply ~mode prepared =
+let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
+    ?(shared_home_indices = Value_map.empty) ?(local_subroutine_capacity = 0)
+    ?(provider_entry_start = Int.max_int) ?(function_code_owners = [||])
+    ?undefined_code_owner ?(status_abi = Encoder.System_v_x64) ~max_stack_bytes
+    ~reserved_registers ~supply ~mode prepared =
   let function_owner index =
     if index < Array.length function_code_owners then
       function_code_owners.(index)
@@ -1345,10 +1465,30 @@ let allocate_body ?callable_frame ?(shared_values = [])
   let rdx = register_index Encoder.Rdx in
   let r8 = register_index Encoder.R8 in
   let reserved = List.map register_index reserved_registers in
+  let extended_owner = ref [] in
   let owners : value option array = Array.make (Array.length registers) None in
-  let slots : value option array = Array.make (hard_max_stack_bytes / 8) None in
-  let shared_count = List.length shared_values in
-  if shared_count > hard_max_stack_bytes / 8 then
+  let slots : value option array = Array.make (max_stack_bytes / 8) None in
+  let shared_slots =
+    List.mapi
+      (fun index value ->
+        let index =
+          Option.value
+            (Value_map.find_opt value.value_id shared_home_indices)
+            ~default:index
+        in
+        (value.value_id, (index, value)))
+      shared_values
+    |> List.fold_left
+         (fun map (id, entry) -> Value_map.add id entry map)
+         Value_map.empty
+  in
+  let shared_slot value = Value_map.find_opt value.value_id shared_slots in
+  let shared_count =
+    Value_map.fold
+      (fun _ (index, _) count -> max count (index + 1))
+      shared_slots 0
+  in
+  if shared_count > max_stack_bytes / 8 then
     reject "HCBACK0004" "native shared-value frame exceeds the stack limit";
   let slot_high_water = ref shared_count in
   let planned = ref [] in
@@ -1382,7 +1522,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
         | Some owner when same_value owner value -> Some index
         | Some _ | None -> find (index + 1)
     in
-    find 0
+    match shared_slot value with
+    | Some (index, _) -> Some index
+    | None -> find 0
   in
   let source_fixed_stack_slots =
     Option.fold ~none:0
@@ -1392,7 +1534,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
   let local_subroutine_slots =
     if local_subroutine_capacity = 0 then 0 else local_subroutine_capacity + 1
   in
-  let fixed_stack_slots = source_fixed_stack_slots + local_subroutine_slots in
+  let float_scratch_slots = if float_scratch then 1 else 0 in
+  let float_scratch_index = source_fixed_stack_slots + local_subroutine_slots in
+  let fixed_stack_slots = float_scratch_index + float_scratch_slots in
   let frame_size_for_spills spill_slots =
     match callable_frame with
     | None -> frame_bytes_for_slots (fixed_stack_slots + spill_slots)
@@ -1407,17 +1551,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
     | Ok slot -> slot
     | Error message -> reject ?span "HCBACK0003" message
   in
-  let shared_slots =
-    List.mapi
-      (fun index value -> (value.value_id, (index, value)))
-      shared_values
-    |> List.fold_left
-         (fun map (id, entry) -> Value_map.add id entry map)
-         Value_map.empty
-  in
-  let shared_slot value = Value_map.find_opt value.value_id shared_slots in
-  (* Graph dominance prevents loading a shared home before its producer. *)
-  List.iteri (fun index value -> slots.(index) <- Some value) shared_values;
+  (* Shared homes are reserved below [shared_count]. Their ownership is
+     resolved by value identity, including when disjoint blocks reuse a home. *)
   if frame_size_for_spills shared_count > max_stack_bytes then
     reject "HCBACK0004" "native shared-value frame exceeds max_stack_bytes";
   let published = ref Value_set.empty in
@@ -1805,6 +1940,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
         emit (Encoder.Test Encoder.Rcx);
         emit_branch Equal zero_label;
         (match word with
+        | F64 -> reject "HCBACK0003" "F64 reached integer division"
         | U64 ->
             emit Encoder.Zero_edx;
             emit Encoder.Div_rcx
@@ -1831,6 +1967,71 @@ let allocate_body ?callable_frame ?(shared_values = [])
     fault_blocks :=
       { label; kind_value = kind; site_value = site } :: !fault_blocks;
     label
+  in
+  let reference_service ?site operation arguments =
+    match (callable_frame, mode) with
+    | Some layout, Callable_control { epilogue_label; _ } ->
+        Reference_service.emit
+          {
+            abi = status_abi;
+            emit = emit None;
+            fresh = (fun () -> fresh_label supply);
+            mark;
+            equal = emit_branch Equal;
+            abort = (fun () -> emit_branch Unconditional epilogue_label);
+            slot = (fun index -> encoder_stack_slot None (index * 8));
+            invoke =
+              (fun ~return_slot ~rax_slot ->
+                let resumed = fresh_label supply in
+                planned :=
+                  Planned_label_address (Encoder.Rax, resumed) :: !planned;
+                emit None (Encoder.Store_stack (return_slot, Encoder.Rax));
+                emit None (Encoder.Load_stack (Encoder.Rax, rax_slot));
+                emit_branch Unconditional layout.reference_service_label;
+                mark resumed);
+          }
+          ~stage:layout.reference_stage ~operation ~arguments ~site
+    | _ -> reject "HCBACK0003" "reference bookkeeping requires a callable frame"
+  in
+  let check_reference site register =
+    reference_service ~site 2 [ Reference_service.Register register ]
+  in
+  let invalidate_reference register bytes =
+    reference_service 3
+      [
+        Reference_service.Register register;
+        Reference_service.Immediate (Int64.of_int bytes);
+      ]
+  in
+  let store_frame_scalar span access source =
+    if Option.is_none access.physical_register then
+      reference_service 3
+        [
+          Reference_service.Frame_address access.frame_offset;
+          Reference_service.Immediate (Int64.of_int access.frame_bytes);
+        ];
+    store_frame_scalar span access source
+  in
+  let store_arena_scalar span access source =
+    reference_service 3
+      [
+        Reference_service.Arena_address access.arena_offset;
+        Reference_service.Immediate (Int64.of_int access.arena_bytes);
+      ];
+    store_arena_scalar span access source
+  in
+  let store_reference_scalar span base scalar source =
+    invalidate_reference base scalar.byte_size;
+    store_reference_scalar span base scalar source
+  in
+  let emit_reference_epoch span target = function
+    | Frame_reference _ | Variadic_reference _ ->
+        let layout = Option.get callable_frame in
+        emit span
+          (Encoder.Load_frame
+             (target, encoder_frame_slot span (layout.reference_frame + 8)))
+    | Arena_reference _ | Literal_reference _ ->
+        emit span (Encoder.Mov_imm64 (target, 0L))
   in
   let emit_doubles span register count =
     for _ = 1 to count do
@@ -2019,6 +2220,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
         (match input with
         | Some input -> copy_value_to instruction.span input rcx
         | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, increment)));
+        invalidate_reference Encoder.Rdx scalar.byte_size;
         emit
           (Encoder.Lock_binary_indirect
              ( binary,
@@ -2083,9 +2285,15 @@ let allocate_body ?callable_frame ?(shared_values = [])
           fault_blocks :=
             { label = step_fault; kind_value = 3; site_value = site }
             :: !fault_blocks;
-          emit (Encoder.Test Encoder.R10);
+          emit
+            (match mode with
+            | Callable_control _ -> Encoder.Callable_test_budget
+            | _ -> Encoder.Test Encoder.R10);
           emit_branch Equal step_fault;
-          emit (Encoder.Dec Encoder.R10));
+          emit
+            (match mode with
+            | Callable_control _ -> Encoder.Callable_dec_budget
+            | _ -> Encoder.Dec Encoder.R10));
       (match instruction.operation with
       | Load_immediate (result, bits) ->
           let destination =
@@ -2134,6 +2342,180 @@ let allocate_body ?callable_frame ?(shared_values = [])
                  encoder_arena_slot instruction.span
                    (Global_storage.undefined_code_owner_address owner) ));
           assign position destination result
+      | Apply_float (plan, values, result) ->
+          if !extended_owner <> plan.live_before then
+            reject ?span:instruction.span "HCBACK0003"
+              "F64 extended ownership differs from its sealed plan";
+          let materialized =
+            List.filter
+              (fun value -> not (List.mem value.value_id plan.live_before))
+              values
+          in
+          let inputs, protected = ensure_inputs instruction.span materialized in
+          let sources = List.combine materialized inputs in
+          let source value =
+            match
+              List.find_opt (fun (v, _) -> v.value_id = value.value_id) sources
+            with
+            | Some (_, index) -> index
+            | None ->
+                reject ?span:instruction.span "HCBACK0003"
+                  "extended F64 value has no integer home"
+          in
+          let destination =
+            if plan.live_after <> [ result.value_id ] then
+              Some
+                (acquire_destination instruction.span position ~protected
+                   ~excluded:[])
+            else None
+          in
+          let scratch = fixed_stack_slot instruction.span float_scratch_index in
+          let memory = Encoder.X87_stack scratch in
+          let load value = function
+            | X86_64_float_plan.Zero ->
+                emit (Encoder.Fld_constant Encoder.Fzero)
+            | One -> emit (Encoder.Fld_constant Encoder.Fone)
+            | (Bits | Signed_integer) as loading ->
+                emit (Encoder.Store_stack (scratch, registers.(source value)));
+                emit
+                  (if loading = Signed_integer then Encoder.Fild64 memory
+                   else Encoder.Fld64 memory)
+          in
+          let materialize () =
+            Option.iter
+              (fun destination ->
+                emit
+                  (match plan.result_conversion with
+                  | Some X86_64_float_plan.To_integer -> Encoder.Fisttp64 memory
+                  | Some To_float ->
+                      reject ?span:instruction.span "HCBACK0003"
+                        "invalid floating result conversion"
+                  | None -> Encoder.Fstp64 memory);
+                emit (Encoder.Load_stack (registers.(destination), scratch)))
+              destination
+          in
+          let reverse = function
+            | Encoder.Fsub -> Encoder.Fsubr
+            | Fdiv -> Fdivr
+            | op -> op
+          in
+          (match (plan.operation, values, plan.loads) with
+          | ( ((X86_64_float_plan.Alias_left | Alias_right) as op),
+              [ left; right ],
+              _ ) ->
+              let value =
+                if op = X86_64_float_plan.Alias_left then left else right
+              in
+              if not (List.mem value.value_id plan.live_before) then (
+                if plan.live_after = [ result.value_id ] then
+                  reject ?span:instruction.span "HCBACK0003"
+                    "F64 alias cannot invent an extended producer";
+                emit
+                  (Encoder.Mov
+                     ( registers.(Option.get destination),
+                       registers.(source value) )))
+          | ((Copy_left | Copy_right) as op), [ left; right ], _ ->
+              let value =
+                if op = X86_64_float_plan.Copy_left then left else right
+              in
+              emit
+                (Encoder.Mov
+                   (registers.(Option.get destination), registers.(source value)))
+          | Negate, [ value ], [ loading ] ->
+              load value loading;
+              emit Encoder.Fchs;
+              materialize ()
+          | ( ((Add | Subtract | Multiply | Divide) as op),
+              [ left; right ],
+              [ ll; rl ] ) ->
+              let binary =
+                match op with
+                | X86_64_float_plan.Add -> Encoder.Fadd
+                | Subtract -> Fsub
+                | Multiply -> Fmul
+                | Divide -> Fdiv
+                | _ -> assert false
+              in
+              (match plan.live_before with
+              | [ id ] -> (
+                  let other, loading, binary =
+                    if id = left.value_id then (right, rl, binary)
+                    else if id = right.value_id then (left, ll, reverse binary)
+                    else
+                      reject ?span:instruction.span "HCBACK0003"
+                        "F64 link is not an original operand"
+                  in
+                  match loading with
+                  | X86_64_float_plan.Bits ->
+                      emit
+                        (Encoder.Store_stack (scratch, registers.(source other)));
+                      emit (Encoder.Fbinary64 (binary, memory))
+                  | _ ->
+                      load other loading;
+                      let st1 =
+                        Encoder.x87_register ~index:1 |> Result.get_ok
+                      in
+                      emit (Encoder.Fbinary_pop (binary, st1)))
+              | [] -> (
+                  match (ll, rl) with
+                  | X86_64_float_plan.Signed_integer, _ -> (
+                      load left ll;
+                      match rl with
+                      | Bits ->
+                          emit
+                            (Encoder.Store_stack
+                               (scratch, registers.(source right)));
+                          emit (Encoder.Fbinary64 (binary, memory))
+                      | _ ->
+                          load right rl;
+                          emit
+                            (Encoder.Fbinary_pop
+                               ( binary,
+                                 Encoder.x87_register ~index:1 |> Result.get_ok
+                               )))
+                  | _, X86_64_float_plan.Signed_integer -> (
+                      load right rl;
+                      match ll with
+                      | Bits ->
+                          emit
+                            (Encoder.Store_stack
+                               (scratch, registers.(source left)));
+                          emit (Encoder.Fbinary64 (reverse binary, memory))
+                      | _ ->
+                          load left ll;
+                          emit
+                            (Encoder.Fbinary_pop
+                               ( reverse binary,
+                                 Encoder.x87_register ~index:1 |> Result.get_ok
+                               )))
+                  | _, X86_64_float_plan.Bits ->
+                      load left ll;
+                      emit
+                        (Encoder.Store_stack (scratch, registers.(source right)));
+                      emit (Encoder.Fbinary64 (binary, memory))
+                  | Bits, _ ->
+                      load right rl;
+                      emit
+                        (Encoder.Store_stack (scratch, registers.(source left)));
+                      emit (Encoder.Fbinary64 (reverse binary, memory))
+                  | _ ->
+                      load left ll;
+                      load right rl;
+                      let st1 =
+                        Encoder.x87_register ~index:1 |> Result.get_ok
+                      in
+                      emit (Encoder.Fbinary_pop (binary, st1)))
+              | _ ->
+                  reject ?span:instruction.span "HCBACK0003"
+                    "invalid F64 link depth");
+              materialize ()
+          | _ ->
+              reject ?span:instruction.span "HCBACK0003"
+                "invalid sealed F64 emission plan");
+          extended_owner := plan.live_after;
+          Option.iter
+            (fun destination -> assign position destination result)
+            destination
       | Apply_unary (unary, input, result) ->
           require_numeric_owner input;
           let inputs, protected = ensure_inputs instruction.span [ input ] in
@@ -2247,6 +2629,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Test Encoder.Rcx);
           emit_branch Equal zero_label;
           (match word with
+          | F64 -> reject "HCBACK0003" "F64 reached an integer-only operation"
           | U64 ->
               emit Encoder.Zero_edx;
               emit Encoder.Div_rcx
@@ -2346,20 +2729,40 @@ let allocate_body ?callable_frame ?(shared_values = [])
           spill_all_registers instruction.span;
           copy_value_to instruction.span left rdx;
           copy_value_to instruction.span right rcx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
+          check_reference (Option.get instruction.site) Encoder.Rcx;
           let different = fresh_label supply in
           let complete = fresh_label supply in
           (* Separate address sites can own separate descriptor snapshots. The
              original data/flags/offset/extent identify the same live object
              independently of which table produced its descriptor. *)
+          let empty = fresh_label supply in
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 24));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal empty;
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rcx, 24));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal empty;
           List.iter
             (fun offset ->
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, offset));
               emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
               emit_branch Not_equal different)
-            [ 0; 8; 16; 24 ];
+            [ 0; 8; 16; 24; 32 ];
           let same = if condition = Encoder.E then 1L else 0L in
           emit (Encoder.Mov_imm64 (Encoder.Rax, same));
+          emit_branch Unconditional complete;
+          mark empty;
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 16));
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.R8));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, 0));
+          emit (Encoder.Load_indirect (Encoder.Rdx, Encoder.Rcx, 16));
+          emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rdx));
+          emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
+          emit (Encoder.Setcc (condition, Encoder.Rax));
+          emit (Encoder.Movzx8 (Encoder.Rax, Encoder.Rax));
           emit_branch Unconditional complete;
           mark different;
           emit (Encoder.Mov_imm64 (Encoder.Rax, Int64.sub 1L same));
@@ -2370,6 +2773,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           spill_all_registers instruction.span;
           copy_value_to instruction.span left rdx;
           copy_value_to instruction.span right rcx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
+          check_reference (Option.get instruction.site) Encoder.Rcx;
           let mismatch = fresh_label supply in
           fault_blocks :=
             {
@@ -2384,7 +2789,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, offset));
               emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
               emit_branch Not_equal mismatch)
-            [ 0; 8; 24 ];
+            [ 0; 8; 24; 32 ];
           emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, 16));
           emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
@@ -2396,6 +2801,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           spill_all_registers instruction.span;
           copy_value_to instruction.span left rdx;
           copy_value_to instruction.span right rcx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
+          check_reference (Option.get instruction.site) Encoder.Rcx;
           let mismatch = fresh_label supply in
           fault_blocks :=
             {
@@ -2410,7 +2817,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, offset));
               emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
               emit_branch Not_equal mismatch)
-            [ 0; 8; 24 ];
+            [ 0; 8; 24; 32 ];
           emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, 16));
           emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.R8));
@@ -2479,6 +2886,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           let overflow = fault_label 8 (Option.get instruction.site) in
           copy_value_to instruction.span index rax;
           (match word with
+          | F64 -> reject "HCBACK0003" "F64 reached an integer-only operation"
           | U64 ->
               emit (Encoder.Test Encoder.Rax);
               emit_branch Less overflow
@@ -2488,8 +2896,19 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit_branch Overflow overflow;
           note_peak ~temporaries:[ rax; rcx ] ();
           assign position rax result
-      | Apply_index_offset (operation, base, delta, result) ->
+      | Apply_index_offset (operation, base, delta, result, bound) ->
           spill_all_registers instruction.span;
+          Option.iter
+            (fun (index, count) ->
+              let invalid = fault_label 10 (Option.get instruction.site) in
+              copy_value_to instruction.span index rcx;
+              emit (Encoder.Test Encoder.Rcx);
+              emit_branch Less invalid;
+              emit (Encoder.Mov_imm64 (Encoder.Rdx, count));
+              emit (Encoder.Cmp (Encoder.Rdx, Encoder.Rcx));
+              emit_branch Below invalid;
+              emit_branch Equal invalid)
+            bound;
           let overflow = fault_label 9 (Option.get instruction.site) in
           (match base with
           | Index_zero -> emit (Encoder.Mov_imm64 (Encoder.Rax, 0L))
@@ -2519,9 +2938,12 @@ let allocate_body ?callable_frame ?(shared_values = [])
                 (Encoder.Address_frame
                    (Encoder.Rdx, encoder_frame_slot instruction.span offset))
           | Arena_table offset ->
+              let _ = offset in
               emit
-                (Encoder.Address_arena
-                   (Encoder.Rdx, encoder_arena_slot instruction.span offset)));
+                (Encoder.Address_frame
+                   ( Encoder.Rdx,
+                     encoder_frame_slot instruction.span
+                       (Option.get result.reference_descriptor_offset) )));
           emit_reference_data instruction.span Encoder.Rax origin;
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 0, Encoder.Rax));
           emit_reference_flag instruction.span Encoder.Rax origin;
@@ -2529,6 +2951,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx));
           emit_reference_extent instruction.span Encoder.Rax origin;
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 24, Encoder.Rax));
+          emit_reference_epoch instruction.span Encoder.Rax origin;
+          emit (Encoder.Store_indirect_offset (Encoder.Rdx, 32, Encoder.Rax));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rdx result
       | Project_reference (source, delta, scalar, result) ->
@@ -2559,9 +2983,13 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit
                 (Encoder.Store_indirect_offset (Encoder.Rdx, 24, Encoder.Rax));
               emit
-                (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx))
+                (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx));
+              emit_reference_epoch instruction.span Encoder.Rax origin;
+              emit
+                (Encoder.Store_indirect_offset (Encoder.Rdx, 32, Encoder.Rax))
           | Member_reference access ->
               copy_value_to instruction.span access.reference rdx;
+              check_reference site Encoder.Rdx;
               (match access.offset with
               | None ->
                   emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
@@ -2584,7 +3012,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
                   emit
                     (Encoder.Store_indirect_offset
                        (Encoder.R8, offset, Encoder.Rax)))
-                [ 0; 8; 24 ];
+                [ 0; 8; 24; 32 ];
               emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx));
               emit (Encoder.Mov (Encoder.Rdx, Encoder.R8)));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
@@ -2592,6 +3020,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Materialize_existing_reference (access, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
+          if Option.is_some access.offset then
+            check_reference (Option.get instruction.site) Encoder.Rdx;
           (match access.offset with
           | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
           | Some offset ->
@@ -2611,13 +3041,122 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit
                 (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
-            [ 0; 8; 24 ];
+            [ 0; 8; 24; 32 ];
           emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position r8 result
+      | Load_code_field (access, table, result)
+      | Store_code_field (access, table, _, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span access.reference rdx;
+          emit
+            (Encoder.Address_frame
+               (Encoder.R8, encoder_frame_slot instruction.span table));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
+            [ 0; 8; 16; 24; 32 ];
+          Option.iter
+            (fun offset ->
+              copy_value_to instruction.span offset rcx;
+              emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx)))
+            access.offset;
+          (match instruction.operation with
+          | Store_code_field (_, _, input, _) ->
+              copy_value_to instruction.span input rax;
+              emit
+                (Encoder.Store_frame
+                   ( encoder_frame_slot instruction.span (table + 40),
+                     Encoder.Rax ));
+              load_owner Encoder.Rax input;
+              emit
+                (Encoder.Store_frame
+                   ( encoder_frame_slot instruction.span (table + 48),
+                     Encoder.Rax ))
+          | _ -> ());
+          emit
+            (Encoder.Address_frame
+               (Encoder.Rdx, encoder_frame_slot instruction.span (table + 40)));
+          reference_service
+            ~site:(Option.get instruction.site)
+            (match instruction.operation with
+            | Load_code_field _ -> 6
+            | _ -> 7)
+            [
+              Reference_service.Register Encoder.R8;
+              Reference_service.Register Encoder.Rdx;
+            ];
+          emit
+            (Encoder.Load_frame
+               (Encoder.Rax, encoder_frame_slot instruction.span (table + 48)));
+          emit
+            (Encoder.Store_frame
+               ( encoder_frame_slot instruction.span
+                   (Option.get result.code_owner_offset),
+                 Encoder.Rax ));
+          emit
+            (Encoder.Load_frame
+               (Encoder.Rax, encoder_frame_slot instruction.span (table + 40)));
+          note_peak ~temporaries:[ rax; rdx; r8 ] ();
+          assign position rax result
+      | Load_pointer_field (access, result)
+      | Store_pointer_field (access, _, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span access.reference rdx;
+          emit
+            (Encoder.Address_frame
+               ( Encoder.R8,
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
+            [ 0; 8; 16; 24; 32 ];
+          Option.iter
+            (fun offset ->
+              copy_value_to instruction.span offset rcx;
+              emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx)))
+            access.offset;
+          let identity = pointer_field_identity result.declared_type in
+          (match instruction.operation with
+          | Load_pointer_field _ ->
+              reference_service
+                ~site:(Option.get instruction.site)
+                4
+                [
+                  Reference_service.Register Encoder.R8;
+                  Reference_service.Register Encoder.R8;
+                  Reference_service.Immediate identity;
+                ]
+          | Store_pointer_field (_, input, _) ->
+              copy_value_to instruction.span input rdx;
+              reference_service
+                ~site:(Option.get instruction.site)
+                5
+                [
+                  Reference_service.Register Encoder.R8;
+                  Reference_service.Register Encoder.Rdx;
+                  Reference_service.Immediate identity;
+                ];
+              List.iter
+                (fun offset ->
+                  emit
+                    (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+                  emit
+                    (Encoder.Store_indirect_offset
+                       (Encoder.R8, offset, Encoder.Rax)))
+                [ 0; 8; 16; 24; 32 ]
+          | _ -> assert false);
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position r8 result
       | Load_reference_value (access, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           (match access.offset with
           | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
           | Some offset -> copy_value_to instruction.span offset rcx);
@@ -2640,6 +3179,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Store_reference_value (access, input, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           (match access.offset with
           | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
           | Some offset -> copy_value_to instruction.span offset rcx);
@@ -2724,12 +3264,20 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit
                 (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
-            [ 0; 8; 16; 24 ];
+            [ 0; 8; 16; 24; 32 ];
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position r8 result
       | Store_reference_frame (access, home, input, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span input rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          emit_bounds instruction.span
+            (Option.get instruction.site)
+            ~one_past:true
+            ~scalar:(reference_value_scalar input.declared_type)
+            ~offset:Encoder.Rcx ~extent:Encoder.R8;
           emit
             (Encoder.Address_frame
                (Encoder.R8, encoder_frame_slot instruction.span home));
@@ -2738,7 +3286,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit
                 (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
-            [ 0; 8; 16; 24 ];
+            [ 0; 8; 16; 24; 32 ];
           emit (store_frame_scalar instruction.span access Encoder.R8);
           Option.iter
             (fun offset ->
@@ -2757,7 +3305,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit
                 (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
-            [ 0; 8; 16; 24 ];
+            [ 0; 8; 16; 24; 32 ];
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position r8 result
       | Load_frame_value (access, result) | Load_code_frame (access, _, result)
@@ -2782,8 +3330,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
             access.initialized_flag_offset;
           emit (load_frame_scalar instruction.span target access);
           assign position destination result
-      | Store_frame_value (access, input, result)
-      | Store_code_frame (access, _, input, result) ->
+      | ( Store_frame_value (access, input, result, _)
+        | Store_code_frame (access, _, input, result) ) as operation ->
           let inputs, protected = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
           let destination =
@@ -2794,6 +3342,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
             emit (Encoder.Mov (registers.(destination), registers.(source)));
           emit
             (store_frame_scalar instruction.span access registers.(destination));
+          (match operation with
+          | Store_frame_value (_, _, _, true) ->
+              (* BackC's by-value assignment returns the destination load, not
+                 the RHS temporary. This grant is for proved stack frames only. *)
+              emit
+                (load_frame_scalar instruction.span registers.(destination)
+                   access)
+          | _ -> ());
           Option.iter
             (fun flag_offset ->
               let scratch =
@@ -2850,7 +3406,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
           owners.(scratch) <- None;
           assign position destination result
       | Update_frame_value
-          (access, update, input, old_result, result, word, arithmetic_site) ->
+          ( access,
+            update,
+            input,
+            old_result,
+            narrow_result,
+            result,
+            word,
+            arithmetic_site ) ->
           spill_all_registers instruction.span;
           Option.iter
             (fun flag_offset ->
@@ -2866,6 +3429,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
                 uninitialized)
             access.initialized_flag_offset;
           if instruction.locked then (
+            if Option.is_some access.physical_register then
+              reject ?span:instruction.span "HCBACK0003"
+                "physical register variable cannot be locked";
             emit
               (Encoder.Address_frame
                  ( Encoder.Rdx,
@@ -2890,7 +3456,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
               (store_frame_scalar instruction.span access
                  registers.(computed_index));
             if
-              (not old_result) && Option.is_none input && access.frame_bytes < 8
+              (not old_result)
+              && (Option.is_none input || narrow_result)
+              && access.frame_bytes < 8
             then
               emit
                 (load_frame_scalar instruction.span registers.(computed_index)
@@ -2901,7 +3469,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
               ();
             assign position (if old_result then r8 else computed_index) result)
       | Update_callback_value
-          (access, update, input, old_result, result, arithmetic_site) ->
+          (access, update, input, old_result, result, arithmetic_site) -> (
           spill_all_registers instruction.span;
           let site = Option.get instruction.site in
           let owned = fresh_label supply in
@@ -2941,6 +3509,42 @@ let allocate_body ?callable_frame ?(shared_values = [])
                 (Encoder.Load_arena
                    ( Encoder.Rax,
                      encoder_arena_slot instruction.span owner_offset ))
+          | Callback_field (access, table) ->
+              copy_value_to instruction.span access.reference rdx;
+              emit
+                (Encoder.Address_frame
+                   (Encoder.R8, encoder_frame_slot instruction.span table));
+              List.iter
+                (fun offset ->
+                  emit
+                    (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+                  emit
+                    (Encoder.Store_indirect_offset
+                       (Encoder.R8, offset, Encoder.Rax)))
+                [ 0; 8; 16; 24; 32 ];
+              Option.iter
+                (fun offset ->
+                  copy_value_to instruction.span offset rcx;
+                  emit
+                    (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx)))
+                access.offset;
+              emit
+                (Encoder.Address_frame
+                   ( Encoder.Rdx,
+                     encoder_frame_slot instruction.span (table + 40) ));
+              reference_service ~site 6
+                [
+                  Reference_service.Register Encoder.R8;
+                  Reference_service.Register Encoder.Rdx;
+                ];
+              emit
+                (Encoder.Load_frame
+                   ( Encoder.Rax,
+                     encoder_frame_slot instruction.span (table + 48) ));
+              if instruction.locked then (
+                emit (Encoder.Load_indirect (Encoder.Rdx, Encoder.R8, 0));
+                emit (Encoder.Load_indirect (Encoder.R8, Encoder.R8, 16));
+                emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.R8)))
           | Callback_indexed (access, home) ->
               let scalar = reference_scalar access.origin in
               copy_value_to instruction.span access.offset rcx;
@@ -2993,9 +3597,24 @@ let allocate_body ?callable_frame ?(shared_values = [])
               (Encoder.Store_indirect_offset
                  (target, 0, registers.(computed_index)));
             note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
-            assign position (if old_result then r8 else computed_index) result)
+            assign position (if old_result then r8 else computed_index) result);
+          match access with
+          | Callback_field (_, table) when not instruction.locked ->
+              reference_service ~site 7
+                [
+                  Reference_service.Frame_address table;
+                  Reference_service.Frame_address (table + 40);
+                ]
+          | _ -> ())
       | Update_arena_value
-          (access, update, input, old_result, result, word, arithmetic_site) ->
+          ( access,
+            update,
+            input,
+            old_result,
+            narrow_result,
+            result,
+            word,
+            arithmetic_site ) ->
           spill_all_registers instruction.span;
           let site = Option.get instruction.site in
           let uninitialized = fresh_label supply in
@@ -3029,7 +3648,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
               (store_arena_scalar instruction.span access
                  registers.(computed_index));
             if
-              (not old_result) && Option.is_none input && access.arena_bytes < 8
+              (not old_result)
+              && (Option.is_none input || narrow_result)
+              && access.arena_bytes < 8
             then
               emit
                 (load_arena_scalar instruction.span registers.(computed_index)
@@ -3091,6 +3712,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           (match access.offset with
           | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
           | Some offset -> copy_value_to instruction.span offset rcx);
@@ -3141,6 +3763,22 @@ let allocate_body ?callable_frame ?(shared_values = [])
             note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
             assign position (if old_result then r8 else computed_index) result)
       | Call_start | Call_cleanup -> release_through position
+      | Internal_numeric (plan, input, stage) -> (
+          if !extended_owner <> [] then
+            reject ?span:instruction.span "HCBACK0003"
+              "numeric intrinsic crosses an unproved extended owner";
+          require_numeric_owner input;
+          let inputs, _ = ensure_inputs instruction.span [ input ] in
+          let slot = staged_stack_slot instruction.span stage in
+          let memory = Encoder.X87_stack slot in
+          emit (Encoder.Store_stack (slot, registers.(List.hd inputs)));
+          match plan.intrinsic_conversion with
+          | Numeric.To_float ->
+              emit (Encoder.Fild64 memory);
+              emit (Encoder.Fstp64 memory)
+          | To_integer ->
+              emit (Encoder.Fld64 memory);
+              emit (Encoder.Fisttp64 memory))
       | Internal_integer (operation, input, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span input rax;
@@ -3252,6 +3890,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
             (Encoder.Mov_imm64 (Encoder.Rcx, Int64.of_int (-scalar.byte_size)));
           emit (Encoder.Binary (Encoder.And, Encoder.Rax, Encoder.Rcx));
           copy_value_to instruction.span reference rdx;
+          check_reference site Encoder.Rdx;
           emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
           emit_bounds instruction.span site ~one_past:true ~scalar
@@ -3274,6 +3913,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           in
           if instruction.locked then (
             emit_lock_alignment instruction.span site scalar Encoder.R8;
+            if operation <> Intrinsic.Test_bit then
+              invalidate_reference Encoder.R8 scalar.byte_size;
             emit
               (load_reference_scalar instruction.span Encoder.Rax Encoder.R8
                  scalar);
@@ -3317,6 +3958,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           in
           let load reference scalar =
             copy_value_to instruction.span reference rdx;
+            check_reference site Encoder.Rdx;
             emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
             emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
             emit_bounds instruction.span site ~one_past:false ~scalar
@@ -3348,6 +3990,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Internal_mod_u64 (reference, divisor, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
           let site = Option.get instruction.site in
@@ -3365,6 +4008,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit_branch Equal (fault_label 1 site);
           emit Encoder.Zero_edx;
           emit Encoder.Div_rcx;
+          invalidate_reference Encoder.R8 8;
           emit (Encoder.Store_indirect (Encoder.R8, Encoder.Rax));
           emit
             (Encoder.Store_stack
@@ -3374,6 +4018,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Internal_strlen (reference, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span reference rdx;
+          check_reference (Option.get instruction.site) Encoder.Rdx;
           emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
           let site = Option.get instruction.site in
           let bounds_fault = fault_label 10 site in
@@ -3405,9 +4050,15 @@ let allocate_body ?callable_frame ?(shared_values = [])
              before accessing storage. This leaves output work untouched. *)
           emit (Encoder.Mov_imm64 (Encoder.Rax, 1L));
           emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rax));
-          emit (Encoder.Test Encoder.R10);
+          emit
+            (match mode with
+            | Callable_control _ -> Encoder.Callable_test_budget
+            | _ -> Encoder.Test Encoder.R10);
           emit_branch Equal step_fault;
-          emit (Encoder.Dec Encoder.R10);
+          emit
+            (match mode with
+            | Callable_control _ -> Encoder.Callable_dec_budget
+            | _ -> Encoder.Dec Encoder.R10);
           emit_branch Unconditional probe;
           mark complete;
           emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16));
@@ -3446,6 +4097,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Print_output call ->
           spill_all_registers instruction.span;
           Print_codegen.emit
+            ~reference_guard:(check_reference (Option.get instruction.site))
             {
               status_abi;
               instruction = emit;
@@ -3814,6 +4466,39 @@ let allocate_body ?callable_frame ?(shared_values = [])
                  staged_stack_slot instruction.span stage ));
           assign position destination result
       | Call_end_void -> release_through position
+      | Call_end_reference result ->
+          spill_all_registers instruction.span;
+          emit
+            (Encoder.Address_frame
+               ( Encoder.Rdx,
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_context (Encoder.Rax, 240 + offset));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.Rdx, offset, Encoder.Rax)))
+            [ 0; 8; 16; 24; 32 ];
+          note_peak ~temporaries:[ rax; rdx ] ();
+          assign position rdx result
+      | Return_reference (input, scalar) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span input rdx;
+          let site = Option.get instruction.site in
+          check_reference site Encoder.Rdx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          emit_bounds instruction.span site ~one_past:true ~scalar
+            ~offset:Encoder.Rcx ~extent:Encoder.R8;
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit (Encoder.Store_context (240 + offset, Encoder.Rax)))
+            [ 0; 8; 16; 24; 32 ];
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          release_through position
       | Return_value input ->
           require_numeric_owner input;
           let inputs, _ = ensure_inputs instruction.span [ input ] in
@@ -3837,14 +4522,30 @@ let allocate_body ?callable_frame ?(shared_values = [])
               reject ?span:instruction.span "HCBACK0003"
                 "native program contains expression return")
       | Load_saved_data (offset, result) ->
+          spill_all_registers instruction.span;
+          emit
+            (Encoder.Address_arena
+               (Encoder.Rdx, encoder_arena_slot instruction.span offset));
           let destination =
             acquire_destination instruction.span position ~protected:[]
               ~excluded:[]
           in
           emit
-            (Encoder.Address_arena
+            (Encoder.Address_frame
                ( registers.(destination),
-                 encoder_arena_slot instruction.span offset ));
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          List.iter
+            (fun field ->
+              emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, field));
+              emit
+                (Encoder.Store_indirect_offset
+                   (registers.(destination), field, Encoder.Rcx)))
+            [ 0; 8; 16; 24 ];
+          emit (Encoder.Mov_imm64 (Encoder.Rcx, 0L));
+          emit
+            (Encoder.Store_indirect_offset
+               (registers.(destination), 32, Encoder.Rcx));
           assign position destination result
       | Discard_data_default (input, offset) ->
           spill_all_registers instruction.span;
@@ -3971,7 +4672,18 @@ let allocate_body ?callable_frame ?(shared_values = [])
               release_through position
           | Callable_control { is_entry = false; _ } -> release_through position
           )
-      | Discard_void -> (
+      | Discard_reference _ | Discard_void -> (
+          (match instruction.operation with
+          | Discard_reference (input, scalar) ->
+              spill_all_registers instruction.span;
+              copy_value_to instruction.span input rdx;
+              check_reference (Option.get instruction.site) Encoder.Rdx;
+              emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+              emit_bounds instruction.span
+                (Option.get instruction.site)
+                ~one_past:true ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8
+          | _ -> ());
           match mode with
           | Expression_control _ ->
               reject ?span:instruction.span "HCBACK0003"
@@ -4199,6 +4911,26 @@ let allocate_body ?callable_frame ?(shared_values = [])
           publish_owner result (fun target -> load_owner target input)
       | _ -> ());
       Option.iter
+        (fun (conversion, value, retain) ->
+          if !extended_owner <> [] then
+            reject ?span:instruction.span "HCBACK0003"
+              "numeric conversion crosses an extended floating owner";
+          let inputs, _ = ensure_inputs instruction.span [ value ] in
+          let register = registers.(List.hd inputs) in
+          let scratch = fixed_stack_slot instruction.span float_scratch_index in
+          let memory = Encoder.X87_stack scratch in
+          emit (Encoder.Store_stack (scratch, register));
+          (match conversion with
+          | X86_64_float_plan.To_float ->
+              emit (Encoder.Fild64 memory);
+              if not retain then emit (Encoder.Fstp64 memory)
+          | To_integer ->
+              emit (Encoder.Fld64 memory);
+              emit (Encoder.Fisttp64 memory));
+          if retain then extended_owner := [ value.value_id ]
+          else emit (Encoder.Load_stack (register, scratch)))
+        instruction.numeric_conversion;
+      Option.iter
         (fun (value, stage, owner_stage, reference_stage) ->
           if Option.is_none owner_stage then require_numeric_owner value;
           let inputs, _ = ensure_inputs instruction.span [ value ] in
@@ -4211,6 +4943,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
           | Some offset ->
               spill_all_registers instruction.span;
               copy_value_to instruction.span value rdx;
+              check_reference (Option.get instruction.site) Encoder.Rdx;
+              emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+              emit_bounds instruction.span
+                (Option.get instruction.site)
+                ~one_past:true
+                ~scalar:(reference_value_scalar value.declared_type)
+                ~offset:Encoder.Rcx ~extent:Encoder.R8;
               emit
                 (Encoder.Address_frame
                    (Encoder.R8, encoder_frame_slot instruction.span offset));
@@ -4220,7 +4960,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
                   emit
                     (Encoder.Store_indirect_offset
                        (Encoder.R8, byte, Encoder.Rax)))
-                [ 0; 8; 16; 24 ];
+                [ 0; 8; 16; 24; 32 ];
               emit
                 (Encoder.Store_stack
                    (staged_stack_slot instruction.span stage, Encoder.R8)));
@@ -4238,7 +4978,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
             owner_stage)
         instruction.push_stage;
       (* Publish each reached shared producer before the next branch. Its
-         permanent home belongs to this activation and survives calls. *)
+         home belongs to this activation and survives calls. *)
       Array.iteri
         (fun register owner ->
           match owner with
@@ -4375,6 +5115,8 @@ type program_site = {
   lock_alignment_site : bool;
   pointer_ordering_site : bool;
   pointer_difference_site : bool;
+  reference_ownership_site : bool;
+  reference_shadow_store_site : bool;
   output_site : bool;
   atomic_output_site : bool;
   stream_print_site : bool;
@@ -4394,6 +5136,7 @@ type program_image = {
   status_abi : status_abi;
   block_count : int;
   function_count : int;
+  callable : bool;
   private_function_count : int;
   entry_stack_bytes : int;
   global_bytes : int;
@@ -4405,6 +5148,8 @@ type program_image = {
   code_owner_bindings : (int * int * int * int * int) list;
   function_slot_bindings : (int * int) list;
   has_output : bool;
+  requires_x87 : bool;
+  requires_fisttp : bool;
   sites : program_site list;
 }
 
@@ -4553,6 +5298,128 @@ let shared_runtime_values ~external_ids ~extra values =
   |> List.map (fun (_, value) ->
       value.last_use <- Int.max_int;
       value)
+
+(* For values without hidden reference dependencies, keep each
+   shared value live for every block from its producer through its last reachable
+   use, including backedges. Homes can overlap only when these block sets are
+   disjoint. Reserving the whole block also protects still-owned registers from
+   republishing a dead value over a newer producer's home. *)
+let shared_home_indices graph shared_values =
+  if List.length shared_values < 2 then Value_map.empty
+  else
+    let ids =
+      List.fold_left
+        (fun ids value -> Value_set.add value.value_id ids)
+        Value_set.empty shared_values
+    in
+    let blocks = Graph.blocks graph in
+    let facts =
+      List.fold_left
+        (fun facts block ->
+          let defs, uses =
+            Sequence.instructions (Graph.instructions block)
+            |> List.fold_left
+                 (fun (defs, uses) instruction ->
+                   let description = Sequence.description instruction in
+                   let uses =
+                     List.fold_left
+                       (fun uses id ->
+                         if Value_set.mem id ids && not (Value_set.mem id defs)
+                         then Value_set.add id uses
+                         else uses)
+                       uses description.operands
+                   in
+                   let defs =
+                     match description.result with
+                     | Some result when Value_set.mem result.value_id ids ->
+                         Value_set.add result.value_id defs
+                     | _ -> defs
+                   in
+                   (defs, uses))
+                 (Value_set.empty, Value_set.empty)
+          in
+          Block_map.add (Graph.block_id block) (defs, uses) facts)
+        Block_map.empty blocks
+    in
+    let live = ref Block_map.empty in
+    let at id =
+      Option.value (Block_map.find_opt id !live) ~default:Value_set.empty
+    in
+    let predecessors =
+      List.fold_left
+        (fun map block ->
+          List.fold_left
+            (fun map successor ->
+              let previous =
+                Option.value (Block_map.find_opt successor map) ~default:[]
+              in
+              Block_map.add successor (block :: previous) map)
+            map (Graph.successors block))
+        Block_map.empty blocks
+    in
+    let pending = Queue.create () in
+    let queued = ref Block_set.empty in
+    let enqueue block =
+      let id = Graph.block_id block in
+      if not (Block_set.mem id !queued) then (
+        Queue.add block pending;
+        queued := Block_set.add id !queued)
+    in
+    List.iter enqueue (List.rev blocks);
+    while not (Queue.is_empty pending) do
+      let block = Queue.take pending in
+      let id = Graph.block_id block in
+      queued := Block_set.remove id !queued;
+      let defs, uses = Block_map.find id facts in
+      let outgoing =
+        List.fold_left
+          (fun set successor -> Value_set.union set (at successor))
+          Value_set.empty (Graph.successors block)
+      in
+      let incoming = Value_set.union uses (Value_set.diff outgoing defs) in
+      if not (Value_set.equal incoming (at id)) then (
+        live := Block_map.add id incoming !live;
+        List.iter enqueue
+          (Option.value (Block_map.find_opt id predecessors) ~default:[]))
+    done;
+    let occupied =
+      List.fold_left
+        (fun occupied block ->
+          let id = Graph.block_id block in
+          let defs, _ = Block_map.find id facts in
+          let values =
+            List.fold_left
+              (fun set successor -> Value_set.union set (at successor))
+              (Value_set.union defs (at id))
+              (Graph.successors block)
+          in
+          Value_set.fold
+            (fun value occupied ->
+              let previous =
+                Option.value
+                  (Value_map.find_opt value occupied)
+                  ~default:Block_set.empty
+              in
+              Value_map.add value (Block_set.add id previous) occupied)
+            values occupied)
+        Value_map.empty blocks
+    in
+    let homes = ref [] in
+    List.fold_left
+      (fun indices value ->
+        let needed = Value_map.find value.value_id occupied in
+        let rec assign index = function
+          | [] -> (index, [ needed ])
+          | used :: rest when Block_set.disjoint needed used ->
+              (index, Block_set.union needed used :: rest)
+          | used :: rest ->
+              let selected, rest = assign (index + 1) rest in
+              (selected, used :: rest)
+        in
+        let index, updated = assign 0 !homes in
+        homes := updated;
+        Value_map.add value.value_id index indices)
+      Value_map.empty shared_values
 
 let preflight_program graph =
   let lock_validation = Lock_validation.of_graph graph in
@@ -4746,6 +5613,8 @@ let preflight_program graph =
                 lock_alignment_site = false;
                 pointer_ordering_site = false;
                 pointer_difference_site = false;
+                reference_ownership_site = false;
+                reference_shadow_store_site = false;
                 output_site = false;
                 atomic_output_site = false;
                 stream_print_site = false;
@@ -4760,6 +5629,7 @@ let preflight_program graph =
                 span = description.span;
                 site = Some site;
                 push_stage = None;
+                numeric_conversion = None;
               }
               :: !prepared_rev;
             incr global_position)
@@ -4840,6 +5710,7 @@ let preflight_program graph =
 type callable_slot = {
   slot_type : Type.t;
   slot_word : word_type;
+  proved_stack : bool;
   slot_dimensions : int64 list;
   slot_element_size : int;
   slot_element_count : int;
@@ -4853,6 +5724,7 @@ type callable_slot = {
 
 type callable_return_kind =
   | Callable_word_return of scalar_value
+  | Callable_reference_return of Type.t
   | Callable_void_return
 
 type callable_function_source = {
@@ -4875,6 +5747,8 @@ type callable_function_info = {
   rbp_bytes : int;
   activation_bytes : int;
   frame_slots : callable_slot Int_map.t;
+  global_immediate_proof : Ir.Global_immediate_update_analysis.t option;
+  empty_frame_roots : (Frame.location * callable_slot) list;
   init_flag_offsets : int list;
 }
 
@@ -4894,6 +5768,7 @@ type index_offset_term = {
   index_pointer_type : Type.t;
   index_stride : int64;
   index_offset : value;
+  index_value : value;
 }
 
 type indexed_address_term = {
@@ -4901,6 +5776,7 @@ type indexed_address_term = {
   indexed_offset : value;
   indexed_pointer_type : Type.t;
   indexed_remaining_strides : int64 list;
+  indexed_remaining_dimensions : int64 list option;
 }
 
 type frame_term =
@@ -5017,6 +5893,9 @@ let callable_argument_types ?(allow_pointer_tail = false) description
       | Some index when not seen.(index) ->
           seen.(index) <- true;
           let type_ = Runtime.argument_target_type argument in
+          if index >= fixed_count && X86_64_float_plan.is_f64 type_ then
+            unsupported description
+              "native F64 variadic arguments are unsupported";
           (if index < fixed_count then (
              if not (Type.equal type_ fixed.(index)) then
                malformed description
@@ -5044,6 +5923,10 @@ let callable_argument_types ?(allow_pointer_tail = false) description
 
 let callable_callback_arguments description (callback : Runtime.callback_call)
     argument_types =
+  if
+    X86_64_float_plan.is_f64 callback.callback_return_type
+    || Array.exists X86_64_float_plan.is_f64 argument_types
+  then unsupported description "native F64 callback signatures are unsupported";
   let parameters =
     callback.callback_pointer |> Headers.function_pointer_signature
     |> Headers.signature_parameters |> Array.of_list
@@ -5129,6 +6012,7 @@ type prepared_callable_body = {
   callable_stage_slots : int;
   callable_reference_bytes : int;
   callable_shared_values : value list;
+  callable_shared_home_indices : int Value_map.t;
 }
 
 type allocated_callable_body = {
@@ -5155,14 +6039,16 @@ let int_of_frame_displacement ?span value =
   Int64.to_int value
 
 let source_scalar ?span label type_ =
-  match Scalar.of_type type_ with
-  | Some scalar ->
-      {
-        word_type = (if Scalar.is_unsigned scalar then U64 else I64);
-        byte_size = Scalar.byte_size scalar;
-      }
-  | None ->
-      reject ?span "HCBACK0002" (label ^ " must be a nonzero scalar integer")
+  if X86_64_float_plan.is_f64 type_ then { word_type = F64; byte_size = 8 }
+  else
+    match Scalar.of_type type_ with
+    | Some scalar ->
+        {
+          word_type = (if Scalar.is_unsigned scalar then U64 else I64);
+          byte_size = Scalar.byte_size scalar;
+        }
+    | None ->
+        reject ?span "HCBACK0002" (label ^ " must be a nonzero scalar integer")
 
 let source_slot_scalar ?span label type_ =
   if Type.pointer_depth type_ = 0 then source_scalar ?span label type_
@@ -5171,6 +6057,8 @@ let source_slot_scalar ?span label type_ =
     | Ok _ when Ir.Automatic_aggregate_storage.aggregate_pointer type_ ->
         { word_type = U64; byte_size = 8 }
     | Ok pointee ->
+        if X86_64_float_plan.is_f64 pointee then
+          reject ?span "HCBACK0002" "native F64 pointers are unsupported";
         ignore (source_scalar ?span label pointee);
         { word_type = U64; byte_size = 8 }
     | Error message -> reject ?span "HCBACK0002" message
@@ -5195,9 +6083,9 @@ let source_return_kind ?span type_ =
     | _ ->
         Callable_word_return
           (source_scalar ?span "native source function return type" type_)
-  else
-    Callable_word_return
-      (source_scalar ?span "native source function return type" type_)
+  else (
+    ignore (source_slot_scalar ?span "native source function return type" type_);
+    Callable_reference_return type_)
 
 let callable_frame_update opcode word =
   match opcode with
@@ -5236,6 +6124,116 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
   let variadic_bindings =
     Headers.function_variadic_bindings (Frame.function_header frame)
   in
+  let register_proof =
+    Ir.Register_variable_analysis.analyze_with_runtime
+      ~runtime:source.source_runtime_calls ~frame ~body
+  in
+  let has_float_storage_or_code =
+    List.exists
+      (fun location ->
+        X86_64_float_plan.is_f64 (Frame.location_checked_type location))
+      (Frame.function_locations frame)
+    || List.exists
+         (fun block ->
+           List.exists
+             (fun instruction ->
+               let description = Sequence.description instruction in
+               Option.fold ~none:false ~some:X86_64_float_plan.is_f64
+                 description.target_type)
+             (Sequence.instructions (Graph.instructions block)))
+         (Graph.blocks (Function.body body))
+  in
+  let require_mixed_storage_proof location scalar =
+    if
+      has_float_storage_or_code && scalar.byte_size < 8
+      && not
+           (Option.fold ~none:false
+              ~some:(fun proof ->
+                match
+                  Ir.Register_variable_analysis.selection proof ~frame ~body
+                    ~symbol:(Frame.location_symbol location)
+                with
+                | Some (Ir.Register_variable_analysis.Register_candidate | Stack)
+                  -> true
+                | Some Unknown | None -> false)
+              register_proof)
+    then
+      reject ?span "HCBACK0002"
+        "native F64 functions require an authenticated allocation proof for \
+         narrow integer storage"
+  in
+  let global_immediate_proof =
+    Ir.Global_immediate_update_analysis.analyze ~frame ~body
+  in
+  let wide_register location =
+    Option.fold ~none:false
+      ~some:(fun proof ->
+        Ir.Register_variable_analysis.selection proof ~frame ~body
+          ~symbol:(Frame.location_symbol location)
+        = Some Ir.Register_variable_analysis.Register_candidate)
+      register_proof
+  in
+  let physical_register location =
+    Option.bind register_proof (fun proof ->
+        Ir.Register_variable_analysis.physical_register proof ~frame ~body
+          ~symbol:(Frame.location_symbol location))
+    |> Option.map (function
+      | 6 -> Encoder.Rsi
+      | 7 -> Encoder.Rdi
+      | 10 -> Encoder.R10
+      | 11 -> Encoder.R11
+      | 12 -> Encoder.R12
+      | 13 -> Encoder.R13
+      | 14 -> Encoder.R14
+      | 15 -> Encoder.R15
+      | _ -> reject ?span "HCBACK0003" "invalid physical register proof")
+  in
+  let proved_register_request location =
+    Option.fold ~none:false
+      ~some:(fun proof ->
+        Option.is_some
+          (Ir.Register_variable_analysis.selection proof ~frame ~body
+             ~symbol:(Frame.location_symbol location)))
+      register_proof
+  in
+  let register_request_ok location word =
+    let request = Frame.location_register_selection location in
+    match request with
+    | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
+        if word = F64 && Option.is_some (physical_register location) then
+          reject ?span "HCBACK0003"
+            "ordinary F64 storage cannot acquire an automatic GPR home";
+        true
+    | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _ -> (
+        if word <> F64 then proved_register_request location
+        else
+          let selection =
+            Option.bind register_proof (fun proof ->
+                Ir.Register_variable_analysis.selection proof ~frame ~body
+                  ~symbol:(Frame.location_symbol location))
+          in
+          match selection with
+          | Some Ir.Register_variable_analysis.Register_candidate ->
+              (* A selected F64 home contains a binary64 word. Its original
+                 source MOV still participates in pass-3 x87 link selection,
+                 before pass 4 replaces the home with a physical GPR. *)
+              Option.is_some (physical_register location)
+          | Some Stack ->
+              (* NO_REG_VAR suppresses plain reg, but not explicit requests. *)
+              request = Sema.Register_request.Allocatable
+          | Some Unknown | None -> false)
+  in
+  let proved_stack location =
+    (* Authenticated stack selection enables direct assignment reloads and
+       the separate addition/subtraction compound-result rule. Unknown
+       allocation is not evidence of stack storage. *)
+    Option.fold ~none:false
+      ~some:(fun proof ->
+        Ir.Register_variable_analysis.selection proof ~frame ~body
+          ~symbol:(Frame.location_symbol location)
+        = Some Ir.Register_variable_analysis.Stack)
+      register_proof
+  in
   let allowed_flags =
     (* PrsFunJoin retains Ff_DOT_DOT_DOT when a replacement header is fixed.
        The bound definition above authenticates these exact stored flags;
@@ -5261,28 +6259,38 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           max_stack_bytes (%d)"
          local_frame_bytes max_stack_bytes);
   let slots = ref Int_map.empty in
+  let empty_frame_roots = ref [] in
   let slot_ranges = ref Int_map.empty in
-  let add_slot offset bytes slot =
-    let limit = offset + bytes in
-    let before, exact, after = Int_map.split offset !slot_ranges in
-    let overlaps_before =
-      match Int_map.max_binding_opt before with
-      | Some (other_offset, other_bytes) -> other_offset + other_bytes > offset
-      | None -> false
-    in
-    let overlaps_after =
-      match Int_map.min_binding_opt after with
-      | Some (other_offset, _) -> other_offset < limit
-      | None -> false
-    in
-    if
-      Option.is_some exact || Int_map.mem offset !slots || overlaps_before
-      || overlaps_after
-    then
-      reject ?span "HCBACK0003"
-        "native source function has overlapping checked frame slots";
-    slots := Int_map.add offset slot !slots;
-    slot_ranges := Int_map.add offset bytes !slot_ranges
+  let add_slot ?location offset bytes slot =
+    if bytes = 0 then
+      match location with
+      | Some location ->
+          empty_frame_roots := (location, slot) :: !empty_frame_roots
+      | None ->
+          reject ?span "HCBACK0003"
+            "empty frame root lacks its original location"
+    else
+      let limit = offset + bytes in
+      let before, exact, after = Int_map.split offset !slot_ranges in
+      let overlaps_before =
+        match Int_map.max_binding_opt before with
+        | Some (other_offset, other_bytes) ->
+            other_offset + other_bytes > offset
+        | None -> false
+      in
+      let overlaps_after =
+        match Int_map.min_binding_opt after with
+        | Some (other_offset, _) -> other_offset < limit
+        | None -> false
+      in
+      if
+        Option.is_some exact || Int_map.mem offset !slots || overlaps_before
+        || overlaps_after
+      then
+        reject ?span "HCBACK0003"
+          "native source function has overlapping checked frame slots";
+      slots := Int_map.add offset slot !slots;
+      slot_ranges := Int_map.add offset bytes !slot_ranges
   in
   let metadata_count = ref 0 in
   let init_flag_offsets_rev = ref [] in
@@ -5331,13 +6339,12 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
             Ir.Automatic_aggregate_storage.byte_type
         else scalar
       in
-      let register_ok =
-        match Frame.location_register_selection location with
-        | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
-            true
-        | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _
-          -> false
-      in
+      require_mixed_storage_proof location scalar;
+      let register_ok = register_request_ok location scalar.word_type in
+      if scalar.word_type = F64 && not register_ok then
+        reject ?span "HCBACK0002"
+          "native requested F64 GPR allocation requires an exact authenticated \
+           placement";
       if
         Frame.location_kind location <> Frame.Named_parameter
         || (not register_ok)
@@ -5383,6 +6390,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         {
           slot_type = type_;
           slot_word = storage_scalar.word_type;
+          proved_stack = proved_stack location;
           slot_dimensions = [];
           slot_element_size = storage_scalar.byte_size;
           slot_element_count = (if Option.is_some aggregate then 8 else 1);
@@ -5392,7 +6400,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           slot_owner_offset = Option.map (fun _ -> reserve_metadata ()) callback;
           slot_reference_offset =
             (if Option.is_none callback && Type.pointer_depth type_ > 0 then (
-               for _ = 1 to 3 do
+               for _ = 1 to 4 do
                  ignore (reserve_metadata ())
                done;
                Some (reserve_metadata ()))
@@ -5400,8 +6408,10 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           owned_targets = Option.map (fun _ -> ref []) callback;
           access =
             {
+              physical_register = physical_register location;
               frame_offset = actual;
-              frame_bytes = storage_scalar.byte_size;
+              frame_bytes =
+                (if wide_register location then 8 else storage_scalar.byte_size);
               frame_word = storage_scalar.word_type;
               initialized_flag_offset = None;
             };
@@ -5472,6 +6482,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           {
             slot_type = argc_type;
             slot_word = I64;
+            proved_stack = false;
             slot_dimensions = [];
             slot_element_size = 8;
             slot_element_count = 1;
@@ -5482,6 +6493,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
             owned_targets = None;
             access =
               {
+                physical_register = None;
                 frame_offset = argc_offset;
                 frame_bytes = 8;
                 frame_word = I64;
@@ -5587,13 +6599,12 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         else if object_bytes >= 2 then 2
         else 1
       in
-      let register_ok =
-        match Frame.location_register_selection location with
-        | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
-            true
-        | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _
-          -> false
-      in
+      require_mixed_storage_proof location scalar;
+      let register_ok = register_request_ok location scalar.word_type in
+      if scalar.word_type = F64 && not register_ok then
+        reject ?span "HCBACK0002"
+          "native requested F64 GPR allocation requires an exact authenticated \
+           placement";
       if
         Frame.location_kind location <> Frame.Automatic_local
         || (not register_ok)
@@ -5639,6 +6650,11 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         reject
           ?span:(Function.member_span member)
           "HCBACK0003" "native automatic local has an invalid RBP displacement";
+      (* A selected local has a private full-width home; its source byte slot
+         can be smaller than eight bytes and must not overlap the saved frame. *)
+      let register_offset =
+        if wide_register location then Some (reserve_metadata ()) else None
+      in
       let flag_offset = reserve_metadata () in
       init_flag_offsets_rev := flag_offset :: !init_flag_offsets_rev;
       for _ = 2 to elements do
@@ -5654,10 +6670,11 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
             offset)
           callback
       in
-      add_slot actual object_bytes
+      add_slot ~location actual object_bytes
         {
           slot_type = type_;
           slot_word = scalar.word_type;
+          proved_stack = proved_stack location;
           slot_dimensions = counts;
           slot_element_size = scalar.byte_size;
           slot_element_count = elements;
@@ -5666,7 +6683,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           slot_owner_offset;
           slot_reference_offset =
             (if Option.is_none callback && Type.pointer_depth type_ > 0 then (
-               for _ = 1 to 3 do
+               for _ = 1 to 4 do
                  ignore (reserve_metadata ())
                done;
                Some (reserve_metadata ()))
@@ -5674,14 +6691,27 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           owned_targets = Option.map (fun _ -> ref []) callback;
           access =
             {
-              frame_offset = actual;
+              physical_register = physical_register location;
+              frame_offset = Option.value register_offset ~default:actual;
               frame_bytes =
-                (if Option.is_some aggregate then 1 else scalar.byte_size);
+                (if Option.is_some register_offset then 8
+                 else if Option.is_some aggregate then 1
+                 else scalar.byte_size);
               frame_word = scalar.word_type;
               initialized_flag_offset = Some flag_offset;
             };
         })
-    locals;
+    (List.filter
+       (fun member ->
+         match Frame.find_location frame (Function.member_symbol member) with
+         | Some location ->
+             not
+               (Ir.Automatic_void_declaration.is_storage_free location
+               && Type.equal
+                    (Function.member_type member)
+                    (Frame.location_checked_type location))
+         | None -> true)
+       locals);
   let rbp_bytes = local_frame_bytes + (8 * !metadata_count) in
   if rbp_bytes > max_stack_bytes then
     reject ?span "HCBACK0004"
@@ -5719,6 +6749,8 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
       + (8 * List.length parameters)
       + if Option.is_some variadic then 8 else 0);
     frame_slots = !slots;
+    global_immediate_proof;
+    empty_frame_roots = !empty_frame_roots;
     init_flag_offsets = List.rev !init_flag_offsets_rev;
   }
 
@@ -5813,7 +6845,7 @@ let callable_callee_index ~allow_task_self_call ~runtime_owner functions call =
 let validate_callable_returns graph return_kind =
   match return_kind with
   | Callable_void_return -> ()
-  | Callable_word_return _ ->
+  | Callable_word_return _ | Callable_reference_return _ ->
       let blocks =
         List.fold_left
           (fun index block -> Block_map.add (Graph.block_id block) block index)
@@ -5858,14 +6890,60 @@ let validate_callable_returns graph return_kind =
           (Graph.successors block)
       done
 
-let preflight_callable_graph ~runtime_calls ~source_globals
+let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
     ~allow_retained_functions ~task_dynamic_code_words ~task_owned_targets
     ~capture_callback_default ~capture_data_default ~slot_root_runtime_calls
     ~slot_bindings ~task_snapshot ~parameter_defaults ~functions
     ~provider_entries ~code_edges ~indirect_code_edges ~arena_code_cells
     ~global_storage ~literal_storage ~runtime_owner ~owner
-    ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
-    ~source_item_index ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~(frame_slots : callable_slot Int_map.t) ~global_immediate_proof
+    ~empty_frame_roots ~variadic ~expected_return ~source_item_index ~is_entry
+    ~rbp_bytes ~max_stack_bytes ~next_site graph =
+  let float_plan =
+    match
+      X86_64_float_plan.prepare ?source:float_source ~runtime:runtime_calls
+        ~owner:runtime_owner graph
+    with
+    | Ok plan -> plan
+    | Error errors ->
+        let error = List.hd errors in
+        reject ?span:error.span "HCBACK0002" error.message
+  in
+  let float_entries =
+    match X86_64_float_plan.validated_entries float_plan ~graph with
+    | Some entries ->
+        List.fold_left
+          (fun map entry ->
+            Instruction_map.add entry.X86_64_float_plan.instruction_id entry map)
+          Instruction_map.empty entries
+    | None ->
+        reject "HCBACK0003" "native F64 source plan changed before emission"
+  in
+  let numeric_conversions =
+    match X86_64_float_plan.validated_conversions float_plan ~graph with
+    | Some entries ->
+        List.fold_left
+          (fun map entry ->
+            Instruction_map.add entry.X86_64_float_plan.conversion_instruction
+              entry map)
+          Instruction_map.empty entries
+    | None ->
+        reject "HCBACK0003" "numeric conversion proof changed before emission"
+  in
+  let numeric_intrinsics =
+    match X86_64_float_plan.validated_intrinsics float_plan ~graph with
+    | Some entries ->
+        List.fold_left
+          (fun map entry ->
+            Instruction_map.add entry.X86_64_float_plan.intrinsic_instruction
+              entry map)
+          Instruction_map.empty entries
+    | None ->
+        reject "HCBACK0003" "numeric intrinsic proof changed before emission"
+  in
+  let float_entry description =
+    Instruction_map.find_opt description.Sequence.instruction_id float_entries
+  in
   let lock_validation = Lock_validation.of_graph graph in
   let function_addresses =
     match
@@ -5897,6 +6975,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
   (* Static target sets bound dispatch; private dynamic owner words distinguish
      original code from numeric bits through callback cells and parameters. *)
   let code_values = ref Value_map.empty in
+  let field_targets =
+    ref
+      (List.init
+         (Array.length functions + Array.length provider_entries)
+         Fun.id)
+  in
   let zero_values = ref Value_set.empty in
   let word_code_values = ref Value_set.empty in
   let code_cells =
@@ -5981,7 +7065,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     value
   in
   let reserve_reference_table (description : Sequence.description) =
-    let descriptor_bytes = 32 in
+    let descriptor_bytes = 40 in
     let available = max_stack_bytes - rbp_bytes - !reference_bytes in
     if available < descriptor_bytes then
       reject ?span:description.span "HCBACK0004"
@@ -5997,7 +7081,17 @@ let preflight_callable_graph ~runtime_calls ~source_globals
       value.reference_descriptor_offset <-
         Some (reserve_reference_table description)
   in
+  let reserve_code_field_table (description : Sequence.description) =
+    if max_stack_bytes - rbp_bytes - !reference_bytes < 56 then
+      reject ?span:description.span "HCBACK0004"
+        "native callback field snapshot exceeds max_stack_bytes";
+    reference_bytes := !reference_bytes + 56;
+    -(rbp_bytes + !reference_bytes)
+  in
   let frame_reference_origin slot =
+    if Option.is_some slot.access.physical_register then
+      reject "HCBACK0003"
+        "physical register variable cannot escape as a frame address";
     { access = slot.access; extent_bytes = slot.slot_extent_bytes }
   in
   let slot_strides slot =
@@ -6050,7 +7144,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
         let pointee, scalar =
           checked_reference description reference.declared_type
         in
-        Reference_address ({ reference; scalar; offset = None }, pointee)
+        Reference_address
+          ({ reference; scalar; offset = None; callback = None }, pointee)
   in
   let load_code description raw position result target_type pointer storage_type
       targets operation =
@@ -6184,6 +7279,17 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             }
           else clear_lock raw
         in
+        let conversion =
+          Instruction_map.find_opt raw.instruction_id numeric_conversions
+        in
+        let description =
+          if Option.is_some conversion then
+            {
+              description with
+              flags = Int64.logand description.flags (Int64.lognot 3L);
+            }
+          else description
+        in
         Option.iter
           (fun result ->
             if
@@ -6238,8 +7344,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             (Value_map.find_opt id !values))
                      description.operands))
           && not
-               (task_dynamic_code_words
-               && description.opcode = Opcode.Ic_return_val
+               (description.opcode = Opcode.Ic_return_val
                && List.for_all
                     (fun id ->
                       match Value_map.find_opt id !values with
@@ -6370,10 +7475,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   description.target_type,
                   description.payload )
               with
-              | ( [ id ],
-                  Some result,
-                  Some target_type,
-                  Some (Sequence.Integer (0L | 1L)) ) ->
+              | [ id ], Some result, Some target_type, Some payload ->
                   let input = operand values description position id in
                   if
                     Option.is_none input.reference_descriptor_offset
@@ -6383,11 +7485,31 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       "native primitive pointer casts require an owned data \
                        reference";
                   ignore (checked_reference description input.declared_type);
-                  if
-                    Ir.Automatic_aggregate_storage.aggregate_pointer target_type
-                  then
-                    unsupported description
-                      "native casts require an admitted primitive pointer view";
+                  let valid_selection =
+                    match payload with
+                    | Sequence.Integer (0L | 1L) ->
+                        not
+                          (Ir.Automatic_aggregate_storage.aggregate_pointer
+                             target_type)
+                    | Sequence.Class_pointer_view (layout, _) ->
+                        Option.fold ~none:false
+                          ~some:(fun before_item_index ->
+                            Sema.Aggregate_pointee_layout.matches
+                              ?function_symbol:
+                                (match runtime_owner with
+                                | Runtime.Function body ->
+                                    Some (Function.symbol body)
+                                | _ -> None)
+                              layout ~before_item_index
+                              ~pointer_type:target_type
+                              ~stride:
+                                (Sema.Aggregate_pointee_layout.byte_size layout))
+                          source_item_index
+                    | _ -> false
+                  in
+                  if not valid_selection then
+                    malformed description
+                      "pointer cast does not retain its selected class layout";
                   let _, scalar = checked_reference description target_type in
                   let value =
                     define values description position result target_type
@@ -6395,7 +7517,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   in
                   mark_reference description value;
                   ( Materialize_existing_reference
-                      ({ reference = input; scalar; offset = None }, value),
+                      ( {
+                          reference = input;
+                          scalar;
+                          offset = None;
+                          callback = None;
+                        },
+                        value ),
                     None )
               | _ ->
                   malformed description "invalid primitive pointer cast shape")
@@ -6465,7 +7593,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               let captured_stage = !argument_end in
               let result_stage =
                 match return_kind with
-                | Callable_word_return _ -> Some (captured_stage + 2)
+                | Callable_word_return _ | Callable_reference_return _ ->
+                    Some (captured_stage + 2)
                 | Callable_void_return -> None
               in
               let kind_stage =
@@ -6637,12 +7766,18 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   let result = Option.get description.result in
                   let target_type = callback.callback_return_type in
                   match result_stage with
-                  | Some stage ->
+                  | Some stage -> (
                       let value =
                         define values description position result target_type
                           (Computation.declared target_type)
                       in
-                      (Call_end (stage, value), None)
+                      match
+                        source_return_kind ?span:description.span target_type
+                      with
+                      | Callable_reference_return _ ->
+                          mark_reference description value;
+                          (Call_end_reference value, None)
+                      | _ -> (Call_end (stage, value), None))
                   | None ->
                       void_values := Value_set.add result.value_id !void_values;
                       (Call_end_void, None))
@@ -6673,7 +7808,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 unsupported description
                   "native task exception state requires native exception \
                    unwinding";
-              if not (Intrinsic.supports (Runtime.intrinsic_opcode intrinsic))
+              if
+                not
+                  (Numeric.runtime_supports
+                     (Runtime.intrinsic_opcode intrinsic))
               then
                 unsupported description
                   "native internal operation is outside the checked subset";
@@ -6682,7 +7820,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                    (Runtime.intrinsic_return_type intrinsic)
                with
               | (Callable_word_return _ | Callable_void_return)
-                when Intrinsic.result_matches
+                when Numeric.runtime_result_matches
                        (Runtime.intrinsic_opcode intrinsic)
                        (Runtime.intrinsic_return_type intrinsic) -> ()
               | _ ->
@@ -7215,7 +8353,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               let owner_count = !argument_end - stage_base - parameter_count in
               let result_stage =
                 match return_kind with
-                | Callable_word_return _ -> Some !argument_end
+                | Callable_word_return _ | Callable_reference_return _ ->
+                    Some !argument_end
                 | Callable_void_return -> None
               in
               let scratch_stage =
@@ -7268,7 +8407,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               in
               calls := scope :: !calls;
               (Call_start, None)
-          | opcode when Intrinsic.supports opcode -> (
+          | opcode when Numeric.runtime_supports opcode -> (
               match
                 ( !intrinsics,
                   Runtime.find_intrinsic_instruction runtime_calls
@@ -7338,7 +8477,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           ignore
                             (checked_reference description input.declared_type))
                         else checked_copy description target input.declared_type;
-                        if not (Intrinsic.argument_matches opcode ~index target)
+                        if
+                          not
+                            (Numeric.runtime_argument_matches opcode ~index
+                               target)
                         then
                           malformed description
                             "internal operation changed its declared parameter";
@@ -7352,6 +8494,19 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         Intrinsic.binary opcode,
                         inputs )
                     with
+                    | opcode, _, _, [ input ] when Numeric.supports opcode ->
+                        let plan =
+                          match
+                            Instruction_map.find_opt description.instruction_id
+                              numeric_intrinsics
+                          with
+                          | Some plan when plan.intrinsic_input = input.value_id
+                            -> plan
+                          | _ ->
+                              malformed description
+                                "numeric intrinsic has no sealed emission event"
+                        in
+                        Internal_numeric (plan, input, scope.intrinsic_stage)
                     | opcode, _, _, [ left; right ]
                       when Option.is_some (Intrinsic.swap_size opcode) ->
                         let _, left_scalar =
@@ -7586,6 +8741,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           (Computation.declared target_type)
                       in
                       (Call_end (scope.intrinsic_stage, value), None)
+                  | Callable_reference_return _ ->
+                      unsupported description
+                        "native internal pointer results require their \
+                         original provider"
                   | Callable_void_return ->
                       void_values := Value_set.add result.value_id !void_values;
                       (Call_end_void, None))
@@ -7624,6 +8783,16 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   calls := remaining;
                   stage_cursor := scope.stage_base;
                   match scope.return_kind with
+                  | Callable_reference_return expected ->
+                      if not (Type.equal expected target_type) then
+                        malformed description
+                          "reference return class is inconsistent";
+                      let value =
+                        define values description position result target_type
+                          (Computation.declared target_type)
+                      in
+                      mark_reference description value;
+                      (Call_end_reference value, None)
                   | Callable_word_return scalar ->
                       let actual =
                         checked_scalar ~allow_public:true description
@@ -8019,7 +9188,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                            <> description.opcode
                         || (not (Type.equal expected_type target_type))
                         || not
-                             (Global_storage.owns_address ~source_globals slot
+                             (Global_storage.owns_address ~source_globals
+                                ~instruction:description.instruction_id slot
                                 runtime_owner)
                       then
                         malformed description
@@ -8088,8 +9258,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         malformed description
                           "index scale requires its checked constant stride"
                   in
-                  if stride <= 0 || not (Type.equal stride_type target_type)
-                  then
+                  if stride < 0 || not (Type.equal stride_type target_type) then
                     malformed description
                       "index scale stride or pointer type is inconsistent";
                   let index = operand values description position index_id in
@@ -8106,6 +9275,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             index_pointer_type = target_type;
                             index_stride = Int64.of_int stride;
                             index_offset = offset;
+                            index_value = index;
                           })
                   in
                   ( Scale_index (index_word, Int64.of_int stride, index, scaled),
@@ -8156,6 +9326,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           Member_object
                             (Frame_reference (frame_reference_origin slot), None)
                         )
+                    | Some (Global_address slot) ->
+                        ( Type.pointer_to (Global_storage.type_ slot)
+                          |> Result.get_ok,
+                          Member_object
+                            (Arena_reference (arena_access slot), None) )
                     | Some (Indexed_address indexed) -> (
                         touch_indexed position indexed;
                         match indexed.indexed_root with
@@ -8195,6 +9370,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                               reference = base;
                               scalar = source_scalar;
                               offset = None;
+                              callback = None;
                             } )
                   in
                   if
@@ -8219,13 +9395,25 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   in
                   mark_reference description value;
                   let strides = Ir.Aggregate_member_projection.strides proof in
+                  let callback =
+                    Option.map
+                      (fun header -> (header, field_targets))
+                      (Ir.Aggregate_member_projection.callback_pointer proof)
+                  in
+                  let access =
+                    { reference = value; scalar; offset = None; callback }
+                  in
                   if strides <> [] then
                     frame_values :=
                       Value_map.add result.value_id
-                        (Member_array_address
-                           ( { reference = value; scalar; offset = None },
-                             target_type,
-                             strides ))
+                        (Member_array_address (access, target_type, strides))
+                        !frame_values;
+                  if strides = [] && Option.is_some callback then
+                    frame_values :=
+                      Value_map.add result.value_id
+                        (Reference_address
+                           ( access,
+                             Type.dereference target_type |> Result.get_ok ))
                         !frame_values;
                   (Project_reference (source, delta, scalar, value), None)
               | _ -> malformed description "invalid native member projection")
@@ -8239,7 +9427,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 description.flags <> 0L
                 ||
                 match description.payload with
-                | None | Some (Sequence.Pointee_stride _) -> false
+                | None
+                | Some (Sequence.Pointee_stride _)
+                | Some (Sequence.Empty_frame_root _) -> false
                 | _ -> true
               then malformed description "invalid frame address addition";
               match
@@ -8251,14 +9441,31 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   match Value_map.find_opt offset_id !frame_values with
                   | Some (Frame_offset (offset_type, offset))
                     when description.opcode = Opcode.Ic_add -> (
-                      if Option.is_some description.payload then
+                      if
+                        Option.fold ~none:false
+                          ~some:(function
+                            | Sequence.Empty_frame_root _ -> false
+                            | _ -> true)
+                          description.payload
+                      then
                         malformed description
                           "frame displacement cannot borrow a pointee layout";
                       match Value_map.find_opt base_id !frame_values with
                       | Some (Frame_base base_type)
                         when Type.equal base_type target_type
                              && Type.equal offset_type target_type -> (
-                          match Int_map.find_opt offset frame_slots with
+                          match
+                            match description.payload with
+                            | Some (Sequence.Empty_frame_root location) ->
+                                List.find_opt
+                                  (fun (original, slot) ->
+                                    original == location
+                                    && slot.access.frame_offset = offset)
+                                  empty_frame_roots
+                                |> Option.map snd
+                            | None -> Int_map.find_opt offset frame_slots
+                            | Some _ -> None
+                          with
                           | Some slot -> (
                               match Type.pointer_to slot.slot_type with
                               | Ok expected when Type.equal expected target_type
@@ -8303,18 +9510,25 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             in
                             if
                               not
-                                (Option.fold ~none:false
-                                   ~some:(fun before_item_index ->
-                                     Sema.Aggregate_pointee_layout.matches
-                                       ?function_symbol:
-                                         (match runtime_owner with
-                                         | Runtime.Function body ->
-                                             Some (Function.symbol body)
-                                         | _ -> None)
-                                       layout ~before_item_index
-                                       ~pointer_type:target_type
-                                       ~stride:scaled.index_stride)
-                                   source_item_index)
+                                (match runtime_owner with
+                                | Runtime.Function _ ->
+                                    Option.fold ~none:false
+                                      ~some:(fun before_item_index ->
+                                        Sema.Aggregate_pointee_layout.matches
+                                          ?function_symbol:
+                                            (match runtime_owner with
+                                            | Runtime.Function body ->
+                                                Some (Function.symbol body)
+                                            | _ -> None)
+                                          layout ~before_item_index
+                                          ~pointer_type:target_type
+                                          ~stride:scaled.index_stride)
+                                      source_item_index
+                                | _ ->
+                                    Sema.Aggregate_pointee_layout
+                                    .matches_top_level layout
+                                      ~pointer_type:target_type
+                                      ~stride:scaled.index_stride)
                             then
                               malformed description
                                 "pointee stride does not match its original \
@@ -8327,6 +9541,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         malformed description
                           "indexed address changes its checked pointer type";
                       touch position scaled.index_offset;
+                      if scaled.index_stride = 0L then
+                        touch position scaled.index_value;
                       let root, base, strides =
                         match Value_map.find_opt base_id !frame_values with
                         | Some (Variadic_address (origin, type_)) ->
@@ -8460,7 +9676,14 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                               checked_reference description
                                 reference.declared_type
                             in
-                            let access = { reference; scalar; offset = None } in
+                            let access =
+                              {
+                                reference;
+                                scalar;
+                                offset = None;
+                                callback = None;
+                              }
+                            in
                             ( Indexed_reference_root access,
                               Index_reference reference,
                               [
@@ -8471,12 +9694,22 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       let remaining =
                         match strides with
                         | stride :: remaining
-                          when Int64.equal stride scaled.index_stride ->
+                          when Int64.equal stride scaled.index_stride
+                               || selected_stride = Some scaled.index_stride ->
                             remaining
                         | _ ->
                             malformed description
                               "index stride disagrees with the original object \
                                dimensions"
+                      in
+                      let dimensions =
+                        match Value_map.find_opt base_id !frame_values with
+                        | Some (Frame_address slot) -> Some slot.slot_dimensions
+                        | Some (Global_address slot) ->
+                            Some (Global_storage.dimensions slot)
+                        | Some (Indexed_address indexed) ->
+                            indexed.indexed_remaining_dimensions
+                        | _ -> None
                       in
                       let indexed_offset =
                         internal_frame_value frame_values values void_values
@@ -8487,6 +9720,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                 indexed_offset = offset;
                                 indexed_pointer_type = target_type;
                                 indexed_remaining_strides = remaining;
+                                indexed_remaining_dimensions =
+                                  Option.bind dimensions (function
+                                    | _ :: tail -> Some tail
+                                    | [] -> None);
                               })
                       in
                       ( Apply_index_offset
@@ -8495,7 +9732,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                              else Encoder.Add),
                             base,
                             scaled.index_offset,
-                            indexed_offset ),
+                            indexed_offset,
+                            if scaled.index_stride = 0L then
+                              Option.bind dimensions (function
+                                | count :: _ -> Some (scaled.index_value, count)
+                                | [] -> None)
+                            else None ),
                         None )
                   | _ ->
                       malformed description
@@ -8601,6 +9843,40 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     address_operand frame_values values description position
                       address_id
                   with
+                  | Reference_address (access, pointee)
+                    when Option.is_some access.callback ->
+                      let header, targets = Option.get access.callback in
+                      let table = reserve_code_field_table description in
+                      load_code description raw position result target_type
+                        header pointee targets (fun value ->
+                          Load_code_field (access, table, value))
+                  | Indexed_address indexed
+                    when indexed.indexed_remaining_strides = []
+                         &&
+                         match indexed.indexed_root with
+                         | Indexed_reference_root access ->
+                             Option.is_some access.callback
+                         | _ -> false ->
+                      let access =
+                        match indexed.indexed_root with
+                        | Indexed_reference_root access -> access
+                        | _ -> assert false
+                      in
+                      let header, targets = Option.get access.callback in
+                      let table = reserve_code_field_table description in
+                      let pointee =
+                        Type.dereference indexed.indexed_pointer_type
+                        |> Result.get_ok
+                      in
+                      load_code description raw position result target_type
+                        header pointee targets (fun value ->
+                          Load_code_field
+                            ( {
+                                access with
+                                offset = Some indexed.indexed_offset;
+                              },
+                              table,
+                              value ))
                   | Frame_address slot
                     when Option.is_some slot.callback
                          && slot.slot_dimensions = [] ->
@@ -8678,7 +9954,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         define values description position result target_type
                           (Computation.forward target_type)
                       in
-                      (Load_reference_value (access, value), None)
+                      if
+                        Ir.Aggregate_member_projection.pointer_member_type
+                          target_type
+                      then (
+                        mark_reference description value;
+                        (Load_pointer_field (access, value), None))
+                      else (Load_reference_value (access, value), None)
                   | Indexed_address indexed
                     when indexed.indexed_remaining_strides = [] -> (
                       match indexed.indexed_root with
@@ -8706,13 +9988,26 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                   target_type
                                   (Computation.forward target_type)
                               in
-                              ( Load_reference_value
-                                  ( {
-                                      access with
-                                      offset = Some indexed.indexed_offset;
-                                    },
-                                    value ),
-                                None )
+                              if
+                                Ir.Aggregate_member_projection
+                                .pointer_member_type target_type
+                              then (
+                                mark_reference description value;
+                                ( Load_pointer_field
+                                    ( {
+                                        access with
+                                        offset = Some indexed.indexed_offset;
+                                      },
+                                      value ),
+                                  None ))
+                              else
+                                ( Load_reference_value
+                                    ( {
+                                        access with
+                                        offset = Some indexed.indexed_offset;
+                                      },
+                                      value ),
+                                  None )
                           | _ ->
                               malformed description
                                 "indexed scalar load changes its checked \
@@ -8805,7 +10100,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           (Computation.forward target_type)
                       in
                       if Type.pointer_depth target_type = 0 then
-                        (Store_frame_value (slot.access, input, value), None)
+                        ( Store_frame_value
+                            (slot.access, input, value, slot.proved_stack),
+                          None )
                       else (
                         mark_reference description value;
                         ( Store_reference_frame
@@ -8832,12 +10129,63 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       let input =
                         operand values description position input_id
                       in
-                      checked_copy description target_type input.declared_type;
-                      let value =
-                        define values description position result target_type
-                          (Computation.forward target_type)
+                      if Option.is_some access.callback then
+                        let _, targets = Option.get access.callback in
+                        let table = reserve_code_field_table description in
+                        store_code description position result target_type
+                          input_id targets (fun input value ->
+                            Store_code_field (access, table, input, value))
+                      else (
+                        checked_copy description target_type input.declared_type;
+                        let value =
+                          define values description position result target_type
+                            (Computation.forward target_type)
+                        in
+                        if
+                          Ir.Aggregate_member_projection.pointer_member_type
+                            target_type
+                        then (
+                          if
+                            Option.is_none input.reference_descriptor_offset
+                            || Option.is_some input.code_owner_offset
+                          then
+                            malformed description
+                              "pointer field store requires an owned data \
+                               reference";
+                          mark_reference description value;
+                          (Store_pointer_field (access, input, value), None))
+                        else (Store_reference_value (access, input, value), None))
+                  | Indexed_address indexed
+                    when indexed.indexed_remaining_strides = []
+                         &&
+                         match indexed.indexed_root with
+                         | Indexed_reference_root access ->
+                             Option.is_some access.callback
+                         | _ -> false ->
+                      let access =
+                        match indexed.indexed_root with
+                        | Indexed_reference_root access -> access
+                        | _ -> assert false
                       in
-                      (Store_reference_value (access, input, value), None)
+                      if
+                        Type.dereference indexed.indexed_pointer_type
+                        |> Result.to_option <> Some target_type
+                      then
+                        malformed description
+                          "indexed callback field store changes its selected \
+                           type";
+                      let _, targets = Option.get access.callback in
+                      let table = reserve_code_field_table description in
+                      store_code description position result target_type
+                        input_id targets (fun input value ->
+                          Store_code_field
+                            ( {
+                                access with
+                                offset = Some indexed.indexed_offset;
+                              },
+                              table,
+                              input,
+                              value ))
                   | Indexed_address indexed
                     when indexed.indexed_remaining_strides = [] -> (
                       let input =
@@ -8864,14 +10212,36 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             Type.dereference indexed.indexed_pointer_type
                           with
                           | Ok pointee when Type.equal target_type pointee ->
-                              ( Store_reference_value
-                                  ( {
-                                      access with
-                                      offset = Some indexed.indexed_offset;
-                                    },
-                                    input,
-                                    value ),
-                                None )
+                              if
+                                Ir.Aggregate_member_projection
+                                .pointer_member_type target_type
+                              then (
+                                if
+                                  Option.is_none
+                                    input.reference_descriptor_offset
+                                  || Option.is_some input.code_owner_offset
+                                then
+                                  malformed description
+                                    "pointer field store requires an owned \
+                                     data reference";
+                                mark_reference description value;
+                                ( Store_pointer_field
+                                    ( {
+                                        access with
+                                        offset = Some indexed.indexed_offset;
+                                      },
+                                      input,
+                                      value ),
+                                  None ))
+                              else
+                                ( Store_reference_value
+                                    ( {
+                                        access with
+                                        offset = Some indexed.indexed_offset;
+                                      },
+                                      input,
+                                      value ),
+                                  None )
                           | _ ->
                               malformed description
                                 "indexed assignment changes its checked \
@@ -8997,6 +10367,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             update,
                             input,
                             old_result,
+                            (slot.proved_stack
+                            &&
+                            match update with
+                            | Update_binary (Encoder.Add | Sub) -> true
+                            | _ -> false),
                             value,
                             slot.slot_word,
                             arithmetic_site ),
@@ -9052,62 +10427,99 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             update,
                             input,
                             old_result,
+                            Option.fold ~none:false
+                              ~some:(fun (frame, body, proof) ->
+                                Ir.Global_immediate_update_analysis.matches
+                                  proof ~frame ~body ~instruction:description
+                                  ~symbol:(Global_storage.symbol slot))
+                              global_immediate_proof,
                             value,
                             access.arena_word,
                             arithmetic_site ),
                         None )
                   | Reference_address (access, pointee)
                     when Type.equal target_type pointee ->
-                      let update, old_result, expects_operand =
-                        Option.get
-                          (callable_frame_update description.opcode
-                             access.scalar.word_type)
+                      if Option.is_some access.callback then
+                        let table = reserve_code_field_table description in
+                        update_callback description position result target_type
+                          pointee
+                          (Callback_field (access, table))
+                          operands site arithmetic_sites
+                      else
+                        let update, old_result, expects_operand =
+                          Option.get
+                            (callable_frame_update description.opcode
+                               access.scalar.word_type)
+                        in
+                        let input =
+                          match (expects_operand, operands) with
+                          | true, [ input_id ] ->
+                              let input =
+                                operand values description position input_id
+                              in
+                              check_update_operand description input;
+                              Some input
+                          | false, [] -> None
+                          | _ ->
+                              malformed description
+                                "invalid scalar update operands"
+                        in
+                        let value =
+                          define values description position result target_type
+                            (Computation.forward target_type)
+                        in
+                        let arithmetic_site =
+                          match update with
+                          | Update_division arithmetic_operation ->
+                              let fault_site =
+                                {
+                                  site;
+                                  operation = arithmetic_operation;
+                                  instruction_id =
+                                    Sequence.Instruction_id.to_int
+                                      description.instruction_id;
+                                  position;
+                                  span = description.span;
+                                  signed = access.scalar.word_type = I64;
+                                }
+                              in
+                              arithmetic_sites :=
+                                fault_site :: !arithmetic_sites;
+                              Some fault_site
+                          | Update_binary _ | Update_shift _ -> None
+                        in
+                        ( Update_reference_value
+                            ( access,
+                              update,
+                              input,
+                              old_result,
+                              value,
+                              access.scalar.word_type,
+                              arithmetic_site ),
+                          None )
+                  | Indexed_address indexed
+                    when indexed.indexed_remaining_strides = []
+                         &&
+                         match indexed.indexed_root with
+                         | Indexed_reference_root access ->
+                             Option.is_some access.callback
+                         | _ -> false ->
+                      let access =
+                        match indexed.indexed_root with
+                        | Indexed_reference_root access -> access
+                        | _ -> assert false
                       in
-                      let input =
-                        match (expects_operand, operands) with
-                        | true, [ input_id ] ->
-                            let input =
-                              operand values description position input_id
-                            in
-                            check_update_operand description input;
-                            Some input
-                        | false, [] -> None
-                        | _ ->
-                            malformed description
-                              "invalid scalar update operands"
+                      let pointee =
+                        Type.dereference indexed.indexed_pointer_type
+                        |> Result.get_ok
                       in
-                      let value =
-                        define values description position result target_type
-                          (Computation.forward target_type)
-                      in
-                      let arithmetic_site =
-                        match update with
-                        | Update_division arithmetic_operation ->
-                            let fault_site =
-                              {
-                                site;
-                                operation = arithmetic_operation;
-                                instruction_id =
-                                  Sequence.Instruction_id.to_int
-                                    description.instruction_id;
-                                position;
-                                span = description.span;
-                                signed = access.scalar.word_type = I64;
-                              }
-                            in
-                            arithmetic_sites := fault_site :: !arithmetic_sites;
-                            Some fault_site
-                        | Update_binary _ | Update_shift _ -> None
-                      in
-                      ( Update_reference_value
-                          ( access,
-                            update,
-                            input,
-                            old_result,
-                            value,
-                            access.scalar.word_type,
-                            arithmetic_site ),
-                        None )
+                      let table = reserve_code_field_table description in
+                      update_callback description position result target_type
+                        pointee
+                        (Callback_field
+                           ( { access with offset = Some indexed.indexed_offset },
+                             table ))
+                        operands site arithmetic_sites
                   | Indexed_address indexed
                     when indexed.indexed_remaining_strides = [] -> (
                       let word, operation =
@@ -9299,7 +10711,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                 (Global_storage.find_saved_data snapshot data)
                             in
                             (Discard_data_default (input, offset), None)
-                        | _ -> (Discard_void, None))
+                        | _ ->
+                            ( Discard_reference
+                                ( input,
+                                  reference_value_scalar input.declared_type ),
+                              None ))
                       else
                         let word =
                           (checked_scalar ~allow_public:true description
@@ -9382,13 +10798,29 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       unsupported description
                         "U0 source functions cannot return a word value"
                   | Callable_word_return _ ->
+                      (* Callback word views retain their original pointer-shaped
+                         declaration while returning numeric bits. Only the new
+                         floating-kind boundary is checked here; the existing
+                         owner-aware integer return path must stay intact. *)
                       if
-                        not (task_dynamic_code_words && has_code_word_view input)
+                        X86_64_float_plan.is_f64 target_type
+                        <> X86_64_float_plan.is_f64 input.declared_type
                       then
+                        unsupported description
+                          "native scalar returns cannot convert F64 values";
+                      if not (has_code_word_view input) then
                         ignore
                           (checked_scalar ~allow_public:true description
                              input.declared_type);
-                      (Return_value input, None))
+                      (Return_value input, None)
+                  | Callable_reference_return _ ->
+                      let _, scalar = checked_reference description expected in
+                      ignore (checked_reference description input.declared_type);
+                      if Option.is_none input.reference_descriptor_offset then
+                        unsupported description
+                          "native reference return requires its original owned \
+                           descriptor";
+                      (Return_reference (input, scalar), None))
               | _ ->
                   malformed description
                     "IC_RETURN_VAL disagrees with function return type")
@@ -9411,6 +10843,46 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 || Option.is_some description.payload
               then malformed description "invalid IC_END shape"
               else (End_stream, None)
+          | Opcode.Ic_imm_f64 -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [],
+                  Some result,
+                  Some target_type,
+                  Some (Sequence.Float_bits bits) )
+                when description.flags = 0L
+                     && X86_64_float_plan.is_f64 target_type ->
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  (Load_immediate (value, bits), None)
+              | _ ->
+                  malformed description "invalid native F64 literal transport")
+          | _
+            when Option.fold ~none:false
+                   ~some:(fun e ->
+                     e.X86_64_float_plan.operation <> Convert_to_float)
+                   (float_entry raw) -> (
+              if description.flags <> 0L then
+                malformed description
+                  "native F64 operation has unsupported flags";
+              let plan = Option.get (float_entry raw) in
+              match (description.result, description.target_type) with
+              | Some result, Some target_type ->
+                  let inputs =
+                    List.map (operand values description position) plan.operands
+                  in
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  (Apply_float (plan, inputs, value), None)
+              | _ -> malformed description "F64 plan lost its result")
           | _ when Option.is_some (opcode_kind description.opcode) -> (
               if description.flags <> 0L then
                 malformed description
@@ -9426,11 +10898,23 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               unsupported description
                 "opcode is outside the native callable source subset"
         in
+        (match operation with
+        | Load_reference_value (_, result)
+        | Load_indexed_object_value (_, result)
+          when X86_64_float_plan.is_f64 result.declared_type ->
+            unsupported raw
+              "native F64 indirect and aggregate storage is unsupported"
+        | Store_reference_value (_, input, _)
+        | Store_indexed_object_value (_, input, _)
+          when X86_64_float_plan.is_f64 input.declared_type ->
+            unsupported raw
+              "native F64 indirect and aggregate storage is unsupported"
+        | _ -> ());
         let locked = prepare_lock ~lock_validation raw operation in
         (match operation with
         | Load_immediate (value, 0L) ->
             zero_values := Value_set.add value.value_id !zero_values
-        | Store_frame_value (access, input, _)
+        | Store_frame_value (access, input, _, _)
           when Option.is_some (code_source input) ->
             if not (Int_map.mem access.frame_offset code_cells) then
               unsupported description
@@ -9443,6 +10927,41 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             unsupported description
               "native owned code values cannot escape local callback storage"
         | _ -> ());
+        let numeric_conversion =
+          Option.bind conversion (fun receipt ->
+              let value =
+                match Value_map.find_opt receipt.conversion_result !values with
+                | Some value -> value
+                | None ->
+                    malformed raw "conversion lost its original scalar producer"
+              in
+              if
+                Option.is_some value.code_owner_offset
+                || Option.is_some value.reference_descriptor_offset
+              then
+                malformed raw
+                  "numeric conversion cannot change owned pointer values";
+              let effective =
+                X86_64_float_plan.conversion_type receipt.conversion
+              in
+              value.declared_type <- effective;
+              value.computation_type <- effective;
+              let entry = float_entry raw in
+              if
+                receipt.deferred
+                || Option.fold ~none:false
+                     ~some:(fun e ->
+                       e.X86_64_float_plan.operation <> Convert_to_float)
+                     entry
+              then None
+              else
+                Some
+                  ( receipt.conversion,
+                    value,
+                    Option.fold ~none:false
+                      ~some:(fun e -> e.X86_64_float_plan.live_after <> [])
+                      entry ))
+        in
         let push_stage =
           if not pushes then None
           else
@@ -9709,14 +11228,15 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               (_, Update_division arithmetic_operation, _, _, _, _) ->
               Some (arithmetic_operation, true)
           | Update_frame_value
-              (_, Update_division arithmetic_operation, _, _, _, word, _) ->
+              (_, Update_division arithmetic_operation, _, _, _, _, word, _) ->
               Some (arithmetic_operation, word = I64)
           | Update_reference_value
               (_, Update_division arithmetic_operation, _, _, _, word, _)
           | Update_indexed_object_value
-              (_, Update_division arithmetic_operation, _, _, _, word, _)
-          | Update_arena_value
               (_, Update_division arithmetic_operation, _, _, _, word, _) ->
+              Some (arithmetic_operation, word = I64)
+          | Update_arena_value
+              (_, Update_division arithmetic_operation, _, _, _, _, word, _) ->
               Some (arithmetic_operation, word = I64)
           | _ -> None
         in
@@ -9809,7 +11329,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ -> false);
             no_value_capture_site =
               (match operation with
-              | Discard_void -> true
+              | Discard_void | Discard_reference _ -> true
               | Discard_value (input, _) ->
                   Option.is_some input.code_owner_offset
               | _ -> false);
@@ -9828,8 +11348,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 | Apply_logical (_, left, right, _) ->
                     Option.is_some left.code_owner_offset
                     || Option.is_some right.code_owner_offset
-                | Update_frame_value (_, _, input, _, _, _, _)
-                | Update_arena_value (_, _, input, _, _, _, _)
+                | Update_frame_value (_, _, input, _, _, _, _, _)
+                | Update_arena_value (_, _, input, _, _, _, _, _)
                 | Update_reference_value (_, _, input, _, _, _, _)
                 | Update_indexed_object_value (_, _, input, _, _, _, _)
                 | Update_callback_value (_, _, input, _, _, _) ->
@@ -9854,8 +11374,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Load_code_frame ({ initialized_flag_offset = Some _; _ }, _, _)
                 -> true
               | Update_frame_value
-                  ({ initialized_flag_offset = Some _; _ }, _, _, _, _, _, _) ->
-                  true
+                  ({ initialized_flag_offset = Some _; _ }, _, _, _, _, _, _, _)
+                -> true
               | Update_callback_value
                   ( Callback_frame ({ initialized_flag_offset = Some _; _ }, _),
                     _,
@@ -9866,6 +11386,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Update_callback_value (Callback_arena _, _, _, _, _, _)
               | Update_callback_value (Callback_indexed _, _, _, _, _, _) ->
                   true
+              | Update_callback_value (Callback_field _, _, _, _, _, _) -> true
               | Load_arena_value _
               | Load_code_arena _
               | Update_arena_value _
@@ -9873,6 +11394,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Load_code_indexed _
               | Update_indexed_object_value _
               | Load_reference_value _
+              | Load_pointer_field _
+              | Load_code_field _
               | Update_reference_value _
               | Internal_mod_u64 _
               | Internal_bit _
@@ -9894,14 +11417,25 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Indirect_call _ when provider_print_site -> true
               | _ -> false);
             address_bounds_site =
-              (match operation with
-              | Update_callback_value (Callback_indexed _, _, _, _, _, _) ->
-                  true
+              (Option.fold ~none:false
+                 ~some:(fun (_, _, _, reference) -> Option.is_some reference)
+                 push_stage
+              ||
+              match operation with
+              | Apply_index_offset (_, _, _, _, Some _) -> true
+              | Store_reference_frame _ | Discard_reference _ -> true
+              | Return_reference _ -> true
+              | Update_callback_value (Callback_indexed _, _, _, _, _, _)
+              | Update_callback_value (Callback_field _, _, _, _, _, _) -> true
               | Materialize_reference (_, _, Some _, _)
               | Project_reference _
               | Materialize_existing_reference ({ offset = Some _; _ }, _)
               | Load_reference_value _
+              | Load_pointer_field _
+              | Load_code_field _
+              | Store_code_field _
               | Store_reference_value _
+              | Store_pointer_field _
               | Update_reference_value _
               | Load_indexed_object_value _
               | Load_code_indexed _
@@ -9921,9 +11455,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               (locked
               &&
               match operation with
-              | Update_frame_value (access, _, _, _, _, _, _) ->
+              | Update_frame_value (access, _, _, _, _, _, _, _) ->
                   access.frame_bytes > 1
-              | Update_arena_value (access, _, _, _, _, _, _) ->
+              | Update_arena_value (access, _, _, _, _, _, _, _) ->
                   access.arena_bytes > 1
               | Update_indexed_object_value (access, _, _, _, _, _, _) ->
                   (reference_scalar access.origin).byte_size > 1
@@ -9939,6 +11473,38 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             pointer_difference_site =
               (match operation with
               | Apply_reference_difference _ -> true
+              | _ -> false);
+            reference_ownership_site =
+              (Option.fold ~none:false
+                 ~some:(fun (_, _, _, reference) -> Option.is_some reference)
+                 push_stage
+              ||
+              match operation with
+              | Store_reference_frame _ | Discard_reference _ -> true
+              | Return_reference _ -> true
+              | Update_callback_value (Callback_field _, _, _, _, _, _) -> true
+              | Load_pointer_field _
+              | Store_pointer_field _
+              | Load_code_field _
+              | Store_code_field _
+              | Load_reference_value _
+              | Store_reference_value _
+              | Update_reference_value _
+              | Project_reference _
+              | Materialize_existing_reference _
+              | Apply_reference_comparison _
+              | Apply_reference_ordering _
+              | Apply_reference_difference _
+              | Internal_mod_u64 _
+              | Internal_bit _
+              | Internal_swap _
+              | Internal_strlen _
+              | Print_output _ -> true
+              | Indirect_call _ when provider_print_site -> true
+              | _ -> false);
+            reference_shadow_store_site =
+              (match operation with
+              | Store_pointer_field _ | Store_code_field _ -> true
               | _ -> false);
             output_site =
               (match operation with
@@ -9971,7 +11537,14 @@ let preflight_callable_graph ~runtime_calls ~source_globals
           }
           :: !sites_rev;
         prepared_rev :=
-          { operation; locked; span = raw.span; site = Some site; push_stage }
+          {
+            operation;
+            locked;
+            span = raw.span;
+            site = Some site;
+            push_stage;
+            numeric_conversion;
+          }
           :: !prepared_rev)
       descriptions;
     if !calls <> [] then
@@ -10085,6 +11658,17 @@ let preflight_callable_graph ~runtime_calls ~source_globals
   let callable_shared_values =
     shared_runtime_values ~external_ids ~extra !values
   in
+  let callable_shared_home_indices =
+    (* Reference lowering can introduce uses absent from the source graph.
+       Retain permanent homes whenever that dependency expansion is present. *)
+    if
+      Value_map.is_empty extra
+      && List.for_all
+           (fun value -> Type.pointer_depth value.declared_type = 0)
+           callable_shared_values
+    then shared_home_indices graph callable_shared_values
+    else Value_map.empty
+  in
   (if not is_entry then
      let return_kind =
        match expected_return with
@@ -10105,6 +11689,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     callable_stage_slots = !stage_high_water;
     callable_reference_bytes = !reference_bytes;
     callable_shared_values;
+    callable_shared_home_indices;
   }
 
 let bounded_program_counts ~max_ir_instructions ~max_blocks graph =
@@ -10702,7 +12287,7 @@ let plan_label_offsets plan =
 let default_status_abi () =
   if Sys.os_type = "Win32" then Windows_x64 else System_v_x64
 
-let compile_expression ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
+let compile_expression ?status_abi ?(max_stack_bytes = default_stack_bytes)
     ~max_ir_instructions ~max_code_bytes verified =
   match validate_limits ~max_ir_instructions ~max_code_bytes with
   | Error errors -> Error errors
@@ -10758,7 +12343,7 @@ let compile_expression ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                   }
           with Rejected error -> Error [ error ]))
 
-let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
+let compile_program ?status_abi ?(max_stack_bytes = default_stack_bytes)
     ?(max_blocks = 4096) ~max_ir_instructions ~max_code_bytes verified =
   match validate_limits ~max_ir_instructions ~max_code_bytes with
   | Error errors -> Error errors
@@ -10778,6 +12363,9 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                   reject "HCBACK0003" "native program requires an entry block";
                 let prepared_blocks, sites, preflight_ir_count, shared_values =
                   preflight_program graph
+                in
+                let shared_home_indices =
+                  shared_home_indices graph shared_values
                 in
                 let local_subroutine_capacity =
                   Graph.local_subroutine_capacity graph
@@ -10816,7 +12404,8 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                     in
                     let allocation =
                       allocate_body ~status_abi:abi ~shared_values
-                        ~local_subroutine_capacity ~max_stack_bytes
+                        ~shared_home_indices ~local_subroutine_capacity
+                        ~max_stack_bytes
                         ~reserved_registers:[ Encoder.R10; Encoder.R11 ]
                         ~supply
                         ~mode:
@@ -10945,6 +12534,9 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         status_abi = abi;
                         block_count;
                         function_count = 0;
+                        callable = false;
+                        requires_x87 = false;
+                        requires_fisttp = false;
                         private_function_count = 0;
                         entry_stack_bytes = 8 + !frame_size;
                         global_bytes = 0;
@@ -10964,7 +12556,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
     ?retained_callback_default ?(capture_callback_default = false)
     ?capture_data_default ?retained_function_source ?retained_slot_binding
     ?retained_slot_address_binding ?retained_slot_address_refresh ?status_abi
-    ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
+    ?(max_stack_bytes = default_stack_bytes) ?(max_blocks = 4096)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?parameter_defaults ?global_initializers ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
@@ -11273,7 +12865,18 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         |> List.exists (fun instruction ->
             (Sequence.description instruction).opcode = Opcode.Ic_call_start))
   in
-  if callable_sources = [] && (not has_storage) && not entry_has_calls then
+  let entry_has_float =
+    Graph.blocks entry_graph
+    |> List.exists (fun block ->
+        Graph.instructions block |> Sequence.instructions
+        |> List.exists (fun instruction ->
+            Option.fold ~none:false ~some:X86_64_float_plan.is_f64
+              (Sequence.description instruction).target_type))
+  in
+  if
+    callable_sources = [] && (not has_storage) && (not entry_has_calls)
+    && not entry_has_float
+  then
     if
       Runtime.matches runtime_calls ~entry ~initialization:(Some initialization)
         ~functions:[]
@@ -11442,7 +13045,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       let indirect_code_edges = ref [] in
       let arena_code_cells = ref Int_map.empty in
       let entry_prepared =
-        preflight_callable_graph ~runtime_calls ~source_globals:globals
+        preflight_callable_graph ~float_source:None ~runtime_calls
+          ~source_globals:globals
           ~allow_retained_functions:(Option.is_some task_snapshot)
           ~task_dynamic_code_words:(Option.is_some task_snapshot)
           ~task_owned_targets ~capture_callback_default ~capture_data_default
@@ -11450,7 +13054,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
           ~functions:function_infos ~provider_entries ~global_storage
           ~literal_storage ~runtime_owner:Runtime.Entry ~owner:Entry_owner
-          ~frame_slots:Int_map.empty ~variadic:None ~expected_return:None
+          ~frame_slots:Int_map.empty ~global_immediate_proof:None
+          ~empty_frame_roots:[] ~variadic:None ~expected_return:None
           ~source_item_index:None ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes
           ~next_site entry_graph
       in
@@ -11458,7 +13063,15 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         Array.map
           (fun info ->
             let body = info.definition.body in
-            preflight_callable_graph ~runtime_calls:info.runtime_calls
+            preflight_callable_graph
+              ~float_source:
+                (Some
+                   {
+                     X86_64_float_plan.runtime = info.runtime_calls;
+                     body;
+                     frame = info.definition.frame;
+                   })
+              ~runtime_calls:info.runtime_calls
               ~source_globals:info.source_globals
               ~allow_retained_functions:(Option.is_some task_snapshot)
               ~task_dynamic_code_words:(Option.is_some task_snapshot)
@@ -11468,7 +13081,12 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ~indirect_code_edges ~arena_code_cells ~functions:function_infos
               ~provider_entries ~global_storage ~literal_storage
               ~runtime_owner:(Runtime.Function body) ~owner:info.owner
-              ~frame_slots:info.frame_slots ~variadic:info.variadic
+              ~frame_slots:info.frame_slots
+              ~global_immediate_proof:
+                (Option.map
+                   (fun proof -> (info.definition.frame, body, proof))
+                   info.global_immediate_proof)
+              ~empty_frame_roots:info.empty_frame_roots ~variadic:info.variadic
               ~expected_return:(Some (Function.return_value_type body))
               ~source_item_index:
                 (Some (Frame.function_item_index info.definition.frame))
@@ -11544,21 +13162,66 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           (fun _ -> fresh_label supply)
       in
       let allocate_graph ~graph ~prepared ~rbp_bytes ~init_flag_offsets
-          ~parameter_owner_offsets ~variadic ~is_entry ~start_label =
+          ~parameter_owner_offsets ~register_entries ~physical_registers
+          ~variadic ~is_entry ~start_label =
+        let reference_service_label = fresh_label supply in
         let rbp_bytes = rbp_bytes + prepared.callable_reference_bytes in
+        (* Host unwind records describe only ABI nonvolatiles. R10/R11 saves
+           protect generated callers and must lie outside that prologue and
+           before the terminal host-register restore sequence. *)
+        let private_registers, host_registers =
+          List.partition
+            (fun register -> register = Encoder.R10 || register = Encoder.R11)
+            physical_registers
+        in
+        let host_registers =
+          if is_entry then Encoder.Rbx :: host_registers else host_registers
+        in
+        let register_saves =
+          List.mapi
+            (fun index register -> (register, -(rbp_bytes + (8 * (index + 1)))))
+            host_registers
+        in
+        let rbp_bytes = rbp_bytes + (8 * List.length register_saves) in
+        let private_saves =
+          List.mapi
+            (fun index register -> (register, -(rbp_bytes + (8 * (index + 1)))))
+            private_registers
+        in
+        let rbp_bytes = rbp_bytes + (8 * List.length private_saves) in
+        let reference_frame = -(rbp_bytes + 24) in
+        let rbp_bytes = rbp_bytes + 24 in
+        let home_slots = max 4 prepared.callable_home_slots in
+        let reference_stage = home_slots + prepared.callable_stage_slots in
         let fixed_stack_slots =
-          prepared.callable_home_slots + prepared.callable_stage_slots
+          reference_stage + Reference_service.scratch_slots
         in
         let local_subroutine_capacity = Graph.local_subroutine_capacity graph in
         let local_subroutine_slots =
           if local_subroutine_capacity = 0 then 0
           else local_subroutine_capacity + 1
         in
+        let float_scratch =
+          List.exists
+            (fun block ->
+              List.exists
+                (fun instruction ->
+                  Option.is_some instruction.numeric_conversion
+                  ||
+                  match instruction.operation with
+                  | Apply_float _ -> true
+                  | _ -> false)
+                block.program_instructions)
+            prepared.callable_blocks
+        in
         let base_bytes =
-          rbp_bytes + ((fixed_stack_slots + local_subroutine_slots) * 8)
+          rbp_bytes
+          + (fixed_stack_slots + local_subroutine_slots
+            + if float_scratch then 1 else 0)
+            * 8
         in
         let base_frame = if base_bytes = 0 then 0 else align_up base_bytes 16 in
-        if base_frame > max_stack_bytes || base_frame > 4080 then
+        if base_frame > max_stack_bytes || base_frame > 524272 then
           reject "HCBACK0004"
             (Printf.sprintf
                "native callable fixed frame requires %d bytes, exceeding \
@@ -11586,10 +13249,18 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             in
             let allocation =
               allocate_body ~status_abi:abi ~local_subroutine_capacity
-                ~shared_values:prepared.callable_shared_values
+                ~float_scratch ~shared_values:prepared.callable_shared_values
+                ~shared_home_indices:prepared.callable_shared_home_indices
                 ~function_code_owners ?undefined_code_owner
                 ~provider_entry_start:(Array.length function_infos)
-                ~callable_frame:{ rbp_bytes; fixed_stack_slots }
+                ~callable_frame:
+                  {
+                    rbp_bytes;
+                    fixed_stack_slots;
+                    reference_stage;
+                    reference_frame;
+                    reference_service_label;
+                  }
                 ~max_stack_bytes
                 ~reserved_registers:
                   (if has_storage then [ Encoder.R9; Encoder.R10; Encoder.R11 ]
@@ -11601,14 +13272,13 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                        block_labels;
                        epilogue_label = epilogue;
                        is_entry;
-                       home_slots = prepared.callable_home_slots;
+                       home_slots;
                      })
                 block.program_instructions
             in
-            if allocation.frame_size > 4080 then
+            if allocation.frame_size > 524272 then
               reject "HCBACK0004"
-                "native callable frame exceeds the single guard-page-safe \
-                 allocation bound";
+                "native callable frame exceeds the probed allocation bound";
             frame_size := max !frame_size allocation.frame_size;
             peak := max !peak allocation.peak;
             fault_blocks_rev :=
@@ -11634,6 +13304,46 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           if !frame_size = 0 then None
           else Some (encoder_call_frame None !frame_size)
         in
+        let reference_service_plan operation =
+          let result = ref [] in
+          Reference_service.emit
+            {
+              abi;
+              emit =
+                (fun instruction ->
+                  result := Planned_instruction instruction :: !result);
+              fresh = (fun () -> fresh_label supply);
+              mark = (fun label -> result := Planned_label label :: !result);
+              equal =
+                (fun label ->
+                  result := Planned_branch (Equal, label) :: !result);
+              abort =
+                (fun () ->
+                  result := Planned_branch (Unconditional, epilogue) :: !result);
+              slot = (fun index -> encoder_stack_slot None (index * 8));
+              invoke =
+                (fun ~return_slot ~rax_slot ->
+                  let resumed = fresh_label supply in
+                  result :=
+                    Planned_label_address (Encoder.Rax, resumed) :: !result;
+                  result :=
+                    Planned_instruction
+                      (Encoder.Store_stack (return_slot, Encoder.Rax))
+                    :: !result;
+                  result :=
+                    Planned_instruction
+                      (Encoder.Load_stack (Encoder.Rax, rax_slot))
+                    :: !result;
+                  result :=
+                    Planned_branch (Unconditional, reference_service_label)
+                    :: !result;
+                  result := Planned_label resumed :: !result);
+            }
+            ~stage:reference_stage ~operation
+            ~arguments:[ Reference_service.Frame_address reference_frame ]
+            ~site:(if operation = 0 then Some 0 else None);
+          List.rev !result
+        in
         let prefix =
           (match start_label with
             | None -> []
@@ -11646,6 +13356,11 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             | None -> []
             | Some frame ->
                 [ Planned_instruction (Encoder.Alloc_call_frame frame) ])
+          @ List.map
+              (fun (register, offset) ->
+                Planned_instruction
+                  (Encoder.Store_frame (encoder_frame_slot None offset, register)))
+              (register_saves @ private_saves)
           @ (if local_subroutine_capacity = 0 then []
              else
                [
@@ -11658,12 +13373,29 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           @ (if is_entry then
                [
                  Planned_instruction (Encoder.Capture_status abi);
-                 Planned_instruction (Encoder.Load_context (Encoder.R10, 16));
+                 Planned_instruction (Encoder.Load_context (Encoder.Rax, 16));
+                 Planned_instruction
+                   (Encoder.Callable_store_context (280, Encoder.Rax));
                ]
              else [])
           @ (if is_entry && has_storage then
                [ Planned_instruction (Encoder.Load_context (Encoder.R9, 72)) ]
              else [])
+          @ List.concat_map
+              (fun (access, width) ->
+                [
+                  Planned_instruction
+                    (load_frame_scalar None Encoder.Rax
+                       {
+                         access with
+                         frame_bytes = width;
+                         physical_register = None;
+                       });
+                  Planned_instruction
+                    (store_frame_scalar None access Encoder.Rax);
+                ])
+              register_entries
+          @ reference_service_plan 0
           @ List.concat_map
               (fun flag_offset ->
                 [
@@ -11747,15 +13479,22 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ])
         in
         let suffix =
-          [ Planned_label epilogue ]
+          [ Planned_label epilogue ] @ reference_service_plan 1
           @ (if is_entry then
                [
                  Planned_instruction (Encoder.Load_context (Encoder.Rax, 16));
                  Planned_instruction
-                   (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.R10));
+                   (Encoder.Callable_load_context (Encoder.Rcx, 280));
+                 Planned_instruction
+                   (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.Rcx));
                  Planned_instruction (Encoder.Store_context (24, Encoder.Rax));
                ]
              else [])
+          @ List.map
+              (fun (register, offset) ->
+                Planned_instruction
+                  (Encoder.Load_frame (register, encoder_frame_slot None offset)))
+              (private_saves @ register_saves)
           @ (match frame with
             | None -> []
             | Some frame ->
@@ -11765,17 +13504,29 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               Planned_instruction Encoder.Ret;
             ]
         in
+        let reference_shared_plan =
+          let result = ref [] in
+          Reference_service.emit_shared ~abi
+            ~emit:(fun instruction ->
+              result := Planned_instruction instruction :: !result)
+            ~slot:(fun index -> encoder_stack_slot None (index * 8))
+            ~stage:reference_stage;
+          Planned_label reference_service_label :: List.rev !result
+        in
         {
-          body_plan = prefix @ List.rev !block_plan_rev @ fault_plan @ suffix;
+          body_plan =
+            prefix @ List.rev !block_plan_rev @ fault_plan
+            @ reference_shared_plan @ suffix;
           body_frame_size = !frame_size;
           body_peak = !peak;
-          body_unwind = build_callable_windows_unwind_info !frame_size;
+          body_unwind =
+            build_callable_windows_unwind_info ~register_saves !frame_size;
         }
       in
       let entry_allocated =
         allocate_graph ~graph:entry_graph ~prepared:entry_prepared ~rbp_bytes:0
-          ~init_flag_offsets:[] ~parameter_owner_offsets:[] ~is_entry:true
-          ~variadic:None ~start_label:None
+          ~init_flag_offsets:[] ~parameter_owner_offsets:[] ~register_entries:[]
+          ~physical_registers:[] ~is_entry:true ~variadic:None ~start_label:None
       in
       let functions_allocated =
         Array.mapi
@@ -11803,11 +13554,34 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                    info.parameter_callbacks)
               |> List.filter_map Fun.id
             in
-            allocate_graph
+            let register_entries =
+              Array.to_list
+                (Array.mapi
+                   (fun index _ ->
+                     let slot =
+                       Int_map.find (16 + (8 * index)) info.frame_slots
+                     in
+                     if
+                       slot.slot_dimensions = []
+                       && (List.mem slot.slot_extent_bytes [ 1; 2; 4 ]
+                          || Option.is_some slot.access.physical_register)
+                       && slot.access.frame_bytes = 8
+                     then Some (slot.access, slot.slot_extent_bytes)
+                     else None)
+                   info.parameter_types)
+              |> List.filter_map Fun.id
+            in
+            let physical_registers =
+              Int_map.bindings info.frame_slots
+              |> List.filter_map (fun (_, slot) ->
+                  slot.access.physical_register)
+              |> List.sort_uniq compare
+            in
+            allocate_graph ~physical_registers
               ~graph:(Ir.X87_stack.graph (Function.x87 info.definition.body))
               ~prepared:function_prepared.(index) ~rbp_bytes:info.rbp_bytes
               ~init_flag_offsets:info.init_flag_offsets ~is_entry:false
-              ~parameter_owner_offsets ~variadic:info.variadic
+              ~parameter_owner_offsets ~register_entries ~variadic:info.variadic
               ~start_label:(Some function_labels.(index)))
           function_infos
       in
@@ -11825,7 +13599,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               let frame_size =
                 align_up ((7 + Option_codegen.scratch_slots) * 8) 16
               in
-              if frame_size > max_stack_bytes || frame_size > 4080 then
+              if frame_size > max_stack_bytes || frame_size > 524272 then
                 reject "HCBACK0004"
                   "native compiler option entry exceeds its private scratch \
                    frame";
@@ -11906,14 +13680,19 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               | _ -> false
             then (
               let frame_size =
-                align_up ((4 + Print_codegen.provider_scratch_slots) * 8) 16
+                align_up
+                  ((8 + Print_codegen.provider_scratch_slots
+                  + Reference_service.scratch_slots)
+                  * 8)
+                  16
               in
-              if frame_size > max_stack_bytes || frame_size > 4080 then
+              if frame_size > max_stack_bytes || frame_size > 524272 then
                 reject "HCBACK0004"
                   "native Print entry exceeds its private scratch frame";
               let frame = encoder_call_frame None frame_size in
               let complete = fresh_label supply in
               let faults = ref [] in
+              let reference_service_label = fresh_label supply in
               let plan = ref [] in
               let emit instruction =
                 plan := Planned_instruction instruction :: !plan
@@ -11923,7 +13702,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                 plan := Planned_branch (kind, label) :: !plan
               in
               let slot index =
-                Encoder.stack_slot ~offset:(index * 8) |> Result.get_ok
+                Encoder.stack_slot ~offset:((index + 4) * 8) |> Result.get_ok
               in
               let fault kind =
                 match List.assoc_opt kind !faults with
@@ -11950,6 +13729,31 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rax));
               emit (Encoder.Store_stack (slot 2, Encoder.Rdx));
               Print_codegen.emit_provider
+                ~reference_guard:(fun register ->
+                  Reference_service.emit
+                    {
+                      abi;
+                      emit;
+                      fresh = (fun () -> fresh_label supply);
+                      mark;
+                      equal = branch Equal;
+                      abort = (fun () -> branch Unconditional complete);
+                      slot;
+                      invoke =
+                        (fun ~return_slot ~rax_slot ->
+                          let resumed = fresh_label supply in
+                          plan :=
+                            Planned_label_address (Encoder.Rax, resumed)
+                            :: !plan;
+                          emit (Encoder.Store_stack (return_slot, Encoder.Rax));
+                          emit (Encoder.Load_stack (Encoder.Rax, rax_slot));
+                          branch Unconditional reference_service_label;
+                          mark resumed);
+                    }
+                    ~stage:(4 + Print_codegen.provider_scratch_slots)
+                    ~operation:2
+                    ~arguments:[ Reference_service.Register register ]
+                    ~site:(Some (-1)))
                 {
                   status_abi = abi;
                   instruction = emit;
@@ -11990,6 +13794,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   emit (Encoder.Store_context_imm (0, kind));
                   branch Unconditional complete)
                 !faults;
+              mark reference_service_label;
+              Reference_service.emit_shared ~abi ~emit ~slot
+                ~stage:(4 + Print_codegen.provider_scratch_slots);
               mark complete;
               emit (Encoder.Free_call_frame frame);
               emit Encoder.Pop_rbp;
@@ -12080,6 +13887,17 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         entry_allocated.body_plan
         @ (Array.to_list functions_allocated
           |> List.concat_map (fun body -> body.body_plan))
+      in
+      (* Adapt the complete image, including shared bridges and synthetic
+         providers, before measuring labels. Legacy executors never take this
+         path and retain their original context bytes. *)
+      let plan =
+        List.map
+          (function
+            | Planned_instruction instruction ->
+                Planned_instruction (Encoder.callable_instruction instruction)
+            | item -> item)
+          plan
       in
       let label_offsets, planned_code_size = plan_label_offsets plan in
       let instructions, code_size, machine_count, sections =
@@ -12275,7 +14093,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             [
               Encoder.Push_rbp;
               Encoder.Mov_rbp_rsp;
-              Encoder.Store_context_imm (0, 23);
+              (* This suffix is encoded after the shared plan adaptation. *)
+              Encoder.Callable_store_context_imm (0, 23);
               Encoder.Pop_rbp;
               Encoder.Ret;
             ]
@@ -12364,6 +14183,27 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           in
           Ok
             {
+              requires_fisttp =
+                List.exists
+                  (function
+                    | Encoder.Fisttp64 _ -> true
+                    | _ -> false)
+                  instructions;
+              requires_x87 =
+                List.exists
+                  (function
+                    | Encoder.Fld64 _
+                    | Fstp64 _
+                    | Fild64 _
+                    | Fisttp64 _
+                    | Fbinary64 _
+                    | Fbinary_st0 _
+                    | Fbinary_sti _
+                    | Fbinary_pop _
+                    | Fchs
+                    | Fld_constant _ -> true
+                    | _ -> false)
+                  instructions;
               encoded =
                 Bytes.concat Bytes.empty
                   [ Bytes.of_string encoded; undefined_bytes; leaf_bytes ];
@@ -12389,6 +14229,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               status_abi = abi;
               block_count;
               function_count = Array.length function_infos;
+              callable = true;
               private_function_count;
               entry_stack_bytes = 16 + entry_allocated.body_frame_size;
               global_bytes = Global_storage.global_bytes global_storage;
@@ -12486,6 +14327,7 @@ let program_register_peak (compiled : program_image) = compiled.peak
 let program_frame_bytes (compiled : program_image) = compiled.frame_size
 let program_block_count (compiled : program_image) = compiled.block_count
 let program_function_count (compiled : program_image) = compiled.function_count
+let program_is_callable (compiled : program_image) = compiled.callable
 
 let program_entry_stack_bytes (compiled : program_image) =
   compiled.entry_stack_bytes
@@ -12521,3 +14363,7 @@ let program_function_slot_bindings (compiled : program_image) =
 
 let expression_sections (compiled : expression_image) = compiled.sections
 let program_sections (compiled : program_image) = compiled.sections
+let program_requires_x87 (compiled : program_image) = compiled.requires_x87
+
+let program_requires_fisttp (compiled : program_image) =
+  compiled.requires_fisttp

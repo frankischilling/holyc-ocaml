@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "2fdb1a814578011847d84a98b6175868d48912abc4e9c4f43cdc3f693c7f42e4",
+  "capture_sha256": "2bf88d539d596cd0b0f7cf9b250014004e82991011391c025ce4ebe5df1860b6",
+  "boot_iso_sha256": "636bae06056400e0254971ca099d95de6fd9e73dcfb77eb59d42fc41c3a0c496",
+  "fields": {
+    "JIT_N": "8",
+    "JIT_O": "16",
+    "JIT_SAVED": "16",
+    "COMPILE_ERRORS": "0",
+    "AOT_N": "8",
+    "AOT_O": "16",
+    "AOT_SAVED": "16"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of a once-only global update inside an initializer shift."
+}

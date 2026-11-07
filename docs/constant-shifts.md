@@ -134,7 +134,8 @@ cumulative allowances remain required. Original full-word constant shifts and
 supported scalar right-shift updates also prepare through published retained
 callees. See [retained shift preparation](prepared-integer-shifts.md).
 Unsealed/raw preparation shifts retain `HCRUN0006`; native retained frontend
-publication retains `HCPP0008`. Closed native initializers still reject reads
+publication retains `HCPP0008`. Source-owned global initializer roots have a
+separate [bounded path](source-root-initializer-shifts.md). Closed native initializers still reject reads
 and effectful calls.
 
 The fixture keeps the historical raw baseline at

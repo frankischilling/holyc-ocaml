@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "afa79d52c4923dfc44eda2117d28e67be2de9556995589dbd554566a089f0071",
+  "capture_sha256": "df1843d6299a4e0961599933ef48e3992e23e84c1063c6af0bcc999ee83e770c",
+  "boot_iso_sha256": "675860bf4b70d5bb9e9c6c955f99f8569ad38a211db9a6c81b729b26fd211842",
+  "fields": {
+    "JIT_INTEGER": 1234605616436508458,
+    "COMPILE_ERRORS": 0,
+    "AOT_INTEGER": 1234605615003729927,
+    "AOT_CONSTANT": 1234605616436508458,
+    "AOT_STATIC": 1234605615003729927
+  },
+  "scope": "Original nonconstant U0-target AOT assignment overwrites the low four bytes of a following I64 member while retaining its high four bytes. JIT and constant AOT copy no bytes."
+}

@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "990d1a72a6b0d3ea3a8c4039c842f1a0b0174db9cf5d1c7c0246a1ea98080163",
+  "boot_payload_sha256": "a14cc713ee995f77ec2e0455030efea301af4a0f2fcbe817a31259ee0822708e",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "09c67c6f7baa539eef1a784987169b970956349ca589dda288d7333fb6be54b5",
+  "boot_iso_sha256": "35a7a5a6602fcada34c39a5fdb2d47d3eeeca45dfcaa25692f864daf83137160",
+  "fields": {
+    "J_S": "-2147483649",
+    "J_U": "-1",
+    "J_SN": "2147483647",
+    "J_UN": "4294967295",
+    "ERR": "0",
+    "A_S": "-2147483649",
+    "A_U": "-1",
+    "A_SN": "2147483647",
+    "A_UN": "4294967295"
+  },
+  "scope": "Repeated original JIT and compiled observations of a directly returned narrow parameter compound update at the storage edge."
+}

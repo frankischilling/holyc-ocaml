@@ -135,6 +135,33 @@ let success_cases =
     successful "divide by zero becomes DivZero"
       {|I64 Divide(I64 x,I64 y){return x/y;}I64 F(){I64 n=0;try {n=Divide(21,0);n=999;}catch {if(Fs->except_ch=='DivZero'){n=42;Fs->catch_except=TRUE;}}return n;}F();|}
       42L;
+    successful "narrow parameter compound division by zero becomes DivZero"
+      {|I64 Divide(I8 x,I8 y){x/=y;return x;}I64 F(){I64 n=0;try {n=Divide(1,0);}catch {if(Fs->except_ch=='DivZero'){n=42;Fs->catch_except=TRUE;}}return n;}F();|}
+      42L;
+    successful "parameter local division by zero becomes DivZero"
+      {|I64 Divide(I64 c,I8 n){I8 x=c;x/=n;return x;}I64 F(){I64 v=0;try {v=Divide(1,0);}catch {if(Fs->except_ch=='DivZero'){v=42;Fs->catch_except=TRUE;}}return v;}F();|}
+      42L;
+    successful "parameter local division overflow becomes DivZero"
+      {|I64 Divide(I64 c,I8 n){I8 x=c;x/=n;return x;}I64 F(){I64 v=0;try {v=Divide(0x8000000000000000,-1);}catch {if(Fs->except_ch=='DivZero'){v=42;Fs->catch_except=TRUE;}}return v;}F();|}
+      42L;
+    successful "parameter local modulo by zero becomes DivZero"
+      {|I64 Rem(I64 c,I8 n){I8 x=c;x%=n;return x;}I64 F(){I64 v=0;try {v=Rem(1,0);}catch {if(Fs->except_ch=='DivZero'){v=42;Fs->catch_except=TRUE;}}return v;}F();|}
+      42L;
+    successful "parameter local modulo overflow becomes DivZero"
+      {|I64 Rem(I64 c,I8 n){I8 x=c;x%=n;return x;}I64 F(){I64 v=0;try {v=Rem(0x8000000000000000,-1);}catch {if(Fs->except_ch=='DivZero'){v=42;Fs->catch_except=TRUE;}}return v;}F();|}
+      42L;
+    successful "literal local division by zero becomes DivZero"
+      {|I64 Divide(I64 n){I8 x=1;x/=n;return x;}I64 F(){I64 v=0;try {v=Divide(0);}catch {if(Fs->except_ch=='DivZero'){v=42;Fs->catch_except=TRUE;}}return v;}F();|}
+      42L;
+    successful "literal local division overflow becomes DivZero"
+      {|I64 Divide(I64 n){I8 x=0x8000000000000000;x/=n;return x;}I64 F(){I64 v=0;try {v=Divide(-1);}catch {if(Fs->except_ch=='DivZero'){v=42;Fs->catch_except=TRUE;}}return v;}F();|}
+      42L;
+    successful "literal local modulo by zero becomes DivZero"
+      {|I64 Rem(I64 n){I8 x=1;x%=n;return x;}I64 F(){I64 v=0;try {v=Rem(0);}catch {if(Fs->except_ch=='DivZero'){v=42;Fs->catch_except=TRUE;}}return v;}F();|}
+      42L;
+    successful "literal local modulo overflow becomes DivZero"
+      {|I64 Rem(I64 n){I8 x=0x8000000000000000;x%=n;return x;}I64 F(){I64 v=0;try {v=Rem(-1);}catch {if(Fs->except_ch=='DivZero'){v=42;Fs->catch_except=TRUE;}}return v;}F();|}
+      42L;
     successful "modulo by zero becomes DivZero"
       {|I64 Rem(I64 x,I64 y){return x%y;}I64 F(){I64 n=0;try {n=Rem(21,0);}catch {if(Fs->except_ch=='DivZero'){n=42;Fs->catch_except=TRUE;}}return n;}F();|}
       42L;

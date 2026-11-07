@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e49f649e95d917a62ec5a9558ab5cd27db27069563859e02a1aa99db90eddc5d",
+  "boot_payload_sha256": "8755133c42b5fd16113f7e90fd5875f1772e3fd3df7cdb80c6ec33e8adc6eef5",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ed350351eaf15befaf2c7ee78f174b1051f48f7590a9b7d3c6ce5afc8568d34a",
+  "boot_iso_sha256": "e4cf5349df50ed9622b346cb25b8651dd62302ce3c92fa521b9843e35d4433c7",
+  "fields": {
+    "J_CAUGHT": "1",
+    "ERR": "0",
+    "A_CAUGHT": "1"
+  },
+  "scope": "Repeated original observations of division by zero from JIT and compiled parameter-update functions, caught by original JIT callers. The stored source omits boot padding."
+}

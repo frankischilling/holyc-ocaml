@@ -42,12 +42,14 @@ default and its successful source-header completion.
 
 ```text
 holyc run --target=ir examples/data-pointer-defaults.hc
-holyc run --target=host-jit-task examples/data-pointer-defaults.hc
+holyc run --target=host-jit-task --code-byte-limit=1048576 examples/data-pointer-defaults.hc
 ```
 
 The example increments its counter once while capturing the second array
 element, mutates that element through two omitted calls, prints `AB` from its
-copied default and returns 42.
+copied default and returns 42. Its native task emits several callback/provider
+images, so the command explicitly allows up to 1 MiB of code. The default code
+limit is unchanged.
 
 AOT reference defaults still require output relocation and callable authority.
 Closed `host-jit` images retain their separate default admission. Raw/null

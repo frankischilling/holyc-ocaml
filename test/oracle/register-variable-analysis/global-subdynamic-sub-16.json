@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e98374f28f4c39403478fc50ef4c773e86b5e533e5682f233db2498cfb263081",
+  "boot_payload_sha256": "01e75a7b30f2b09b1aaf08dc7854fb5d2dfe22a845d2ad7b5f1f799a75c2628f",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "3677bd9349f3161a734e6a7c190522784c10f3366beff6997ca0a4334cad1375",
+  "boot_iso_sha256": "8086068fe3571ec381074f174ceb27091af74fa5c89e6db7fc8b8fbbd2de57d9",
+  "fields": {
+    "J_S": "32760",
+    "J_U": "65528",
+    "J_SN": "32760",
+    "J_UN": "65528",
+    "ERR": "0",
+    "A_S": "32760",
+    "A_U": "65528",
+    "A_SN": "32760",
+    "A_UN": "65528"
+  },
+  "scope": "Repeated original JIT and compiled observations of subtracting a 64-bit global from a global literal compound update."
+}

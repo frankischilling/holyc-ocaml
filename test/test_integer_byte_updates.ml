@@ -379,9 +379,6 @@ let initializer_boundaries =
       "U8 G=84;I64 F(){U8 d=554;return G/=d;}I64 N=F();N;" );
     ( "native wide local remainder divisor",
       "U8 G=85;I64 F(){U8 d=555;return G%=d;}I64 N=F();N;" );
-    ( "native wide local in hidden callee result",
-      "U8 G=84;I64 D(){U8 d=554;return d;}I64 F(){return G/=D();}I64 N=F();N;"
-    );
     ( "native wide local changes helper control flow",
       "U8 G=41;I64 F(){U8 d=256;if(d)G++;return G;}I64 N=F();N;" );
     ( "later wide store invalidates local range",
@@ -399,7 +396,7 @@ let initializer_boundaries =
     ( "pushed argument retains exposed result",
       "U8 G=250;I64 Id(I64 n){return n;}I64 N=Id(G+=10);N;" );
     ( "explicit byte register address escapes",
-      "I64 Bump(U8 *p){return ++*p;}I64 F(){U8 reg R15 n=255;return \
+      "I64 Bump(U8 *p){return ++(*p);}I64 F(){U8 reg R15 n=255;return \
        Bump(&n);}I64 N=F();N;" );
     ( "explicit byte register array",
       "I64 F(){U8 reg R15 a[1];a[0]=255;return ++a[0];}I64 N=F();N;" );
@@ -411,14 +408,8 @@ let initializer_boundaries =
     ("byte type does not bound assignment", "U8 G=40,R;I64 N=(G|=(R=256));N;");
     ( "RHS effects invalidate old initializer",
       "U8 G=0;I64 R(){G=250;return 10;}I64 N=(G+=R());N;" );
-    ( "automatic prefix register wrap",
-      "I64 F(){U8 n=255;return ++n;}I64 N=F();N;" );
-    ( "automatic discarded register wrap",
-      "I64 F(){U8 n=255;n++;return n;}I64 N=F();N;" );
-    ( "transitive automatic register wrap",
-      "I64 F(){U8 n=255;return ++n;}I64 Outer(){return F();}I64 N=Outer();N;" );
     ( "cancelled address is not memory proof",
-      "I64 F(){U8 n=255;return ++*(&n);}I64 N=F();N;" );
+      "I64 F(){U8 n=255;return ++(*(&n));}I64 N=F();N;" );
     ( "discarded or widens memory",
       "U8 A[8]={42,0,0,0,0,0,0,0};I64 F(){A[0]|=256;return A[1];}I64 N=F();N;"
     );
@@ -458,7 +449,7 @@ let safe_initializers () =
       ("I64 F(){static U8 n=255;return ++n;}I64 N=F();N+42;", 42L);
       ("I64 F(){U8 a[1];a[0]=255;return ++a[0];}I64 N=F();N+42;", 42L);
       ("I64 F(){U8 noreg n=255;return ++n;}I64 N=F();N+42;", 42L);
-      ("U8 G=255;I64 Bump(U8 *p){return ++*p;}I64 N=Bump(&G);N+42;", 42L);
+      ("U8 G=255;I64 Bump(U8 *p){return ++(*p);}I64 N=Bump(&G);N+42;", 42L);
     ];
   Bytes.cases ~type_:VM.U64
     [
@@ -484,6 +475,22 @@ let tests =
         ("promoted byte storage boundaries", promoted_cases);
         ("all canonical opcode and preflight contracts", canonical_preflight);
         ("proven native initializer update controls", safe_initializers);
+        ( "automatic prefix register wrap",
+          fun () ->
+            Bytes.cases [ ("I64 F(){U8 n=255;return ++n;}I64 N=F();N;", 256L) ]
+        );
+        ( "transitive automatic register wrap",
+          fun () ->
+            Bytes.cases
+              [
+                ( "I64 F(){U8 n=255;return ++n;}I64 Outer(){return F();}I64 \
+                   N=Outer();N;",
+                  256L );
+              ] );
+        ( "automatic discarded register wrap",
+          fun () ->
+            Bytes.cases
+              [ ("I64 F(){U8 n=255;n++;return n;}I64 N=F();N;", 256L) ] );
         ("all update opcodes across storage owners and neighbors", owner_matrix);
         ("address RHS call loop and recursive effects", effects_and_calls);
         ("byte update faults and earlier effects", runtime_faults);
@@ -505,3 +512,13 @@ let tests =
                   (List.mem "initializer=N" error.notes))
               G.modes))
       initializer_boundaries
+  @ [
+      Alcotest.test_case "native wide local in hidden callee result" `Quick
+        (fun () ->
+          Bytes.cases
+            [
+              ( "U8 G=84;I64 D(){U8 d=554;return d;}I64 F(){return G/=D();}I64 \
+                 N=F();N;",
+                0L );
+            ]);
+    ]

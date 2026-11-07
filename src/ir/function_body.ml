@@ -65,13 +65,16 @@ type description = {
 type member = member_description
 
 type definition_binding = {
+  compiler_options : int64;
   declaration : Sema.Function_resolution.resolved_declaration;
+  source : Sema.Function_call_expression_result.resolved_function;
   frame : Sema.Function_frame_layout.function_layout;
   aggregate_parameters : (Symbol.t * Sema.Type.t) list;
   aggregate_return : Sema.Type.t option;
 }
 
 type t = {
+  execution_identity_ : int;
   function_id_ : Function_id.t;
   symbol_ : Symbol.t;
   function_scope_ : Symbol.Scope_id.t;
@@ -90,6 +93,15 @@ type t = {
 }
 
 let reference_commit = Instruction_sequence.reference_commit
+let next_execution_identity = Atomic.make 1
+
+let rec allocate_execution_identity () =
+  let identity = Atomic.get next_execution_identity in
+  if identity = max_int then
+    invalid_arg "IR function execution identity space exhausted";
+  if Atomic.compare_and_set next_execution_identity identity (identity + 1) then
+    identity
+  else allocate_execution_identity ()
 
 let known_stored_flag_mask =
   List.fold_left
@@ -250,6 +262,7 @@ let create description =
       | [] ->
           Ok
             {
+              execution_identity_ = allocate_execution_identity ();
               function_id_ = description.function_id;
               symbol_ = description.symbol;
               function_scope_ = description.function_scope;
@@ -267,6 +280,7 @@ let create description =
             })
 
 let function_id function_ = function_.function_id_
+let execution_identity function_ = function_.execution_identity_
 let symbol function_ = function_.symbol_
 let function_scope function_ = function_.function_scope_
 let return_type function_ = function_.return_type_
@@ -298,10 +312,23 @@ let callable_symbol function_ =
 let definition_declaration function_ =
   Option.map (fun binding -> binding.declaration) function_.definition_
 
+let header_compiler_options function_ =
+  match definition_declaration function_ with
+  | None -> compiler_options function_
+  | Some declaration ->
+      Sema.Function_resolution.resolved_declaration_site declaration
+      |> Sema.Function_resolution.declaration_site_compiler_option_mask
+
+let definition_source function_ =
+  Option.map (fun binding -> binding.source) function_.definition_
+
 let definition_matches_frame function_ frame =
   Option.fold ~none:true
     ~some:(fun binding -> binding.frame == frame)
     function_.definition_
+
+let definition_compiler_options function_ =
+  Option.map (fun binding -> binding.compiler_options) function_.definition_
 
 let with_definition ~records ~sources ~frames ~definition ~frame function_ =
   let module Records = Sema.Function_record_classification in
@@ -385,6 +412,10 @@ let with_definition ~records ~sources ~frames ~definition ~frame function_ =
          = Resolution.declaration_site_compiler_option_mask site)
       "function body type, flags or options differ from its definition snapshot"
   in
+  let compilation_options =
+    Typed.function_compilation_options source
+    |> Option.value ~default:(compiler_options function_)
+  in
   let locations kind =
     Frame.function_locations frame
     |> List.filter (fun location -> Frame.location_kind location = kind)
@@ -427,10 +458,13 @@ let with_definition ~records ~sources ~frames ~definition ~frame function_ =
   Ok
     {
       function_ with
+      compiler_options_ = compilation_options;
       definition_ =
         Some
           {
+            compiler_options = compilation_options;
             declaration;
+            source;
             frame;
             aggregate_return =
               Typed.aggregate_integer_value_type sources

@@ -1,0 +1,15 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "c6ff696c32ee310ca8dee2cee31e183d05974c4f330487ce934618245b122a8c",
+  "boot_iso_sha256": "b4cec99ab7f3349d07bdd71b3e9b43de0f8048b8b03a7e383985173619158ed7",
+  "capture_sha256": "8ed95a90096bfdfdcac022566302c9adc0798ef01b6714d821364f3b9b3724c6",
+  "fields": {
+    "CALLBACK_WORD_WARNINGS": 0,
+    "CALLBACK_WORD_CALLS": 0,
+    "CALLBACK_WORD_VALUE": 42,
+    "FUNCTION_ADDRESS_WARNINGS": 0,
+    "FUNCTION_ADDRESS_CALLS": 0,
+    "INTEGER_LEAF_WARNINGS": 0
+  },
+  "scope": "Original JIT callback words, function addresses and non-U0 expressions copied into zero-byte leaves."
+}

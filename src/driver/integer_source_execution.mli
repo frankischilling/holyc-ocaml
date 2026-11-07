@@ -42,6 +42,7 @@ val compile_report :
   ?native_dimension:Integer_task.Native_dimension.t ->
   ?native_switch_case:Integer_task.Native_switch_case.t ->
   ?native_offset:Integer_task.Native_offset.t ->
+  ?native_member_metadata:Integer_task.Native_member_metadata.t ->
   ?native_internal_binding:Integer_task.Native_internal_binding.t ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
@@ -75,6 +76,7 @@ val run :
   ?native_dimension:Integer_task.Native_dimension.t ->
   ?native_switch_case:Integer_task.Native_switch_case.t ->
   ?native_offset:Integer_task.Native_offset.t ->
+  ?native_member_metadata:Integer_task.Native_member_metadata.t ->
   ?native_internal_binding:Integer_task.Native_internal_binding.t ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->

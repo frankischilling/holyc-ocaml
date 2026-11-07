@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "2f936ca275e8246a2f4f6742e56676f34ff159b053b65d414864f239393a4b8c",
+  "boot_payload_sha256": "66a9b6aaf2b1ecf3ca0858f6c29b5a6afddc53c6223537b616f6152332344a05",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "2929e7cf9227e5cb50ef104e3865f8667cc9163adb9a92073f068dd68c8424a2",
+  "boot_iso_sha256": "4a82fabb7c091f586112bbc4931b96ad1fe4ab46f632cdc316d3ad447f0b1b7e",
+  "fields": {
+    "PARAM": "257",
+    "LOCAL": "510",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of distinct operand parameters in compile-time execution."
+}

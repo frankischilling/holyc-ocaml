@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "2ef479554b1cd3af35bac8acbae7dcd4c83560c65e657bb54b5b1f88dd0ce373",
+  "boot_payload_sha256": "e12298c4a3c1b627af9542bf7e80c6483e242203118ac43a45d9694041cb01c7",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "2d9c4bbfca09e7a8bcb1b9987a896adb92a61832ea2f07d6693ede5c778e736a",
+  "boot_iso_sha256": "0cfb09f803aa4a3b3564321ebc3e877cecb0808129067bf8e1b485053a7b4c0c",
+  "fields": {
+    "J_S": "128",
+    "J_U": "256",
+    "J_SN": "-128",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "128",
+    "A_U": "256",
+    "A_SN": "-128",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original observations for directly returned narrow parameter compound updates."
+}

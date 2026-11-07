@@ -156,6 +156,7 @@ let reject ?code label = function
 let type_name = function
   | Program.I64 -> "I64"
   | Program.U64 -> "U64"
+  | Program.F64 -> "F64"
 
 let kind_name = function
   | Program.Division_by_zero -> "division-by-zero"
@@ -181,6 +182,8 @@ let kind_name = function
   | Program.Output_invalid_pointer -> "output-pointer"
   | Program.Output_invalid_byte -> "output-byte"
   | Program.Pointer_object_mismatch -> "pointer-object-mismatch"
+  | Program.Pointer_ownership_unavailable -> "pointer-ownership-unavailable"
+  | Program.Reference_shadow_limit_exceeded -> "reference-shadow-limit-exceeded"
   | Program.Callback_unowned_address -> "callback-unowned-address"
   | Program.Callback_signature_mismatch -> "callback-signature-mismatch"
   | Program.Code_comparison_invalid_word -> "code-comparison-invalid-word"
@@ -755,8 +758,8 @@ let source_gate_is_compile_only () =
                    diagnostics))
         ([
            "I64 *x[1]; 42;";
-           "I64 Bad(){F64 x=1.0;return 0;} 42;";
-           "F64 Bad(){return 1.0;} 42;";
+           "I64 Bad(){F64 reg RAX x=1.0;return 0;} 42;";
+           "F64 Bad(F64 n){return n**2.0;} 42;";
            "I64 F(I64 p){static I64 n=p<<2;return ++n;} F(1);";
            "I64 Bad(){static I64 n={1/0};return 0;}42;";
            "I64 Bad(){static I64 *n;return 0;}42;";
@@ -1281,7 +1284,8 @@ let private_context_encoder_bytes () =
       | Ok _ -> Alcotest.fail "invalid private context access encoded")
     [
       Encoder.Load_context (Encoder.Rax, 7);
-      Encoder.Load_context (Encoder.Rax, 192);
+      Encoder.Load_context (Encoder.Rax, 280);
+      Encoder.Store_context (280, Encoder.Rax);
       Encoder.Store_context (184, Encoder.Rax);
       Encoder.Store_context (72, Encoder.Rax);
       Encoder.Store_context_imm (72, 0);
@@ -1308,6 +1312,9 @@ let callable_frame_encoder_bytes () =
         Encoder.Alloc_call_frame (call_frame 32),
         "4881ec20000000" );
       ("relative direct CALL", Encoder.Call 0x12345678L, "e878563412");
+      ( "shared service return through a private stack slot",
+        Encoder.Jump_stack (Encoder.stack_slot ~offset:8 |> require_ok Fun.id),
+        "48ffa42408000000" );
       ( "free 32-byte call frame",
         Encoder.Free_call_frame (call_frame 32),
         "4881c420000000" );
@@ -1333,8 +1340,12 @@ let int32_le text offset =
           (Int32.shift_left (byte 3) 24)))
 
 let compiled_callable_frame_and_rel32_bytes () =
+  (* Keep this ABI byte golden independent of automatic variable selection.
+     The root owns an 8-byte RBX save at RBP-8. Its previous 160-byte fixed
+     allocation grows to align16(160+8)=176, plus return/RBP words = 192.
+     SAVE_NONVOL ends at byte18 and addresses (176-8)/8=21 from final RSP. *)
   let unit =
-    integer_unit "I64 Identity(I64 value){return value;}\nIdentity(42);"
+    integer_unit "I64 Identity(I64 noreg value){return value;}\nIdentity(42);"
   in
   let image =
     compile_callable ~status_abi:Program.System_v_x64 unit
@@ -1343,10 +1354,10 @@ let compiled_callable_frame_and_rel32_bytes () =
   let code = Program.code image in
   Alcotest.(check int) "one named callable" 1 (Program.function_count image);
   Alcotest.(check int)
-    "identity bundle maximum frame" 32
+    "identity bundle maximum frame" 176
     (Program.frame_bytes image);
   Alcotest.(check int)
-    "identity entry physical stack charge" 48
+    "identity entry physical stack charge" 192
     (Program.entry_stack_bytes image);
   match Program.windows_unwind_functions image with
   | [
@@ -1357,15 +1368,16 @@ let compiled_callable_frame_and_rel32_bytes () =
       Alcotest.(check int)
         "identity range covers image tail" (String.length code) function_end;
       Alcotest.(check string)
-        "entry PUSH/MOV/SUB frame bytes" "554889e54881ec20000000"
+        "entry PUSH/MOV/SUB frame bytes" "554889e54881ecb0000000"
         (String.sub code 0 11 |> hex);
       Alcotest.(check string)
-        "entry callable unwind bytes" "010b02000b320150" (hex entry_unwind);
+        "entry callable unwind bytes" "01120500123415000b01160001500000"
+        (hex entry_unwind);
       Alcotest.(check string)
         "identity PUSH/MOV frame bytes" "554889e5"
         (String.sub code function_begin 4 |> hex);
       Alcotest.(check string)
-        "identity frameless unwind bytes" "0104010001500000"
+        "identity owned reference frame unwind bytes" "010b03000b01120001500000"
         (hex function_unwind);
       Alcotest.(check string)
         "identity POP/RET bytes" "5dc3"
@@ -2037,6 +2049,69 @@ let shared_value_graph () =
       block 2 [ stream_end 4 ];
     ]
 
+let sequential_shared_values ?(reverse = false) count =
+  let blocks =
+    List.init count (fun index ->
+        let producer = 2 * index and consumer = (2 * index) + 1 in
+        let id = 4 * index in
+        [
+          block producer
+            [ imm id index (Int64.of_int (index + 1)); jump (id + 1) consumer ];
+          block consumer
+            [ end_expression (id + 2) index; jump (id + 3) (consumer + 1) ];
+        ])
+    |> List.concat
+  in
+  let blocks = if reverse then List.rev blocks else blocks in
+  verified ~entry:0 (blocks @ [ block (2 * count) [ stream_end (4 * count) ] ])
+
+let loop_shared_values () =
+  verified ~entry:0
+    [
+      block 0 [ imm 0 0 42L; jump 1 1 ];
+      block 1 [ end_expression 2 0; imm 3 1 0L; jump 4 2 ];
+      block 2 [ end_expression 5 1; branch 6 Opcode.Ic_br_not_zero 1 1 ];
+      block 3 [ stream_end 7 ];
+    ]
+
+let diamond_shared_values condition =
+  verified ~entry:0
+    [
+      block 0 [ imm 0 0 condition; branch 1 Opcode.Ic_br_not_zero 0 3 ];
+      block 1 [ imm 2 1 42L; jump 3 2 ];
+      block 2 [ end_expression 4 1; jump 5 5 ];
+      block 3 [ imm 6 2 99L; jump 7 4 ];
+      block 4 [ end_expression 8 2; jump 9 5 ];
+      block 5 [ stream_end 10 ];
+    ]
+
+let native_shared_home_liveness () =
+  List.iter
+    (fun status_abi ->
+      List.iter
+        (fun (label, graph, bytes) ->
+          let compile limit =
+            compile ~status_abi ~max_stack_bytes:limit graph
+          in
+          let image = compile bytes |> require_ok program_errors in
+          Alcotest.(check int)
+            (label ^ " exact frame") bytes
+            (Program.frame_bytes image);
+          ignore
+            (compile (bytes - 1)
+            |> reject ~code:"HCBACK0004" (label ^ " one below"));
+          Alcotest.(check string)
+            (label ^ " deterministic") (Program.code image)
+            (Program.code (compile bytes |> require_ok program_errors)))
+        [
+          ("sequential lifetimes", sequential_shared_values 40, 8);
+          ("reordered lifetimes", sequential_shared_values ~reverse:true 40, 8);
+          ("many disjoint lifetimes", sequential_shared_values 1024, 8);
+          ("loop backedge overlap", loop_shared_values (), 24);
+          ("exclusive diamond", diamond_shared_values 1L, 8);
+        ])
+    [ Encoder.Windows_x64; Encoder.System_v_x64 ]
+
 let native_shared_values () =
   List.iter
     (fun status_abi ->
@@ -2059,6 +2134,8 @@ let native_shared_values () =
 
 let tests =
   [
+    Alcotest.test_case "cross-block homes follow graph liveness" `Quick
+      native_shared_home_liveness;
     Alcotest.test_case "dominated values retain native homes in both ABIs"
       `Quick native_shared_values;
     Alcotest.test_case "native Print retains argument and format authority"

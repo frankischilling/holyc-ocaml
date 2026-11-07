@@ -1,6 +1,48 @@
 # Changelog
 
+Bounded integer AOT initializer leaves now use their original raw assignment
+width, separately from JIT and constant-copy widths. [Native captures](aot-zero-byte-initializers.md)
+verify four- and eight-byte stores. Missing register values, ownership and storage
+windows still reject explicitly.
+
+Scalar U0 globals and statics now retain zero-byte storage and live JIT
+initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)
+for native observations, execution checks and the separate AOT boundary.
+
 ## Unreleased
+
+- Evaluate supported reference values in zero-byte JIT initializer leaves
+  without inventing scalar words or writing neighboring bytes. Keep actual
+  execution, once-only receipts, literal charges and arena ownership checks.
+
+- Emit original JIT U0 initializer warnings before execution, with once-only
+  preparation ownership and active compiler warning counts. See
+  [U0 initializer warnings](void-initializer-warnings.md) for scope and evidence.
+
+- Admit original uninitialized scalar U0 locals without allocating value cells
+  or flags. Keep their assignment/register-alias behavior explicitly separate.
+  See [automatic U0 declarations](automatic-void-declarations.md).
+
+- Execute zero-count array declarations and empty initializers without inferring
+  lengths, inventing source bytes or repeating static work. Preserve original
+  empty-dimension witnesses, completion receipts and zero-copy arena checks.
+  See [zero-sized arrays](empty-arrays.md) for native observations and boundaries.
+
+- Match original pending-prefix binding: `++*p` advances the pointer before
+  dereferencing it, while `++(*p)` updates the pointee. Preserve callback-star
+  cancellation, indexed side effects and operator provenance. See
+  [prefix updates](prefix-updates.md) for native observations and remaining cases.
+
+- Preserve owned data references in global and static aggregate initializer
+  leaves, including arrays, strings and reference-returning calls. Packed stores
+  retain target lifetimes and reject expired ownership. Original JIT captures
+  check aliasing and once-only static initialization. See
+  [pointer initializers](aggregate-initializers.md#owned-data-pointer-leaves).
+
+- Execute U0 calls in zero-byte aggregate initializer leaves, preserving their
+  effects without inventing an integer result. Global/static IR and native source
+  tasks support live JIT; original JIT captures verify once-only effects and
+  the following byte. See [initializer effects](aggregate-initializers.md#u0-initializer-effects).
 
 - Added `holyc disasm` and the public `Asm_disassembler` library module, with
   source-owned instruction forms, addresses, operands, relative targets,

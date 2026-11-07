@@ -251,7 +251,10 @@ val join_static_allocations :
 val declared_record : declared_slot -> Sema.Compiler_record.declared_global
 val declared_initializer_failed : declared_slot -> bool
 val begin_declared_initializer : declared_slot -> (unit, string) result
-val complete_declared_initializer : declared_slot -> (unit, string) result
+
+val complete_declared_initializer :
+  ?layout:Integer_initializer_layout.t -> declared_slot -> (unit, string) result
+
 val fail_declared_initializer : declared_slot -> unit
 
 val record_declared_initializer :
@@ -287,6 +290,8 @@ val publish_task : task_catalog -> t -> task_publication list
 val same_storage : storage_slot -> storage_slot -> bool
 
 val with_statics :
+  ?source_allocations:Integer_static_allocation.t list ->
+  ?initializer_snapshots:Integer_initializer_layout.static_snapshot list ->
   span:Common.Span.t ->
   frames:Sema.Function_frame_layout.t ->
   functions:Sema.Function_call_expression_result.t ->
@@ -303,6 +308,12 @@ val static_initializer :
   static_slot -> Sema.Function_call_expression_result.initializer_result option
 
 val static_compiler_options : static_slot -> int64
+val static_owner_compiler_options : static_slot -> int64
+
+val static_initializer_compiler_options :
+  static_slot ->
+  Sema.Function_call_expression_result.initializer_result ->
+  int64
 
 val static_initializers :
   static_slot -> Sema.Function_call_expression_result.initializer_result list
@@ -321,6 +332,8 @@ val global_storage : slot -> storage_slot
 val storage_slots : t -> storage_slot list
 val storage_index : storage_slot -> int
 val storage_element_count : storage_slot -> int
+val storage_shape : storage_slot -> Integer_storage_shape.t
+val storage_cell_count : storage_slot -> int
 val storage_dimensions : storage_slot -> int64 list
 val storage_strides : storage_slot -> int64 list
 val cell_count : t -> int
@@ -363,6 +376,8 @@ val has_initializers : t -> bool
 val has_unprepared_statics : t -> bool
 
 val create :
+  ?headers:Sema.Aggregate_header_resolution.t ->
+  ?members:Sema.Aggregate_member_index.t ->
   ?initializers:Sema.Function_call_expression_result.top_level_t ->
   span:Common.Span.t ->
   Sema.Global_record_classification.t ->
@@ -373,8 +388,13 @@ val create :
     contains immutable metadata, not mutable execution storage. *)
 
 val create_with_layout :
+  ?task_view:task_view ->
+  ?headers:Sema.Aggregate_header_resolution.t ->
+  ?members:Sema.Aggregate_member_index.t ->
   layout:Sema.Global_array_layout.t ->
   ?initializers:Sema.Function_call_expression_result.top_level_t ->
+  ?initializer_layouts:
+    (Sema.Compiler_record.declared_global * Integer_initializer_layout.t) list ->
   span:Common.Span.t ->
   Sema.Global_record_classification.t ->
   (t, Common.Diagnostic.t list) result
@@ -469,6 +489,14 @@ val check_suspended_completion :
 
 val offset_context : task_view -> Sema.Offset_fragment.t -> (t, string) result
 val is_offset_fragment : t -> bool
+
+val member_metadata_context :
+  task_view -> Sema.Member_metadata_fragment.t -> (t, string) result
+
+val is_member_metadata_fragment : t -> bool
+
+val check_member_metadata_source :
+  task_catalog -> Frontend.Parser.aggregate_phase -> (unit, string) result
 
 val check_offset_source :
   task_catalog -> Frontend.Parser.aggregate_phase -> (unit, string) result

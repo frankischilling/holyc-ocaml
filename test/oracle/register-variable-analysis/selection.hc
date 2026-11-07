@@ -1,0 +1,6 @@
+U0 POOut(U8 *s) {while (*s) OutU8(0xE9,*s++);}
+U0 POValue(U8 *name,I64 value) {U8 buf[80];StrPrint(buf,"%s=%d\n",name,value);POOut(buf);}
+I64 JReg(I8 x,I64 c){x<<=c;return x;}I64 JNo(I8 noreg x,I64 c){x<<=c;return x;}I64 JAddr(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}I64 JLocal(){I8 x=127;x<<=1;return x;}I64 JNoLocal(){I8 noreg x=127;x<<=1;return x;}
+POValue("JIT_REG",JReg(127,1));POValue("JIT_NOREG",JNo(127,1));POValue("JIT_ADDR",JAddr(127,1));POValue("JIT_LOCAL",JLocal());POValue("JIT_NOLOCAL",JNoLocal());
+U8 *RSrc="#include \"/Kernel/KernelA.HH\"\npublic I64 AReg(I8 x,I64 c){x<<=c;return x;}public I64 ANo(I8 noreg x,I64 c){x<<=c;return x;}public I64 AAddr(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}public I64 ALocal(){I8 x=127;x<<=1;return x;}public I64 ANoLocal(){I8 noreg x=127;x<<=1;return x;}\n";
+FileWrite("B:/REGSELECT.HC",RSrc,StrLen(RSrc));I64 RE=Cmp("B:/REGSELECT.HC");POValue("COMPILE_ERRORS",RE);if(!RE){Load("B:/REGSELECT.BIN");ExePrint("extern I64 AReg(I8 x,I64 c);extern I64 ANo(I8 noreg x,I64 c);extern I64 AAddr(I8 x,I64 c);extern I64 ALocal();extern I64 ANoLocal();POValue(\"AOT_REG\",AReg(127,1));POValue(\"AOT_NOREG\",ANo(127,1));POValue(\"AOT_ADDR\",AAddr(127,1));POValue(\"AOT_LOCAL\",ALocal());POValue(\"AOT_NOLOCAL\",ANoLocal());");}POOut("POINTER_DONE\n");

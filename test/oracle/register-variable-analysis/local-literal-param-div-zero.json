@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "c578d4eca58e0ada21a12c8b1dd878b684d0a6a695e568aa45a8d3af2a9ab23e",
+  "boot_payload_sha256": "a7e3348a90df52860b8fb091cc11710ec22d73b016755ca3d0576d109215b4bf",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ed350351eaf15befaf2c7ee78f174b1051f48f7590a9b7d3c6ce5afc8568d34a",
+  "boot_iso_sha256": "df0943963157e709617b8995d57a3d36b820ae6e3961748666c5fae67b3ad7d9",
+  "fields": {
+    "J_CAUGHT": "1",
+    "ERR": "0",
+    "A_CAUGHT": "1"
+  },
+  "scope": "Repeated original observations of division on a literal-initialized local by a parameter. Caught fault probes use original JIT callers. Stored source omits boot padding."
+}

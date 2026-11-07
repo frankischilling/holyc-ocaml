@@ -157,6 +157,7 @@ let standalone_candidate statement_index statement =
       | Tree.Dimension_fragment _
       | Tree.Switch_case_fragment _
       | Tree.Offset_fragment _
+      | Tree.Member_metadata_fragment _
       | Tree.Static_initializer_fragment _
       | Tree.Default_fragment _
       | Tree.Return_value _ -> None)

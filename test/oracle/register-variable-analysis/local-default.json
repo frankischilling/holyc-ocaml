@@ -1,0 +1,15 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e4a69c65506a97ba799d5017606f4df2e7bc2b5ca8ce32bcf095eeb96df1b748",
+  "boot_payload_sha256": "0687c5edafe246a50858a6ce9e82aae5695c3b7252e0f84cde878a76e0924c56",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "f06a98cc02abbf9b213aec08f9288e2dd8da132bb8c7de31ee7734d52b1542af",
+  "boot_iso_sha256": "b16f40583c239c36d6ec65d0661c48e9ce8d3763ab2b8de958c70c62b38a5b35",
+  "fields": {
+    "S": "255",
+    "U": "256",
+    "SH": "254",
+    "ERR": "0"
+  },
+  "scope": "Repeated original observations of local register and memory initialization. The stored source omits trailing spaces used to pad the boot payload."
+}

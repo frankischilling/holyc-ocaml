@@ -244,22 +244,23 @@ let copied_parameter_source () =
       ()
     |> checked
   in
-  let replacement =
-    H.make_function_with_completed_header
-      (Semantic_compiler_record.declared_function_source source)
-      ~symbol:(H.function_symbol function_)
-      ~scope:(H.function_scope function_)
-      ~item_index:(H.function_item_index function_)
-      ~return_type:(H.function_return_type function_)
-      ~signature
-      ~parameter_bindings:(H.function_parameter_bindings function_)
-      ~variadic_bindings:None
-    |> checked
+  rejected "completed-header constructor rejects copied parameter source"
+    (H.make_function_with_completed_header
+       (Semantic_compiler_record.declared_function_source source)
+       ~symbol:(H.function_symbol function_)
+       ~scope:(H.function_scope function_)
+       ~item_index:(H.function_item_index function_)
+       ~return_type:(H.function_return_type function_)
+       ~signature
+       ~parameter_bindings:(H.function_parameter_bindings function_)
+       ~variadic_bindings:None);
+  (* The constructor now rejects this substitution immediately. Also preserve
+     the pending-declaration boundary: a tampered copy of an already admitted
+     header must not bypass the independent original-child validation. *)
+  let replacement : H.resolved_function =
+    Obj.obj (Obj.dup (Obj.repr function_))
   in
-  let replacement =
-    H.resolve ~table ~parent:(C.namespace_scope namespace) [ replacement ]
-    |> checked |> H.functions |> List.hd
-  in
+  Obj.set_field (Obj.repr replacement) 5 (Obj.repr signature);
   rejected "structurally copied parameter source grants no header identity"
     (F.make_pending_declaration ~table ~namespace ~compiler_option_mask:initial
        ~source ~function_:replacement)

@@ -1,0 +1,22 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "5b3f378b1b1bfcb896a0fbbe08b58e2b55e8e9346fb289d546584837c02d5dc2",
+  "boot_payload_sha256": "6eaa378984b97a652eb2a948a81c32ea927a618f7903900c7aa0d88935ff4237",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "50892ab68c2ff3d9fa419288dac80658744565675cc9696a178c9faa7f056715",
+  "boot_iso_sha256": "0d2b0c7a02dd3a76d4331589901dced1154e1a3180f9d07246941b3897424db7",
+  "fields": {
+    "J_S8": "-9223372036854775766",
+    "J_S16": "-9223372036854775766",
+    "J_U16": "-9223372036854775766",
+    "J_S32": "-9223372036854775766",
+    "J_U32": "-9223372036854775766",
+    "ERR": "0",
+    "A_S8": "-9223372036854775766",
+    "A_S16": "-9223372036854775766",
+    "A_U16": "-9223372036854775766",
+    "A_S32": "-9223372036854775766",
+    "A_U32": "-9223372036854775766"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of high-bit literal local returns. The stored source omits trailing spaces used to pad the boot payload."
+}

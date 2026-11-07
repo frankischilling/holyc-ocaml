@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "3b38e8212b4ee57d45d47124aabd271b4bb11c8b7a64a835230efc8ae5d16b41",
+  "boot_payload_sha256": "a5367de0336523074b5d228b183e7a31a49b0aadd00bf2683472837cb3bf9628",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "107749dbb21b88e284b4d1d0ecfb91857b2ffcec40c7ee73fb31ab8bd5c118cb",
+  "boot_iso_sha256": "6b564dd33e92ee9dea4f340ba094509756c37e99dd9f10a096b5dd47c871cdea",
+  "fields": {
+    "PIN": "128",
+    "PDEC": "-129",
+    "LIN": "256",
+    "LDEC": "254",
+    "ERR": "0"
+  },
+  "scope": "Repeated original retained default initializer observations for unary updates."
+}

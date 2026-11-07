@@ -22,6 +22,24 @@ let layout value = value.layout_
 let storage value = value.storage_
 let reference value = value.reference_
 let span value = value.span_
+
+let discards_value value =
+  let scalar = Layout.scalar value.layout_ in
+  let expression = Typed.top_level_root_value value.root_ in
+  Initializer_value.discards ~scalar expression
+  || Initializer_value.discards_reference ~scalar expression
+
+let stores_pointer value =
+  Initializer_value.stores_pointer
+    ~scalar:(Layout.scalar value.layout_)
+    (Typed.top_level_root_value value.root_)
+
+let requires_evaluation value =
+  Layout.requires_settlement value.layout_
+  || discards_value value
+  || Integer_storage_shape.is_storage_free
+       (Globals.storage_shape value.storage_)
+
 let ( let* ) = Result.bind
 
 let create ~task_view ~reference ~slot ~layout typed =
@@ -72,6 +90,13 @@ let create ~task_view ~reference ~slot ~layout typed =
     | Layout.Copy_bytes _ -> Ok ()
     | Layout.Scalar_store ->
         if
+          Initializer_value.discards ~scalar:(Layout.scalar layout) value
+          || Initializer_value.discards_reference ~scalar:(Layout.scalar layout)
+               value
+          || Initializer_value.stores_pointer ~scalar:(Layout.scalar layout)
+               value
+        then Ok ()
+        else if
           Typed.result_array_rank value = 0
           && (match Typed.result_category value with
             | Typed.Object_value | Typed.Lvalue -> true
@@ -84,7 +109,7 @@ let create ~task_view ~reference ~slot ~layout typed =
           && (Option.fold ~none:false
                 ~some:(fun type_ ->
                   Option.is_some (Integer_scalar_storage.of_type type_))
-                (Typed.result_type value)
+                (Typed.result_value_type value)
              || callback
                 && (Typed.result_is_callback_storage value
                    || Typed.result_is_numeric_callback value))

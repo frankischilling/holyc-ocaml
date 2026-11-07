@@ -29,19 +29,21 @@ let source_inputs ~mode contents =
   in
   (session, config, source)
 
-let native_report ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
-    ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps contents =
-  let session, config, source = source_inputs ~mode contents in
-  Native_program.evaluate ?max_initializer_steps ?max_default_bytes
-    ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes session ~config
-    ~source ~max_steps
-
-let native_success_report ?max_initializer_steps ?max_default_bytes
+let native_report ?max_code_bytes ?max_initializer_steps ?max_default_bytes
     ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps
     contents =
+  let session, config, source = source_inputs ~mode contents in
+  Native_program.evaluate ?max_code_bytes ?max_initializer_steps
+    ?max_default_bytes ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
+    session ~config ~source ~max_steps
+
+let native_success_report ?max_code_bytes ?max_initializer_steps
+    ?max_default_bytes ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
+    ~mode ~max_steps contents =
   let report =
-    native_report ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
-      ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps contents
+    native_report ?max_code_bytes ?max_initializer_steps ?max_default_bytes
+      ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps
+      contents
   in
   match Native_program.outcome report with
   | Ok checked -> (report, checked.value)
@@ -112,6 +114,7 @@ let batch_failure ?max_frame_bytes ?max_call_depth ~mode ~max_steps contents =
 let program_type_name = function
   | Program.I64 -> "I64"
   | Program.U64 -> "U64"
+  | Program.F64 -> "F64"
 
 let vm_type_name = function
   | VM.I64 -> "I64"
@@ -133,8 +136,8 @@ let check_vm_word label expected_type expected_bits result =
         (label ^ " VM type") expected_type (vm_type_name word.type_);
       Alcotest.(check int64) (label ^ " VM bits") expected_bits word.bits
 
-let compare_source ?(initializer_steps = 0) ?(max_steps = 10_000) ~mode ~label
-    ~expected_type ~expected_bits contents =
+let compare_source ?max_code_bytes ?(initializer_steps = 0)
+    ?(max_steps = 10_000) ~mode ~label ~expected_type ~expected_bits contents =
   (* Fresh public source execution is the independent semantic oracle. In JIT,
      defaults can activate a stateful command stream whose bookkeeping is not
      part of the native batch image, so its runtime meter is intentionally not a
@@ -143,7 +146,9 @@ let compare_source ?(initializer_steps = 0) ?(max_steps = 10_000) ~mode ~label
   check_vm_word label expected_type expected_bits vm;
   let fixture, batch = batch_success ~mode ~max_steps contents in
   check_vm_word (label ^ " checked batch") expected_type expected_bits batch;
-  let report, native = native_success_report ~mode ~max_steps contents in
+  let report, native =
+    native_success_report ?max_code_bytes ~mode ~max_steps contents
+  in
   check_native_word label expected_type expected_bits
     native.execution.final_value;
   Alcotest.(check int)
@@ -224,28 +229,100 @@ let adjacent_storage_assignments_and_updates () =
         "U8 F(){U8 n=0;return (n=298);}\nF();",
         "U64",
         298L );
-      ( "plain assignment stores only the U8 low byte",
+      ( "plain assignment retains selected U8 register bits",
         "U8 F(){U8 n=0;n=298;return n;}\nF();",
+        "U64",
+        298L );
+      ( "plain assignment stores only the noreg U8 low byte",
+        "U8 F(){U8 noreg n=0;n=298;return n;}\nF();",
         "U64",
         42L );
       ( "compound assignment returns the full register payload",
         "U8 F(){U8 n=250;return (n+=48);}\nF();",
         "U64",
         298L );
-      ( "compound assignment stores the normalized payload",
-        "U8 F(){U8 n=250;n+=48;return n;}\nF();",
+      ( "compound assignment stores the normalized noreg payload",
+        "U8 F(){U8 noreg n=250;n+=48;return n;}\nF();",
         "U64",
         42L );
-      ( "prefix returns the normalized new stored I8 value",
+      ( "compound assignment retains the register payload",
+        "U8 F(){U8 n=250;n+=48;return n;}\nF();",
+        "U64",
+        298L );
+      ( "returned compound local keeps wide register value",
+        "I64 F(){I8 n=255;return n+=1;}\nF();",
+        "I64",
+        256L );
+      ( "returned parameter compound add keeps wide register value",
+        "I64 F(U8 n){return n+=1;}\nF(255);",
+        "I64",
+        256L );
+      ( "narrow function returns the wide parameter register value",
+        "U8 F(U8 n){return n+=1;}\nF(255);",
+        "U64",
+        256L );
+      ( "narrow function returns the narrowed noreg parameter value",
+        "U8 F(U8 noreg n){return n+=1;}\nF(255);",
+        "U64",
+        0L );
+      ( "returned parameter noreg add uses narrowed value",
+        "I64 F(U8 noreg n){return n+=1;}\nF(255);",
+        "I64",
+        0L );
+      ( "returned parameter noreg multiplication keeps wide intermediate",
+        "I64 F(U8 noreg n){return n*=2;}\nF(255);",
+        "I64",
+        510L );
+      ( "returned parameter noreg shift keeps wide intermediate",
+        "I64 F(U8 noreg n){return n<<=1;}\nF(255);",
+        "I64",
+        510L );
+      ( "returned noreg multiplication keeps the wide intermediate",
+        "I64 F(){U8 noreg n=255;return n*=2;}\nF();",
+        "I64",
+        510L );
+      ( "returned noreg shift keeps the wide intermediate",
+        "I64 F(){U8 noreg n=255;return n<<=1;}\nF();",
+        "I64",
+        510L );
+      ( "returned compound noreg value is narrowed",
+        "I64 F(){U8 noreg n=256;return n-=1;}\nF();",
+        "I64",
+        255L );
+      ( "prefix returns the full selected I8 register value",
         "I8 F(){I8 n=127;return ++n;}\nF();",
+        "I64",
+        128L );
+      ( "prefix returns the normalized noreg I8 value",
+        "I8 F(){I8 noreg n=127;return ++n;}\nF();",
         "I64",
         -128L );
       ( "postfix returns the normalized old stored I8 value",
         "I8 F(){I8 n=127;return n++;}\nF();",
         "I64",
         127L );
-      ( "U8 prefix wraps before returning the new stored value",
+      ( "U8 prefix returns the full selected register value",
         "U8 F(){U8 n=255;return ++n;}\nF();",
+        "U64",
+        256L );
+      ( "U8 noreg prefix returns the wrapped memory value",
+        "U8 F(){U8 noreg n=255;return ++n;}\nF();",
+        "U64",
+        0L );
+      ( "postfix returns a wide old I8 register value",
+        "I8 F(){I8 n=255;return n++;}\nF();",
+        "I64",
+        255L );
+      ( "postfix returns the narrow old I8 noreg value",
+        "I8 F(){I8 noreg n=255;return n++;}\nF();",
+        "I64",
+        -1L );
+      ( "postfix returns a wide old U8 register value",
+        "U8 F(){U8 n=256;return n++;}\nF();",
+        "U64",
+        256L );
+      ( "postfix returns the narrow old U8 noreg value",
+        "U8 F(){U8 noreg n=256;return n++;}\nF();",
         "U64",
         0L );
       ( "U8 postfix returns the old value across storage wrap",
@@ -487,17 +564,212 @@ let u0_control_recursion_and_final_latch () =
 
 let byte unwind index = Char.code unwind.[index]
 
+let decode_callable_frame_bytes unwind =
+  let exception Malformed of string in
+  let require condition message =
+    if not condition then raise (Malformed message)
+  in
+  try
+    let length = String.length unwind in
+    require
+      (length >= 8 && length <= 40 && length mod 4 = 0)
+      "unsupported record length";
+    require
+      (byte unwind 0 = 1 && byte unwind 3 = 0)
+      "expected version 1 without handlers or a frame register";
+    let count = byte unwind 2 in
+    require
+      (count >= 1 && length = 4 + (2 * (count + (count mod 2))))
+      "code count differs from padded record length";
+    for index = 4 + (2 * count) to length - 1 do
+      require (byte unwind index = 0) "nonzero unwind padding"
+    done;
+    let scaled_word index =
+      8 * (byte unwind index lor (byte unwind (index + 1) lsl 8))
+    in
+    (* Decode the Windows format independently of the emitter. SAVE_NONVOL
+       takes two slots and describes storage inside the allocation, not an
+       additional push. Metadata lists saves in reverse instruction order. *)
+    let rec read_saves slot previous_register saves =
+      if slot < count && byte unwind (5 + (2 * slot)) land 0xf = 4 then (
+        require (slot + 1 < count) "truncated SAVE_NONVOL";
+        let register = byte unwind (5 + (2 * slot)) lsr 4 in
+        require
+          (List.mem register [ 3; 6; 7; 12; 13; 14; 15 ]
+          && register < previous_register)
+          "unsupported or unordered saved register";
+        read_saves (slot + 2) register
+          ((byte unwind (4 + (2 * slot)), scaled_word (6 + (2 * slot))) :: saves))
+      else (slot, saves)
+    in
+    let slot, saves = read_saves 0 16 [] in
+    let frame, allocation_end, push_slot =
+      if slot + 1 = count then (0, 4, slot)
+      else (
+        require (slot + 1 < count) "missing allocation or RBP push";
+        let operation = byte unwind (5 + (2 * slot)) in
+        let frame, allocation_slots =
+          match operation land 0xf with
+          | 2 -> (((operation lsr 4) + 1) * 8, 1)
+          | 1 ->
+              require
+                (operation = 1 && slot + 2 < count)
+                "malformed scaled ALLOC_LARGE";
+              let frame = scaled_word (6 + (2 * slot)) in
+              require (frame > 128) "noncanonical large allocation";
+              (frame, 2)
+          | _ -> raise (Malformed "unsupported allocation opcode")
+        in
+        require
+          (frame > 0 && frame <= 524272 && frame mod 16 = 0)
+          "invalid callable allocation size";
+        (* Unrolled page probes are eight bytes each. Above 65528 bytes the
+           compact loop is 27 bytes, with an eight-byte partial-page tail. *)
+        let probes =
+          if frame < 4096 then 0
+          else if frame <= 65528 then 8 * ((frame + 4095) / 4096)
+          else 27 + if frame mod 4096 = 0 then 0 else 8
+        in
+        let allocation_end = byte unwind (4 + (2 * slot)) in
+        require (allocation_end = 11 + probes) "invalid allocation endpoint";
+        (frame, allocation_end, slot + allocation_slots))
+    in
+    require
+      (push_slot + 1 = count
+      && byte unwind (4 + (2 * push_slot)) = 1
+      && byte unwind (5 + (2 * push_slot)) = 0x50)
+      "missing final PUSH_NONVOL RBP";
+    require (frame <> 0 || saves = []) "frameless register-save record";
+    require
+      (byte unwind 1 = allocation_end + (7 * List.length saves))
+      "prologue length does not cover exactly the allocation and saves";
+    List.iteri
+      (fun index (endpoint, offset) ->
+        require
+          (endpoint = allocation_end + (7 * (index + 1)))
+          "unordered register-save endpoint";
+        require (offset < frame) "register save lies outside the allocation")
+      saves;
+    require
+      (List.length (List.sort_uniq Int.compare (List.map snd saves))
+      = List.length saves)
+      "overlapping register-save slots";
+    Ok frame
+  with Malformed message -> Error message
+
 let callable_frame_bytes label unwind =
-  let length = String.length unwind in
-  if length <> 8 && length <> 12 then
-    Alcotest.failf "%s: unexpected callable unwind length %d" label length;
-  let count = byte unwind 2 in
-  if count = 1 && byte unwind 4 = 1 && byte unwind 5 lsr 4 = 5 then 0
-  else if count = 2 && byte unwind 4 = 11 && byte unwind 5 land 0xf = 2 then
-    ((byte unwind 5 lsr 4) + 1) * 8
-  else if count = 3 && byte unwind 4 = 11 && byte unwind 5 land 0xf = 1 then
-    byte unwind 6 lor (byte unwind 7 lsl 8) * 8
-  else Alcotest.failf "%s: malformed callable unwind metadata" label
+  match decode_callable_frame_bytes unwind with
+  | Ok frame -> frame
+  | Error message ->
+      Alcotest.failf "%s: malformed callable unwind metadata: %s" label message
+
+let callable_frame_metadata () =
+  let bytes values =
+    String.init (List.length values) (fun index ->
+        Char.chr (List.nth values index))
+  in
+  let small_save = [ 1; 18; 4; 0; 18; 0x64; 3; 0; 11; 0x32; 1; 0x50 ] in
+  let large_save =
+    [ 1; 18; 5; 0; 18; 0x64; 33; 0; 11; 1; 34; 0; 1; 0x50; 0; 0 ]
+  in
+  let pair =
+    [ 1; 25; 6; 0; 25; 0x74; 2; 0; 18; 0x64; 3; 0; 11; 0x32; 1; 0x50 ]
+  in
+  List.iter
+    (fun (label, expected, values) ->
+      Alcotest.(check int)
+        label expected
+        (callable_frame_bytes label (bytes values)))
+    [
+      ("frameless callable push", 0, [ 1; 4; 1; 0; 1; 0x50; 0; 0 ]);
+      ("small callable allocation", 128, [ 1; 11; 2; 0; 11; 0xf2; 1; 0x50 ]);
+      ( "large allocation scales both bytes",
+        2064,
+        [ 1; 11; 3; 0; 11; 1; 2; 1; 1; 0x50; 0; 0 ] );
+      ("small allocation with RSI save", 32, small_save);
+      ( "small allocation with host RBX save",
+        32,
+        [ 1; 18; 4; 0; 18; 0x34; 3; 0; 11; 0x32; 1; 0x50 ] );
+      ("large allocation with RSI save", 272, large_save);
+      ("RSI and RDI saves do not double-charge stack", 32, pair);
+      ( "unrolled page-probed allocation",
+        4096,
+        [ 1; 19; 3; 0; 19; 1; 0; 2; 1; 0x50; 0; 0 ] );
+      ( "compact page-probed allocation",
+        65536,
+        [ 1; 38; 3; 0; 38; 1; 0; 32; 1; 0x50; 0; 0 ] );
+      ( "maximum frame and all six register saves",
+        524272,
+        [
+          1;
+          88;
+          15;
+          0;
+          88;
+          0xf4;
+          0xfb;
+          0xff;
+          81;
+          0xe4;
+          0xf7;
+          0xff;
+          74;
+          0xd4;
+          0xfc;
+          0xff;
+          67;
+          0xc4;
+          0xf8;
+          0xff;
+          60;
+          0x74;
+          0xfd;
+          0xff;
+          53;
+          0x64;
+          0xfa;
+          0xff;
+          46;
+          1;
+          0xfe;
+          0xff;
+          1;
+          0x50;
+          0;
+          0;
+        ] );
+    ];
+  let changed values index value =
+    let value_bytes = Bytes.of_string (bytes values) in
+    Bytes.set value_bytes index (Char.chr value);
+    Bytes.to_string value_bytes
+  in
+  List.iter
+    (fun (label, unwind) ->
+      Alcotest.(check bool)
+        label true
+        (Result.is_error (decode_callable_frame_bytes unwind)))
+    [
+      ("reject truncated header", "\001\004");
+      ("reject handler flags", changed large_save 0 9);
+      ("reject frame-register form", changed large_save 3 5);
+      ("reject mismatched code count", changed large_save 2 4);
+      ("reject nonzero padding", changed large_save 15 1);
+      ("reject unsupported saved register", changed large_save 5 0x84);
+      ("reject private R10 save metadata", changed large_save 5 0xa4);
+      ("reject private R11 save metadata", changed large_save 5 0xb4);
+      ("reject duplicate saved register", changed pair 5 0x64);
+      ("reject overlapping saved slots", changed pair 6 3);
+      ("reject out-of-frame save", changed large_save 6 34);
+      ("reject changed save endpoint", changed large_save 4 17);
+      ("reject changed allocation endpoint", changed large_save 8 10);
+      ("reject changed prologue length", changed large_save 1 19);
+      ("reject non-scaled large allocation", changed large_save 9 0x11);
+      ("reject noncanonical large allocation", changed large_save 10 16);
+      ("reject misaligned callable frame", changed large_save 10 33);
+      ("reject wrong pushed register", changed large_save 13 0x60);
+      ("reject absent RBP push", bytes [ 1; 18; 2; 0; 18; 0x64; 3; 0 ]);
+    ]
 
 let named_physical_costs image =
   match Program.windows_unwind_functions image with
@@ -754,7 +1026,8 @@ let pointer_alias_semantics () =
         42L );
       ( "loop goto switch preserve reference slots",
         "I64 F(){I64 x=40;I64 *p=&x;I64 n=0;again:switch(n){case \
-         0:++*p;break;case 1:++*p;break;default:return x;}n++;goto again;}F();",
+         0:++(*p);break;case 1:++(*p);break;default:return x;}n++;goto \
+         again;}F();",
         42L );
       ( "all indirect compound families",
         "I64 F(){I64 x=100;I64 \
@@ -762,8 +1035,8 @@ let pointer_alias_semantics () =
          x;}F();",
         42L );
       ( "postfix and prefix results",
-        "I64 F(){I64 x=39;I64 *p=&x;I64 a=(*p)++;I64 b=++*p;--*p;(*p)--;return \
-         a+b-x+1;}F();",
+        "I64 F(){I64 x=39;I64 *p=&x;I64 a=(*p)++;I64 \
+         b=++(*p);--(*p);(*p)--;return a+b-x+1;}F();",
         42L );
     ]
   in
@@ -802,7 +1075,7 @@ let pointer_alias_semantics () =
         (fun type_name ->
           let source =
             Printf.sprintf
-              "I64 F(){%s x=255;%s *p=&x;I64 old=(*p)++;return ++*p+old;}F();"
+              "I64 F(){%s x=255;%s *p=&x;I64 old=(*p)++;return ++(*p)+old;}F();"
               type_name type_name
           in
           let expected_bits = if type_name = "I8" then 0L else 256L in
@@ -3159,8 +3432,8 @@ let aot_load_calls_and_effects () =
   List.iter
     (fun (label, initializer_steps, output, source) ->
       let report, native, vm =
-        compare_source ~mode:Preprocessor.Aot ~label ~initializer_steps
-          ~expected_type:"I64" ~expected_bits:42L source
+        compare_source ~max_code_bytes:131072 ~mode:Preprocessor.Aot ~label
+          ~initializer_steps ~expected_type:"I64" ~expected_bits:42L source
       in
       Alcotest.(check string)
         (label ^ " reached native output")
@@ -3458,5 +3731,7 @@ let () =
               Alcotest.test_case
                 "scalar budgets faults unwind and recover against public VM"
                 `Quick budgets_faults_and_recovery;
+              Alcotest.test_case "save-bearing callable stack metadata" `Quick
+                callable_frame_metadata;
             ] );
         ]

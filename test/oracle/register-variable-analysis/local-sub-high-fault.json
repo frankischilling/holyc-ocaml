@@ -1,0 +1,11 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "0715bd3ae93bf25a523040c4de59d156999b814dfa4507eb9d9ab63e17d4b82a",
+  "boot_payload_sha256": "0cf2ec530c82dbc7e977db5b9c3713e21dcc0eebda8396bf938972e1dd2509a0",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "3e8e319ec22e5c98381a7ae3d1aab64df42beb2d940f60093d172791b733ba4f",
+  "screenshot_sha256": "8fc88c6bf10f13ebbef8ff73b00fa74c892c589aea5f75349811f759371b3f77",
+  "boot_iso_sha256": "0d1f32bf6ae44156c0f229417d9552c076eb7af4e10bbdff8ee3914b56b9f635",
+  "status": "incomplete: invalid opcode observed in JIT before compiled controls",
+  "scope": "A single original boot emitted two JIT values before the debugger reported invalid opcode in the third function. No AOT or repeated result was captured. The stored source omits trailing spaces used to pad the boot payload."
+}

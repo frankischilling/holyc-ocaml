@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "f73a38980e4617cb7377d7e8011f1ec713d567749403230009e7736437d8cce1",
+  "boot_payload_sha256": "fcc67fdf8fa6ed20ec9400ff7cee28e239a79dc702aac748d0077dab9b976481",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "902909c2df1621153b4ce9a30897c494cca3a24d85cdef066fa421af23a3a8e4",
+  "boot_iso_sha256": "3c902a876647a1d8051338b07f77a209aac46f1880154918838573432a2274f8",
+  "fields": {
+    "J_S": "0",
+    "J_U": "1",
+    "J_S16": "0",
+    "J_U16": "1",
+    "ERR": "0",
+    "A_S": "0",
+    "A_U": "1",
+    "A_S16": "0",
+    "A_U16": "1"
+  },
+  "scope": "Repeated original observations of register-selected compound addition. The stored source omits trailing spaces used to pad the boot payload."
+}

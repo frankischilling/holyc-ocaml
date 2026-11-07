@@ -1,0 +1,5 @@
+U0 POOut(U8 *s) {while (*s) OutU8(0xE9,*s++);}
+U0 POValue(U8 *name,I64 value) {U8 buf[80];StrPrint(buf,"%s=%d\n",name,value);POOut(buf);}
+I64 DJN=7,DJC=65;I64 DJO=DJN<<DJC;I64 DJR=-8;I64 DJS=DJR>>DJC;U64 DJU=-8;U64 DJV=DJU>>DJC;POValue("JIT_LEFT",DJO);POValue("JIT_RIGHT",DJS);POValue("JIT_UNSIGNED",DJV);DJC=1;POValue("JIT_SAVED",DJO);
+U8 *DSSource="#include \"/Kernel/KernelA.HH\"\nI64 DSN=7,DSC=65;I64 DSO=DSN<<DSC;I64 DSR=-8;I64 DSS=DSR>>DSC;U64 DSU=-8;U64 DSV=DSU>>DSC;public I64 DSLeft(){return DSO;}public I64 DSRight(){return DSS;}public U64 DSUnsigned(){return DSV;}public U0 DSSet(){DSC=1;}\n";
+FileWrite("B:/DYN.HC",DSSource,StrLen(DSSource));I64 DSErrors=Cmp("B:/DYN.HC");POValue("COMPILE_ERRORS",DSErrors);if(!DSErrors){Load("B:/DYN.BIN");ExePrint("extern I64 DSLeft();extern I64 DSRight();extern U64 DSUnsigned();extern U0 DSSet();POValue(\"AOT_LEFT\",DSLeft());POValue(\"AOT_RIGHT\",DSRight());POValue(\"AOT_UNSIGNED\",DSUnsigned());DSSet();POValue(\"AOT_SAVED\",DSLeft());");}POOut("POINTER_DONE\n");

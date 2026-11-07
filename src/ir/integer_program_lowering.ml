@@ -79,6 +79,11 @@ type pending_exception = {
 
 type t = {
   expression_source_ : (Integer_globals.t * Typed.expression_result) option;
+  framed_expression_source_ :
+    (Sema.Function_frame_layout.function_layout
+    * Integer_globals.t
+    * Typed.expression_result)
+    option;
   graph_ : X87_stack.t;
   initializer_regions_ : Global_initialization.region_description list;
   static_initializer_regions_ :
@@ -95,6 +100,14 @@ let owns_expression result ~globals ~value =
   match result.expression_source_ with
   | Some (original_globals, original_value) ->
       original_globals == globals && original_value == value
+  | None -> false
+
+let owns_framed_expression result ~frame ~globals ~value =
+  match result.framed_expression_source_ with
+  | Some (original_frame, original_globals, original_value) ->
+      original_frame == frame
+      && original_globals == globals
+      && original_value == value
   | None -> false
 
 let initializer_regions result = result.initializer_regions_
@@ -1591,6 +1604,11 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
           expression_source_ =
             (match (frame, globals, statements) with
             | None, Some globals, [ Expression value ] -> Some (globals, value)
+            | _ -> None);
+          framed_expression_source_ =
+            (match (frame, globals, statements) with
+            | Some frame, Some globals, [ Expression value ] ->
+                Some (frame, globals, value)
             | _ -> None);
           initializer_regions_ = List.rev !initial_regions;
           static_initializer_regions_ = List.rev !static_regions;

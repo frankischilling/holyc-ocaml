@@ -2,6 +2,48 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-AGGREGATE-ASSIGNMENT-OBSERVATIONS"
+description = "Function-body, top-level and source-fragment integer aggregate assignments and member indices retain their original endpoint, lookahead and completion observations."
+sources = ["Compiler/PrsExp.HC:65-263 complete PrsExpression2", "Compiler/PrsExp.HC:200-208 original internal lvalue gate", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier and index strides", "Compiler/PrsExp.HC:1117-1152 complete LexExpression2Bin and LexExpressionI64", "Compiler/PrsLib.HC:79-97 complete ICAdd", "Compiler/OptPass3.HC:1-621 complete OptPass3", "Compiler/OptLib.HC:9-15,508-533 complete forwarding and raw-type helpers", "Compiler/BackC.HC:159-204 complete ICAssign", "Compiler/PrsStmt.HC:805-840 complete PrsStreamBlk"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/function_aggregate_visibility.ml", "src/sema/aggregate_backing_storage.ml", "src/sema/aggregate_pointee_layout.ml", "src/sema/function_call_expression_result.ml", "src/driver/task_declarations.ml", "src/driver/integer_source.ml", "src/ir/aggregate_member_projection.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/ir/initializer_fragment_destination.ml", "src/ir/static_initializer_destination.ml", "src/ir/dimension_fragment_destination.ml", "src/ir/offset_fragment_destination.ml", "src/ir/member_metadata_fragment_destination.ml", "src/ir/switch_case_fragment_destination.ml", "src/ir/internal_binding_fragment_destination.ml"]
+tests = ["test/backed_aggregate_cases.ml", "test/test_local_aggregate_allocation.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/assignment-backing-observations.hc", "examples/top-level-aggregate-assignments.hc"]
+documentation = ["docs/backed-aggregate-values.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+source_identity = "Private original preparation and selection receipts retain the exact binary source, function or command publication, table, namespace and class identities. Fragment completion retains its original expression callback. The latest reached record is selected per canonical identity, including classes hidden by a same-name replacement. A primitive endpoint already selected for dereference is not retargeted by completion of its earlier extern spelling."
+execution = "Lookahead can complete an original ordinary forward endpoint before the assignment gate. Later completion cannot authorize an earlier invalid endpoint. Each member index retains its reached class size after opening-bracket lookahead and before its index value; earlier zero strides and later completed sizes coexist with original dimension multipliers. Member arithmetic remains bounded by the original containing byte root. Grouped assignment results preserve their full register word. Isolated AOT classes remain separate from the task JIT table."
+verification = "Public source/API/CLI cases exercise integer widths, direct/pointer/indexed destinations, compound assignment, register results, named forwarding, replacement, completion timing, mode separation and bounds. Both outer modes and source executors cover initializers, statics, defaults, dimensions, offsets, metadata, switch endpoints and internal bindings. The maintained top-level example checks exact and one-below execution and initializer limits. Authority cases reject copied nodes, other functions, foreign tables/namespaces, changed pointer types and repeated or expired phases."
+verification_boundary = "Pinned source and hosted execution provide this evidence without a TempleOS runtime or emitted-byte capture. Classic native directive processing retains HCPP0008. Full parser Invalid-lval exception timing, other backing families, broader dynamic class behavior and whole-compiler acceptance remain open under issue 686 and the release tracker."
+
+[[feature]]
+id = "HC-AGGREGATE-ASSIGNMENT-LVALUE-GATE"
+description = "Aggregate assignments use the original backing endpoint and the pinned internal-storage lvalue rule."
+sources = ["Compiler/PrsExp.HC:65-263 complete PrsExpression2 and IST_ASSIGN lvalue check", "Compiler/PrsExp.HC:200-208 OptClassFwd and Cf_INTERNAL_TYPE", "Compiler/PrsLib.HC:40-60 complete PrsClassNew and default raw type", "Compiler/PrsVar.HC:285-371 complete PrsType backing selection", "Compiler/OptLib.HC:9-15 complete OptClassFwd", "Compiler/BackC.HC:159-204 complete ICAssign"]
+implementation = ["src/sema/aggregate_backing_storage.ml", "src/sema/function_call_expression_result.ml"]
+tests = ["test/default_aggregate_cases.ml", "test/aggregate_cast_cases.ml", "test/class_parameter_cases.ml", "test/class_return_cases.ml", "test/persistent_aggregate_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/default-aggregate-values.hc", "examples/aggregate-value-casts.hc"]
+documentation = ["docs/default-aggregate-values.md", "docs/persistent-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+source_identity = "The checked original backing proof distinguishes internal storage from an ordinary class endpoint. Neither raw RT_PTR nor inheritance grants assignment permission, and replacement cannot retarget that proof."
+execution = "Simple and compound assignment to ordinary class endpoints reject during semantic checking before RHS calls. Field stores, explicit internal storage casts and internal-backed whole assignments retain their original roots and bounds. Raw default-word reads and prefix/postfix updates retain their separate source producer rules."
+verification = "Shared API and CLI fixtures cover ordinary class and union locals, pointer dereferences, arrays, nested members, inherited classes, ordinary backing endpoints, compound assignment, replacement and RHS effects. Existing value, ownership, lifetime, exact quota and native ABI cases preserve their intended coverage through source-permitted setup stores."
+verification_boundary = "Pinned source and hosted execution provide this evidence without a new TempleOS runtime or machine-byte capture. Other value/backing families, general copies, top-level dynamic assignment and wider compiler acceptance remain open under issue 686."
+
+[[feature]]
+id = "HC-AUTOMATIC-AGGREGATE-SCALAR-INITIALIZERS"
+description = "Automatic class and union scalar initializers retain original allocation authority and store through their checked integer word prefix."
+sources = ["Compiler/PrsVar.HC:407-742 complete PrsVarLst and local assignment expression", "Compiler/PrsExp.HC:65-263 complete PrsExpression2", "Compiler/OptLib.HC:9-15 complete OptClassFwd", "Compiler/OptPass012.HC:866-885 assignment conversion", "Compiler/BackC.HC:159-204 complete ICAssign"]
+implementation = ["src/driver/integer_source.ml", "src/sema/function_aggregate_visibility.ml", "src/sema/aggregate_backing_storage.ml", "src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/hosted/native_program.ml"]
+tests = ["test/automatic_aggregate_cases.ml", "test/test_automatic_aggregate_storage.ml", "test/test_automatic_aggregates_cli.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/native/test_native_automatic_aggregate_storage.ml", "test/native/test_native_aggregate_members.ml", "examples/automatic-aggregate-initializers.hc"]
+documentation = ["docs/automatic-aggregate-byte-views.md", "docs/backed-aggregate-values.md", "docs/function-local-aggregate-objects.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+source_identity = "Literal and effectful right operands do not authorize the destination. The original local allocation receipt matches table, namespace, function, local name and selected nominal type; the existing completed backing policy retains its original scalar view. Declaration assignment requires a chain ending in an internal integer type; ordinary class endpoints reject. Frame lowering authenticates the exact initializer declaration and type reference."
+execution = "JIT and AOT IR and native paths evaluate scalar initializers once when each declaration is reached, preserve comma order and initialize only the selected integer prefix. Named backing chains, inherited roots, redefinition and repeated activations retain original allocation extent and ownership. Empty and undersized stores preserve reached operand effects before the hosted bounds failure; other object bytes remain unknown."
+verification = "Shared cases cover all integer backing widths, literals, calls, comma order, earlier initialized objects, generated declarations, forwarding, inheritance, replacement, repeated activations, unknown tails and bounds faults. Existing field controls substitute missing, foreign, other-function and changed-offset backing proofs; foreign-frame and both-ABI image controls include initialized aggregate roots. The maintained example prints A and returns 42."
+verification_boundary = "Expected values follow pinned-source analysis and hosted execution, without a new TempleOS runtime capture or machine-byte comparison. U0 and floating backing execution, inferred dimensions, general object copies and the wider AOT loader and compiler acceptance remain unfinished."
+
+[[feature]]
 id = "HC-TEMPLEOS-BIN-VALIDATOR"
 description = "Independent bounded BIN reader and transactional virtual loader with public validation and relocation reports."
 sources = ["Kernel/KernelA.HH:379-427 header and record identities", "Kernel/KLoad.HC:1-248 grouped imports, exports, heaps, flags and both passes", "Compiler/CMain.HC:419-568 original BIN producer", "Kernel/KStart32.HC:96-103 separate boot absolute pass"]
@@ -12408,11 +12450,11 @@ authority = "compile_callable requires the exact Runtime_call_context entry/body
 default_admission = "zero storage bytes and prepared storage steps do not establish absence of saved defaults; callable argument preflight rejects the exact Runtime.is_prepared_default producer and original selected/definition headers reject defaults even with explicit arguments or unused functions"
 default_preparation_followup = 660
 extended_by = ["HC-NATIVE-INTEGER-DEFAULTS (#660): original source-owned scalar preparation extends the historical default rejection boundary without changing ordinary entry execution"]
-private_call_convention = "PUSH RBP, MOV RBP,RSP and an optional at-most4080-byte aligned16 allocation; body RSP remains fixed; exact parameters start at RBP+16 and autos use checked negative displacements; every owner ends through stack restore, POP RBP and plain RET"
+private_call_convention = "PUSH RBP, MOV RBP,RSP and an optional bounded 16-byte-aligned allocation (current limits in HC-NATIVE-COMPACT-STACK-PROBES); body RSP remains fixed; exact parameters start at RBP+16 and autos use checked negative displacements; every owner ends through stack restore, POP RBP and plain RET"
 argument_lifetime = "provided arguments follow the original right-to-left evaluation order; each open call has distinct staging; formal-order copies populate one fixed outgoing area immediately before a real rel32 CALL; caller-live values spill and the returned RAX word is captured by the original CALL_END result; cleanup IR is validated and metered but needs no machine argument pop under this private convention"
 storage = "automatic locals and parameters live in each native activation; fresh hidden init flags guard local reads/updates before any host-stack data read; assignment sets the flag; flags/spills/staging are physical storage only and do not inflate the checked semantic frame quota"
 meter = "all reached IR instructions share R10 across the call chain; housekeeping and fault propagation add no IR steps; the original Add42 fixture executes29 steps in both modes; only reached entry END_EXP publishes the final value"
-resources = "runtime max_frame_bytes defaults1048576 and charges checked local frame plus8 bytes per fixed argument; max_call_depth defaults128 and counts active named calls, excluding entry; max_active_stack_bytes is1..65536 and independently charges return addresses, savedRBP and actual allocations including entry; root footprint is checked before native entry and calls reserve before allocation"
+resources = "runtime max_frame_bytes defaults1048576 and charges checked local frame plus8 bytes per fixed argument; max_call_depth defaults128 and counts active named calls, excluding entry; max_active_stack_bytes defaults to 65536, accepts 1..524288 and independently charges return addresses, savedRBP and actual allocations including entry; root footprint is checked before native entry and calls reserve before allocation"
 faults = "kind1 division-by-zero,2 signed overflow,3 exact step exhaustion,4 call-depth,5 semantic-frame,6 physical-stack,7 uninitialized read; diagnostics HCIRVM0009/0010/0007/0015/0011, HCNATIVE0006 and HCIRVM0012 preserve exact source/function/block/instruction identity and reached steps"
 unwind = "checked faults return through every generated callee epilogue; callers restore their successful reservations before propagating without charging skipped cleanup/end; C verifies semantic/depth/physical counters restored before boxing status; Windows registers one sorted per-owner table with fixedRSP RBP-save/alloc unwind records and retains a mapping if table removal fails"
 context = "closed image six-word ABI remains unchanged; callable context adds remaining semantic frame/depth/physical bytes at48/56/64; only the opaque image grants native execution authority and inspection getters return fresh bytes"
@@ -14204,8 +14246,8 @@ documentation = ["docs/default-aggregate-values.md", "docs/backed-aggregate-valu
 status = "implemented"
 issue = 686
 source_identity = "Opaque selections retain the completed earlier nominal class and terminal default class, the original source-visible backing chain, compiler table and namespace, and exact owning function identity, scope and source position. A later same-name declaration cannot change the selected signed word. Inheritance preserves its base layout without inheriting the base backing."
-execution = "Default whole values load and store a signed eight-byte RT_PTR prefix through original owned root storage. Nominal class allocation, packed fields, array extents and pointer strides remain separate. Ordinary destinations are captured before the RHS; fused postfix stores read the current pointer after the RHS, store the word, then advance by the original class size. Frame padding grants no bytes."
-verification = "Twenty-three independent value groups cover signed default operations, scalar prefix copies, unions, inheritance and original backing chains, redefinitions, nested arrays, aliases, class strides, conditions, primitive arguments and RHS effects. Seven fault fixtures cover initialization, short roots, padding, late array elements, unknown and one-past pointers and fresh activations. Shared suites contain 178 IR and 178 native groups, with 610 IR CLI reports and 1221 including native execution. Exact and one-below runtime, frame, stack and image limits, both ABIs, foreign and altered proofs and sealed native graphs retain the existing contracts."
+execution = "Default whole values read a signed eight-byte RT_PTR prefix through original owned root storage. Nominal class allocation, packed fields, array extents and pointer strides remain separate. Simple and compound assignment require a backing chain ending in internal storage or an explicit internal cast; ordinary class endpoints reject. Prefix/postfix updates use their separate source producer. Frame padding grants no bytes."
+verification = "Value groups cover signed default reads and updates, explicit storage casts, unions, inheritance and original backing chains, redefinitions, nested arrays, aliases, class strides, conditions, primitive arguments and RHS effects. Negative assignment cases and reached faults cover internal lvalue admission, initialization, short roots, padding, late array elements, unknown and one-past pointers and fresh activations. Shared suites contain 178 IR and 178 native groups, with 610 IR CLI reports and 1221 including native execution. Exact and one-below runtime, frame, stack and image limits, both ABIs, foreign and altered proofs and sealed native graphs retain the existing contracts."
 verification_boundary = "These source-derived hosted checks contain no TempleOS runtime capture or machine-byte comparison. Bounds, ownership and initialization checks are hosted policy. Whole-value postfix casts, aggregate initializers, prepared class defaults and callback class ABI paths, persistent objects, function-local and zero-sized layouts, F64/pointer/callback backings, native task objects, retained JIT imports and general aggregate copies remain open under #686 and related value/ABI issues. Full compiler and release acceptance remain under #682."
 
 [[feature]]
@@ -14278,7 +14320,7 @@ status = "implemented-source-owned-jit"
 source_identity = "Original parser member phases retain their exact selected class and pointer children. Opaque member snapshots require the owning table, namespace and current original record. Named scalar backings retain the selection made before class publication. Imported child definitions require original admitted command receipts and follow their completion order. Completed inherited definitions keep the original selected base."
 execution_boundary = "Retained JIT IR and native tasks admit nested class and union members, arrays and class defaults using original sizes, runtime dimensions and offsets. Imported layouts carry their original preparation dependencies without rerunning expressions. Named pointer members preserve their original metadata; their IR execution is described in HC-IR-AGGREGATE-POINTER-FIELDS. The metadata byte-count adapter supplies no executable layout or storage authority."
 verification_boundary = "Shared IR/native cases check nested comma arrays, unions, defaults and class replacement. Retained cases cover runtime dimension and offset effects, selection before dimension directives, child definitions before parent completion, named backing lookahead and nested default calls. Exact and one-below resource limits remain enforced. Member ownership checks reject foreign tables, stale records, wrong publications, equal-sized other classes and borrowed phases. Expected values derive from pinned source; no TempleOS runtime or machine-byte comparison is claimed."
-remaining = "Native pointer member storage, class callback ABI, general aggregate copies, persistent objects, AOT defaults containing references and full compiler/release parity remain open under #686/#702/#682. IR data pointer fields are recorded separately in HC-IR-AGGREGATE-POINTER-FIELDS."
+remaining = "Class callback ABI, general aggregate copies, persistent objects, AOT defaults containing references and full compiler/release parity remain open under #686/#702/#682. IR data pointer fields are recorded separately in HC-IR-AGGREGATE-POINTER-FIELDS."
 
 [[feature]]
 id = "HC-FUNCTION-LOCAL-AGGREGATE-OBJECTS"
@@ -14293,7 +14335,7 @@ issue = 818
 source_identity = "Original completed function bodies supply immutable lexical layout positions for exact expression and local nodes. Selected references retain which canonical classes were complete at their original parser callbacks. Automatic allocation receipts capture the selected class size after declarator lookahead and dimensions, including zero, and bind the original local, function, table and namespace. Function identity remains separate from the layout frontier. Reconstructed expressions, later completions and foreign proofs cannot supply these selections."
 execution_boundary = "IR and native execution admit automatic objects, nested and inherited members, multidimensional arrays, class pointers and default scalar prefixes for completed function-local types. Retained JIT calls keep original class identities and runtime dimensions and offsets without repeating their preparation. Same-name replacements leave earlier objects and strides unchanged. Outer AOT and child JIT namespaces remain distinct."
 verification_boundary = "Shared source and native cases cover declaration order, forward completion during local lookahead, repeated names, recursion, retained functions, generated input, unknown bytes, bounds and exact instruction and preparation limits. Original allocation and expression controls reject substituted or replayed evidence. Field, stride and prefix controls reject foreign, missing and changed proofs before execution or native image creation. Public CLI examples exercise both IR modes, native programs and native JIT tasks. Expected values derive from the pinned source; no TempleOS runtime capture or machine-byte comparison is claimed."
-remaining = "Zero-sized automatic objects, backed inline local definitions whose reference declaration mode resets to zero, and a forward completed between a receiver reference and its member/index suffix remain gated. The suffix case needs a parser receipt at that later consumption point. Persistent objects, general aggregate copies, native pointer fields, class pointer returns, runtime AOT relocation and full compiler/release parity remain under #686/#700/#702/#682."
+remaining = "Zero-sized automatic objects, backed inline local definitions whose reference declaration mode resets to zero, and a forward completed between a receiver reference and its member/index suffix remain gated. The suffix case needs a parser receipt at that later consumption point. Persistent objects, general aggregate copies, class pointer returns, runtime AOT relocation and full compiler/release parity remain under #686/#700/#702/#682."
 
 [[feature]]
 id = "HC-IR-AGGREGATE-POINTER-FIELDS"
@@ -14307,9 +14349,9 @@ status = "implemented-ir-owned-pointer-fields"
 issue = 686
 source_identity = "Exact member proofs retain the original class, member type, offset, array dimensions and function publication. Shape helpers grant no selected member or storage ownership. Typed field stores retain the existing target descriptor, original extent and invocation lifetime."
 execution = "One-level integer and class pointer fields, multidimensional member arrays, nested and inherited selections, copies to fields and local slots, fixed pointer arguments and pointer updates execute in JIT and AOT IR. Serialized virtual address bytes preserve within-allocation strides. Any overlapping scalar store invalidates the pointer shadow; fully restored bits remain unowned. Word class parameters copy only the scalar prefix."
-verification = "Independent words and output cover all nine integer widths, class and self pointers, arrays, captured destinations, caller storage, same-type unions, disjoint writes and retained class replacement. Combined fixtures cover function-local pointer fields and strides, builtin member sizes and preserved selections. Faults cover unknown bytes, callee-local escape, overlapping writes, numeric reconstruction, incompatible pointees and extents. Foreign, missing and altered field proofs and strides fail at zero executed steps, including function-local field proofs. Exact and one-below frame and instruction checks cover this path. Native public and retained execution tests preserve HCBACK0002."
-verification_boundary = "These are source-derived hosted IR checks without a TempleOS runtime capture or machine-byte comparison. Virtual address bytes are not host addresses; invalid-memory policy belongs to the hosted executor. Native pointer field descriptor storage and lifetime tracking remain unfinished."
-remaining = "Native pointer fields, F64/U0/callback/multiple-layer fields, general aggregate copies, persistent objects, class pointer returns and full compiler/ABI/release parity remain open under #686/#702/#682."
+verification = "Independent words and output cover all nine integer widths, class and self pointers, arrays, captured destinations, caller storage, same-type unions, disjoint writes and retained class replacement. Combined fixtures cover function-local pointer fields and strides, builtin member sizes and preserved selections. Faults cover unknown bytes, callee-local escape, overlapping writes, numeric reconstruction, incompatible pointees and extents. Foreign, missing and altered field proofs and strides fail at zero executed steps, including function-local field proofs. Exact and one-below frame and instruction checks cover this path. Native public and retained execution use the ownership path recorded in HC-NATIVE-AGGREGATE-POINTER-FIELDS."
+verification_boundary = "These are source-derived hosted IR checks without a TempleOS runtime capture or machine-byte comparison. Virtual address bytes are not host addresses; invalid-memory policy belongs to the hosted executor. Native ownership and activation checks are recorded in HC-NATIVE-AGGREGATE-POINTER-FIELDS."
+remaining = "F64/U0/callback/multiple-layer fields, general aggregate copies, persistent objects, class pointer returns and full compiler/ABI/release parity remain open under #686/#702/#682."
 
 [[feature]]
 id = "HC-LOCK-OPERATIONS"
@@ -14492,3 +14534,855 @@ consumers = "own-encoder native branches/calls/code addresses, assembly linking 
 checks = "checked alignment, IDs, section ranges, address/addend/relative arithmetic and one/two/four/eight-byte field ranges before final allocation"
 independent_evidence = "literal section rebases and original Cmp-produced ASM.BIN body; shared consumer agreement is separate"
 remaining = ["inline assembly execution (#715)", "runtime entry/fixup integration (#719)", "full compiler BIN emission (#723)"]
+
+[[feature]]
+id = "HC-OWNED-CLASS-POINTER-VIEWS"
+description = "Source-selected class pointer casts retain an existing owned allocation, offset, initialization state and extent."
+sources = ["Compiler/PrsExp.HC:960-1115 PrsUnaryModifier casts, members and indexing", "Compiler/PrsVar.HC:285-371 PrsType selected class and pointer depth", "Compiler/OptPass012.HC:87-110 cast class transfer", "Compiler/OptLib.HC:9-15,508-525 forwarding and raw widths", "Compiler/BackLib.HC:693-708 ICDeref pointed access"]
+implementation = ["src/driver/function_call_resolution.ml", "src/driver/integer_source.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/ir/instruction_sequence.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/aggregate_pointer_cases.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/class-pointer-views.hc"]
+documentation = ["docs/class-pointer-views.md", "docs/class-pointers.md", "docs/aggregate-members.md", "docs/native-pointers.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+selection = "Complete nonempty target class at the exact original cast occurrence, including function-local declarations and retained redefinitions; class proof retains the owning function and nominal layout."
+execution = "IR and native descriptor views preserve allocation identity, logical offset, initialization region and original extent; subsequent operations use the selected target fields and stride."
+verification = "Independent words cover all supported integer field types, packed and inherited members, nested arrays, scalar-cell crossings, prefix backing, argument snapshots, captured destinations, primitive round trips, interior/backward/one-past views and local/retained replacement. Faults preserve initialization and root bounds. Missing, foreign, numeric and other-function class proofs reject raw IR; native mutations reject the graph seal. Existing frame, instruction, stack and image limits exercise casts."
+evidence_limit = "Source audit and hosted executions; no original TempleOS runtime capture or emitted-byte comparison for class casts. Invalid-memory faults are hosted policy."
+remaining = ["floating class-value casts and general aggregate copies", "numeric/null reference construction", "incomplete and empty target layouts", "deeper pointer views", "returned and persistent references", "other aggregate and compiler acceptance under #686/#682"]
+
+
+[[feature]]
+id = "HC-PERSISTENT-AGGREGATE-STORAGE"
+description = "Source-owned nonempty class and union globals and statics retain their complete byte roots."
+sources = ["Compiler/PrsStmt.HC:209-463 complete PrsGlblVarLst", "Compiler/PrsVar.HC:405-742 complete PrsVarLst", "Compiler/PrsExp.HC:960-1115 member and array selection"]
+implementation = ["src/sema/compiler_record.ml", "src/sema/function_frame_layout.ml", "src/driver/task_declarations.ml", "src/ir/integer_storage_shape.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_global_storage.ml"]
+tests = ["test/persistent_aggregate_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/persistent-aggregates.hc"]
+documentation = ["docs/persistent-aggregates.md", "docs/compatibility.md", "docs/compiler-status.md"]
+status = "implemented"
+issue = 686
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+model = "Original nominal extent, source element counts and strides, independent physical byte cells, static padding charge, retained declaration identities and existing owned pointer shadows."
+evidence_limit = "Source audit and hosted execution; unknown-byte tracking and root bounds are hosted policy. No original TempleOS runtime or machine-byte comparison."
+remaining = ["remaining data and callback signatures", "reference returns", "general copies and remaining aggregate acceptance"]
+
+[[feature]]
+id = "HC-PERSISTENT-AGGREGATE-INITIALIZERS"
+description = "Global and static initializer traversal retains completed selected class records and writes original typed leaves through a sequential byte cursor."
+sources = ["Compiler/PrsVar.HC:1-246 complete PrsVarInit, PrsVarInit2, PrsGlblInit and PrsStaticInit", "Compiler/PrsVar.HC:285-371 complete PrsType callback storage selection", "Compiler/PrsVar.HC:405-742 complete PrsVarLst", "Compiler/PrsStmt.HC:209-463 complete PrsGlblVarLst", "Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/PrsStmt.HC:805-840 complete PrsStreamBlk", "Compiler/OptLib.HC:9-15 OptClassFwd", "Compiler/LexLib.HC:103-148 complete MemberAdd"]
+implementation = ["src/sema/initializer_type.ml", "src/sema/compiler_record.ml", "src/sema/static_initializer_fragment.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_array_initializers.ml", "src/ir/aggregate_initializer_store.ml", "src/ir/expression_lowering.ml", "src/ir/global_initialization.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/native_default_preparation.ml", "src/backend/x86_64_global_storage.ml"]
+tests = ["test/test_aggregate_initializer_layout.ml", "test/persistent_aggregate_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/aggregate-initializers.hc"]
+documentation = ["docs/aggregate-initializers.md", "docs/persistent-aggregates.md", "docs/aggregate-members.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "partial"
+issue = 686
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+model = "Backing forwarding before array traversal, reached completion of exact selected forward members, direct source member order independent of offsets and inheritance, exact leaf widths including zero and raw three-byte class words, numeric callback words with original pointer width and anonymous header identity, fixed string counts, immutable root bounds and canonical owned byte stores."
+verification = "Shared source fixtures exercise IR and both native paths in supported modes. Exact and one-below storage, preparation and runtime limits accompany cursor and foreign-header controls. Native source tasks preserve output before a later leaf fails; isolated IR validates the full layout before initializer execution."
+evidence_limit = "Pinned source audit and hosted execution only; original runtime captures and emitted machine code are absent. Out-of-root and unknown-byte rejection are hosted policy."
+remaining = ["metadata changes during an executing initializer leaf and unresolved selected classes", "F64, data pointer and owned callback leaves and stored callback invocation", "inferred dimensions and oversized source string copies", "empty root allocations and raw scalar copies wider than eight bytes", "full aggregate and compiler acceptance under #686 and #682"]
+
+[[feature]]
+id = "HC-INTEGER-AGGREGATE-VALUE-CASTS"
+description = "Integer class postfix casts distinguish original storage addresses from computed register values."
+sources = ["Compiler/PrsExp.HC:65-262 complete PrsExpression2", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier", "Compiler/OptPass012.HC:87-110 cast class transfer", "Compiler/OptLib.HC:508-525 complete CmpRawType and CmpRawTypePointed", "Compiler/BackLib.HC:311-659 complete ICPush, ICPop and ICMov", "Compiler/OptPass789A.HC:445-448 cast emission"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/aggregate_cast_cases.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/test_pointer_ordering.ml", "test/test_pointer_difference.ml", "test/test_integer_bytes.ml", "test/test_ir_integer_frames.ml", "examples/aggregate-value-casts.hc"]
+documentation = ["docs/aggregate-value-casts.md", "docs/default-aggregate-values.md", "docs/backed-aggregate-values.md", "docs/class-pointer-views.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+model = "Ungrouped integer storage casts select their final owned address class and load or update its raw width. Grouped and immediate class values preserve register bits and nominal computation class without granting a byte root. Existing class view proofs bind selected layouts to the exact function owner. Root bounds, initialization, lifetime, member offsets and captured destinations remain original."
+verification = "A nine-by-nine backing/read matrix accompanies all integer cast targets, grouped and immediate values, selected class members, consecutive casts, parameter and return words, prefix and postfix updates, unions, inheritance, nested and persistent storage, local types and retained replacements. Faults and exact limits retain original roots and initialized bytes. Raw IR rejects foreign, missing and other-function class proofs; native graph mutations reject before image creation. Public source fixtures run through IR, native programs and native source tasks."
+evidence_limit = "Pinned source audit and hosted execution only; no new TempleOS runtime captures or emitted machine-byte comparison. Invalid-memory faults are hosted policy."
+remaining = ["F64, pointer and callback class backings", "numeric reference construction and reference returns", "general aggregate copies", "inline backed local declaration mode", "full aggregate and compiler acceptance under #686/#682"]
+
+[[feature]]
+id = "HC-NATIVE-AGGREGATE-POINTER-FIELDS"
+description = "Native owned pointer fields retain separate address bytes, pointee identities and activation lifetimes."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsLib.HC:40-60 complete PrsClassNew", "Compiler/PrsExp.HC:15-63 complete PrsAddOp", "Compiler/PrsExp.HC:65-262 complete PrsExpression2", "Compiler/PrsExp.HC:593-958 complete PrsUnaryTerm", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier", "Compiler/BackLib.HC:445-659 complete ICMov", "Compiler/BackLib.HC:693-708 complete ICDeref", "Compiler/BackC.HC:159-206 complete ICAssign"]
+implementation = ["src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_reference_service.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_print_format.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml", "src/native_execution_stubs.c", "src/native_reference_shadow.h", "src/sema/symbol.ml", "src/runtime/native_program_execution.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/aggregate_member_cases.ml", "test/persistent_aggregate_cases.ml", "test/aggregate_member_fixture.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/aggregate-pointer-fields.hc"]
+documentation = ["docs/aggregate-pointer-fields.md", "docs/aggregate-members.md", "docs/persistent-aggregates.md", "docs/native-pointers.md", "docs/compatibility.md", "docs/testing.md", "docs/compiler-status.md"]
+status = "implemented"
+issue = 686
+model = "The source field remains an eight-byte RT_PTR value. Native shadows retain the selected pointee identity and complete descriptor. Automatic targets carry non-repeating activation identities; descriptor copies and fixed arguments preserve them. Returning retires the activation and its own fields, without extending targets retained in caller or persistent objects. Scalar/byte/atomic/internal stores and compiler copies remove overlapping ownership even when visible bytes match. Source fragments share persistent shadows through the original task arena."
+verification = "Shared independent words cover integer/Bool and nominal class pointees, packed/inherited/nested members, multidimensional member/root arrays, copies, captured destinations, pointer updates, unions, persistent storage and retained replacements. Faults preserve reached effects for expiration, activation reuse, restored numeric bytes, overlap, nominal mismatches, unknown bytes and bounds. Graph seals, selected field proofs, both ABIs and exact/one-below frame, work, stack and image limits accompany source and public CLI execution."
+evidence_limit = "Pinned source audit and hosted native execution; no original TempleOS runtime capture or emitted machine-byte comparison. Activation tracking, invalid-memory faults and the 64 MiB native shadow limit are hosted policy."
+remaining = ["F64/U0/multiple-layer data pointer fields", "numeric pointer construction and pointer returns", "general aggregate copies and the remaining #686/#682 requirements"]
+
+[[feature]]
+id = "HC-OWNED-AGGREGATE-CALLBACK-FIELDS"
+description = "Callback members retain their selected headers, byte storage and executable ownership."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:285-372 complete PrsType", "Compiler/PrsStmt.HC:62-140 complete PrsFunJoin", "Compiler/PrsExp.HC:383-591 complete PrsFunCall", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/callback_source.ml", "src/ir/aggregate_member_projection.ml", "src/ir/direct_call_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/function_body.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/driver/native_parameter_defaults.ml", "src/hosted/native_program.ml", "src/native_reference_shadow.h"]
+tests = ["test/callback_field_cases.ml", "test/provider_callback_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml"]
+documentation = ["docs/callback-fields.md", "docs/aggregate-members.md", "docs/callback-updates.md", "docs/testing.md", "docs/architecture.md", "docs/compiler-status.md"]
+status = "implemented"
+issue = 686
+model = "One-level member callbacks use their original immutable lookup and anonymous header. Typed assignment stores eight visible address bytes and separate executable ownership; member arrays preserve all dimensions. The callee is captured before argument effects. Scalar and byte overwrites remove ownership even when bits match. Numeric words do not gain executable ownership; original code owners and signature matching remain mandatory for dispatch."
+verification = "Independent words cover integer/Bool returns, U0 effects, variadic calls, fixed defaults, nested/inherited/unaligned fields, arrays, copies, caller storage, persistent fields and retained class replacement. Faults cover unknown bytes, numeric words, restored address bytes, overlap, signature mismatch, opaque updates and bounds. Projection controls and exact/one-below semantic frame, work, physical frame and image limits accompany IR and native execution."
+evidence_limit = "Pinned source audit and hosted execution without a new TempleOS runtime capture or machine-byte comparison. Virtual IR code tokens, native owner shadows, invalid-memory checks and rejection of numeric function-address arithmetic are hosted policy."
+remaining = ["extra callback indirection and reference returns", "F64 and wider ABI execution", "existing local callback declaration-initializer boundary", "member metadata consumers and remaining #686/#682 acceptance"]
+
+[[feature]]
+id = "HC-OWNED-REFERENCE-RETURNS"
+description = "Original integer and class pointer returns preserve checked storage descriptors and lifetimes."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsStmt.HC:904-1223 complete PrsStmt", "Compiler/PrsExp.HC:383-591 complete PrsFunCall", "Compiler/OptPass789A.HC:779-783 return-to-RAX consumer", "Compiler/BackLib.HC:445-659 complete ICMov"]
+implementation = ["src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/native_execution_stubs.c", "src/native_reference_shadow.h", "src/hosted/native_program.ml"]
+tests = ["test/reference_return_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/test_native_program.ml", "examples/reference-returns.hc"]
+documentation = ["docs/reference-returns.md", "docs/native-pointers.md", "docs/aggregate-members.md", "docs/architecture.md", "docs/testing.md", "docs/compiler-status.md"]
+status = "implemented"
+issue = 686
+model = "Return declarations retain their exact selected pointer type. Descriptors preserve allocation, byte extent, logical offset, initialization and activation identity. IR carries the original runtime address. Native RETURN_VAL copies five lanes to a private context buffer; CALL_END snapshots them in the caller before another invocation. Retirement does not extend callee storage. Typed copies, arguments, fields and result capture validate live ownership and one-past windows before later effects."
+verification = "Independent words cover public/intrinsic integer pointees, packed/inherited/backed classes, whole-value prefixes, arrays, globals, statics, strings, declared views, calling flags, callbacks, recursive/nested calls and retained replacements. Faults cover unknown bytes, bounds, expired captures/copies/arguments/fields and restored numeric bytes. Exact and one-below semantic/physical frame, work and image limits accompany graph and foreign-frame controls and public CLI execution."
+evidence_limit = "Pinned source analysis and hosted execution without a TempleOS runtime capture or emitted machine-byte comparison. Private five-word return transport, initialization checks and invalid-memory lifetime faults are hosted policy."
+remaining = ["numeric/null pointer construction and additional indirection", "floating/U0 pointee and code-valued return execution", "exported and wider ABI families", "member metadata, remaining backings and general copies under #686/#682"]
+
+[[feature]]
+id = "HC-CLOSED-MEMBER-METADATA"
+description = "Original member phases retain strings and closed numeric metadata words with bounded preparation work."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:408-742 complete PrsVarLst", "Compiler/PrsExp.HC:1168-1178 complete LexExpression", "Compiler/LexLib.HC:45-66 complete MemberMetaData and MemberMetaFind", "Compiler/LexLib.HC:248-275 complete LexExtStr", "Kernel/KernelA.HH:792-799 metadata node and string flag", "Demo/ClassMeta.HC complete runtime consumer example"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/source_aggregate_layout.ml", "src/sema/closed_numeric_expression.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/integer_unit.ml", "src/ir/integer_interpreter.ml", "src/driver/native_default_preparation.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_retained_aggregates.ml", "test/source_inherited_layout_cases.ml", "test/test_source_inherited_layouts.ml", "test/native/test_native_source_inherited_layouts.ml", "test/native/test_native_program_execution.ml"]
+documentation = ["docs/member-metadata.md", "docs/compiler-status.md", "docs/architecture.md", "docs/roadmap.md", "docs/testing.md"]
+status = "implemented"
+issue = 686
+model = "Member placement precedes original metadata receipts and delimiter validation. Saved entries retain source nodes, raw numeric words or joined string bytes, table, namespace and reached work. Prepended chains preserve duplicate names and last-source lookup. Original sizeof reads and captured compiler positions supply closed operands. Completion validates the same ordered source chain; task promotion, activation and isolated settlement charge preparation once."
+verification = "Independent expected values cover raw F64 bits, duplicate names, embedded zero bytes, present-zero versus absent entries, class and union positions and retained class replacements. Shared IR/native source fixtures cover inherited, nested, callback, multiple-declarator and local members. Foreign namespaces, expired and repeated phases, exact and one-below work limits and explicit live-expression rejection accompany the preparation checks."
+evidence_limit = "Pinned source and hosted execution without a TempleOS runtime capture or emitted machine-byte comparison. These are compiler-record reads without runtime reflection, data pointers or executable authority. Finite floating results and preparation quotas are hosted policy."
+remaining = ["additional runtime metadata value families beyond HC-RUNTIME-INTEGER-MEMBER-METADATA", "data and function address metadata with owned transport", "native and IR compiler reflection nodes and HashFind consumers", "runtime MemberMetaData and MemberMetaFind", "complete Demo/ClassMeta.HC execution and remaining aggregate families under #686"]
+
+[[feature]]
+id = "HC-RUNTIME-INTEGER-MEMBER-METADATA"
+description = "Original JIT member metadata expressions execute once and retain their integer result and reached work."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:408-742 complete PrsVarLst", "Compiler/PrsExp.HC:1168-1178 complete LexExpression", "Compiler/PrsExp.HC:383-591 complete PrsFunCall", "Compiler/LexLib.HC:45-66 complete metadata lookup consumers"]
+implementation = ["src/sema/member_metadata_fragment.ml", "src/sema/compiler_record.ml", "src/sema/top_level_expression_tree.ml", "src/driver/member_metadata_fragment_lowering.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/integer_source_execution.ml", "src/ir/member_metadata_fragment_destination.ml", "src/ir/member_metadata_fragment_program.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_program.ml", "src/hosted/native_source_execution.ml", "src/runtime/native_program_execution.ml"]
+tests = ["test/runtime_member_metadata_authority/test_runtime_member_metadata_authority.ml", "test/source_inherited_layout_cases.ml", "test/test_source_inherited_layouts.ml", "test/native/test_native_source_inherited_layouts.ml"]
+documentation = ["docs/member-metadata.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/testing.md"]
+status = "implemented"
+issue = 686
+model = "Metadata has its own original member receipt, authority, typed root, task attempt and scalar capture. Live integer reads, updates, named/callback calls and captured queries execute after expression lookahead and before delimiter validation. Reverse arguments and uncalled-body declaration effects retain original source order. Successful completion attaches the captured word and reached work to the original member. Source activation defers only its exact trailing metadata event."
+verification = "Independent source fixtures cover once-only and ordered effects, reverse arguments, member placement, saved positions, retained callbacks, lookahead directives and uncalled functions. Authority checks cover captured values, foreign runtimes/snapshots, graph substitution, work counts, replay and expiry. Exact/one-below work limits cover ordinary metadata, nested input and child metadata. Earlier output remains visible before runtime division faults and malformed delimiters."
+evidence_limit = "Pinned source and hosted IR/native execution without a TempleOS runtime capture or emitted machine-byte comparison. Physical instruction work, bounded source tasks and ownership checks are hosted policy. IR and native child graphs can consume different physical instruction counts."
+remaining = ["live floating expression and data/code address transport", "ordinary AOT and isolated native live metadata preparation", "runtime compiler reflection and MemberMetaData/MemberMetaFind consumers", "remaining aggregate/backing/copy families under #686"]
+
+[[feature]]
+id = "HC-INITIALIZER-SCALAR-PHASE-METADATA"
+description = "Original initializer preparation receipts and cached scalar classes retain metadata before and after expression evaluation."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete PrsVarInit, PrsVarInit2, PrsGlblInit and PrsStaticInit", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/PrsLib.HC:40-58 complete PrsClassNew", "Compiler/OptLib.HC:9-15 complete OptClassFwd"]
+implementation = ["src/frontend/parser.ml", "src/sema/initializer_source.ml", "src/sema/initializer_type.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml"]
+tests = ["test/initializer_scalar_phase/test_initializer_scalar_phase.ml", "test/test_live_initializer_leaves.ml", "test/test_stream_parser.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/testing.md"]
+status = "implemented"
+issue = 686
+model = "Global scalar preparations precede expression parsing without another lexer read. Completed leaves retain the same first-token and predecessor evidence. Scalar metadata follows backing at its initial selection, then reads the cached class's reached nominal width after evaluation. Newly completed direct members do not restart an already selected scalar branch. The cached class keeps its original raw representation; late integer or floating backing does not reinterpret its register word. Settlement is one-use and remains in its original domain."
+verification = "Original parser callbacks supply a zero-byte forward class before completion and a two-byte reached class afterward. Same-name replacements retain the original identity. An eight-byte class with late U16 or F64 backing preserves all eight bytes and the cached value type of the integer word. Foreign records, repeated or failed settlement and foreign domains reject. Source preparation precedes references and expires before completion or a subsequent source invocation. Existing timing assertions include the added original preparation boundary."
+evidence_limit = "Pinned source and hosted metadata tests without a TempleOS runtime capture or emitted machine-byte comparison. These receipts and metadata reads grant no runtime storage, expression execution or successful-copy authority."
+remaining = ["isolated preparation of incomplete classes", "earlier grammar selection snapshots and other runtime class changes", "remaining initializer families under #690 and aggregate acceptance under #686"]
+
+[[feature]]
+id = "HC-INITIALIZER-LIVE-SCALAR-COPY"
+description = "Source-task global scalar leaves copy actual returned words using the cached class's reached width."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete PrsVarInit, PrsVarInit2, PrsGlblInit and PrsStaticInit", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/PrsLib.HC:40-58 complete PrsClassNew", "Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/OptLib.HC:9-15 complete OptClassFwd"]
+implementation = ["src/ir/integer_initializer_layout.ml", "src/ir/initializer_fragment_program.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_globals.ml", "src/ir/integer_array_initializers.ml", "src/driver/initializer_fragment_lowering.ml", "src/driver/integer_task.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_program.ml", "src/runtime/native_program_execution.ml", "src/hosted/native_source_execution.ml", "src/native_execution_stubs.c"]
+tests = ["test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "test/live_scalar_initializer/authority.ml", "test/test_live_initializer_layout.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/testing.md", "examples/live-scalar-initializers.hc"]
+status = "implemented"
+issue = 686
+model = "The original preparation phase freezes a scalar branch before expression parsing. Actual evaluation can complete the cached class. Settlement reads its reached nominal width without following new backing or restarting direct-member grammar, then copies the integer register word and advances the byte cursor. The containing object's original extent and fixed counts stay unchanged. Publication retains the completed layout and original leaf identities. Native copies require the original scalar capture, exact source attempt, checked arena plan and one-use C completion receipt. Writes invalidate overlapping ownership."
+verification = "Independent IR and native source fixtures cover callee and expression-lookahead completion, same-name replacement, zero-byte leaves, late U16/F64 backing, fixed-array branch changes and separate AOT saved tables. Original root overflow, widths above eight bytes, runtime faults and exact/one-below work limits preserve earlier output. Native tests compile both image ABIs and reject image/program/work substitution, another arena/domain, replay, expired requests and missing copy completion. Copy receipts survive collection and deferred cross-domain cleanup. Native source progress records zero interpreted instructions."
+evidence_limit = "Pinned source and hosted IR/native execution without a TempleOS runtime capture or emitted machine-byte comparison. Root bounds, unknown-byte checks and resource limits are hosted policy. This covers source-task global scalar leaves, including JIT directives in either outer mode."
+remaining = ["isolated preparation of incomplete classes", "earlier grammar selection snapshots and other runtime class changes", "floating, data and code-valued initializer leaves", "inferred dimensions, empty roots and general aggregate copies", "remaining initializer acceptance under #690 and aggregate execution under #686"]
+
+[[feature]]
+id = "HC-INITIALIZER-STATIC-SCALAR-COPY"
+description = "Original static scalar preparations preserve cached class selection across expression parsing and evaluation."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete PrsVarInit, PrsVarInit2, PrsGlblInit and PrsStaticInit", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/PrsLib.HC:40-58 complete PrsClassNew", "Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/OptLib.HC:9-15 complete OptClassFwd"]
+implementation = ["src/frontend/parser.ml", "src/sema/source_activation.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_static_allocation.ml", "src/ir/static_initializer_destination.ml", "src/ir/static_initializer_program.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_statics.ml", "src/ir/integer_array_initializers.ml", "src/driver/static_initializer_lowering.ml", "src/driver/integer_task.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_program.ml", "src/runtime/native_program_execution.ml", "src/hosted/native_source_execution.ml"]
+tests = ["test/initializer_scalar_phase/test_initializer_scalar_phase.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "test/live_scalar_initializer/authority.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/testing.md", "docs/compatibility.md", "examples/live-static-scalar-initializers.hc"]
+status = "implemented"
+issue = 686
+model = "A static preparation receipt precedes expression parsing and retains the already reached first token, syntax path, predecessor and delimiters. The completed leaf keeps that exact receipt. The scalar branch caches its class before lookahead or callee completion, then copies the returned word using the same class's reached nominal width. New backing cannot reinterpret the cached raw word. The original allocation and fixed counts bound the cursor. Successful reached destinations remain attached to the static allocation and join the exact typed roots in the completed frame. Native copies require an actual scalar capture, original request, checked private allocation plan and one-use native copy receipt. Later calls reuse the initialized bytes without repeating preparation."
+verification = "Source fixtures cover static lookahead, callee completion while parsing uncalled bodies, selected-class replacement, later array element grammar, zero-width leaves and full words after late U16/F64 backing. Repeated calls preserve prior static mutations. Separate AOT saved tables retain the original cursor behavior. Root overflow, widths above eight bytes, runtime faults and exact/one-below expression/copy limits preserve earlier output. Native authority tests compile both image ABIs and reject foreign images/programs/work, another domain or arena, replay, expired requests and missing copy completion. Parser tests check preparation before references, original receipt identity, cloned receipt rejection and failed-source expiry. Public CLI reports exercise both maintained scalar examples in both outer modes."
+evidence_limit = "Pinned source and hosted IR/native source-task execution without a TempleOS runtime capture or emitted machine-byte comparison. Original root bounds, initialized-byte checks, ownership invalidation and resource quotas remain hosted policy."
+remaining = ["isolated preparation of incomplete classes", "earlier grammar selection snapshots and other runtime class changes", "floating, data and code-valued initializer leaves", "inferred dimensions, empty roots and general aggregate copies", "remaining initializer acceptance under #690 and aggregate execution under #686"]
+
+[[feature]]
+id = "HC-INITIALIZER-STATIC-DELIMITER-PHASE"
+description = "Static initializer delimiters select reached grammar before lexer advancement."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete PrsVarInit, PrsVarInit2, PrsGlblInit and PrsStaticInit", "Compiler/OptLib.HC:9-15 complete OptClassFwd"]
+implementation = ["src/frontend/parser.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_static_allocation.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/initializer_scalar_phase/test_initializer_scalar_phase.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "test/live_scalar_initializer/authority.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/testing.md", "docs/compatibility.md"]
+status = "implemented"
+issue = 686
+model = "An original static delimiter receipt precedes lexer advancement and retains the declaring allocation, delimiter index, exact delimiter predecessor and successful leaf predecessor. The layout consumes the delimiter during that callback; expression preparation retains the reached delimiter without replaying it. The original direct-member branch is selected before advancing past its opening brace. Completion checks the retained delimiter sequence against the completed source-owned initializer and finishes the already reached cursor. Adoption uses only exact original declaration events. These metadata phases grant no execution or successful-copy authority."
+verification = "Parser tests check callback order, exact predecessor chains, receipt identity, cloned receipt rejection, expiry before expression parsing and failed-source recovery. IR, native and public JSON CLI cases distinguish completion before a nested brace from completion after it; the latter rejects before the later directive runs. Earlier successful leaf output remains observable. Native tests reject replay and cloned delimiters without changing the exact cursor. Existing array, string, scalar-copy, saved-table and exact/one-below quota fixtures use the same delimiter path."
+evidence_limit = "Pinned source and hosted IR/native execution without a TempleOS runtime capture or emitted machine-byte comparison. Invalid grammar involving an incomplete class currently uses the hosted incomplete-class boundary diagnostic. Root bounds, initialized-byte checks and resource quotas remain hosted policy."
+remaining = ["earlier array-entry forwarding selections and other runtime class changes", "isolated preparation of incomplete classes", "other initializer value families, inferred dimensions, empty roots and general copies", "remaining initializer acceptance under #690 and aggregate execution under #686"]
+
+[[feature]]
+id = "HC-INITIALIZER-ARRAY-FORWARDING-PHASE"
+description = "Backed extern forwards and array ranks retain original reached forwarding selections."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete PrsVarInit, PrsVarInit2, PrsGlblInit and PrsStaticInit", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/PrsStmt.HC:209-463 complete PrsGlblVarLst", "Compiler/OptLib.HC:9-15 complete OptClassFwd"]
+implementation = ["src/frontend/ast.ml", "src/frontend/ast_dump.ml", "src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/initializer_type.ml", "src/ir/integer_initializer_layout.ml", "src/driver/integer_source_execution.ml"]
+tests = ["test/initializer_scalar_phase/test_initializer_scalar_phase.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/testing.md", "docs/compatibility.md", "examples/backed-forward-initializers.hc"]
+status = "implemented"
+issue = 686
+model = "A backed extern forward retains its original type, pointer layers and source selection. Source-task metadata installs forwarding after class-name lookahead; initializers reached during that lookahead retain the earlier zero-byte class. Each array rank follows the reached original backing chain before opening-brace advancement and retains its terminal class for child recursion. Later recursion can follow new backing on that terminal class but cannot restart from an earlier class in the cached chain. Fixed counts and the original allocation bound every write. The original global/static layout retains actual reached destinations at completion."
+verification = "Parser and metadata tests check primitive, intrinsic and named backing, pointer layers, macro provenance, public JSON, backing installation timing and cached array targets. Independent expected bytes 2a 01 07 00 distinguish cached U16 writes from later U8 backing. IR/native/CLI cases cover both outer modes, globals/statics, lexer and callee completion, named replacement, nested byte strings, zero-width effects and original root overflow. The maintained example checks exact/one-below runtime limits. Existing scalar-copy and preparation quota fixtures pass through the same traversal."
+evidence_limit = "Pinned source and hosted IR/native source-task execution without a TempleOS runtime capture or emitted machine-byte comparison. This does not qualify isolated incomplete-class preparation or backing installation during a reentrant ordinary class body. Floating and pointer-valued initializer execution retains its existing boundaries. Root bounds, initialized-byte checks and quotas remain hosted policy."
+remaining = ["isolated incomplete-class preparation and other runtime class changes", "backing installation during a reentrant ordinary class body", "other initializer value families, inferred dimensions, empty roots and general copies", "remaining initializer acceptance under #690 and aggregate execution under #686"]
+
+[[feature]]
+id = "HC-INITIALIZER-ORDINARY-BACKING-PHASE"
+description = "Ordinary class definitions install backing after body and following-token lookahead."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete PrsVarInit, PrsVarInit2, PrsGlblInit and PrsStaticInit", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/PrsVar.HC:405-742 complete PrsVarLst", "Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/OptLib.HC:9-15 complete OptClassFwd"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/initializer_type.ml", "src/driver/task_declarations.ml"]
+tests = ["test/initializer_scalar_phase/test_initializer_scalar_phase.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/testing.md", "docs/compatibility.md", "examples/class-body-initializers.hc"]
+status = "implemented"
+issue = 686
+model = "The original definition publishes reached class metadata without installing its new backing. Completing an extern retains that exact prior class's forwarding; an unbacked completion preserves it. The original backing selection is installed once by a private parser phase after body completion and following-token lookahead, before attached declarators. Reached partial direct members can supply initializer grammar. Existing scalar and array preparations retain their original selected class, copy width rules and allocation bounds. Completion requires the complete original phase chain and exact source backing."
+verification = "Independent source fixtures distinguish zero-byte class-name initialization from later U16 forwarding, and preserve direct-member traversal during body and following-token lookahead. IR/native/public CLI cover both outer modes, globals/statics, old forwarding during completion, unbacked completion, named-target replacement and original root overflow. Metadata tests verify exact backing identity, nominal scalar width, one phase, replay/clone rejection and callback expiry. The maintained example checks both original byte roots and exact/one-below runtime limits."
+evidence_limit = "Pinned source and hosted IR/native source-task execution without a TempleOS runtime capture or emitted machine-byte comparison. Partial initializer traversal is distinct from function member projections, covered by HC-AGGREGATE-PARTIAL-MEMBER-READS. Isolated incomplete-class preparation and other runtime class changes remain unfinished. Bounds, initialized-byte checks and quotas remain hosted policy."
+remaining = ["isolated incomplete-class preparation and other runtime class changes", "partial callback signatures and calls", "other initializer value families, inferred dimensions, empty roots and general copies", "remaining initializer acceptance under #690 and aggregate execution under #686"]
+
+[[feature]]
+id = "HC-AGGREGATE-PARTIAL-MEMBER-READS"
+description = "Function member projections retain reached ordinary class fields at the original member-name observation."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/LexLib.HC:67-148 complete MemberFind, MemberClassBaseFind and MemberAdd", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/function_aggregate_visibility.ml", "src/sema/aggregate_layout_core.ml", "src/sema/aggregate_layout.ml", "src/sema/aggregate_member_index.ml", "src/sema/function_call_expression_result.ml", "src/driver/task_declarations.ml"]
+tests = ["test/initializer_scalar_phase/test_initializer_scalar_phase.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "test/test_local_aggregate_allocation.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/function-local-aggregate-objects.md", "docs/testing.md", "docs/compatibility.md", "examples/class-body-member-reads.hc"]
+status = "implemented"
+issue = 686
+model = "The original member-name callback follows dot/arrow lookahead and precedes skipping the name. It retains immutable reached class records in the original table and namespace. Partial projections select original direct fields before their attached base snapshot, preserving the declaring identity, type reference, member offset, placement size and dimensions. This metadata does not replace the original allocation or grant a top-level expression binding to a member name."
+verification = "IR/native source cases and public JSON CLI cover both outer modes, signed reads, writes, explicit offsets, arrays, inherited fields and anonymous union aliases. Completion during member lookahead can supply members; completion after selection and unreached fields reject. Projections retain original root bounds and earlier output. The maintained example compiles a function before the later field enlarges its class, then checks the retained member layout and exact/one-below execution limits. Parser tests distinguish base and member receipts and callback expiry. Existing local aggregate cases reject unreachable and substituted layouts."
+evidence_limit = "Pinned source and hosted IR/native source-task behavior without TempleOS runtime capture or emitted-byte comparison. Partial callback calls still need an original signature index; aggregate pointer arithmetic and other runtime class changes retain separate layout gates. Bounds, initialized-byte checks and quotas remain hosted policy."
+remaining = ["wider callback signatures and calls", "isolated incomplete-class preparation and other runtime class changes", "remaining aggregate and initializer acceptance under #686 and #690"]
+
+[[feature]]
+id = "HC-AGGREGATE-TOP-LEVEL-PARTIAL-MEMBERS"
+description = "Top-level member projections consume original reached class snapshots."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/LexLib.HC:67-148 complete MemberFind, MemberClassBaseFind and MemberAdd", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier", "Compiler/PrsStmt.HC:1-60 complete PrsClass"]
+implementation = ["src/driver/top_level_expression_tree.ml", "src/driver/integer_source.ml", "src/driver/task_declarations.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/sema/function_aggregate_visibility.ml", "src/sema/aggregate_member_index.ml", "src/sema/compiler_record.ml"]
+tests = ["test/test_top_level_expression_result.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/function-local-aggregate-objects.md", "docs/compatibility.md", "docs/testing.md", "examples/class-body-top-level-members.hc"]
+status = "implemented"
+issue = 686
+model = "Top-level expression nodes retain original AST occurrences through checked structural matching. Call results acquire that association before their call records retain them. Original offset, metadata and default fragments validate special position nodes. Top-level analysis receives the exact source namespace's member-name observations, validates table and parent scope ownership, and consumes reached partial records through the shared member projection path. Member-name observations also retain older reached classes hidden by later ordinary definitions; the operand's canonical type selects its original class. Replacement-only fields cannot retarget that object."
+verification = "IR/native source tasks and public JSON CLI cover both outer modes, reached direct and inherited fields, anonymous union aliases, explicit offsets, arrays, completion during member lookahead and same-name replacement. Missing reached fields, completion after the member name and original root overflow retain their errors and earlier output. The maintained example saves its result before the class body resumes and checks both targets and modes with exact/one-below limits. Top-level semantic tests reject foreign table and module visibility before lookup. Existing call, fragment, ownership and function-body consumers remain covered by their full suites."
+evidence_limit = "Pinned source and hosted execution without TempleOS runtime or emitted-byte capture. Wider callback signatures and calls, isolated incomplete-class preparation and other runtime class changes remain unfinished. Bounds, initialized-byte checks and quotas remain hosted policy."
+remaining = ["wider callback signatures and calls", "isolated incomplete-class preparation and other runtime class changes", "remaining aggregate and initializer acceptance under #686 and #690"]
+
+[[feature]]
+id = "HC-AGGREGATE-PARTIAL-CALLBACK-MEMBERS"
+description = "Reached callback fields retain original checked signatures for function and top-level execution."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/PrsVar.HC:408-742 complete PrsVarLst", "Compiler/LexLib.HC:67-148 complete MemberFind, MemberClassBaseFind and MemberAdd", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier", "Compiler/PrsExp.HC:383-592 complete PrsFunCall", "Compiler/PrsStmt.HC:1-60 complete PrsClass"]
+implementation = ["src/driver/task_declarations.ml", "src/sema/compiler_record.ml", "src/sema/aggregate_member_index.ml", "src/sema/function_aggregate_visibility.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml"]
+tests = ["test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "test/live_scalar_initializer/cases.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/function-local-aggregate-objects.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "examples/class-body-callback-fields.hc"]
+status = "implemented"
+issue = 686
+model = "Original member placement retains the checked anonymous function-pointer signature and original return reference separately from the physical storage reference. Source identity, return spelling and pointer origins, table ownership and physical type are checked before retention. Immutable reached member records supply callback metadata without requiring the whole class to complete. Call resolution consumes original member-name observations for partial and completed layouts. Original outer global occurrences supply nominal type and array rank; member calls retain their own checked return type rather than treating the base object as a scalar callback."
+verification = "IR and native source tasks cover both outer modes, direct and pointer member calls, top-level calls, outer globals, fully indexed member arrays, saved defaults, named class pointer parameters, owned data pointer returns, integer variadic slots, inherited fields and same-name replacement. Argument mutation checks original callee capture. Completion before the member name succeeds; completion after it and unreached fields reject. Signature mismatch, overlapping byte writes and original array bounds preserve their errors and prior output. Public JSON CLI runs the maintained example through both targets and modes with exact/one-below execution limits. Existing table, namespace, source, call and fragment authority suites remain required."
+evidence_limit = "Pinned source and hosted execution without TempleOS runtime or emitted-byte capture. Runtime ownership, initialized-byte checks, bounds and quotas are hosted policy. This feature covers the supported one-star callback execution domains."
+remaining = ["extra callback indirection and wider return domains", "isolated incomplete-class preparation and other runtime class changes", "remaining aggregate and initializer acceptance under #686 and #690"]
+
+[[feature]]
+id = "HC-AGGREGATE-ORDINARY-SOURCE-INITIALIZERS"
+description = "Ordinary JIT aggregate initializer starts activate their original source task."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsStmt.HC:209-463 complete PrsGlblVarLst", "Compiler/PrsVar.HC:1-214 complete PrsVarInit, PrsVarInit2 and PrsGlblInit", "Compiler/OptLib.HC:9-15 complete OptClassFwd", "Compiler/LexLib.HC:103-148 complete MemberAdd"]
+implementation = ["src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/live_scalar_initializer/cases.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/persistent-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "examples/source-aggregate-initializers.hc"]
+status = "implemented"
+issue = 686
+model = "After validating the original global initializer-start event, the JIT source driver activates the existing task for nonpointer, noncallback objects whose original declaration selected a class or union. The task adopts the source namespace and replays earlier retained declarations and globals. Original initializer receipts then select, execute and settle each reached leaf during parsing. A zero-byte forward member inside a nonempty root still evaluates once and copies no bytes; the next direct member retains the same byte cursor. Later declarations and functions observe the original reached state."
+verification = "Shared IR/native JIT fixtures cover zero-byte forward members, fixed member arrays, root aggregate arrays, unions, the direct member cursor across inherited layouts, later completion, once-only callee effects and shared globals across repeated calls. Earlier output survives malformed later input, and a runtime initializer fault stops before that input. The maintained ordinary-source example contains no directive and is checked through both public CLI targets with exact/one-below execution and initializer limits. Existing source-program, retained-object, callback, AOT table, parser receipt, copy replay, fragment and preparation authority suites remain required."
+evidence_limit = "Pinned source and hosted execution without TempleOS runtime or emitted-byte capture. Object bounds, initialized-byte checks and work limits remain hosted policy. This activation preserves the existing separate AOT source and detached task paths."
+remaining = ["nonconstant AOT statics with globals-on-data-heap", "automatic zero-byte frame storage and inferred dimensions", "other initializer value families and remaining aggregate acceptance under #686 and #690"]
+
+[[feature]]
+id = "HC-AGGREGATE-ISOLATED-INITIALIZER-LAYOUTS"
+description = "Isolated global and static initializer consumers retain original reached cursor metadata."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsStmt.HC:209-463 complete PrsGlblVarLst", "Compiler/PrsVar.HC:1-246 complete PrsVarInit, PrsVarInit2, PrsGlblInit and PrsStaticInit", "Compiler/PrsVar.HC:408-742 complete PrsVarLst", "Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/OptLib.HC:9-15 complete OptClassFwd"]
+implementation = ["src/driver/integer_source_execution.ml", "src/driver/task_declarations.ml", "src/driver/integer_unit.ml", "src/hosted/native_program.ml", "src/sema/compiler_record.ml", "src/sema/initializer_type.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_array_initializers.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml"]
+tests = ["test/live_scalar_initializer/cases.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "test/test_live_initializer_layout.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/persistent-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "examples/source-aggregate-initializers.hc", "examples/retained-aot-initializer-layouts.hc"]
+status = "implemented"
+issue = 686
+model = "Original isolated parser callbacks retain global declared roots and incremental cursor layouts. Static snapshots retain their original allocation, scalar preparation, delimiters, reached leaf coordinates and completed local without claiming value execution. Completed consumers require exact source leaves, nominal types, dimensions and root extents; static joins also match the original function and local. Forward selections can supply zero-byte scalar metadata inside nonempty roots. Later completion or replacement cannot rebuild an earlier leaf from a completed member index. Ordinary JIT static class initializers activate their source task at allocation, while AOT preserves its separate preparation and load-time paths. Closed native offset work shares the reported cumulative initializer meter."
+verification = "Shared IR/native cases cover both modes, zero-byte forward members, fixed member and root arrays, unions, direct cursor behavior across inherited layouts, completion before and after initialization, same-name replacement and repeated static calls. The ordinary-source effect example is JIT-only; the closed retained-layout example remains supported in both modes. Native AOT's exact allowance includes closed class-offset work. Source getters reject foreign tables and copied AST seals; completed static snapshots reject parser receipt replay and same-spelling foreign frames. Global and static consumers reject duplicate or unowned snapshots, changed source leaves and inconsistent extents. Existing native copy/execution receipts, saved AOT tables and source authority tests remain required."
+evidence_limit = "Pinned source and hosted execution without TempleOS runtime or emitted-byte capture. Layout snapshots provide no computed values or successful execution/copy authority. Bounds, initialized-byte tracking and quotas remain hosted policy."
+remaining = ["nonconstant AOT statics with globals-on-data-heap", "floating, owned pointer and callback initializer value families", "automatic zero-byte frame storage, inferred dimensions and general copies", "remaining aggregate and initializer acceptance under #686 and #690"]
+aot_zero_assignment_boundary = "Bounded integer AOT leaves now use raw assignment stores, as verified by native BIN observations. Empty roots cannot supply a nonzero store window; missing register words and ownership remain explicit boundaries. Closed constant copies and live JIT remain supported; see HC-AOT-ZERO-BYTE-INITIALIZER-ASSIGNMENT-BOUNDARY."
+
+[[feature]]
+id = "HC-NATIVE-AOT-STATIC-LOAD-INITIALIZERS"
+description = "Native AOT scalar static leaves retain original load-source proofs and execute in checked load-time regions."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete PrsVarInit, PrsVarInit2, PrsGlblInit and PrsStaticInit", "Compiler/PrsVar.HC:408-742 complete PrsVarLst", "Compiler/PrsStmt.HC:209-463 complete PrsGlblVarLst", "Compiler/OptLib.HC:9-15 complete OptClassFwd"]
+implementation = ["src/sema/static_initializer_fragment.ml", "src/driver/task_declarations.ml", "src/driver/native_default_preparation.ml", "src/driver/integer_initializers.ml", "src/driver/native_global_initializers.ml", "src/ir/integer_initializer_layout.ml", "src/hosted/native_program.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/live_scalar_initializer/cases.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "test/native/test_native_load_initializer_cli.ml", "test/test_live_initializer_layout.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/persistent-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "examples/native-aot-static-initializers.hc"]
+status = "implemented"
+issue = 686
+model = "The original current AOT static scalar callback retains a separate opaque load source with its original allocation, nominal type, dimensions, expression and queries. It grants no computed value, execution receipt or reference-selection authority. Completed source typing validates original references. Preparation joins the exact leaf and selected destination to its declaring frame; the native bundle seals each scheduled root to its original load-time region. Closed leaves retain prepared image bytes. Pending storage begins at zero. Static addresses in entry require the exact storage bundle and an instruction inside a sealed load region of the same declaring frame. Ordered loads precede entry statements; later owner calls reuse static mutations."
+verification = "Shared IR/native cases check zero-byte forward leaves before later completion, scalar once-only effects, fixed member arrays, earlier statics in the same frame, global/static load order and original function selection before replacement. The maintained example combines those families and repeated mutations. Public CLI compares values, output and runtime work, tests each target's exact and one-below execution/preparation allowances, and checks retained output and work after runtime faults. Authority tests reject missing, repeated, reordered, copied and foreign proof/completion lists, foreign bundles, another declaring frame and instructions outside sealed regions. Both native ABI encodings are checked."
+evidence_limit = "Pinned source and hosted execution without TempleOS runtime or emitted-byte capture. Load-source proofs contain no computed values or successful execution/copy authority. Closed IR and native preparation contexts can consume different instruction counts; each reported quota is checked independently. Bounds, initialized-byte tracking and quotas remain hosted policy."
+remaining = ["nonconstant AOT statics with globals-on-data-heap", "other initializer value families, automatic zero-byte frame storage, inferred dimensions and general copies", "remaining aggregate and initializer acceptance under #686 and #690"]
+
+[[feature]]
+id = "HC-SOURCE-FRAGMENT-AGGREGATE-MEMBERS"
+description = "Source fragments retain original aggregate static types and reached member observations."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete initializer consumers", "Compiler/PrsVar.HC:247-283 complete PrsArrayDims", "Compiler/PrsVar.HC:408-742 complete PrsVarLst", "Compiler/PrsExp.HC:593-1133 complete PrsUnaryTerm, PrsUnaryModifier and LexExpression2Bin", "Compiler/LexLib.HC:67-85 complete MemberFind"]
+implementation = ["src/sema/static_reference.ml", "src/sema/compiler_record.ml", "src/sema/aggregate_member_index.ml", "src/sema/function_aggregate_visibility.ml", "src/driver/task_declarations.ml", "src/driver/initializer_fragment_typing.ml", "src/driver/integer_task.ml", "src/driver/native_default_preparation.ml", "src/driver/integer_update_initializers.ml"]
+tests = ["test/live_scalar_initializer/cases.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "test/test_live_initializer_layout.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/persistent-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "examples/native-aot-static-initializers.hc"]
+status = "implemented"
+issue = 686
+model = "Static references retain their original allocation's nominal aggregate type and checked dimensions. Original member-name observations retain immutable completed member records alongside partial records. Pure fragment views freeze the exact observed identifiers in the original table and namespace, without AST replay or storage/execution authority. A fragment with no completed member index can read its original completed record through the existing checked projection path. Source-task initializers, defaults, dimensions, offsets, switches and metadata share the selected context. Narrow-read analysis follows checked member projections from known memory without requiring a containing activation, while function-owned projections retain their identity checks. Fixed class-array index steps retain their original strides."
+verification = "Shared IR/native source cases check earlier aggregate static reads, once-only updates, nested and root arrays, inherited offsets, global initializer member reads and same-name class replacement. JIT defaults, dimensions and metadata check reached values and effects. The maintained static-load example runs through public CLI in both source modes with exact and one-below execution/preparation limits. Unknown-byte reads, original array bounds and missing members still reject while retaining earlier output. Metadata tests keep the original U8 field after U16 replacement and reject copied names, duplicates and foreign tables/namespaces; fragment contexts reject foreign views before typing. Existing narrow-read, source/copy and runtime ownership suites remain required."
+evidence_limit = "Pinned source and hosted execution without TempleOS runtime or emitted-byte capture. Member views provide no allocation, computed value or successful execution/copy receipt. Bounds, initialized-byte tracking and quotas remain hosted policy."
+remaining = ["other initializer value families, automatic zero-byte frame storage, inferred dimensions and general copies", "remaining aggregate and initializer acceptance under #686 and #690"]
+
+[[feature]]
+id = "HC-PERSISTENT-EMPTY-AGGREGATE-ROOTS"
+description = "Empty aggregate globals and statics retain zero geometry and every original initializer effect."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete initializer consumers", "Compiler/PrsVar.HC:408-742 complete PrsVarLst", "Compiler/PrsStmt.HC:209-463 complete PrsGlblVarLst"]
+implementation = ["src/ir/integer_storage_shape.ml", "src/sema/function_frame_layout.ml", "src/backend/x86_64_global_storage.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c"]
+tests = ["test/test_live_initializer_layout.ml", "test/test_native_persistent_storage.ml", "test/native/test_native_storage_bridge.ml", "test/native/test_native_output_bridge.ml", "test/live_scalar_initializer/cases.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "examples/empty-aggregate-initializers.hc"]
+documentation = ["docs/aggregate-initializers.md", "docs/persistent-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+ownership = "Zero-width shapes still require the original aggregate owner, selected class and checked positive dimensions. Static frame geometry joins the original allocation. Native arenas retain one owner word per root, no byte flags for empty roots and exact physical data/literal/metadata accounting."
+verification = "JIT source targets check once-only scalar and direct-member effects, fixed multidimensional arrays, unused functions, repeated calls and same-name replacement. Metadata checks retain six elements, zero strides and cells, and a 16-byte owner-only image. Faults preserve earlier output while rejecting reads into adjacent storage and completion beyond the original empty root. The maintained example checks exact and one-below execution and preparation quotas."
+evidence_limit = "Pinned source and hosted execution without TempleOS runtime or emitted-byte capture. Bounds, initialized-byte tracking and quotas remain hosted policy."
+remaining = ["automatic zero-byte frame storage", "inferred dimensions, general copies and wider initializer value families", "nonconstant AOT statics with globals-on-data-heap", "remaining aggregate and initializer acceptance under #686 and #690"]
+aot_zero_assignment_boundary = "Bounded integer AOT leaves now use raw assignment stores, as verified by native BIN observations. Empty roots cannot supply a nonzero store window; missing register words and ownership remain explicit boundaries. Closed constant copies and live JIT remain supported; see HC-AOT-ZERO-BYTE-INITIALIZER-ASSIGNMENT-BOUNDARY."
+
+[[feature]]
+id = "HC-ORIGINAL-STORAGE-OPTION-SNAPSHOTS"
+description = "Original declaration, static allocation and expression options select persistent storage and AOT deferral."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/CMisc.HC:1-10 complete Option/GetOption", "Compiler/CMain.HC:571-603 complete ExePutS", "Compiler/PrsStmt.HC:209-463 complete PrsGlblVarLst", "Compiler/PrsStmt.HC:805-840 complete PrsStreamBlk", "Compiler/PrsVar.HC:1-246 complete initializer consumers", "Compiler/PrsVar.HC:408-742 complete PrsVarLst"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/driver/task_declarations.ml", "src/driver/global_resolution.ml", "src/driver/function_resolution.ml", "src/driver/integer_source.ml", "src/ir/integer_statics.ml", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml", "src/ir/global_initialization.ml", "src/driver/integer_initializers.ml", "src/backend/x86_64_global_storage.ml"]
+tests = ["test/test_source_promotion.ml", "test/test_integer_globals.ml", "test/live_scalar_initializer/cases.ml", "test/live_scalar_initializer/test_live_scalar_initializer.ml", "test/live_scalar_initializer/test_native_live_scalar_initializer.ml", "test/live_scalar_initializer/test_live_scalar_initializer_cli.ml", "examples/compiler-storage-options.hc"]
+documentation = ["docs/integer-globals.md", "docs/integer-static-initializers.md", "docs/aggregate-initializers.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+ownership = "Snapshots retain exact source occurrences, table, namespace and static frame/location joins. AOT allocation metadata grants no runtime allocation or value/copy authority. Current local callbacks require their original physical receipt in the current domain."
+verification = "Both source modes and targets check constant statics, allocation versus final-body options, expression lookahead, member and root array leaves and repeated calls. JIT cases check scalar/array/aggregate data-heap storage and separate comma declarators. AOT errors stop before later directives and retain prior output. Metadata tests reject copied names, rebuilt ASTs, foreign tables, copied current allocations and expired observations. The maintained example checks exact and one-below resource limits."
+evidence_limit = "Pinned source and hosted execution without TempleOS runtime or emitted-byte capture. Hosted storage uses private arenas and does not reproduce physical TempleOS heap addresses."
+remaining = ["nonconstant AOT data-heap static compile-time phase", "AOT IC_HEAP_GLBL and loader storage", "other option consumers and remaining aggregate/initializer acceptance under #686 and #690"]
+
+[[feature]]
+id = "HC-EMPTY-AUTOMATIC-AGGREGATE-ROOTS"
+description = "Completed original empty class and union locals retain zero source frame bytes and addressable owned roots through IR and native execution."
+sources = ["Compiler/PrsVar.HC:408-742 complete PrsVarLst", "Compiler/PrsVar.HC:530-531 original class size and dimension product", "Compiler/PrsVar.HC:590-606 zero-byte automatic placement", "Compiler/PrsExp.HC:764-801 original static/automatic RBP address selection", "Compiler/PrsExp.HC:1017-1055 explicit pointer class transfer"]
+implementation = ["src/ir/automatic_aggregate_storage.ml", "src/ir/frame_address_lowering.ml", "src/ir/instruction_sequence.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/automatic_aggregate_cases.ml", "test/test_automatic_aggregate_storage.ml", "test/test_automatic_aggregates_cli.ml", "test/native/test_native_automatic_aggregate_storage.ml", "examples/empty-automatic-aggregates.hc"]
+documentation = ["docs/automatic-aggregate-byte-views.md", "docs/aggregate-initializers.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+source_identity = "The IC_ADD fragment retains the exact original empty frame location alongside its source RBP displacement. Independent empty roots may share that displacement with each other and with an adjacent nonempty local. Equal physical source positions do not transfer root extent or lifetime. Copied or foreign frame locations cannot select an owned empty root."
+execution = "Both modes and executors retain zero-byte scalar and fixed-array roots, checked positive dimensions and zero strides. Pointer casts, caller-owned arguments and returns, recursion and same-name replacement retain the original extent and activation. Empty roots compare equal at coincident source positions while byte reads and writes reject. Private owner metadata is separate from source frame bytes and remains bounded by native stack/image limits."
+verification = "Shared source cases check original geometry, coincident addresses, arrays, unions, caller storage, recursion, replacement, neighboring-byte rejection and expired frames. A one-byte runtime frame allowance admits multiple empty roots. CLI checks consume the maintained example in both modes and targets; both native ABIs check exact and one-below physical stack and image limits and fresh host execution."
+verification_boundary = "Source-derived expectations and hosted execution provide this evidence; no new TempleOS runtime capture or original emitted machine-byte comparison is included. U0 and floating automatic initialization, inferred dimensions, general aggregate copies and wider value families remain open under issue 686; full compiler parity remains under issue 682."
+
+[[feature]]
+id = "HC-ORIGINAL-AUTOMATIC-ALLOCATION-EXTENTS"
+description = "Original source allocation receipts retain forward and partial automatic class extents separately from later member observations and completed layouts."
+sources = ["Compiler/PrsVar.HC:407-742 complete PrsVarLst", "Compiler/PrsVar.HC:530-531 reached class size and dimensions", "Compiler/PrsVar.HC:590-606 automatic frame placement", "Compiler/PrsStmt.HC:1-60 complete PrsClass and canonical forward completion", "Compiler/LexLib.HC:67-86 complete MemberFind and attached base chain", "Compiler/PrsExp.HC:960-1115 member-name and index consumers"]
+implementation = ["src/sema/function_frame_layout.ml", "src/sema/compiler_record.ml", "src/sema/function_aggregate_visibility.ml", "src/sema/aggregate_member_index.ml", "src/driver/aggregate_header_resolution.ml"]
+tests = ["test/automatic_aggregate_cases.ml", "test/test_local_aggregate_allocation.ml", "test/test_automatic_aggregate_storage.ml", "test/test_automatic_aggregates_cli.ml", "test/native/test_native_automatic_aggregate_storage.ml", "examples/original-automatic-layouts.hc"]
+documentation = ["docs/function-local-aggregate-objects.md", "docs/automatic-aggregate-byte-views.md", "docs/inherited-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+source_identity = "Frame layout checks the allocation's exact table, namespace, function, local occurrence and selected type before retaining its original reached size. The source receipt, rather than a later completed layout, supplies that extent. Member-name observations retain current records along the original canonical base chain; completing a forward base cannot retarget its identity or change allocated geometry. Metadata headers retain the exact original selected base independently of a completed member index."
+execution = "IR and native frames admit zero forward extents, partial-body extents, fixed arrays and inherited roots through original allocation authority. Reached inherited fields can overlap earlier child fields. Later allocations observe their own reached class size; same-name replacements cannot change earlier roots or attached bases. Static initializer fragments preserve original base metadata. Byte and member accesses remain bounded by the original allocated extent and initialized state."
+verification = "Shared API and CLI cases cover forward completion, partial bodies, nested input, member lookahead, arrays, multilevel inherited fields, pointer parameters, replacement, static reuse and reached faults. Authority controls distinguish earlier and later observations and reject copied identifiers, foreign tables and foreign namespaces. The maintained example returns 42 with output A in both source modes and targets. Existing frame, native ABI, graph ownership and exact resource guards remain required."
+verification_boundary = "Pinned source expectations and hosted execution provide this evidence; no new TempleOS runtime capture or original machine-byte comparison is included. Metadata without an original allocation receipt still cannot admit forward storage. U0 and floating automatic initialization, inferred dimensions, general copies, wider callback/value families, runtime reflection and the separate AOT heap/loader phases remain under issue 686 and the broader release tracker."
+
+[[feature]]
+id = "HC-VOID-AGGREGATE-INITIALIZER-EFFECTS"
+description = "U0 calls initialize zero-byte aggregate leaves through actual effect execution."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-246 complete scalar, recursive, global and static initializer paths", "Compiler/PrsExp.HC:263-301 complete PrsExpression", "Compiler/PrsExp.HC:1116-1133 complete LexExpression2Bin"]
+implementation = ["src/ir/initializer_value.ml", "src/ir/initializer_fragment_destination.ml", "src/ir/static_initializer_destination.ml", "src/ir/global_initialization.ml", "src/ir/integer_interpreter.ml", "src/ir/native_scalar_capture.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c"]
+tests = ["test/persistent_aggregate_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/test_void_initializer_oracle.ml", "test/oracle/void-initializers/native.hc", "test/oracle/void-initializers/native.capture", "test/oracle/void-initializers/native.json"]
+documentation = ["docs/aggregate-initializers.md", "docs/testing.md", "examples/void-aggregate-initializers.hc"]
+status = "partial"
+issue = 686
+model = "A checked U0 call executes once for a zero-byte initializer destination. No word is manufactured. Original source and byte-cursor ownership remain required. IR retains absent completion; the native opaque capture retains its actual negative no-value site, original program, work, entry scope and arena. Scalar word consumers reject empty captures. U0 callees without an actual machine-register word still reject in AOT. Bounded integer-result leaves have separate raw assignment-store support."
+verification = "Four original TempleOS JIT fields repeat twice in one boot. Payload/capture hashes and the complete repeated records are checked before comparing hosted IR/native JIT results. Source tests cover globals, statics, empty roots, arrays, nested leaves, arguments, output, early returns, nonzero rejection and callee-induced class growth. CLI tests cover live JIT exact/one-below execution and preparation allowances and explicit AOT rejection."
+evidence_limit = "Native captures cover JIT effects and resulting bytes, not original AOT execution or machine-code equality. JIT U0 Expression warnings have separate implementation coverage. Bounds and quotas remain hosted policy."
+remaining = ["nonzero copies from unspecified U0 register contents", "original AOT load-assignment storage", "isolated native JIT effectful initializers", "remaining aggregate and initializer acceptance under #686 and #690"]
+
+[[feature]]
+id = "HC-OWNED-AGGREGATE-POINTER-INITIALIZERS"
+description = "Global and static aggregate initializer leaves preserve checked data references at the original sequential byte cursor."
+sources = ["Compiler/PrsVar.HC:1-246 complete scalar, recursive, global and static initializer paths", "Compiler/PrsVar.HC:34-56 direct AOT string relocation", "Compiler/CInit.HC:29 STR_CONST nonconstant descriptor", "Compiler/OptPass012.HC:66-67 original nonconstant flag propagation"]
+implementation = ["src/ir/initializer_value.ml", "src/ir/aggregate_initializer_store.ml", "src/ir/global_initialization.ml", "src/ir/initializer_fragment_destination.ml", "src/ir/static_initializer_destination.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/native_default_preparation.ml", "src/driver/task_declarations.ml", "src/sema/initializer_source.ml", "src/sema/static_initializer_fragment.ml"]
+tests = ["test/persistent_aggregate_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "test/test_pointer_initializer_oracle.ml", "test/oracle/pointer-initializers/native.hc", "test/oracle/pointer-initializers/native.capture", "test/oracle/pointer-initializers/native.json"]
+documentation = ["docs/aggregate-initializers.md", "docs/aggregate-pointer-fields.md", "docs/persistent-aggregates.md", "docs/testing.md", "examples/pointer-aggregate-initializers.hc"]
+status = "implemented"
+issue = 690
+execution = "One-level integer/class pointers, array decay, reference-returning calls and strings use typed stores rather than bytewise reconstruction. Packed destinations retain original source layout and target ownership. Static initialization runs once during declaration processing. Numeric overlap invalidates ownership, and returned callee-local references expire. Native AOT literal references use the hosted checked load path."
+verification = "Seven original TempleOS JIT observations repeat twice and are compared with IR/native execution. Source/API/CLI cases cover both modes, nested arrays, packed cursors, aliasing, string offsets, embedded NULs, expired references and exact/one-below quotas. Completion-bundle tests reject reordered, copied and foreign pointer load evidence."
+evidence_limit = "These checks do not establish original AOT relocation bytes or identical preparation work. Numeric addresses cannot create owned references. Wider pointer layers, owned callback initializer leaves, general aggregate copies and full #686/#690 acceptance remain open."
+
+[[feature]]
+id = "HC-PENDING-PREFIX-UPDATE-BINDING"
+description = "Pending prefix updates bind to the selected term before ordinary unary reductions, while grouping retains its separate expression boundary."
+sources = ["Compiler/PrsExp.HC:65-263 complete PrsExpression2 and PE_DEREFERENCE flag consumption", "Compiler/PrsExp.HC:264-301 complete PrsExpression flag restoration", "Compiler/PrsExp.HC:591-958 complete PrsUnaryTerm and pending operators", "Compiler/PrsLib.HC:21-29 complete PrsPopDeref"]
+implementation = ["src/frontend/parser.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml"]
+tests = ["test/test_parser.ml", "test/test_callback_dereference.ml", "test/persistent_aggregate_cases.ml", "test/test_prefix_update_oracle.ml", "test/oracle/prefix-updates/native.hc", "test/oracle/prefix-updates/native.capture", "test/oracle/prefix-updates/native.json", "test/oracle/prefix-updates/controls.hc", "test/oracle/prefix-updates/controls.capture", "test/oracle/prefix-updates/controls.json"]
+documentation = ["docs/prefix-updates.md", "docs/aggregate-initializers.md", "docs/testing.md", "examples/data-pointer-defaults.hc", "examples/prefix-updates.hc"]
+status = "partial"
+issue = 686
+execution = "Ungrouped ++*p advances the pointer before reading its pointee; ++(*p) updates the pointee. Pending negation, logical not, complement and unary plus keep the same binding. Callback selection consumes one pending star through an original-source alias without a data read or new ownership. Call argument validation retains the actual update producer's origin."
+verification = "Two complete repeated JIT captures retain eleven observations. Execution comparisons cover four explicitly listed main fields and all four controls for selected pointer fields, once-only indices, grouped pointees, stride and complement. Operator spans and macro provenance are checked. Existing callback word and pointee-update suites retain their distinct source syntax."
+evidence_limit = "Mixed/repeated update flags, prefix/postfix combinations and discarded updates on grouped non-lvalue results remain unfinished. Their captured original values are retained but are not counted as implemented comparisons. No original AOT execution or emitted-byte equality is claimed."
+
+[[feature]]
+id = "HC-ZERO-COUNT-ARRAY-INITIALIZERS"
+description = "Original empty and evaluated-zero dimensions retain zero-sized storage and source-owned initializer completion."
+sources = ["Compiler/PrsVar.HC:123-283 complete PrsVarInit2, PrsGlblInit, PrsStaticInit and PrsArrayDims", "Compiler/PrsVar.HC:405-742 complete PrsVarLst", "Compiler/PrsStmt.HC:209-463 complete PrsGlblVarLst"]
+implementation = ["src/sema/compiler_record.ml", "src/sema/global_array_layout.ml", "src/sema/function_frame_layout.ml", "src/ir/integer_storage_shape.ml", "src/ir/automatic_aggregate_storage.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_array_initializers.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/integer_interpreter.ml", "src/ir/expression_lowering.ml", "src/ir/aggregate_initializer_store.ml", "src/driver/task_declarations.ml", "src/driver/integer_unit.ml", "src/backend/x86_64_global_storage.ml", "src/native_execution_stubs.c"]
+tests = ["test/empty_array_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "test/test_empty_array_oracle.ml", "test/oracle/empty-arrays/native.hc", "test/oracle/empty-arrays/native.capture", "test/oracle/empty-arrays/native.json", "test/oracle/empty-arrays/controls.hc", "test/oracle/empty-arrays/controls.capture", "test/oracle/empty-arrays/controls.json", "test/oracle/empty-arrays/unqualified-address.hc", "test/oracle/empty-arrays/unqualified-address.png", "test/oracle/empty-arrays/unqualified-address.json"]
+documentation = ["docs/empty-arrays.md", "docs/aggregate-initializers.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "partial"
+issue = 690
+execution = "The first empty dimension is zero, not an inferred positive length. Checked multiplication retains zero without dividing by it. Empty braces have no scalar leaves and finish through their exact delimiter and declaration owners. Empty string copies carry once-only source receipts with zero copied bytes and work. Native copying claims the live arena scope but never touches data or flags for a zero-width request. Static no-leaf bodies require their exact persistent zero-sized owner."
+verification = "Two complete native JIT captures retain eighteen observations twice: sizes, packed following bytes, fractional conversion, declaration-time dimension effects and invalid-input phase controls. Shared source/API/CLI tests cover integer widths, class/callback arrays, both supported outer modes, zero-work ownership and exact storage/work limits with a nonempty neighbor."
+evidence_limit = "An automatic zero-array address probe faulted in the reference VM and is not treated as a successful value oracle; that source address path stays unsupported. Runtime AOT dimensions, negative-sentinel compiler-record mutation, other storage families, original AOT placement and emitted-byte equality remain outside this feature. Bounds and overflow guards remain hosted policy; #686 and #690 stay open."
+
+[[feature]]
+id = "HC-AUTOMATIC-U0-DECLARATIONS"
+description = "Original uninitialized scalar U0 locals retain zero-byte frames without invented runtime storage."
+sources = ["Compiler/PrsVar.HC:405-742 complete PrsVarLst", "Compiler/OptPass012.HC:824-914 assignment warning and conversion", "Compiler/OptPass3.HC:229-247 assignment location selection", "Compiler/OptPass4.HC:348-410 assignment register and displacement selection", "Compiler/BackC.HC:159-209 ICAssign", "Compiler/BackLib.HC:282-310 ICSlashOp and 445-659 ICMov"]
+implementation = ["src/ir/automatic_void_declaration.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_ir_integer_frames.ml", "test/test_automatic_void_cli.ml", "test/test_automatic_void_oracle.ml", "test/oracle/automatic-void/native.hc", "test/oracle/automatic-void/native.capture", "test/oracle/automatic-void/native.json", "test/oracle/automatic-void/layout.hc", "test/oracle/automatic-void/layout.capture", "test/oracle/automatic-void/layout.json"]
+documentation = ["docs/automatic-void-declarations.md", "docs/testing.md", "examples/automatic-void-declarations.hc"]
+status = "partial"
+issue = 690
+execution = "Uninitialized scalar U0 automatic declarations must retain their exact original local/type references and checked zero-byte slots before storage is omitted. No address, runtime cell, initialized flag or parameter value is created."
+verification = "Command checks cover both modes and three executors, repeated calls, recursion, neighbors and exact/one-below limits. Original repeated JIT observations establish the plain declaration result. Separate bounded disassembly and value captures retain initialized-U0 register alias behavior as an unsupported boundary, not a no-op."
+evidence_limit = "Automatic U0 initializers and assignments, their warnings and original register/address behavior remain unsupported. Arrays, addresses, reads, parameters and explicit register allocation are not admitted by this declaration-only feature. Original AOT execution and emitted-byte equality are not claimed."
+
+[[feature]]
+id = "HC-JIT-U0-INITIALIZER-WARNINGS"
+description = "Reached U0 initializer results emit the original JIT warning before execution and increment the original compiler control once."
+sources = ["Compiler/PrsExp.HC:263-301 PrsExpression and 1117-1133 LexExpression2Bin", "Compiler/PrsLib.HC:79-97 ICAdd", "Compiler/PrsVar.HC:1-120 PrsVarInit and 209-246 global/static traversal", "Compiler/PrsVar.HC:313-368 callback RT_PTR storage", "Compiler/CExcept.HC:65-79 LexWarn"]
+implementation = ["src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/frontend/parser.ml"]
+tests = ["test/test_live_initializer_execution.ml", "test/test_void_initializer_oracle.ml", "test/test_aggregate_members_cli.ml", "test/oracle/void-initializers/warnings.hc", "test/oracle/void-initializers/warnings.capture", "test/oracle/void-initializers/warnings.json", "test/oracle/void-initializers/warning-controls.hc", "test/oracle/void-initializers/warning-controls.capture", "test/oracle/void-initializers/warning-controls.json"]
+documentation = ["docs/void-initializer-warnings.md", "docs/aggregate-initializers.md", "docs/testing.md"]
+status = "partial"
+issue = 690
+execution = "Original global attempts and static preparation claims precede warning emission. Exact typed U0 results produce HCSEMA0079 through the current original parser control before compiled execution. Replay cannot duplicate a warning or initializer effect. Earlier warnings remain visible when execution later fails."
+verification = "The primary native JIT fixture records eight fields twice; six additional controls retain non-warning callback words, function addresses and integer leaves. Supported aggregate/static warning counts, no-warning statements, values and unchanged counts after calls are compared through IR and native source execution. Live parser tests check original counter ownership, repeated and expired receipts; fault cases retain warning order and earlier output."
+evidence_limit = "Plain scalar U0 globals in the fixtures remain reference-only evidence. Live JIT function-address leaves are covered by HC-ZERO-BYTE-REFERENCE-INITIALIZERS. AOT and isolated native warning phases, automatic U0 assignment warnings/register behavior and complete diagnostic parity remain unfinished. No successful initializer receipt is inferred from warning emission."
+
+[[feature]]
+id = "HC-ZERO-BYTE-REFERENCE-INITIALIZERS"
+description = "Live JIT zero-byte initializer leaves evaluate checked references without manufacturing scalar address words or source bytes."
+sources = ["Compiler/PrsVar.HC:1-120 PrsVarInit", "Compiler/PrsVar.HC:209-246 global/static traversal", "Compiler/PrsVar.HC:313-368 callback storage and return signatures"]
+implementation = ["src/ir/initializer_value.ml", "src/ir/initializer_fragment_destination.ml", "src/ir/static_initializer_destination.ml", "src/ir/integer_interpreter.ml", "src/ir/native_scalar_capture.mli", "src/native_execution_stubs.c"]
+tests = ["test/zero_reference_initializer_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/native/test_native_source_authority.ml", "test/test_zero_reference_initializer_oracle.ml", "test/test_void_initializer_oracle.ml", "test/oracle/zero-reference-initializers/native.hc", "test/oracle/zero-reference-initializers/native.capture", "test/oracle/zero-reference-initializers/native.json"]
+documentation = ["docs/zero-byte-reference-initializers.md", "docs/aggregate-initializers.md", "docs/testing.md", "examples/zero-byte-reference-initializers.hc"]
+status = "partial"
+issue = 690
+execution = "Original zero-byte global/static leaves can evaluate supported source references. Actual owned-reference completion retains absence of a scalar word; numeric callback words acquire no ownership. Final-size settlement still rejects a nonzero copy without its required value. Empty copies retain original attempt, program, work and live-arena checks."
+verification = "Ten original native JIT observations repeat in one boot. IR/native comparisons cover addresses, strings, array decay, callback words, returned references and once-only static preparation. Shared tests cover pointee widths, nested/empty objects, effects, unknown bytes, unowned calls and quotas. Native authority tests verify both ABIs and reject wrong programs/work, copied tokens, foreign arenas and replay after actual execution."
+evidence_limit = "This adds live JIT execution only. AOT and isolated paths retain their existing bounds and are not qualified by these captures. No integer substitute for an owned address, nonzero copy without value evidence, arbitrary pointer capability or emitted-byte parity is claimed."
+
+[[feature]]
+id = "HC-PERSISTENT-U0-DECLARATIONS"
+description = "Scalar U0 globals and statics retain zero storage and evaluate original live JIT initializer leaves once."
+sources = ["Compiler/PrsVar.HC:1-120 scalar execution and byte count", "Compiler/PrsVar.HC:125-246 array, global and static traversal", "Compiler/PrsExp.HC:1117-1152 expression compilation", "Compiler/OptPass3.HC:1-621 U0 expression warnings"]
+implementation = ["src/ir/integer_storage_shape.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/integer_initializer_layout.ml", "src/ir/initializer_fragment_destination.ml", "src/ir/static_initializer_destination.ml", "src/ir/integer_interpreter.ml", "src/ir/global_address_lowering.ml", "src/sema/static_initializer_fragment.ml", "src/driver/integer_source_execution.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_persistent_void_oracle.ml", "test/test_persistent_void_cli.ml", "test/native/test_native_source_authority.ml", "test/test_void_initializer_oracle.ml", "test/oracle/persistent-void/native.hc", "test/oracle/persistent-void/native.capture", "test/oracle/persistent-void/native.json"]
+docs = ["docs/persistent-void-declarations.md", "docs/void-initializer-warnings.md"]
+status = "partial"
+issue = 690
+verification = "Ten original native JIT observations repeat twice. IR and native source execution compare zero sizes, warnings, ordered effects and static declaration timing. CLI checks cover uninitialized declarations in both modes and all executors, JIT integer/U0/reference leaves, exact and one-below limits, unknown neighbors and rejected uses. Native authority retains both-ABI compilation and exact original completion checks."
+verification_boundary = "Initialized scalar U0 AOT declarations remain explicitly unsupported. Automatic initialized locals, U0 arrays, value/address consumers and original AOT loader/assignment phases require separate implementation. Isolated JIT keeps its existing closed initializer boundaries. No complete parity or emitted-byte equality claim."
+
+[[feature]]
+id = "HC-AOT-ZERO-BYTE-INITIALIZER-ASSIGNMENT-BOUNDARY"
+description = "Bounded integer AOT leaves use original raw assignment widths, separately from nominal JIT and constant-copy widths."
+sources = ["Compiler/PrsVar.HC:52-111 separate AOT assignment and compile-time copy", "Compiler/BackC.HC:159-204 ICAssign", "Compiler/BackLib.HC:136-155,282-312,445-578 raw-type machine stores", "Compiler/CMain.HC:60-74,419-568 AOT scope and BIN production", "Kernel/KernelA.HH:105 public I64 type"]
+implementation = ["src/driver/integer_initializers.ml", "src/ir/initializer_value.ml", "src/ir/aggregate_initializer_store.ml", "src/ir/expression_lowering.ml", "src/ir/global_initialization.ml"]
+tests = ["test/test_aot_zero_initializer_oracle.ml", "test/test_aot_load_assignment_cli.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "test/oracle/aot-zero-initializers/classes.hc", "test/oracle/aot-zero-initializers/classes.capture", "test/oracle/aot-zero-initializers/lookahead.hc", "test/oracle/aot-zero-initializers/lookahead.capture", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/oracle/aot-zero-initializers/void.hc", "test/oracle/aot-zero-initializers/void.capture", "test/oracle/aot-zero-initializers/integer.hc", "test/oracle/aot-zero-initializers/integer.capture", "test/oracle/aot-zero-initializers/pattern.hc", "test/oracle/aot-zero-initializers/pattern.capture"]
+documentation = ["docs/aot-zero-byte-initializers.md", "docs/aggregate-initializers.md", "docs/testing.md"]
+status = "partial"
+issue = 690
+verification = "Five original probe pairs repeat twice with zero AOT compilation errors and real BIN loading. U0-target stores overwrite four bytes; default-I64 empty and three-byte class stores overwrite eight. A lookahead-completed two-byte class retains the raw I64 assignment. Hosted IR/native values match those captures. Canonical source-region validation derives raw operations and complete windows; stores invalidate overlapping data/callback ownership. Exact/one-below limits, signed integer results, unaligned offsets and undersized roots are checked. Native authority compiles both ABIs and rejects copied, reordered, missing and foreign evidence."
+verification_boundary = "Missing U0 register results, reference values without actual integer words, undersized roots, scalar U0 AOT roots, globals-on-data-heap and unqualified intrinsic folding phases remain unsupported. Original nonconstant opcode evidence is required when assignment and copy widths differ. AOT assignment warnings and emitted-byte equality are not claimed."
+
+[[feature]]
+id = "HC-BOUNDED-NARROW-REGISTER-VALUES"
+description = "Preserve full register values in source-proven narrow parameter updates and local returns."
+sources = ["Compiler/OptPass3.HC", "Compiler/BackA.HC:ICDivEqu", "Kernel/KInts.HC:IntDivZero"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/global_immediate_update_analysis.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml", "src/driver/integer_update_initializers.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "test/test_prepared_integer_shifts_cli.ml", "test/exception_execution_cases.ml", "test/oracle/register-variable-analysis/div-zero.capture", "test/oracle/register-variable-analysis/local-param-byte.capture", "test/oracle/register-variable-analysis/two-updates.capture", "test/oracle/register-variable-analysis/two-updates-mixed-types-8.capture", "test/oracle/register-variable-analysis/two-updates-mixed-width-8-16.capture", "test/oracle/register-variable-analysis/two-updates-full-narrow.capture", "test/oracle/register-variable-analysis/two-updates-single-return.capture", "test/oracle/register-variable-analysis/two-updates-second-return.capture", "test/oracle/register-variable-analysis/many-updates-sequence.capture", "test/oracle/register-variable-analysis/many-updates-widths.capture", "test/oracle/register-variable-analysis/many-updates-exe.capture", "test/oracle/register-variable-analysis/three-updates-operators.capture", "test/oracle/register-variable-analysis/three-updates-operator-widths.capture", "test/oracle/register-variable-analysis/many-updates-operators.capture", "test/oracle/register-variable-analysis/many-updates-operator-widths.capture", "test/oracle/register-variable-analysis/many-updates-operators-exe.capture", "test/oracle/register-variable-analysis/many-updates-mixed-operators.capture", "test/oracle/register-variable-analysis/many-updates-mixed-exe.capture", "test/oracle/register-variable-analysis/many-updates-mixed-explicit.capture", "test/oracle/register-variable-analysis/many-updates-independent.capture", "test/oracle/register-variable-analysis/many-updates-independent-exe.capture", "test/oracle/register-variable-analysis/many-updates-independent-explicit.capture", "test/oracle/register-variable-analysis/many-updates-mixed-types.capture", "test/oracle/register-variable-analysis/many-updates-mixed-types-exe.capture", "test/oracle/register-variable-analysis/many-updates-mixed-types-ops.capture", "test/oracle/register-variable-analysis/many-updates-mixed-types-ops-exe.capture", "test/oracle/register-variable-analysis/many-updates-mixed-types-explicit.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-ops.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-ops-exe.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-explicit.capture", "test/oracle/register-variable-analysis/many-updates-full64-edges.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-right-tree.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-reverse-tree.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-repeat-tree.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-short-tree.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-shorter-tree.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-long-tree.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-extreme-tree.capture", "test/oracle/register-variable-analysis/many-updates-fullwidth-single-return.capture", "examples/register-variable-selection.hc", "examples/repeated-register-updates.hc"]
+documentation = ["docs/register-variable-analysis.md"]
+status = "partial"
+issue = 703
+verification = "Repeated original JIT and compiled observations cover bounded parameter and local shapes, explicit R12–R15 requests, two through six parameters, paired updates with mixed widths and signedness, an I8/I64 pair in both orders, three to five signed and unsigned byte updates, five 16- and 32-bit updates, three to five narrow arithmetic, shift and bitwise updates, including combined mixed-operator, independent-operand and mixed-width patterns and reordered or repeated operands, single-variable returns, and shorter or longer parenthesized return trees, noreg and compile-time execution. Focused IR and native tests cover the same supported shapes. Original division-by-zero is caught by a JIT caller of both JIT and compiled functions."
+repeated_update_verification = "Pinned OptPass3 member scoring supports two to five ordered updates that revisit a parameter while all operand parameters remain unchanged. Source-derived API and CLI tests cover all narrow widths, stack and explicit-register controls, interleaved targets, exact/one-below execution limits and both modes through IR and native execution. No new TempleOS runtime capture is claimed."
+remainder_update_verification = "Pinned OptPass3 compound member scoring and BackA ICDivEqu support single, paired and repeated parameter remainder updates. Hosted tests cover six narrow widths, entry conversion, register and stack controls, signed and unsigned operands, mixed sequences, retained defaults, zero divisors and signed quotient overflow. These source-derived expectations add no TempleOS runtime captures."
+evidence_limit = "Only explicitly source-proven shapes are covered; the parameter and local proofs are call-free. General physical register allocation, other explicit or conflicting registers, aliases, additional control flow, other local shapes and native exception handling remain open."
+
+[[feature]]
+id = "HC-HOSTED-LARGE-NATIVE-FRAMES"
+description = "Probe larger hosted native frames and describe their allocation in Windows unwind records."
+sources = ["Compiler/OptPass789A.HC:387-405,698-719", "https://learn.microsoft.com/en-us/cpp/build/prolog-and-epilog", "https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64"]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/native_execution_stubs.c"]
+tests = ["test/test_native_expression.ml", "test/test_large_native_frames_cli.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c"]
+documentation = ["docs/native-stack-probing.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Independent probe bytes, bounded unwind offsets, source arrays, recursion, repeated calls, arithmetic and initialization faults, private frame quotas and separate semantic and active-stack limits. Windows RtlVirtualUnwind checks every probe position and allocation boundary."
+evidence_limit = "Hosted ABI adaptation, not a new TempleOS capture or complete register allocator. Default frame quota remains 4088. This initial extension capped simultaneous physical stack at 65536; HC-NATIVE-COMPACT-STACK-PROBES preserves that default and adds a larger opt-in ceiling."
+
+[[feature]]
+id = "HC-HOSTED-SHARED-VALUE-LIVENESS"
+description = "Reuse native integer spill homes across disjoint control-flow lifetimes."
+sources = ["Compiler/OptPass6.HC:32-176", "Compiler/OptPass3.HC:511-621"]
+implementation = ["src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_native_program.ml", "test/native/test_native_program_execution.ml"]
+documentation = ["docs/native-value-liveness.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Independent exact frame sizes and one-below limits for sequential, reordered, diamond and loop-backedge graphs; native expected values, VM comparison, repeated execution and cleanup after budget faults. Both host ABIs compile the graph fixtures."
+evidence_limit = "Hosted temporary homes, not TempleOS machine-code parity or a new source capture. Callable graphs with hidden reference dependencies or shared pointer values keep permanent homes. General source and floating register allocation remain open."
+
+[[feature]]
+id = "HC-REGISTER-PARAMETER-CONTROL-FLOW"
+description = "Preserve source-selected narrow parameter values across bounded branches and loops."
+sources = ["Compiler/OptPass3.HC:223-247,511-621", "Compiler/CInit.HC:244-257", "Kernel/KernelA.HH:1804-1805", "Compiler/OptPass4.HC:196-219,348-398", "Compiler/OptPass789A.HC:698-719", "Compiler/PrsStmt.HC:150,842-852"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-control-flow.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-derived expected values for six narrow widths and ten dynamic compound operators across branches, loops, register and stack controls, changed operands, early returns, gotos, zero iterations, arithmetic faults and exact step limits. Ownership tests reject foreign frames and changed branch records."
+evidence_limit = "Two to six integer parameters, no locals or calls, nonescaping addresses, statement-only compound results, parameter-read operands, default options, distinct R12-R15 requests, up to 64 blocks and 512 instructions. No new TempleOS runtime capture or general physical/floating register allocator is claimed."
+
+[[feature]]
+id = "HC-REGISTER-PARAMETER-CALL-LIFETIMES"
+description = "Preserve selected parameter values across original named calls and recursive activations."
+sources = ["Compiler/OptPass789A.HC:387-405,698-719", "Compiler/OptPass6.HC:32-92", "Compiler/PrsExp.HC:549-577"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "test/native/test_native_program_execution.ml", "examples/register-call-lifetimes.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-derived six-width register/stack matrices cover caller values, nested arguments, recursive entry conversion, named live-JIT address slots, procedures, callee faults and repeated execution after exact/one-below recursion depth checks. Original typed call targets and physical symbol identity are rechecked."
+evidence_limit = "Extends the bounded parameter proof, not general physical/floating allocation. Calls need original named definition targets, provided fixed arguments and integer or U0 results. Callback, default, variadic and extern-only paths remain unproved. No new TempleOS runtime capture is claimed."
+
+[[feature]]
+id = "HC-REGISTER-LOCAL-CONTROL-LIFETIMES"
+description = "Preserve initialized automatic register locals across branches, loops and named calls."
+sources = ["Compiler/OptPass3.HC:22-48,223-247,511-621", "Compiler/OptPass4.HC:348-398", "Compiler/OptPass789A.HC:387-405,698-719"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "test/native/test_native_program_execution.ml", "examples/register-local-lifetimes.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-derived six-width literal/parameter initializer matrices cover selected and noreg locals, loops and named calls. Adjacent mixed-storage locals and recursive private values have independent expected results. Repeated native execution checks cleanup after a recursion-depth fault."
+evidence_limit = "Two to six total integer frame members, each local initialized exactly once in the entry block from an original literal or parameter source. Other proof bounds remain. General assignments, floating allocation and new TempleOS runtime captures are not claimed."
+
+[[feature]]
+id = "HC-REGISTER-VARIABLE-BANK-CAPACITY"
+description = "Account for all eight variable register requests and unreserved capacity in larger integer frames."
+sources = ["Kernel/KernelA.HH:1802-1805", "Compiler/CInit.HC:244-257", "Compiler/OptPass3.HC:22-48,536-621", "Compiler/OptPass6.HC:32-92", "Compiler/OptPass789A.HC:387-405,698-719"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "test/native/test_native_program_execution.ml", "examples/register-bank-capacity.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Six-width explicit-bank matrices, automatic eight-candidate frames, explicit nonpointer reservations, large noreg frames, unused parameters and unused reg requests, duplicate and uncertain-pressure negatives, recursive caller values and repeated recovery after depth faults."
+evidence_limit = "At most 32 nonescaping integer frame members with enough capacity regardless of score tie order or removed accesses. General pressure-based eviction, other fixed register requests, physical/floating allocation and new TempleOS runtime captures are not claimed."
+
+[[feature]]
+id = "HC-REGISTER-COMPILER-OPTION-SNAPSHOTS"
+description = "Use original function option snapshots for warning-independent and NO_REG_VAR-aware integer register selection."
+sources = ["Kernel/KernelA.HH:1548-1554", "Compiler/CMisc.HC:1-8", "Compiler/PrsStmt.HC:163-184,805-839,923-930", "Compiler/Lex.HC:1031-1035", "Compiler/CMain.HC:579-588,673-686", "Compiler/OptPass3.HC:22-48,536-621"]
+implementation = ["src/sema/function_aggregate_visibility.ml", "src/sema/function_call_expression_result.ml", "src/ir/register_variable_analysis.ml", "src/ir/function_body.ml", "src/driver/integer_update_initializers.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-option-snapshots.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-derived six-width/four-warning-mask matrices compare automatic, plain reg, noreg and explicit requests with NO_REG_VAR enabled or disabled. Retained definitions, body-closing lookahead, live setter calls, shared #exe control, StreamExePrint child isolation and forged body masks are checked."
+evidence_limit = "Admits warning bits 16-19 and NO_REG_VAR only when the body agrees with its authenticated completed-body snapshot. Other nondefault options remain unproved. Hosted tests do not claim a new TempleOS option capture or physical register allocation."
+
+[[feature]]
+id = "HC-REGISTER-LOOP-IMMEDIATE-UPDATES"
+description = "Preserve selected integer values through literal and unary loop updates with original typed update ownership."
+sources = ["Compiler/OptPass3.HC:149-165,223-248", "Compiler/OptPass4.HC:239-261,351-380", "Compiler/OptPass012.HC:828-854"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-loop-updates.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Six narrow widths, four qualifiers, literal and unary updates, for/while/do loops, initialized locals and named calls. Typed operator and operand substitution checks preserve ownership."
+evidence_limit = "Statement-only bounded updates with sufficient variable-register capacity. Large add/subtract/multiply literals, division/remainder and bitwise literals, consumed update results and general allocation are not claimed. No new TempleOS capture is claimed."
+
+[[feature]]
+id = "HC-REGISTER-VARIABLE-REASSIGNMENT"
+description = "Preserve full selected integer values when assigning parameters and initialized locals."
+sources = ["Compiler/OptPass4.HC:351-405", "Compiler/BackC.HC:159-171", "Compiler/BackLib.HC:445-575"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-reassignment.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six widths, four destination qualifiers, register and stack narrow sources, wide literals, loops, named calls and repeated same-value assignments. Original entry initialization remains required."
+evidence_limit = "Only direct member and literal right-hand sides with discarded assignment results, enough register capacity and no address escapes. Computed assignments and general allocation remain open; no new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-FORCED-PRESSURE"
+description = "Preserve plain and explicit integer register requests when ordinary wide members exceed register capacity."
+sources = ["Compiler/OptPass3.HC:22-48,516-621"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-pressure.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six narrow widths, plain and explicit requests, stack controls, parameters, initialized locals, named calls and up to twenty ordinary competitors. Uncertain narrow members and overbooked plain requests are rejected."
+evidence_limit = "Ordinary pressured members must be 64-bit and retain unknown selection. Does not claim general score ordering, physical allocation or a new TempleOS capture."
+
+[[feature]]
+id = "HC-REGISTER-COMPUTED-ASSIGNMENT"
+description = "Preserve selected integer destinations through source-owned arithmetic and bitwise assignment trees."
+sources = ["Compiler/OptPass4.HC:351-405", "Compiler/BackC.HC:159-171", "Compiler/BackLib.HC:445-520"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-computed-assignment.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six narrow widths and four qualifiers across nested arithmetic and bitwise assignments, parameters, locals, branches, loops and named calls. Operand substitution and payload injection cannot acquire a fresh proof."
+evidence_limit = "Bounded discarded assignments with direct member/literal leaves and source-owned arithmetic/bitwise nodes. Excludes calls, casts, division and shifts within the right-hand tree; no new TempleOS capture."
+
+[[feature]]
+id = "HC-REGISTER-COMPUTED-UPDATES"
+description = "Preserve selected integer values through compound updates with source-owned computed operands."
+sources = ["Compiler/OptPass4.HC:351-380"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-computed-updates.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six widths and four qualifiers across all ten compound operators, parameters, locals, loops and named calls. Nested shift literals are authenticated without applying direct-count normalization."
+evidence_limit = "Bounded discarded updates with source-owned arithmetic/bitwise operand trees. Existing immediate limits remain; consumed results and unsupported tree operators remain unproved. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-COMPUTED-INITIALIZERS"
+description = "Preserve full selected integer values from source-owned computed local initializers."
+sources = ["Compiler/OptPass4.HC:351-405", "Compiler/BackC.HC:159-171", "Compiler/BackLib.HC:445-520"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-computed-initializers.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six narrow widths and four qualifiers across arithmetic/bitwise initializers, branches, loops and named calls. Operand substitution and conditional initialization negatives preserve ownership; ordered local dependencies are covered by HC-REGISTER-ORDERED-INITIALIZERS."
+evidence_limit = "Original entry-block initialization; ordered local dependencies are covered by HC-REGISTER-ORDERED-INITIALIZERS. Does not support arbitrary expressions or claim a new TempleOS capture."
+
+[[feature]]
+id = "HC-REGISTER-INTEGER-EXPRESSION-TREES"
+description = "Preserve selected integer storage through unary, division, shift and comparison expression trees."
+sources = ["Compiler/OptPass4.HC:351-405,570-617", "Compiler/BackC.HC:159-171", "Compiler/BackLib.HC:445-520"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-integer-expressions.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six widths and four qualifiers across assignment, compound update and initializer trees; division-by-zero/overflow faults, unary payload rejection and shift initializer dependency checks."
+evidence_limit = "Source-owned bounded expression trees only. Calls, casts, short-circuit operators, power and unmatched optimizer rewrites remain unproved. No new TempleOS runtime capture or general physical allocation claim."
+
+[[feature]]
+id = "HC-REGISTER-WHOLE-STRAIGHT-LINE"
+description = "Apply the owned whole-function integer selection proof to straight-line functions without artificial update or return-shape limits."
+sources = ["Compiler/OptPass3.HC:22-48,516-621", "Compiler/OptPass4.HC:351-405"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/register_variable_analysis.mli"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-straight-line.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six widths and four qualifiers across single-local functions, dependent and self updates, multiple locals, computed initialization/reassignment, seven parameters and twelve-update sequences. Existing unsupported cases were retained as positive controls where now proved."
+evidence_limit = "One to 32 integer frame members within existing source-ownership, capacity and graph bounds. No general physical allocation, floating allocation or new TempleOS runtime capture is claimed."
+
+[[feature]]
+id = "HC-REGISTER-ORDERED-INITIALIZERS"
+description = "Preserve selected integer storage through entry-ordered local initializer dependencies."
+sources = ["Compiler/PrsVar.HC:605-615", "Compiler/OptPass3.HC:516-621", "Compiler/OptPass4.HC:351-405"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/register_variable_analysis.mli"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-dependent-initializers.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six widths and four qualifiers across local dependencies, intervening updates, stack destinations and three-local chains. Self-initialization, uninitialized dependencies and reordered stores remain unproved."
+evidence_limit = "Every local requires one original entry-block initializer; each dependency store must precede its read. No general physical allocation or new TempleOS runtime capture is claimed."
+
+[[feature]]
+id = "HC-REGISTER-CONSUMED-ASSIGNMENT"
+description = "Preserve guaranteed selected storage through consumed plain assignments."
+sources = ["Compiler/OptPass3.HC:231-247", "Compiler/OptPass4.HC:363-399", "Compiler/BackC.HC:162-170", "Compiler/BackLib.HC:509-520", "Compiler/OptPass6.HC:144-155", "Compiler/BackB.HC:646-659"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/register_variable_analysis.mli", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-consumed-assignment.hc", "test/test_consumed_stack_assignment_cli.ml", "examples/register-stack-assignment.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Eight integer widths and four qualifiers across consumed direct assignments, with authenticated stack-result reloads, source options, ownership mutations and excluded shapes."
+evidence_limit = "Only independently proved direct frame destinations receive register forwarding or stack-result reloads. Unknown pressure, consumed compounds, casts and nested assignments remain outside this extension; pointer/global paths are unchanged. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-NATIVE-COMPACT-STACK-PROBES"
+description = "Bounded native frames above 64 KiB with compact downward page probes and checked host unwind metadata."
+sources = ["Compiler/OptPass789A.HC:387-405,698-719", "Compiler/OpCodes.DD:284,368,437,461,642", "Compiler/Asm.HC:580-638"]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/native_execution_stubs.c", "src/runtime/native_program_execution.ml", "src/hosted/native_program.ml", "src/hosted/native_source_execution.ml"]
+tests = ["test/test_native_expression.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/test_large_native_frames_cli.ml", "examples/compact-native-frame.hc"]
+documentation = ["docs/native-stack-probing.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Exact old/new probe bytes, signed loop back edge and bounds, maximum scaled unwind allocation, host admission mutations, unwind instruction states, large source arrays, recursion/fault cleanup and independent exact/one-below quotas."
+evidence_limit = "Host stack growth and unwind follow the linked Microsoft x64 specifications. Spill frames stop at 524280 bytes, callable frames at 524272; defaults remain unchanged. Does not establish physical source-register placement, floating allocation or new TempleOS runtime captures."
+
+[[feature]]
+id = "HC-REGISTER-PHYSICAL-NONVOLATILE"
+description = "Physical R12-R15 placement for authenticated explicit integer variable requests."
+sources = ["Compiler/OptPass3.HC:534-611", "Compiler/OptPass4.HC:196-218", "Compiler/OptPass789A.HC:387-405,698-719", "Compiler/BackLib.HC:509-520"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/native_execution_stubs.c"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_nonvolatile_register_encoder.ml", "test/test_physical_register_cli.ml", "examples/physical-register-calls.hc", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Independent request snapshots, exact register encodings, typed parameter entry, register-preserving callable frames and checked nonvolatile save/restore metadata."
+evidence_limit = "Only source-proved explicit R12-R15 integer variables are placed physically. General automatic allocation, other variable registers, floating allocation and complete HolyC ABI remain open. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-PHYSICAL-RSI-RDI"
+description = "Source-owned RSI/RDI placement with transitive preservation across generated-to-C bridges."
+sources = ["Kernel/KernelA.HH:1801-1805", "Compiler/OptPass3.HC:524-530", "Compiler/OptPass789A.HC:387-394,698-716", "Compiler/Asm.HC:475-476,586-593"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_reference_service.ml", "src/backend/x86_64_compiler_options.ml", "src/backend/x86_64_print_format.ml", "src/native_execution_stubs.c"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_nonvolatile_register_encoder.ml", "test/test_physical_register_cli.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/test_large_native_frames_cli.ml", "examples/physical-register-pair.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-stack-probing.md"]
+status = "partial"
+issue = 703
+verification = "Six-register request and encoding coverage, save/restore metadata, host-bridge lifetimes and charged scratch storage."
+evidence_limit = "Only authenticated explicit RSI/RDI/R12-R15 integer variables are physically placed. R10/R11 runtime roles, automatic score-based mapping, floating allocation and complete HolyC ABI remain open. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-BOUNDED-AUTOMATIC"
+description = "First-free physical placement for a sole automatic or sole forced integer candidate."
+sources = ["Compiler/OptPass3.HC:22-48,538-611", "Compiler/CInit.HC:244-256", "Compiler/OptLib.HC:562-565", "Kernel/QSort.HC:55-83,95-101", "Compiler/PrsVar.HC:341-344,525-529"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/sema/function_type_resolution.ml", "src/driver/function_type_resolution.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_automatic_register_cli.ml", "examples/automatic-register-placement.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Authenticated complete named membership, conservative six-candidate bound, forced priority, explicit reservations, unsupported-first-register rejection and native lifetime regressions."
+evidence_limit = "No arbitrary score or tie ordering, conditional R12/R13 assignment, R10/R11 physical placement or unnamed-formal proof. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-SCORED-STRAIGHT-LINE"
+description = "Exact source occurrence scores, unstable ties and integer pressure allocation for straight-line functions."
+sources = ["Compiler/PrsExp.HC:201-208,800-802", "Compiler/OptPass012.HC:308-432,485-658,828-895", "Compiler/OptPass3.HC:22-48,119-135,149-163,187-198,223-244,538-611", "Compiler/OptLib.HC:172-177,196-225,556-565", "Compiler/PrsVar.HC:525-529", "Compiler/LexLib.HC:146-147", "Compiler/CInit.HC:244-256", "Compiler/PrsStmt.HC:852", "Kernel/QSort.HC:55-83,95-101"]
+implementation = ["src/ir/scored_register_allocation.ml", "src/ir/exact_register_scores.ml", "src/ir/register_variable_analysis.ml", "src/sema/function_aggregate_visibility.ml", "src/sema/function_call_expression_result.ml"]
+tests = ["test/test_scored_register_allocation.ml", "test/test_register_variable_analysis.ml", "test/test_scored_register_cli.ml", "test/test_integer_joined_definitions.ml", "examples/scored-register-pressure.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Original body and request receipts, source-to-IR occurrence bijection, zero-score retention, forced priority, exact QSort2b ties, conditional nonpointer bank and pressure winners/spills."
+evidence_limit = "Exact subset excludes control flow, calls, casts, pointers, aggregates, statics and nested writes. R10/R11 remain hosted runtime registers. General allocation and the complete HolyC ABI remain open. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-PHYSICAL-R10-R11"
+description = "Physical R10/R11 variables with separate callable context and budget storage."
+sources = ["Kernel/KernelA.HH:1801-1805", "Compiler/OptPass3.HC:534-611", "Compiler/OptPass4.HC:196-218", "Compiler/OptPass789A.HC:387-405,698-719", "Compiler/CInit.HC:244-256"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_reference_service.ml", "src/backend/x86_64_compiler_options.ml", "src/backend/x86_64_print_format.ml", "src/native_execution_stubs.c"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_nonvolatile_register_encoder.ml", "test/test_native_program.ml", "test/test_physical_register_cli.ml", "test/test_automatic_register_cli.ml", "test/test_scored_register_cli.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/native/test_native_stream_generation.ml", "test/native/test_native_source_slot_addresses.ml"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-owned selection, explicit and scored member placement, private invocation saves, bridge preservation, exact budget accounting, literal encodings and host unwind checks."
+evidence_limit = "RBX context and memory budget are hosted adaptations, not TempleOS frame bytes. Legacy execution remains separate. General and floating allocation and complete HolyC ABI remain open. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-NATIVE-SCALAR-F64"
+description = "Source-owned F64 bit transport and isolated x87 arithmetic with checked host-state boundaries."
+sources = ["Compiler/OptLib.HC:535-554", "Compiler/OptPass3.HC:29-47,165-228", "Compiler/OptPass6.HC:119-165", "Compiler/BackFA.HC:6-59,195-239,339-518", "Compiler/BackLib.HC:423-442", "Compiler/BackFB.HC:488-594", "Compiler/OptPass789A.HC:779-785,1026-1032", "Kernel/KStart64.HC:5-7", "Kernel/KTask.HC:211-213", "Kernel/Sched.HC:87,119"]
+implementation = ["src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_task.ml", "src/hosted/native_program.ml", "src/hosted/native_source_execution.ml", "src/native_fpu_boundary.h", "src/native_execution_stubs.c"]
+tests = ["test/test_native_float_plan.ml", "test/test_x87_encoder.ml", "test/test_native_f64_transport.ml", "test/test_native_f64_cli.ml", "test/test_native_fpu_boundary.ml", "test/native/test_native_f64_callbacks.ml"]
+documentation = ["docs/native-f64.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Hosted cases cover exact F64 bits, source/task results, arithmetic orientation and identity copies, signed zero, infinities, NaNs, loops, recursion, quotas, hostile host FP state and actual OCaml callback cleanup."
+evidence_limit = "No new TempleOS runtime capture. Unproved extended links, conversions and nonbasic operations reject. Requested F64 GPRs and mixed narrow storage require the separate mixed-scalar allocation proof. Persistent, indirect, default and callback-invocation F64 remain outside this subset. Unsupported host compilers reject x87 images; this entry does not claim complete Windows qualification or completion of issue 703."
+
+[[feature]]
+id = "HC-NATIVE-LINKED-F64"
+description = "Source-authenticated pure F64 regions with asymmetric extended-value links and explicit materialization."
+sources = ["Compiler/PrsLib.HC:257-270", "Compiler/CInit.HC:52,65-72", "Compiler/OptPass012.HC:384-403,564-616,660-693", "Compiler/OptLib.HC:535-554", "Compiler/OptPass3.HC:165-221,481", "Compiler/OptPass6.HC:116-155", "Compiler/BackFA.HC:6-59", "Compiler/BackFB.HC:488-594"]
+implementation = ["src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_native_linked_float_authority.ml", "test/test_native_linked_f64_cli.ml"]
+documentation = ["docs/native-f64.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Exact original function/runtime/frame ownership and bounded disjoint subtree re-lowering authenticate MOV-class frame leaves, ordered producers and normalized aliases. Frozen graph snapshots and source revalidation invalidate stale plans. Hosted tests distinguish asymmetric rounding, unary/store/copy boundaries, normalized siblings, pressure, exact quotas and same-image fault recovery."
+evidence_limit = "Source-derived expectations, not a new TempleOS runtime capture. Constant folding and literal reassociation without normalization evidence, call-result/global-containing regions, conversions and general floating allocation remain outside the proof. Raw graph APIs cannot grant linked precision. Does not complete issue 703 or establish full HolyC ABI parity."
+
+[[feature]]
+id = "HC-NATIVE-F64-REGISTERS"
+description = "Authenticated mixed integer/F64 capacity and explicit variable-register placement."
+sources = ["Compiler/PrsVar.HC:449-516", "Compiler/OptPass3.HC:29-47,119-135,165-204,533-621", "Compiler/CInit.HC:244-257", "Compiler/OptPass4.HC:196-219,348-398", "Compiler/BackLib.HC:445-535", "Compiler/BackC.HC:159-171", "Compiler/BackFA.HC:339-518", "Compiler/OptPass789A.HC:387-405,698-719,779-785,1026-1032"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/runtime_call_context.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_mixed_scalar_register_analysis.ml", "test/test_native_f64_register_cli.ml"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-f64.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Complete original AST/typed graph reconstruction authenticates scalar members, entry initialization, fixed named calls, recursion and control flow. Tests cover primitive mutations, explicit slots, sole-forced placement, ordinary F64 noncandidates, options, narrow storage, decoded word moves/saves, selected materialization, subnormal and architectural quiet-NaN transport, quotas and same-image fault recovery."
+evidence_limit = "Capacity and exact explicit/sole-forced placement only; mixed tied or score-pressure placement remains unproved. Ordinary F64 stays stack-based. Globals in mixed bodies, branch-local initialization, defaults, callbacks, variadics, F64 conversions/updates and arbitrary NaN payload or signaling-NaN transport are not qualified. Source-derived and hosted evidence, not new TempleOS runtime captures or completion of issue 703."
+
+[[feature]]
+id = "HC-MIXED-REGISTER-SCORES"
+description = "Source-authenticated straight-line mixed integer/F64 access scores and physical allocation."
+sources = ["Compiler/PrsExp.HC:201-208,292-294,800-802", "Compiler/PrsVar.HC:607-615", "Compiler/OptPass012.HC:376-398,559-614,661-687,866-887", "Compiler/OptPass3.HC:29-47,119-135,187-199,238-245,533-621", "Compiler/OptLib.HC:556-565", "Kernel/QSort.HC:55-83,95-101", "Compiler/BackLib.HC:509-510"]
+implementation = ["src/ir/exact_register_scores.ml", "src/ir/register_variable_analysis.ml", "src/ir/scored_register_allocation.ml"]
+tests = ["test/test_mixed_register_scores_cli.ml", "test/test_mixed_scalar_register_analysis.ml", "test/test_native_f64_register_cli.ml"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-f64.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Pinned-source access conservation, raw floating literal bits and complete mixed source ownership authenticate exact scores. Independent maps test forced F64 ties, initializers, zero-score integer candidates, ordinary F64 exclusion before sorting, reservations, NO_REG_VAR, narrow spills and promoted values, decoded physical homes, quotas and retained-proof invalidation. Floating execution remains separately checked; no new TempleOS runtime capture is claimed."
+
+[[feature]]
+id = "HC-NATIVE-NUMERIC-CONVERSIONS"
+description = "Source-authenticated scalar numeric conversion events and bounded explicit conversion intrinsics."
+sources = ["Compiler/OptLib.HC:124-140,535-554", "Compiler/OptPass012.HC:79-96,866-872,958-1052", "Compiler/OptPass3.HC:108-113,249-256", "Compiler/OptPass5.HC:30-76", "Compiler/OptPass789A.HC:66-94,779-782,1045-1063", "Compiler/BackFA.HC:6-59,123-166", "Compiler/BackB.HC:277-287", "Compiler/BackFB.HC:488-515", "Compiler/PrsExp.HC:479-484"]
+implementation = ["src/ir/numeric_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/register_variable_analysis.ml", "src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml", "src/native_execution_stubs.c", "src/runtime/native_execution.ml", "src/runtime/native_program_execution.ml"]
+tests = ["test/test_native_f64_conversions_cli.ml", "test/test_native_numeric_conversion_authority.ml", "test/test_x87_encoder.ml"]
+documentation = ["docs/native-f64-conversions.md", "docs/native-f64.md", "docs/register-variable-analysis.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Original canonical source and sealed conversion receipts authenticate runtime and immediate conversion paths, computed integer conversion events, mixed arithmetic links, materialized explicit intrinsics and narrow storage. Tests distinguish extended cancellation from literal rounding, signed runtime U64 conversion, truncation and invalid integer-indefinite results, original intrinsic identity, mutation rejection, exact quotas and recovery. FISTTP images require runtime SSE3 independently of ordinary x87 support. Unsupported converted identities and explicit intrinsic expression shapes fail closed. Expectations derive from pinned source and hardware instruction semantics, not new TempleOS captures."

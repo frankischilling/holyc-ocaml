@@ -101,7 +101,13 @@ let ordinary_cases =
       42L );
   ]
 
-let cases = ordinary_cases @ storage_cases
+let cases =
+  ordinary_cases @ storage_cases
+  @ [
+      ( "address of a storage cast preserves original pointer difference",
+        "I64 F(){I64 x;return &x(I64)-&x;}F();",
+        0L );
+    ]
 
 let values () =
   List.iter
@@ -139,9 +145,8 @@ let rejected =
     "I64 F(){I64 x;F64 y;return &x-&y;}F();";
     "I64 F(){I64 x;I64 *p=&x;I64 **q=&p;return q-q;}F();";
     "I64 F(){I64 q[2];I64 *p=q-(q+1);return *p;}F();";
-    "I64 F(){I64 x;return &x(I64)-&x;}F();";
+    "I64 F(){I64 x;return (&x)(I64)-&x;}F();";
     "I64 x;I64 *p=&x;42;";
-    "I64 *F(){I64 x;return &x;}F();";
   ]
 
 let boundaries () =

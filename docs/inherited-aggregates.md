@@ -10,7 +10,7 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-AOT IR and ordinary native defaults containing references, callback class parameters and persistent objects still need
+AOT IR and ordinary native defaults containing references, callback class parameters still need
 their own implementation.
 
 Completed earlier class and union definitions can supply inherited automatic
@@ -89,10 +89,14 @@ frame, instruction, stack and image allowances cover both modes and native
 ABIs, including fresh image executions. The CLI also checks the installed
 compiler and maintained example. These checks have no TempleOS runtime capture.
 
-Partial, self-referential and forward-only bases retain their separate
-[captured size metadata](source-inherited-layouts.md); they do not supply
-owned members. A declaration-time call can move a base outside the current
-object compilation, so its captured size still does not authorize storage.
+Partial and forward-only bases retain their separate
+[captured size metadata](source-inherited-layouts.md). Source frames can use an
+original allocation receipt to retain the extent reached at allocation. Member
+observations supply the direct and inherited fields reached through the original
+canonical base chain. Completing a forward base adds observable members without
+moving the child's earlier fields or resizing its storage; replacement-only
+members remain absent. A field wider than that original extent fails before
+touching bytes. The raw size metadata alone still cannot authorize storage.
 [Retained nested class members](retained-class-context.md) preserve their
 original selected layouts. [Function-local objects](function-local-aggregate-objects.md)
 can use completed local base classes while retaining their own allocation timing.

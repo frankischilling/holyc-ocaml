@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "0b4d69651c27ca17d81e875e443638bdcd62aaea2a6c20136aa265a110bbf92e",
+  "boot_payload_sha256": "ddd7cf3ea7e4fdc96f9589afa6780fc88203614f339e29310a29a6bee78bb7fe",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "31321db332b7ffde1147aeb73d46113bd0b69b0461434a9c4e307acd72f542e8",
+  "boot_iso_sha256": "063104a00170d13fbb9f5f3175f8c70c1c9244862ebe7f47765da6e53ded96e2",
+  "fields": {
+    "ADD": "7",
+    "SUB": "262",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compile-time execution observations of a global update added to another global value."
+}

@@ -78,10 +78,10 @@ A directive reached in a dimension can publish a replacement class without
 changing that member. Named scalar backings keep their earlier selection too.
 The layout snapshot records the original member size, prepared dimensions and
 `$$` offsets. A pointer member contributes eight bytes to metadata.
-[Data pointer fields](aggregate-pointer-fields.md) execute in IR through owned
-reference shadows for one-level integer and class pointers. Native execution of
-these fields remains gated with `HCBACK0002`; it needs storage ownership and
-lifetime tracking for references held in object bytes.
+[Data pointer fields](aggregate-pointer-fields.md) execute in IR, `host-jit` and
+`host-jit-task` through owned reference shadows for supported one-level integer
+and class pointers. Stored references retain allocation identity and target
+lifetime; wider pointer layers remain outside this subset.
 
 `examples/retained-nested-members.hc` returns 42 on both JIT targets. Its dimension
 function runs once. The saved `Packet` default contains two original `Element`

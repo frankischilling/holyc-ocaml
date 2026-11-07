@@ -15,6 +15,7 @@ type fragment_kind =
   | Dimension
   | Switch_case
   | Offset
+  | Metadata
   | Command
   | Aot_module
 
@@ -76,11 +77,13 @@ let ( let* ) = Result.bind
 let word_of_dispatch = function
   | Dispatch.I64 bits -> { type_ = Image.I64; bits }
   | Dispatch.U64 bits -> { type_ = Image.U64; bits }
+  | Dispatch.F64 bits -> { type_ = Image.F64; bits }
 
 let dispatch_of_word (word : Image.word) =
   match word.type_ with
   | Image.I64 -> Dispatch.I64 word.bits
   | Image.U64 -> Dispatch.U64 word.bits
+  | Image.F64 -> Dispatch.F64 word.bits
 
 let describe_image image =
   {
@@ -108,13 +111,13 @@ let image_errors ~span errors =
     errors
 
 let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
-    ?(max_stack_bytes = Image.hard_max_stack_bytes) ?(max_blocks = 4096)
+    ?(max_stack_bytes = Image.default_stack_bytes) ?(max_blocks = 4096)
     ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
-    ?(max_active_stack_bytes = Native.hard_max_active_stack_bytes) ?status_abi
+    ?(max_active_stack_bytes = Native.default_active_stack_bytes) ?status_abi
     session ~config ~source ~max_steps =
   let span = Driver.Integer_source.source_span source in
   let platform_ = Native.platform () in
@@ -620,7 +623,45 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       ~max_blocks ~max_ir_instructions ~max_code_bytes ~layout
                       request)
               in
-              execute ~arena Initializer image |> Result.map ignore);
+              let before = (Native.budget_progress budget).executed_steps in
+              let* _completed, _ = execute ~arena Initializer image in
+              let reached =
+                (Native.budget_progress budget).executed_steps - before
+              in
+              if
+                not
+                  (Ir.Initializer_fragment_program.is_scalar_evaluation
+                     (Dispatch.initializer_program request))
+              then Ok ()
+              else
+                let diagnose result =
+                  Result.map_error
+                    (fun message ->
+                      let span =
+                        Dispatch.initializer_program request
+                        |> Ir.Initializer_fragment_program.destination
+                        |> Ir.Initializer_fragment_destination.span
+                      in
+                      [ Driver.Integer_source.message_diagnostic ~span message ])
+                    result
+                in
+                let* capture =
+                  Native.finish_task_initializer ?scope:(current_scope ()) arena
+                    image
+                  |> diagnose
+                in
+                let* token =
+                  Dispatch.prepare_initializer_copy request capture
+                    ~work:reached
+                  |> diagnose
+                in
+                let* receipt =
+                  Native.copy_task_initializer ?scope:(current_scope ()) arena
+                    request token
+                  |> diagnose
+                in
+                Dispatch.finish_initializer_copy request token receipt
+                |> diagnose);
           execute_command =
             (fun request ->
               let* layout, arena =
@@ -656,7 +697,67 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   ~max_stack_bytes ~max_blocks ~max_ir_instructions
                   ~max_code_bytes ~layout request)
           in
-          execute ~arena Initializer image |> Result.map ignore
+          let before = (Native.budget_progress budget).executed_steps in
+          let module Request = Task.Native_static_initializer in
+          let dynamic =
+            Ir.Static_initializer_program.is_scalar_evaluation
+              (Request.program request)
+          in
+          let initializer_span =
+            Request.program request |> Ir.Static_initializer_program.destination
+            |> Ir.Static_initializer_destination.span
+          in
+          let outcome =
+            if not dynamic then execute ~arena Initializer image
+            else
+              with_initializer_execution ~span:initializer_span
+                ~remaining:(fun () -> Request.initializer_remaining request)
+                image
+                (fun () -> execute ~arena Initializer image)
+          in
+          let work = (Native.budget_progress budget).executed_steps - before in
+          let* () =
+            if (not dynamic) || (work = 0 && Result.is_error outcome) then Ok ()
+            else
+              Request.record_steps request work
+              |> Result.map_error (fun message ->
+                  [
+                    Driver.Integer_source.message_diagnostic
+                      ~span:initializer_span message;
+                  ])
+          in
+          let* _ = outcome in
+          if
+            not
+              (Ir.Static_initializer_program.is_scalar_evaluation
+                 (Request.program request))
+          then Ok ()
+          else
+            let diagnose result =
+              Result.map_error
+                (fun message ->
+                  let span =
+                    Request.program request
+                    |> Ir.Static_initializer_program.destination
+                    |> Ir.Static_initializer_destination.span
+                  in
+                  [ Driver.Integer_source.message_diagnostic ~span message ])
+                result
+            in
+            let* capture =
+              Native.finish_task_static_initializer ?scope:(current_scope ())
+                arena image
+              |> diagnose
+            in
+            let* token =
+              Request.prepare_copy request capture ~work |> diagnose
+            in
+            let* receipt =
+              Native.copy_task_static_initializer ?scope:(current_scope ())
+                arena request token
+              |> diagnose
+            in
+            Request.finish_copy request token receipt |> diagnose
         in
         let native_default request =
           let module Request = Task.Native_default in
@@ -1037,6 +1138,77 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       "native offset produced no captured scalar expression";
                   ]
         in
+        let native_member_metadata request =
+          let module Request = Task.Native_member_metadata in
+          let* layout, arena =
+            context
+              (Request.program request
+             |> Ir.Member_metadata_fragment_program.destination
+             |> Ir.Member_metadata_fragment_destination.globals)
+          in
+          let metadata_span =
+            Request.program request
+            |> Ir.Member_metadata_fragment_program.destination
+            |> Ir.Member_metadata_fragment_destination.span
+          in
+          let allowance = Request.initializer_remaining request in
+          if allowance <= 0 then
+            Error
+              [
+                diagnostic ~span:metadata_span "HCIRVM0007"
+                  "the task member metadata preparation step limit was \
+                   exhausted";
+              ]
+          else
+            let* image =
+              remaining (fun ~max_ir_instructions ~max_code_bytes ->
+                  Image.compile_task_member_metadata ?status_abi
+                    ~max_stack_bytes ~max_blocks ~max_ir_instructions
+                    ~max_code_bytes ~layout request)
+            in
+            let before = (Native.budget_progress budget).executed_steps in
+            let outcome =
+              with_initializer_execution ~span:metadata_span
+                ~remaining:(fun () -> Request.initializer_remaining request)
+                image
+                (fun () ->
+                  execute ~arena ~max_activation_steps:allowance Metadata image)
+            in
+            let steps =
+              (Native.budget_progress budget).executed_steps - before
+            in
+            let* () =
+              (if steps = 0 && Result.is_error outcome then Ok ()
+               else Request.record_steps request steps)
+              |> Result.map_error (fun message ->
+                  [
+                    Driver.Integer_source.message_diagnostic ~span:metadata_span
+                      message;
+                  ])
+            in
+            let* completed, captured = outcome in
+            match
+              ( captured,
+                completed.final_value,
+                completed.captured_callback,
+                completed.captured_data )
+            with
+            | true, Some _, None, None ->
+                Native.finish_task_member_metadata ?scope:(current_scope ())
+                  arena image
+                |> Result.map_error (fun message ->
+                    [
+                      Driver.Integer_source.message_diagnostic
+                        ~span:metadata_span message;
+                    ])
+            | _ ->
+                Error
+                  [
+                    diagnostic ~span:metadata_span "HCIRVM0026"
+                      "native member metadata produced no captured scalar \
+                       expression";
+                  ]
+        in
         let native_static_allocation request =
           let* _, arena =
             context (Task.Native_static_allocation.context request)
@@ -1092,7 +1264,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   Source.run ~native_dispatch ~native_static_allocation
                     ~native_static_initializer ~native_static_copy
                     ~native_default ~native_dimension ~native_switch_case
-                    ~native_offset ~native_internal_binding ~max_dimension_work
+                    ~native_offset ~native_member_metadata
+                    ~native_internal_binding ~max_dimension_work
                     ~max_switch_work ~max_initializer_steps ~max_global_bytes
                     ~max_literal_bytes ~max_frame_bytes ~max_call_depth
                     ~max_output_bytes ~max_output_work session ~config ~source
@@ -1137,7 +1310,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       ~native_dispatch ~native_static_allocation
                       ~native_static_initializer ~native_static_copy
                       ~native_default ~native_dimension ~native_switch_case
-                      ~native_offset ~native_internal_binding task_session
+                      ~native_offset ~native_member_metadata
+                      ~native_internal_binding task_session
                     |> Result.map_error (fun message ->
                         [ diagnostic ~span "HCIRVM0001" message ])
                   in

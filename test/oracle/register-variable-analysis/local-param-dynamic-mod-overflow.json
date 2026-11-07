@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "f032edd2256775e0749ae2e15dcbc3723337ee94b6b1de996aceb2a3f012b565",
+  "boot_payload_sha256": "ad95419cddaf7f156a425f9cc4488610082df3a7916b2cad82a725a8f5199ca6",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ed350351eaf15befaf2c7ee78f174b1051f48f7590a9b7d3c6ce5afc8568d34a",
+  "boot_iso_sha256": "794513bf6a7107dc78c5454f86a9557fcb61b44efca48c00ed3d68bdadf2436a",
+  "fields": {
+    "J_CAUGHT": "1",
+    "ERR": "0",
+    "A_CAUGHT": "1"
+  },
+  "scope": "Repeated original observations of a caught signed remainder overflow from JIT and compiled parameter-local functions. Stored source omits boot padding."
+}

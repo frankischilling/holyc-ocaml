@@ -14,7 +14,7 @@ let gates =
     ( "sum",
       "I64 Sum(U8 *p){return p[0]+p[1];}I64 F(){U8 \
        a[3];a[0]=40;a[1]=2;a[2]=0;return Sum(a);}F();" );
-    ("scalar", "I64 F(){U8 n=298;return n;}F();");
+    ("scalar", "I64 F(){U8 noreg n=298;return n;}F();");
     ("local-elements", "I64 F(){U8 a[3];a[0]=40;a[1]=2;return a[0]+a[1];}F();");
     ( "caller-scalar",
       "I64 Set(U8 *p){*p=298;return 0;}I64 F(){U8 n;Set(&n);return n;}F();" );
@@ -34,8 +34,9 @@ let byte_storage () =
     [
       ("I64 F(){U8 n=128;return n;}F();", 128L);
       ("I64 F(){U8 n=255;return n;}F();", 255L);
-      ("I64 F(){U8 n=256;return n;}F();", 0L);
-      ("I64 F(){U8 n=-1;return n;}F();", 255L);
+      ("I64 F(){U8 noreg n=256;return n;}F();", 0L);
+      ("I64 F(){U8 n=-1;return n;}F();", -1L);
+      ("I64 F(){U8 noreg n=-1;return n;}F();", 255L);
       ( "I64 F(){U8 a[5];a[0]=128;a[1]=255;a[2]=256;a[3]=298;a[4]=-1;return \
          a[0]*1000000000000+a[1]*1000000000+a[2]*1000000+a[3]*1000+a[4];}F();",
         128255000042255L );
@@ -158,6 +159,9 @@ let errors () =
 let unsupported_domains () =
   List.iter
     (fun mode ->
+      ignore (G.run ~mode "U8 *F(){U8 n=42;return &n;}42;" |> F.expect 42L);
+      ignore
+        (G.run ~mode "I64 F(){U8 a[0];return sizeof(a)+42;}F();" |> F.expect 42L);
       List.iter
         (fun source -> ignore (F.first_error (G.run ~mode source)))
         [
@@ -165,7 +169,7 @@ let unsupported_domains () =
           "I64 F(){U8 a[2];U8 *p=&a;return 42;}F();";
           "I64 F(){U8 a[2][3];U8 *p=&a[1];return 42;}F();";
           "I64 F(){U8 a[2];return a[1.0];}F();";
-          "I64 F(){U8 a[0];return 42;}F();";
+          "I64 F(){U8 a[0];U8 *p=a;return *p;}F();";
           "I64 F(){U8 a[2]={40,2};return a[0]+a[1];}F();";
           "I64 F(){U8 n=42;return n(I64);}F();";
           "I64 F(){U8 n=42;return n(U64);}F();";
@@ -176,7 +180,6 @@ let unsupported_domains () =
           "I64 F(){U8 *p=0;return 42;}F();";
           "I64 F(){U8 n=42;U8 *p=&n;p*=1;return n;}F();";
           "I64 F(){U8 n=42;U8 *p=&n;return p(I64);}F();";
-          "U8 *F(){U8 n=42;return &n;}42;";
           "I64 F(){U8 n=42;U8 *p=&n,**q=&p;return **q;}F();";
           "I64 F(){U8 *a[2];return a[0][0];}F();";
         ])
@@ -473,6 +476,8 @@ let narrow_operand_boundaries () =
                               d with
                               opcode = O.Ic_holyc_typecast;
                               operands = [ byte ];
+                              target_type =
+                                Some (T.pointer_to H.public_i64 |> Result.get_ok);
                               flags = 0L;
                               payload = Some (Seq.Integer 0L);
                             }
@@ -547,7 +552,7 @@ let tests =
       Alcotest.test_case "malformed byte IR types strides layouts and owners"
         `Quick malformed_ir_and_owners;
       Alcotest.test_case
-        "byte values cannot forge pointer strides or word casts" `Quick
+        "byte values cannot forge pointer strides or references" `Quick
         narrow_operand_boundaries;
       Alcotest.test_case "byte arithmetic result rank is checked" `Quick
         malformed_arithmetic_rank;

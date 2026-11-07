@@ -99,9 +99,10 @@ let safe_compound scalar (item : Seq.description) right =
   | O.Ic_and_equ -> Scalar.is_unsigned scalar || fits scalar right
   | Ic_div_equ -> Scalar.is_unsigned scalar || excludes (-1L) right
   | Ic_mod_equ -> true
-  | Ic_shr_equ ->
-      item.flags = 0L
-      && option_exists (fun bits -> bits >= 0L && bits <= 63L) right.constant
+  (* A native right shift masks its count. Signed and unsigned right shifts
+     preserve a value already within the destination's narrow range. The
+     initializer guard separately authenticates the scalar count producer. *)
+  | Ic_shr_equ -> item.flags = 0L
   | Ic_or_equ | Ic_xor_equ -> fits scalar right
   | Ic_add_equ | Ic_sub_equ -> right.constant = Some 0L
   | Ic_mul_equ -> right.constant = Some 0L || right.constant = Some 1L
@@ -173,7 +174,26 @@ let scalar_number target_type opcode operands =
       _ ) -> bounded (0L, 1L)
   | _ -> unknown
 
-let check_graph ~globals ~frame ~compiler_options ~terminal graph =
+let check_graph ~globals ~frame ~function_body ~compiler_options ~terminal graph
+    =
+  let register_proof =
+    match (frame, function_body) with
+    | Some frame, Some body
+      when Ir.Function_body.body body == graph
+           && Ir.Function_body.compiler_options body = compiler_options ->
+        Option.map
+          (fun proof -> (frame, body, proof))
+          (Ir.Register_variable_analysis.analyze ~frame ~body)
+    | _ -> None
+  in
+  let selected_register location =
+    Option.fold ~none:false
+      ~some:(fun (frame, body, proof) ->
+        Ir.Register_variable_analysis.selection proof ~frame ~body
+          ~symbol:(Frame.location_symbol location)
+        = Some Ir.Register_variable_analysis.Register_candidate)
+      register_proof
+  in
   let code =
     Ir.Block_graph.blocks graph
     |> List.concat_map (fun block ->
@@ -295,6 +315,15 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               | Error _ -> false)
           | _ -> false
         in
+        let exact_register id type_ =
+          match address id with
+          | Reference (pointer, [], Register_candidate location)
+            when selected_register location -> (
+              match T.dereference pointer with
+              | Ok actual -> T.equal actual type_
+              | Error _ -> false)
+          | _ -> false
+        in
         let invariant_narrow_read id type_ =
           match address id with
           | Reference (pointer, [], memory) -> (
@@ -303,9 +332,10 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                 | Memory -> true
                 | Explicit_register -> false
                 | Register_candidate location ->
-                    Locations.mem
-                      (Frame.location_symbol location |> Sema.Symbol.id)
-                      proven
+                    selected_register location
+                    || Locations.mem
+                         (Frame.location_symbol location |> Sema.Symbol.id)
+                         proven
               in
               bounded
               &&
@@ -343,7 +373,10 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               | O.Ic_rbp, [], None when T.pointer_depth type_ > 0 -> Base type_
               | Ic_imm_i64, [], Some (Seq.Integer bits)
                 when T.pointer_depth type_ > 0 -> Offset (type_, bits)
-              | Ic_mul, [ stride; _ ], None when pointer type_ -> (
+              | Ic_mul, [ stride; _ ], None
+                when pointer type_
+                     || Ir.Automatic_aggregate_storage.aggregate_pointer type_
+                -> (
                   match address stride with
                   | Offset (expected, stride)
                     when T.equal expected type_ && stride > 0L ->
@@ -354,18 +387,19 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                   Some
                     (Seq.Member_projection proof | Seq.Backing_projection proof)
                 ) -> (
-                  match (frame, address base, address offset) with
-                  | ( Some frame,
-                      Reference (expected, [], Memory),
-                      Offset (offset_type, delta) )
+                  match (address base, address offset) with
+                  | Reference (expected, [], Memory), Offset (offset_type, delta)
                     when T.equal offset_type type_
                          && Ir.Aggregate_member_projection.matches
-                              ~function_identity:
-                                ( Frame.function_symbol frame,
-                                  Sema.Symbol_table.scope_id
-                                    (Frame.function_scope frame) )
-                              ~before_item_index:
-                                (Frame.function_item_index frame)
+                              ?function_identity:
+                                (Option.map
+                                   (fun frame ->
+                                     ( Frame.function_symbol frame,
+                                       Sema.Symbol_table.scope_id
+                                         (Frame.function_scope frame) ))
+                                   frame)
+                              ?before_item_index:
+                                (Option.map Frame.function_item_index frame)
                               proof ~base_pointer:expected ~pointer_type:type_
                               ~offset:delta ->
                       Reference
@@ -373,7 +407,21 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                           Ir.Aggregate_member_projection.strides proof,
                           Memory )
                   | _ -> Unknown_address)
-              | Ic_add, [ base; offset ], None -> (
+              | Ic_add, [ base; offset ], (None | Some (Seq.Pointee_stride _))
+                -> (
+                  let selected_stride stride =
+                    match (item.payload, frame) with
+                    | None, _ -> false
+                    | Some (Seq.Pointee_stride layout), Some frame ->
+                        Sema.Aggregate_pointee_layout.matches layout
+                          ~function_symbol:(Frame.function_symbol frame)
+                          ~before_item_index:(Frame.function_item_index frame)
+                          ~pointer_type:type_ ~stride
+                    | Some (Seq.Pointee_stride layout), None ->
+                        Sema.Aggregate_pointee_layout.matches_top_level layout
+                          ~pointer_type:type_ ~stride
+                    | _ -> false
+                  in
                   match (address base, address offset) with
                   | Base expected, Offset (offset_type, bits)
                     when T.equal expected type_ && T.equal offset_type type_ ->
@@ -383,7 +431,8 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                     when T.equal expected type_ && T.equal offset_type type_
                     -> (
                       match dimensions with
-                      | head :: tail when head = stride ->
+                      | head :: tail
+                        when head = stride || selected_stride stride ->
                           Reference (type_, tail, memory)
                       | [] -> Reference (type_, [], memory)
                       | _ -> Unknown_address)
@@ -449,6 +498,7 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
         in
         let exact_update target type_ =
           exact_memory target type_
+          || exact_register target type_
           || (preserving_shift type_ && invariant_narrow_read target type_)
         in
         let writes =
@@ -497,6 +547,7 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                 let scalar = Option.get (Scalar.of_type type_) in
                 if
                   discarded_bit_hazard scalar item.opcode right
+                  && (not (exact_register target type_))
                   && not
                        (option_exists
                           (fun (result : Seq.value_definition) ->
@@ -511,6 +562,18 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                 else if
                   increment item.opcode
                   || safe_compound scalar item right
+                  (* ICShiftEqu computes a full result. A proven memory target
+                     stores the low bytes; a proven register target retains the
+                     full value. The caller authenticates the original shift. *)
+                  || item.opcode = O.Ic_shl_equ && item.flags = 0L
+                     && (exact_memory target type_
+                        || exact_register target type_)
+                  || (item.opcode = O.Ic_add_equ || item.opcode = O.Ic_sub_equ
+                    || item.opcode = O.Ic_mul_equ || item.opcode = O.Ic_div_equ
+                    || item.opcode = O.Ic_and_equ || item.opcode = O.Ic_or_equ
+                    || item.opcode = O.Ic_xor_equ)
+                     && item.flags = 0L
+                     && exact_register target type_
                   || source_discard || narrow_sink
                 then None
                 else
@@ -532,8 +595,14 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               | O.Ic_imm_i64, [], Some type_, Some (Seq.Integer bits)
                 when T.pointer_depth type_ = 0 -> known bits
               | Ic_deref, [ target ], Some type_, None
+                when narrow_type type_ && exact_register target type_ ->
+                  (* A selected register may hold bits outside the object range. *)
+                  unknown
+              | Ic_deref, [ target ], Some type_, None
                 when narrow_type type_ && invariant_narrow_read target type_ ->
                   storage_number type_
+              | _, target :: _, Some type_, _
+                when is_narrow_update && exact_register target type_ -> unknown
               | _, _, Some type_, _
                 when is_narrow_update
                      && (match (item.operands, item.target_type) with

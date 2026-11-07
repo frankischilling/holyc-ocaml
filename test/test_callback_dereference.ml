@@ -332,23 +332,36 @@ let update_typing_keeps_canceled_storage () =
         "prefix and postfix update results" 2 (List.length roots);
       List.iter
         (fun root ->
-          let source =
-            Test_function_call_expression_result.update_operand root
-          in
-          let canceled =
-            Test_function_call_expression_result.result_for_source results
-              source
-            |> ungroup
-          in
-          let operand =
-            R.result_canceled_callback_operand canceled
-            |> some "update lost the canceled callback operand"
-          in
-          Alcotest.(check bool)
-            "update typing preserves original callback storage" true
-            (R.result_is_callback_storage operand
-            && Option.get (R.result_callback_pointer canceled)
-               == Option.get (R.result_callback_pointer operand)))
+          match R.result_canceled_callback_update_operand root with
+          | Some update ->
+              let operand =
+                R.result_callback_update_operand update
+                |> some "pending update lost original callback storage"
+              in
+              Alcotest.(check bool)
+                "pending star keeps numeric callback update" true
+                (R.result_is_callback_storage operand
+                && Option.is_none (R.result_callback_pointer root)
+                && R.result_is_numeric_callback root
+                && Option.is_some (R.result_callback_update_operand root))
+          | None ->
+              let source =
+                Test_function_call_expression_result.update_operand root
+              in
+              let canceled =
+                Test_function_call_expression_result.result_for_source results
+                  source
+                |> ungroup
+              in
+              let operand =
+                R.result_canceled_callback_operand canceled
+                |> some "update lost the canceled callback operand"
+              in
+              Alcotest.(check bool)
+                "update typing preserves original callback storage" true
+                (R.result_is_callback_storage operand
+                && Option.get (R.result_callback_pointer canceled)
+                   == Option.get (R.result_callback_pointer operand)))
         roots)
     modes
 

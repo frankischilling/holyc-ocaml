@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "c477c2fae9425167e665fc436b7e3f191799ba258b838c70d92245b3fc6873ba",
+  "boot_payload_sha256": "d61b02b3a8c895d80c19754af27a01e86733625342421a01addd0cc0298eca5e",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "d0217bd6b47821f4ed34d8d4398843273f7cddb4d4a976c2c6c8b26dbd1ec464",
+  "boot_iso_sha256": "9c63080d39b2d6ad66b838dc1f57c09eb3cc39d284227603da783c461b86b494",
+  "fields": {
+    "J_S": "255",
+    "J_U": "256",
+    "J_SN": "-1",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "255",
+    "A_U": "256",
+    "A_SN": "-1",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of directly returned postfix updates with narrow function return types."
+}

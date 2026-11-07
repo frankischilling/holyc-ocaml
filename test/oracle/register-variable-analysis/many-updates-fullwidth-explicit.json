@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "ab29f93cc2a195530d97715b1e72f48b5e44842477cb86ec40a62df4631ecb70",
+  "boot_payload_sha256": "ab29f93cc2a195530d97715b1e72f48b5e44842477cb86ec40a62df4631ecb70",
+  "boot_payload_bytes": 1142,
+  "capture_sha256": "a346d287436dac2f1e6cde22b45ff70854a5a13473582405c978b83333c444d7",
+  "boot_iso_sha256": "d09f5019f485aeb748b5d9c97a2a946208158bcd194fb13a6feb1091faf54291",
+  "fields": {
+    "J_A": "65832",
+    "J_E": "21474902220",
+    "ERR": "0",
+    "A_A": "65832",
+    "A_E": "21474902220"
+  },
+  "scope": "Two independent original JIT and compiled observations of full-width and narrow updates with explicit registers and stack controls, captured with QEMU 10.0.13. A newline separates captures."
+}

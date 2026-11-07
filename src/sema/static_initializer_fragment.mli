@@ -1,6 +1,46 @@
 type t
+type load
+
+val create_load :
+  ?aggregate:Compiler_record.automatic_aggregate_allocation ->
+  ?callback:
+    Frontend.Parser.completed_callback_signature
+    * Function_type_resolution.function_pointer ->
+  ?selected_aggregate:Function_type_resolution.selected_aggregate_resolver ->
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  publication:Declaration_collection.publication ->
+  receipt:Frontend.Parser.static_initializer_preparation ->
+  dimensions:int64 list ->
+  environment:Outer_environment.t ->
+  queries:Query_selection.t list ->
+  unit ->
+  (load, string) result
+(** Retain an original current nonconstant AOT leaf and its selected static
+    allocation for a later checked load-time region. This metadata is separate
+    from a typed expression fragment and supplies no value, execution receipt or
+    reference-selection authority. Completed source typing must still validate
+    every original expression reference. *)
+
+val load_receipt : load -> Frontend.Parser.static_initializer_preparation
+val load_publication : load -> Declaration_collection.publication
+val load_type : load -> Type.t
+
+val load_aggregate :
+  load -> Compiler_record.automatic_aggregate_allocation option
+
+val load_callback_source :
+  load ->
+  (Frontend.Parser.completed_callback_signature
+  * Function_type_resolution.function_pointer)
+  option
+
+val load_dimensions : load -> int64 list
+val load_expression : load -> Frontend.Ast.expression
+val load_owns_table : load -> Symbol_table.t -> bool
 
 val create :
+  ?aggregate:Compiler_record.automatic_aggregate_allocation ->
   ?activation:Source_activation.t ->
   ?callback:
     Frontend.Parser.completed_callback_signature
@@ -25,6 +65,7 @@ val create :
 val owns_table : t -> Symbol_table.t -> bool
 
 val create_selected :
+  ?aggregate:Compiler_record.automatic_aggregate_allocation ->
   ?activation:Source_activation.t ->
   ?callback:
     Frontend.Parser.completed_callback_signature
@@ -52,6 +93,7 @@ val is_current : t -> bool
 (* The original live parser callback or exact active journal event. *)
 val expression : t -> Frontend.Ast.expression
 val type_ : t -> Type.t
+val aggregate : t -> Compiler_record.automatic_aggregate_allocation option
 
 val callback_source :
   t ->
