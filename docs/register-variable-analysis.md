@@ -79,3 +79,35 @@ and unsigned operands, mixed update sequences and the existing proof boundaries.
 These expectations come from the pinned source, not new TempleOS captures.
 The restrictions on unchanged operands, parameter count and control flow still
 apply. This does not close the general allocation work in #703.
+
+## Parameter values across branches and loops
+
+A separate whole-function proof covers two to six integer parameters across
+branches, `while`, `do`, `for`, early returns and gotos. Compound updates must be
+standalone statements with a parameter read as their operand. Parameters may
+change between updates, including self-updates and mutually updated parameters.
+The proof rejects calls, local variables, escaped addresses, Boolean parameters,
+immediate compound operands, consumed compound results, conflicting register
+requests and non-default compiler options. It admits at most 64 blocks and 512
+instructions. Distinct R12 through R15 requests and `noreg` retain their existing
+meaning.
+
+`OptPass3.HC:223-247,511-621` scores member accesses across the whole function and
+selects nonescaping variables. `CInit.HC:244-257` and
+`KernelA.HH:1804-1805` define six general register-variable slots and two
+non-pointer slots. With at most six parameters and no locals, every used
+automatic candidate fits without depending on score tie ordering.
+`OptPass4.HC:196-219,348-398` replaces the member accesses with register operands;
+`OptPass789A.HC:698-719` converts incoming parameters before keeping their full
+register values. `PrsStmt.HC:150,842-852` clears the no-register flag at ordinary
+function entry and sets it for try/catch, which this proof excludes.
+
+For a signed byte parameter starting at 127, adding 2 on three loop iterations
+now returns 133. Its `noreg` control returns -123. The
+[control-flow example](../examples/register-control-flow.hc) subtracts those
+results and returns 256. Tests cover all six narrow widths and ten compound
+operators, register and stack controls, branches, backedges, changed operands,
+zero iterations, exact step limits and arithmetic faults in both source modes
+and all three hosted executors. These expectations follow the pinned source;
+no new TempleOS runtime capture is claimed. This models source-visible values,
+not a general physical register allocator.

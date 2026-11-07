@@ -1029,3 +1029,8 @@ Native temporary spill homes now use [control-flow liveness](native-value-livene
 to share space across disjoint block lifetimes. Loop backedges preserve overlapping
 values. Reference-dependent callable graphs keep permanent homes; general source
 and floating register allocation remain open under issue #703.
+
+[Parameter register values across control flow](register-variable-analysis.md#parameter-values-across-branches-and-loops)
+now cover bounded call-free branches and loops with dynamic statement updates.
+Selected narrow parameters retain full values across iterations; `noreg` still
+narrows each store. General source and floating allocation remain open.

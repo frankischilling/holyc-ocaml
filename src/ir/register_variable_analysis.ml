@@ -2343,10 +2343,243 @@ let analyze_local ~frame ~body =
           }
   | _ -> None
 
+(* OptPass3 scores member accesses across the whole function, not per basic
+   block. With at most six nonescaping integer parameters, every used automatic
+   candidate fits REGG_LOCAL_VARS. Keep updates statement-only and dynamically
+   sourced so immediate rewrites and compound-expression results cannot change
+   the required storage width. *)
+let analyze_control_parameters ~frame ~body =
+  let locations = Frame.function_locations frame in
+  let integer_parameter location =
+    Frame.location_kind location = Frame.Named_parameter
+    && Frame.location_value_shape location = Frame.Scalar
+    && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
+    && (match Sema.Type.base (Frame.location_checked_type location) with
+      | Sema.Type.Primitive
+          (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64))
+        -> true
+      | _ -> false)
+    && Option.is_some (Frame.location_frame_slot location)
+  in
+  let blocks = snapshot body in
+  let code =
+    List.concat_map (fun (_, instructions, _) -> instructions) blocks
+  in
+  let update = function
+    | O.Ic_shl_equ
+    | Ic_shr_equ
+    | Ic_add_equ
+    | Ic_sub_equ
+    | Ic_mul_equ
+    | Ic_div_equ
+    | Ic_mod_equ
+    | Ic_and_equ
+    | Ic_or_equ
+    | Ic_xor_equ -> true
+    | _ -> false
+  in
+  let branch = function
+    | O.Ic_br_zero | Ic_br_not_zero -> true
+    | _ -> false
+  in
+  let allowed (item : Seq.description) =
+    (if item.opcode = O.Ic_end_exp then item.flags = 0x200L else item.flags = 0L)
+    && Option.is_some (instruction_stamp item)
+    && (update item.opcode || branch item.opcode
+       ||
+       match item.opcode with
+       | O.Ic_rbp
+       | Ic_imm_i64
+       | Ic_add
+       | Ic_sub
+       | Ic_mul
+       | Ic_div
+       | Ic_mod
+       | Ic_and
+       | Ic_or
+       | Ic_xor
+       | Ic_shl
+       | Ic_shr
+       | Ic_com
+       | Ic_not
+       | Ic_unary_minus
+       | Ic_equ_equ
+       | Ic_not_equ
+       | Ic_less
+       | Ic_less_equ
+       | Ic_greater
+       | Ic_greater_equ
+       | Ic_deref
+       | Ic_end_exp
+       | Ic_return_val
+       | Ic_jmp
+       | Ic_ret -> true
+       | _ -> false)
+  in
+  if
+    Option.is_none (Function_body.definition_declaration body)
+    || (not (Function_body.definition_matches_frame body frame))
+    || Function_body.compiler_options body <> Sema.Compiler_option.initial_mask
+    || Int64.logand
+         (Function_body.stored_flags body)
+         (Int64.lognot Function_body.ordinary_calling_flag_mask)
+       <> 0L
+    || List.length locations < 2
+    || List.length locations > 6
+    || (not (List.for_all integer_parameter locations))
+    || (not (safe_register_requests locations))
+    || List.length blocks > 64
+    || List.length code > 512
+    || (not (List.exists (fun item -> branch item.Seq.opcode) code))
+    || not (List.for_all allowed code)
+  then None
+  else
+    let produced =
+      List.fold_left
+        (fun map (item : Seq.description) ->
+          match item.result with
+          | None -> map
+          | Some result -> Values.add result.value_id item map)
+        Values.empty code
+    in
+    let users id =
+      List.filter
+        (fun (item : Seq.description) ->
+          List.exists (Seq.Value_id.equal id) item.operands)
+        code
+    in
+    let location_at offset =
+      List.find_opt
+        (fun location ->
+          Frame.frame_slot_displacement
+            (Option.get (Frame.location_frame_slot location))
+          = offset)
+        locations
+    in
+    let frame_address (item : Seq.description) =
+      match (item.opcode, item.operands, item.result) with
+      | O.Ic_add, [ left; right ], Some result ->
+          let rbp id =
+            Option.fold ~none:false
+              ~some:(fun (d : Seq.description) -> d.opcode = O.Ic_rbp)
+              (Values.find_opt id produced)
+          in
+          let offset id =
+            Option.bind (Values.find_opt id produced)
+              (fun (d : Seq.description) ->
+                match (d.opcode, d.payload) with
+                | O.Ic_imm_i64, Some (Seq.Integer n) -> Some n
+                | _ -> None)
+          in
+          let offset =
+            if rbp left then offset right
+            else if rbp right then offset left
+            else None
+          in
+          Option.bind offset (fun n ->
+              Option.bind (location_at n) (fun location ->
+                  Option.bind item.target_type (fun pointer ->
+                      match Sema.Type.dereference pointer with
+                      | Ok actual
+                        when Sema.Type.equal actual
+                               (Frame.location_checked_type location) ->
+                          Some (result.value_id, location)
+                      | _ -> None)))
+      | _ -> None
+    in
+    let addresses = List.filter_map frame_address code in
+    let address id =
+      List.find_opt (fun (other, _) -> Seq.Value_id.equal id other) addresses
+    in
+    let load id =
+      Option.bind (Values.find_opt id produced) (fun (item : Seq.description) ->
+          match (item.opcode, item.operands) with
+          | O.Ic_deref, [ target ] -> address target
+          | _ -> None)
+    in
+    let safe_address (id, location) =
+      let consumers = users id in
+      consumers <> []
+      && List.for_all
+           (fun (item : Seq.description) ->
+             Option.fold ~none:false
+               ~some:(Sema.Type.equal (Frame.location_checked_type location))
+               item.target_type
+             &&
+             match (item.opcode, item.operands) with
+             | O.Ic_deref, [ target ] -> Seq.Value_id.equal target id
+             | opcode, [ target; _ ] when update opcode ->
+                 Seq.Value_id.equal target id
+             | _ -> false)
+           consumers
+    in
+    let safe_instruction (item : Seq.description) =
+      match (item.opcode, item.operands, item.result) with
+      | O.Ic_rbp, [], Some result ->
+          let consumers = users result.value_id in
+          consumers <> []
+          && List.for_all
+               (fun item -> Option.is_some (frame_address item))
+               consumers
+      | O.Ic_deref, [ target ], _ -> Option.is_some (address target)
+      | opcode, [ target; operand ], Some result when update opcode -> (
+          Option.is_some (address target)
+          && Option.is_some (load operand)
+          &&
+          match users result.value_id with
+          | [ consumer ] -> consumer.opcode = O.Ic_end_exp
+          | _ -> false)
+      | opcode, _, _ when update opcode -> false
+      | _ -> true
+    in
+    if
+      not
+        (List.for_all safe_address addresses
+        && List.for_all safe_instruction code)
+    then None
+    else
+      Some
+        {
+          frame_ = frame;
+          body_ = body;
+          definition_ = Function_body.definition_declaration body;
+          source_ = Function_body.definition_source body;
+          options_ = Function_body.compiler_options body;
+          flags_ = Function_body.stored_flags body;
+          locations_ =
+            List.map
+              (fun location -> Option.get (location_stamp location))
+              locations;
+          blocks_ = blocks;
+          stamps_ =
+            List.map
+              (fun item -> (item, Option.get (instruction_stamp item)))
+              code;
+          selections_ =
+            List.map
+              (fun location ->
+                ( Frame.location_symbol location,
+                  if
+                    not
+                      (List.exists
+                         (fun (_, original) -> original == location)
+                         addresses)
+                  then Unknown
+                  else if
+                    Frame.location_register_selection location
+                    = Request.Disabled
+                  then Stack
+                  else Register_candidate ))
+              locations;
+        }
+
 let analyze ~frame ~body =
   match analyze_parameter ~frame ~body with
   | Some proof -> Some proof
-  | None -> analyze_local ~frame ~body
+  | None -> (
+      match analyze_local ~frame ~body with
+      | Some proof -> Some proof
+      | None -> analyze_control_parameters ~frame ~body)
 
 let selection t ~frame ~body ~symbol =
   if

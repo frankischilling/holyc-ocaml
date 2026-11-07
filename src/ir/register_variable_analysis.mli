@@ -25,8 +25,13 @@ val analyze :
     and signedness may differ. Two to five updates may also revisit a target,
     provided every operand parameter remains unchanged. Distinct R12 through R15
     requests are covered in these call-free shapes. Other explicit registers,
-    conflicting requests, escapes, extra locals and other control flow remain
-    unproved. The witness itself does not alter execution. *)
+    conflicting requests, escapes and extra locals remain unproved. A separate
+    whole-function proof covers branches and loops over two to six integer
+    parameters, with statement-only compound updates whose operands are direct
+    parameter reads. It accepts up to 64 blocks and 512 instructions, no calls,
+    no address escapes, no Boolean parameters and only default compiler options.
+    Other control flow remains unproved. The witness itself does not alter
+    execution. *)
 
 val selection :
   t ->

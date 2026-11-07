@@ -3057,7 +3057,6 @@ let remainder_selection () =
           "I64 F(I8 x,I64 c){x%=x;return x;}42;";
           "I64 F(I8 x,I64 c){c+=x;x%=c;return x;}42;";
           "I64 F(I8 x,I64 c){I8 *p=&x;x%=c;return x;}42;";
-          "I64 F(I8 x,I64 c){if(c)x%=c;return x;}42;";
           "I64 F(I8 reg RAX x,I64 c){x%=c;return x;}42;";
           "I64 F(I8 reg R12 x,I64 reg R12 c){x%=c;return x;}42;";
         ])
@@ -4545,6 +4544,62 @@ let local_ownership () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let control_flow_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let fn = compile mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let x = Frame.location_symbol (location fn.frame "x") in
+          Alcotest.(check bool)
+            "control-flow register value" true
+            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x
+            = Some Analysis.Register_candidate);
+          let foreign = compile mode source in
+          Alcotest.(check bool)
+            "control-flow foreign frame rejected" true
+            (Option.is_none
+               (Analysis.selection proof ~frame:foreign.frame ~body:fn.body
+                  ~symbol:x)))
+        [
+          "I64 F(I8 x,I64 c){if(c)x<<=c;return x;}42;";
+          "I64 F(I8 x,I64 c){if(c)x%=c;return x;}42;";
+          "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x+=c;n-=one;}return x;}42;";
+          "I64 F(I8 x,I64 n,I64 c,I64 one){do{x*=c;n-=one;}while(n);return \
+           x;}42;";
+          "I64 F(I8 x,I64 n,I64 c,I64 one){for(;n;n-=one){x+=c;}return x;}42;";
+          "I64 F(I8 x,I64 n,I64 c,I64 one){again:if(!n)goto \
+           done;x+=c;n-=one;goto again;done:return x;}42;";
+        ];
+      let source =
+        "I64 F(I8 noreg x,I64 n,I64 c,I64 one){while(n){x+=c;n-=one;}return \
+         x;}42;"
+      in
+      let fn = compile mode source in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let x = Frame.location_symbol (location fn.frame "x") in
+      Alcotest.(check bool)
+        "control-flow noreg remains stack" true
+        (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x
+        = Some Analysis.Stack);
+      let instruction =
+        Graph.blocks (Body.body fn.body)
+        |> List.concat_map (fun block ->
+            Seq.instructions (Graph.instructions block))
+        |> List.find (fun item ->
+            (Seq.description item).opcode = Ir_opcode.Ic_br_zero)
+        |> Seq.description
+      in
+      Obj.set_field (Obj.repr instruction) 6 (Obj.repr 1L);
+      Alcotest.(check bool)
+        "control-flow changed branch invalidates proof" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_selection () =
   List.iter
     (fun mode ->
@@ -4555,6 +4610,13 @@ let unsupported_selection () =
             "unproved allocation remains unknown" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
+          "I64 F(I8 x,I64 c){if(c)x+=1;return x;}42;";
+          "I64 F(I8 x,I64 c){if(c)return x+=c;return x;}42;";
+          "I64 F(I8 x,I64 c){I8 *p=&x;if(c)*p+=c;return x;}42;";
+          "I64 F(I8 x,I64 c,I64 a,I64 b,I64 d,I64 e,I64 f){if(c)x+=c;return \
+           x;}42;";
+          "I64 F(I8 reg R12 x,I64 reg R12 c){if(c)x+=c;return x;}42;";
+          "I64 F(I8 x,Bool c){if(c)x+=c;return x;}42;";
           "I64 F(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}42;";
           "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
           "I64 F(){I8 x=255;x++;x++;return x;}42;";
@@ -4582,7 +4644,6 @@ let unsupported_selection () =
           "I64 F(){I8 x=255;x-=2147483648;return x;}42;";
           "I64 F(I8 x,I64 c,I64 a,I64 b,I64 d,I64 e,I64 f){x<<=c;return \
            x+a+b+d+e+f;}42;";
-          "I64 F(I8 x,I64 c){if(c)x<<=c;return x;}42;";
           "I64 F(I8 x,I64 c){x<<=c;return c;}42;";
           "I64 F(I8 x,I64 c){x<<=c;return 42;}42;";
           "I64 F(I8 x,I64 c){return x;x<<=c;}42;";
@@ -4760,6 +4821,8 @@ let () =
           Alcotest.test_case "local return selection" `Quick
             local_return_selection;
           Alcotest.test_case "local ownership" `Quick local_ownership;
+          Alcotest.test_case "control-flow parameter selection" `Quick
+            control_flow_selection;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;
           Alcotest.test_case "original ownership" `Quick ownership;
         ] );

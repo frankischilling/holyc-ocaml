@@ -157,6 +157,15 @@ let () =
             if target = "host-jit-task" && mode = "jit" then 34 else 33
           in
           run ~steps source "258" target mode;
+          run ~fault:true ~steps:(steps - 1) source "HCIRVM0007" target mode;
+          let source =
+            "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x+=c;n-=one;}return \
+             x;}F(127,3,2,1);"
+          in
+          let steps =
+            if target = "host-jit-task" && mode = "jit" then 99 else 98
+          in
+          run ~steps source "133" target mode;
           run ~fault:true ~steps:(steps - 1) source "HCIRVM0007" target mode)
         [ "jit"; "aot" ])
     targets;
@@ -3153,6 +3162,102 @@ let () =
           "4295032693" );
       ]
   in
+  let control_cases =
+    List.concat_map
+      (fun (type_, bits, signed, initial) ->
+        let normalize value =
+          let shift = 64 - bits in
+          let value = Int64.shift_left value shift in
+          if signed then Int64.shift_right value shift
+          else Int64.shift_right_logical value shift
+        in
+        List.concat_map
+          (fun (qualifier, stack) ->
+            List.map
+              (fun (operator, count, operation) ->
+                let rec repeat n value =
+                  if n = 0 then value
+                  else
+                    let updated = operation value count in
+                    repeat (n - 1)
+                      (if stack then normalize updated else updated)
+                in
+                ( Printf.sprintf
+                    "I64 F(%s %s x,I64 n,I64 c,I64 \
+                     one){while(n){x%s=c;n-=one;}return x;}F(%Ld,3,%Ld,1);"
+                    type_ qualifier operator initial count,
+                  Int64.to_string (repeat 3 initial) ))
+              [
+                ("+", 2L, Int64.add);
+                ("-", 256L, Int64.sub);
+                ("*", 2L, Int64.mul);
+                ("/", 2L, Int64.div);
+                ("%", 2L, Int64.rem);
+                ("&", 256L, Int64.logand);
+                ("|", 256L, Int64.logor);
+                ("^", 256L, Int64.logxor);
+                ( "<<",
+                  1L,
+                  fun value count -> Int64.shift_left value (Int64.to_int count)
+                );
+                ( ">>",
+                  1L,
+                  fun value count ->
+                    Int64.shift_right_logical value (Int64.to_int count) );
+              ])
+          [ ("", false); ("reg R12", false); ("noreg", true) ])
+      [
+        ("I8", 8, true, 127L);
+        ("U8", 8, false, 255L);
+        ("I16", 16, true, 32767L);
+        ("U16", 16, false, 65535L);
+        ("I32", 32, true, 2147483647L);
+        ("U32", 32, false, 4294967295L);
+      ]
+  in
+  let cases =
+    cases @ control_cases
+    @ [
+        (read "../examples/register-control-flow.hc", "256");
+        ( "I64 F(I8 x,I64 n,I64 one){while(n){x+=x;n-=one;}return x;}F(127,3,1);",
+          "1016" );
+        ( "I64 F(I8 x,U8 y,I64 n,I64 one){while(n){x+=y;y-=x;n-=one;}return \
+           x+y;}F(127,255,3,1);",
+          "-382" );
+        ( "I64 F(I8 noreg x,U8 noreg y,I64 n,I64 \
+           one){while(n){x+=y;y-=x;n-=one;}return x+y;}F(127,255,3,1);",
+          "-126" );
+        ( "I64 F(I8 x,I64 n,I64 c,I64 \
+           one){while(n){n-=one;if(n!=one){x+=c;}if(n==0)break;}return \
+           x;}F(127,4,2,1);",
+          "133" );
+        ( "I64 F(I8 x,I64 n,I64 c,I64 one){do{x+=c;n-=one;}while(n);return \
+           x;}F(127,3,2,1);",
+          "133" );
+        ( "I64 F(I8 x,I64 n,I64 c,I64 one){for(;n;n-=one){x+=c;}return \
+           x;}F(127,3,2,1);",
+          "133" );
+        ( "I64 F(I8 x,I64 n,I64 c,I64 one){again:if(!n)goto \
+           done;x+=c;n-=one;goto again;done:return x;}F(127,3,2,1);",
+          "133" );
+        ( "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x+=c;if(x>128)return \
+           x;n-=one;}return x;}F(127,3,2,1);",
+          "129" );
+        ( "I64 F(I8 noreg x,I64 n,I64 c,I64 one){while(n){x+=c;if(x>128)return \
+           x;n-=one;}return x;}F(127,3,2,1);",
+          "-123" );
+        ( "I64 F(I8 x,U16 y,I64 n,I64 c,I64 d,I64 \
+           one){while(n){x+=c;y*=d;n-=one;}return x+y;}F(127,65535,3,2,2,1);",
+          "524413" );
+        ( "I64 F(I8 noreg x,U16 noreg y,I64 n,I64 c,I64 d,I64 \
+           one){while(n){x+=c;y*=d;n-=one;}return x+y;}F(127,65535,3,2,2,1);",
+          "65405" );
+        ( "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x+=c;n-=one;}return \
+           x;}F(255,0,2,1);",
+          "-1" );
+        ("I64 F(I8 x,I64 c){if(c)x<<=c;return x;}F(127,1);", "254");
+      ]
+  in
   List.iter
     (fun target ->
       List.iter
@@ -3174,6 +3279,12 @@ let () =
   in
   let faults =
     [
+      ( "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x/=c;n-=one;}return \
+         x;}F(127,3,0,1);",
+        "HCIRVM0009" );
+      ( "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x%=c;n-=one;}return \
+         x;}F(127,3,0,1);",
+        "HCIRVM0009" );
       ("I64 F(I8 x,I64 c){x%=c;return x;}F(1,0);", "HCIRVM0009");
       ("I64 F(U8 x,I64 c,I64 d){x+=c;x%=d;return x;}F(255,2,0);", "HCIRVM0009");
       ( "I64 F(I8 x,I64 c,I64 d){x*=c;x%=d;return x;}F(1,0x8000000000000000,-1);",
@@ -3242,6 +3353,6 @@ let () =
           [ "host-jit"; "host-jit-task" ])
       [ "jit"; "aot" ];
   Printf.printf "Register execution checks passed (%d reports).\n"
-    ((List.length targets * 2 * (List.length cases + List.length faults + 2))
+    ((List.length targets * 2 * (List.length cases + List.length faults + 4))
     + 12
     + if native then 8 else 0)

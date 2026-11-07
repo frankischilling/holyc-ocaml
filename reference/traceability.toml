@@ -15076,3 +15076,15 @@ status = "partial"
 issue = 703
 verification = "Independent exact frame sizes and one-below limits for sequential, reordered, diamond and loop-backedge graphs; native expected values, VM comparison, repeated execution and cleanup after budget faults. Both host ABIs compile the graph fixtures."
 evidence_limit = "Hosted temporary homes, not TempleOS machine-code parity or a new source capture. Callable graphs with hidden reference dependencies or shared pointer values keep permanent homes. General source and floating register allocation remain open."
+
+[[feature]]
+id = "HC-REGISTER-PARAMETER-CONTROL-FLOW"
+description = "Preserve source-selected narrow parameter values across bounded branches and loops."
+sources = ["Compiler/OptPass3.HC:223-247,511-621", "Compiler/CInit.HC:244-257", "Kernel/KernelA.HH:1804-1805", "Compiler/OptPass4.HC:196-219,348-398", "Compiler/OptPass789A.HC:698-719", "Compiler/PrsStmt.HC:150,842-852"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-control-flow.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-derived expected values for six narrow widths and ten dynamic compound operators across branches, loops, register and stack controls, changed operands, early returns, gotos, zero iterations, arithmetic faults and exact step limits. Ownership tests reject foreign frames and changed branch records."
+evidence_limit = "Two to six integer parameters, no locals or calls, nonescaping addresses, statement-only compound results, parameter-read operands, default options, distinct R12-R15 requests, up to 64 blocks and 512 instructions. No new TempleOS runtime capture or general physical/floating register allocator is claimed."
