@@ -481,9 +481,10 @@ the consuming initializer; self-initialization and uninitialized reads remain
 unproved.
 
 [Consumed selected assignments](register-variable-analysis.md#consumed-selected-assignments)
-retain register storage when a plain assignment feeds a condition or return.
-Stack-selected and unknown-pressure destinations remain excluded because their
-by-value expression results need separate optimizer rules.
+retain proven storage when a plain assignment feeds a condition or return.
+Register destinations preserve the full RHS word; stack destinations reload
+the stored value at its declared width. Unknown-pressure destinations remain
+excluded, and pointer/global assignment rules are unchanged.
 
 [Physical R12-R15 variables](register-variable-analysis.md#physical-r12-r15-variables)
 use authenticated explicit requests, typed parameter entry and per-invocation
@@ -503,3 +504,10 @@ plain `reg` candidate among at most six possible candidates. Complete original
 parameter membership and explicit reservations are required. R10/R11 slots,
 ambiguous score order and unnamed-formal functions remain unproved. The same
 save slots, bridge preservation and unwind checks apply to these placements.
+
+[Scored straight-line allocation](register-variable-analysis.md#scored-straight-line-allocation)
+replays original occurrence scores, unstable ties and both integer variable
+banks for authenticated scalar functions. Pressure losers use declared-width
+stack storage; R10/R11 winners retain full-word private homes. Original body
+and request receipts prevent an unsupported or altered exact proof from gaining
+unsafe authority through the conservative fallback.

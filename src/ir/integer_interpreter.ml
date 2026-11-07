@@ -187,7 +187,7 @@ and frame_slot = {
   slot_callback : Sema.Function_type_resolution.function_pointer option;
   stored_type : stored_type;
   wide_register : bool;
-  narrow_update_result : bool;
+  proved_stack : bool;
   initial : runtime_value option;
   object_count : int;
   strides : int64 list;
@@ -249,7 +249,7 @@ and prepared_operation =
   | Materialize_address of storage_location * Value_id.t * Type.t
   | Load_slot of storage_location * Value_id.t
   | Store_slot of
-      storage_location * prepared_value * Value_id.t * stored_type * bool
+      storage_location * prepared_value * Value_id.t * stored_type * bool * bool
   | Update_slot of
       storage_location
       * binary_operation
@@ -6659,9 +6659,10 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
         = Some Register_variable_analysis.Register_candidate)
       register_proof
   in
-  let narrow_update_result location =
-    (* For a proven stack slot, directly returned addition and subtraction
-       use the narrowed stored value; other supported compound results stay wide. *)
+  let proved_stack location =
+    (* This authenticates stack selection, not merely absence of a register
+       proof. Direct assignments reload this storage; compound results keep
+       their independent operator-specific rules. *)
     Option.fold ~none:false
       ~some:(fun proof ->
         Register_variable_analysis.selection proof ~frame ~body:function_
@@ -7004,7 +7005,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                   slot_callback = callback;
                   stored_type;
                   wide_register = wide_register location;
-                  narrow_update_result = narrow_update_result location;
+                  proved_stack = proved_stack location;
                   initial;
                   object_count = Int64.to_int count;
                   strides;
@@ -7049,7 +7050,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               slot_callback = None;
               stored_type = Stored_word I64;
               wide_register = false;
-              narrow_update_result = false;
+              proved_stack = false;
               initial = None;
               object_count = 1;
               strides = [];
@@ -8266,9 +8267,13 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                      operand,
                                      result.value_id,
                                      stored_type,
-                                     match (frame, location) with
+                                     (match (frame, location) with
                                      | Some context, Frame_slot (index, _) ->
                                          context.slots.(index).wide_register
+                                     | _ -> false),
+                                     match (frame, location) with
+                                     | Some context, Frame_slot (index, _) ->
+                                         context.slots.(index).proved_stack
                                      | _ -> false ))
                           | _ ->
                               Error (invalid_type_matrix block_id description))
@@ -8295,8 +8300,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                      &&
                                      match (frame, location) with
                                      | Some context, Frame_slot (index, _) ->
-                                         context.slots.(index)
-                                           .narrow_update_result
+                                         context.slots.(index).proved_stack
                                      | Some context, Global_slot slot ->
                                          Option.fold ~none:false
                                            ~some:(fun proof ->
@@ -12743,7 +12747,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   with
                   | None -> ()
                   | Some value -> values := Value_map.add result value !values)
-              | Store_slot (location, operand, result, type_, wide_register)
+              | Store_slot
+                  (location, operand, result, type_, wide_register, proved_stack)
                 -> (
                   match require_value block instruction operand with
                   | None -> ()
@@ -12768,14 +12773,20 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                               stored_value
                           then
                             let expression_value =
-                              match (type_, operand) with
-                              | Stored_narrow scalar, Runtime_word word ->
-                                  Runtime_word
-                                    {
-                                      type_ = scalar_runtime_type scalar;
-                                      bits = word.bits;
-                                    }
-                              | _ -> value
+                              (* BackC's by-value path reloads a direct frame
+                                 destination after storing. Only authenticated
+                                 stack slots take this rule; pointer/global and
+                                 unproved assignments retain their own paths. *)
+                              if proved_stack then stored_value
+                              else
+                                match (type_, operand) with
+                                | Stored_narrow scalar, Runtime_word word ->
+                                    Runtime_word
+                                      {
+                                        type_ = scalar_runtime_type scalar;
+                                        bits = word.bits;
+                                      }
+                                | _ -> value
                             in
                             values :=
                               Value_map.add result expression_value !values

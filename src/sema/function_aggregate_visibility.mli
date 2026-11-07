@@ -70,6 +70,12 @@ val function_symbol : function_ -> Symbol.t
 val function_compilation_options : function_ -> int64
 (** Options from this exact body's authenticated completion receipt. *)
 
+val function_source_body : function_ -> Frontend.Ast.function_definition option
+(** Original complete body authenticated by the same parser completion receipt.
+    This preserves statement membership, including statements with no typed
+    expression roots. An independently sealed original syntax snapshot rejects
+    later mutation; this grants no executable or allocation authority. *)
+
 val before_expression : function_ -> Frontend.Ast.expression -> int option
 
 val before_local : function_ -> Frontend.Ast.identifier -> int option

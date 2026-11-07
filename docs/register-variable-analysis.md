@@ -502,7 +502,7 @@ and hosted execution checks, not new TempleOS runtime captures.
 ## Consumed selected assignments
 
 Plain assignments may feed a condition, return or other accepted expression
-when their destination is already proven to be a register variable. For
+when their destination storage is already proven. For
 `I64 F(I8 x,I64 a){if(x=a+1)return x;return -1;}`, `F(0,255)` retains and returns
 256. Selection no longer disappears merely because the assignment result is
 used. The [example](../examples/register-consumed-assignment.hc) exercises
@@ -514,14 +514,21 @@ BackC.HC:162-170 stores and reads that destination, and BackLib.HC:509-512
 keeps register-to-register copies at full width. OptPass6.HC:144-155 and
 BackB.HC:646-659 pass the result to a branch without narrowing it again.
 
-The proof excludes stack-selected and unknown-pressure destinations. TempleOS's
-by-value memory path reloads the narrowed destination, unlike the current hosted
-RHS-forwarding rule. For the same function with `noreg x`, source predicts -1
-while the hosted path currently returns 0. That existing optimizer boundary
-remains open; accepting its assignment into this proof would hide it. Consumed
-compound updates, casts and nested assignment operands remain outside this
-extension. The evidence is pinned source and hosted tests, not a new TempleOS
-runtime capture.
+For a proven stack destination, the assignment result now reloads the stored
+value at its declared width. The same function with `noreg x` stores zero and
+returns -1 because the condition sees zero. Signed narrow destinations reload
+with sign extension; unsigned destinations reload with zero extension. This
+also applies when an accepted assignment feeds arithmetic, a named call or a
+loop condition. Register destinations retain the full RHS word.
+
+The interpreter returns the stored scalar, and native code loads the destination
+immediately after its store. Both require an authenticated `Stack` selection.
+Unknown pressure is not treated as proof of stack storage. Pointer and global
+assignments keep their separate non-by-value result rules, and the existing
+operator-specific compound-result behavior is unchanged. Consumed compound
+updates, casts and nested assignment operands remain outside this extension.
+The evidence is pinned source and hosted tests, not a new TempleOS runtime
+capture.
 
 ## Physical R12-R15 variables
 
@@ -601,7 +608,8 @@ byte-identical TempleOS function prologues or new TempleOS runtime captures.
 
 ## Bounded automatic placement
 
-A sole automatic integer candidate can now use the first free general variable
+Outside the exact straight-line subset below, the conservative proof handles
+a bounded set of automatic placements. A sole automatic integer candidate can now use the first free general variable
 register. A sole plain `reg` candidate can also take that position when there
 are at most six possible automatic candidates. The existing source-owned
 selection proof must first classify the target as `Register_candidate`.
@@ -623,8 +631,9 @@ reverse that forced priority. OptPass3.HC:538-546 sorts and filters candidates,
 557-584 enables R12/R13 only above six surviving candidates, and 586-611 assigns
 the first free general register. CInit.HC:244-256 constructs the ascending map.
 OptLib.HC:562-565 compares scores without a tie breaker, and
-Kernel/QSort.HC:55-83,95-101 can swap equal scores. This implementation therefore
-does not invent an ordering for multiple ordinary candidates.
+Kernel/QSort.HC:55-83,95-101 can swap equal scores. This conservative path therefore
+does not invent an ordering for multiple ordinary candidates. The exact path
+below reproduces the original sort when the complete score can be proved.
 
 The witness authenticates every source request used for counting, exclusions
 or reservations, including its original owner, spelling, origin and explicit
@@ -637,7 +646,7 @@ assign the wrong register.
 
 These placements reuse typed parameter entry, per-invocation saves, host bridge
 preservation and Windows unwind validation. They do not remove private frame
-homes or complete the score-based allocator. Evidence remains pinned TempleOS
+homes or provide general score-based allocation. Evidence remains pinned TempleOS
 source and hosted regression tests, not a new TempleOS runtime capture.
 
 The automatic-placement suite checks all eight integer widths, plain and forced
@@ -646,3 +655,53 @@ bridges and recovery after faults in the same retained image. It decodes the
 emitted register moves and saves as well as comparing IR and native results.
 Option-byte checks use the JIT directive task; public option execution is tested
 separately in both JIT and AOT modes.
+
+## Scored straight-line allocation
+
+Straight-line integer functions can now use the original score and allocation
+order instead of the conservative capacity estimate. The supported source has
+named scalar parameters, initialized automatic locals, ordinary integer
+expressions, discarded assignments or updates, and a final return. Calls,
+branches, loops, casts, pointer operations, aggregates, statics and nested writes
+remain outside this exact subset. The checker also limits functions to 32 frame
+members, 512 entry instructions and expression depth 32. The broader
+conservative proofs still cover
+their previously supported shapes.
+
+Each original direct member read or write target contributes two score points.
+PrsExp.HC:800-802 emits its frame address; OptPass3.HC:187-198 scores the LEA,
+and its matching dereference or write scores again at 119-135,149-163,223-244.
+Initializers count as writes. The admitted OptPass012 arithmetic rewrites retain
+these member occurrences. The checker matches each original source root to its
+canonical IR and requires a unique address and consumer for each occurrence.
+Extra, missing or shared accesses cannot acquire a score.
+
+Members start in source declaration order, as appended by
+PrsVar.HC:525-529 and LexLib.HC:146-147. Plain `reg` starts at `I64_MAX/2`;
+ordinary members start at zero. Explicit requests reserve registers even when
+unused. All candidates, including unused zero-score members, pass through the
+original unstable QSort2b order before zero-score records are removed. Equal
+scores do not use a new name or declaration-order tie breaker. For example,
+two equal candidates `a,b` sort as `b,a`.
+
+After filtering, more than six candidates opens the first free R12/R13 slots.
+The remaining candidates use RSI, RDI, R10, R11, R14 and R15 in that order,
+skipping explicit reservations. R10/R11 occupy their actual positions in this
+calculation but retain full-word private homes in the hosted backend. Used
+winners are register variables; used losers are proven stack variables and
+narrow at their declared width. `NO_REG_VAR` disables ordinary and plain-`reg`
+selection while preserving explicit requests.
+
+The [pressure example](../examples/scored-register-pressure.hc) gives nine
+members equal scores and distinguishes the spilled member with weighted
+results. This tests the actual tie order, not merely the number of registers.
+The register maps come from OptPass3.HC:538-611 and CInit.HC:244-256; the sort
+and comparator come from Kernel/QSort.HC:55-83,95-101 and OptLib.HC:556-565.
+
+A retained original body receipt covers statements without expression results,
+including empty or unreachable control syntax. Missing, copied or changed
+receipts cannot authorize exact allocation or its conservative fallback.
+Original try/catch disables these automatic proofs because PrsStmt.HC:852 sets
+`CCF_NO_REG_OPT`. Every member's request must also agree with its sealed source;
+a failed exact proof cannot fall back to a different semantic register request.
+These are pinned-source and hosted checks, not new TempleOS runtime captures.

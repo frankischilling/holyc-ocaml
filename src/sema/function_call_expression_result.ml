@@ -294,6 +294,8 @@ type resolved_function = {
   initializers : initializer_result list;
   expression_results : expression_result list;
   compilation_options : int64 option;
+  source_body : Function_aggregate_visibility.function_ option;
+  source_body_owner : Function_aggregate_visibility.function_ option;
 }
 
 and initializer_result = {
@@ -460,6 +462,27 @@ let function_symbol (function_ : resolved_function) = function_.symbol
 
 let function_compilation_options (function_ : resolved_function) =
   function_.compilation_options
+
+let function_source_body (function_ : resolved_function) =
+  if Option.equal ( == ) function_.source_body function_.source_body_owner then
+    Option.bind function_.source_body
+      Function_aggregate_visibility.function_source_body
+  else None
+
+let function_source_body_valid (function_ : resolved_function) =
+  Option.equal ( == ) function_.source_body function_.source_body_owner
+  &&
+  match (function_.source_body, function_.compilation_options) with
+  | None, None -> true
+  | Some owner, Some options ->
+      Function_aggregate_visibility.function_symbol owner == function_.symbol
+      && Function_aggregate_visibility.function_item_index owner
+         = function_.item_index
+      && Function_aggregate_visibility.function_compilation_options owner
+         = options
+      && Option.is_some
+           (Function_aggregate_visibility.function_source_body owner)
+  | _ -> false
 
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
@@ -5818,6 +5841,9 @@ let type_function table members policies outer state source =
                                         switch_cases;
                                         returns;
                                         initializers;
+                                        source_body = state.function_visibility;
+                                        source_body_owner =
+                                          state.function_visibility;
                                         compilation_options =
                                           Option.map
                                             Function_aggregate_visibility

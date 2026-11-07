@@ -4,7 +4,8 @@ module Program = X86_64_program
 module Runtime = Native_program_execution
 module Disassembly = Asm_disassembler
 
-(* This is a bounded source-derived allocation proof, not a general allocator
+(* This exercises the conservative fallback proof outside the scored subset,
+   not a general allocator
    or a byte-for-byte TempleOS compiler oracle. OptPass3.HC:22-48 reserves
    explicit registers even when unused and seeds plain reg with I64_MAX/2.
    CInit.HC:244-256 and OptPass3.HC:557-601 establish the first free general
@@ -447,8 +448,9 @@ let reservation_cases =
 let priority_cases =
   [
     case ~register:"RSI"
-      "sole forced parameter precedes five ordinary candidates"
-      "I64 F(I64 a,I64 b,I64 c,I64 d,I64 e,I64 reg x){return \
+      "branch fallback keeps sole forced parameter ahead of five ordinary \
+       candidates"
+      "I64 F(I64 a,I64 b,I64 c,I64 d,I64 e,I64 reg x){if(a<0)return x;return \
        x+a+b+c+d+e;}F(1,2,3,4,5,27);"
       42L;
     case ~register:"RSI"
@@ -457,16 +459,19 @@ let priority_cases =
        x;}F(1,2,3,4,5,42);"
       42L;
     case ~register:"RSI"
-      "sole forced local precedes ordinary parameter and locals"
-      "I64 F(I64 a){I64 b=a;I64 c=a;I64 d=a;I64 e=a;I64 reg x=a+1;return \
-       x+a+b+c+d+e;}F(7);"
+      "branch fallback keeps sole forced local ahead of ordinary members"
+      "I64 F(I64 a){I64 b=a;I64 c=a;I64 d=a;I64 e=a;I64 reg \
+       x=a+1;if(a<0)return x;return x+a+b+c+d+e;}F(7);"
       43L;
-    case ~register:"RDI"
-      "sole forced candidate respects unused explicit reservation"
-      "I64 F(I64 reg RSI reserved,I64 a,I64 reg x){return x+a;}F(0,12,30);" 42L;
+    case ~register:"RDI" "branch fallback respects unused explicit reservation"
+      "I64 F(I64 reg RSI reserved,I64 a,I64 reg x){if(a<0)return x;return \
+       x+a;}F(0,12,30);"
+      42L;
     case ~register:"RSI"
-      "sole forced specialized target precedes unknown operand"
-      "I64 F(I8 reg x,I64 count){x<<=count;return x;}F(127,1);" 254L;
+      "branch fallback keeps forced target ahead of unknown operand"
+      "I64 F(I8 reg x,I64 count){if(count<0)return x;x<<=count;return \
+       x;}F(127,1);"
+      254L;
     case ~register:"RSI"
       ~directive_body:
         "Option(34,0);I64 F(I8 x){x+=3;return x;}Option(34,1);F(127);"
@@ -478,31 +483,33 @@ let priority_cases =
 
 let negative_cases =
   [
-    case "two ordinary candidates have no proved order"
-      "I64 F(I64 x,I64 y){return x+y;}F(20,22);" 42L;
-    case "unequal ordinary use counts do not invent a score proof"
-      "I64 F(I64 x,I64 y){return x+x+x+y;}F(10,12);" 42L;
-    case "two forced candidates have no proved tie order"
-      "I64 F(I64 reg x,I64 reg y){return x+y;}F(20,22);" 42L;
-    case "unused forced member still prevents a unique forced candidate"
-      "I64 F(I64 reg x,I64 reg unused){return x;}F(42,0);" 42L;
-    case "unused ordinary member still prevents a sole candidate"
-      "I64 F(I64 x,I64 unused){return x;}F(42,0);" 42L;
-    case "unused initialized local still prevents a sole candidate"
-      "I64 F(){I64 unused=0;I64 x=42;return x;}F();" 42L;
-    case "unknown specialized operand still counts"
-      "I64 F(I8 x,I64 count){x<<=count;return x;}F(127,1);" 254L;
-    case "six unused ordinary members keep forced candidate above six"
-      "I64 F(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 reg x){return \
-       x;}F(0,0,0,0,0,0,42);"
+    case "branch fallback does not invent a two-member tie order"
+      "I64 F(I64 x,I64 y){if(x<0)return y;return x+y;}F(20,22);" 42L;
+    case "branch fallback does not invent unequal scores"
+      "I64 F(I64 x,I64 y){if(x<0)return y;return x+x+x+y;}F(10,12);" 42L;
+    case "branch fallback does not invent a forced tie order"
+      "I64 F(I64 reg x,I64 reg y){if(x<0)return y;return x+y;}F(20,22);" 42L;
+    case "branch fallback counts unused forced member"
+      "I64 F(I64 reg x,I64 reg unused){if(x<0)return 0;return x;}F(42,0);" 42L;
+    case "branch fallback counts unused ordinary member"
+      "I64 F(I64 x,I64 unused){if(x<0)return 0;return x;}F(42,0);" 42L;
+    case "branch fallback counts unused initialized local"
+      "I64 F(){I64 unused=0;I64 x=42;if(x<0)return 0;return x;}F();" 42L;
+    case "branch fallback counts specialized operand"
+      "I64 F(I8 x,I64 count){if(count<0)return 0;x<<=count;return x;}F(127,1);"
+      254L;
+    case "branch fallback counts six unused ordinary members"
+      "I64 F(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 reg x){if(x<0)return \
+       0;return x;}F(0,0,0,0,0,0,42);"
       42L;
-    case "six unused initialized locals keep forced candidate above six"
+    case "branch fallback counts six unused initialized locals"
       "I64 F(){I64 a=0;I64 b=0;I64 c=0;I64 d=0;I64 e=0;I64 f=0;I64 reg \
-       x=42;return x;}F();"
+       x=42;if(x<0)return 0;return x;}F();"
       42L;
-    case "narrow forced candidate still counts six unused members"
-      "I64 F(I8 reg x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f){x<<=1;return \
-       x;}F(127,0,0,0,0,0,0);"
+    case
+      "branch fallback counts six unused members beside narrow forced candidate"
+      "I64 F(I8 reg x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f){if(x<0)return \
+       0;x<<=1;return x;}F(127,0,0,0,0,0,0);"
       254L;
     case "noreg remains a declared-width stack parameter"
       "I64 F(I8 noreg x){x+=3;return x;}F(127);" (-126L);

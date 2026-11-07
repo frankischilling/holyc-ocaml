@@ -306,6 +306,8 @@ type t = {
   blocks_ : snapshot list;
   stamps_ : (Seq.description * instruction_stamp) list;
   selections_ : (Sema.Symbol.t * selection) list;
+  exact_registers_ : (Sema.Symbol.t * int) list option;
+  exact_source_ : Exact_register_scores.source_stamp option;
 }
 
 let descriptions block =
@@ -1324,6 +1326,8 @@ let analyze_parameter ~frame ~body =
                 (fun item -> (item, Option.get (instruction_stamp item)))
                 code;
             selections_ = selections;
+            exact_registers_ = None;
+            exact_source_ = None;
           }
 
 let analyze_local ~frame ~body =
@@ -2561,6 +2565,8 @@ let analyze_local ~frame ~body =
               List.map
                 (fun item -> (item, Option.get (instruction_stamp item)))
                 code;
+            exact_registers_ = None;
+            exact_source_ = None;
             selections_ =
               [
                 ( Frame.location_symbol location,
@@ -2580,7 +2586,7 @@ let analyze_local ~frame ~body =
    activation. IC_CALL_INDIRECT2 is admitted only for a named definition's JIT
    address slot, not for a callback. Locals require a single source-owned initializer in the entry block, with
    local dependencies initialized before each read. *)
-let analyze_integer_function ~frame ~body =
+let analyze_integer_function ?exact ~frame ~body () =
   let locations = Frame.function_locations frame in
   let integer_member location =
     (Frame.location_kind location = Frame.Named_parameter
@@ -3204,14 +3210,15 @@ let analyze_integer_function ~frame ~body =
           || Option.fold ~none:false
                ~some:(fun (_, location) ->
                  source_matches_update item
-                 (* BackC's by-value assignment reloads its destination. Only
-                    a proven register destination agrees with RHS forwarding;
-                    a narrow memory destination needs a separate result rule. *)
+                 (* OptPass4 makes these direct frame assignments by-value.
+                    BackC reloads the destination: selected registers preserve
+                    the full RHS, proven stack slots reload at their width.
+                    Unknown pressure must not acquire either result rule. *)
                  && (discarded result
-                    || (not (stack_selected ~body location))
-                       && (register_capacity_fits
-                          || Frame.location_register_selection location
-                             <> Request.Unspecified)))
+                    || stack_selected ~body location
+                    || register_capacity_fits
+                    || Frame.location_register_selection location
+                       <> Request.Unspecified))
                (address target)
       | O.Ic_assign, _, _ -> false
       | O.Ic_deref, [ target ], _ -> Option.is_some (address target)
@@ -3254,12 +3261,67 @@ let analyze_integer_function ~frame ~body =
     in
     if
       not
-        ((register_capacity_fits || pressure_safe)
+        ((Option.is_some exact || register_capacity_fits || pressure_safe)
         && List.for_all safe_address addresses
         && List.for_all initialized_once locations
         && List.for_all safe_instruction code)
     then None
     else
+      let exact_registers =
+        Option.map
+          (fun members ->
+            let explicit =
+              List.filter_map
+                (fun (location, _) ->
+                  match Frame.location_register_selection location with
+                  | Request.Explicit register ->
+                      Some
+                        ( Frame.location_symbol location,
+                          Request.explicit_register_number register )
+                  | _ -> None)
+                members
+            in
+            if registers_disabled body then explicit
+            else
+              let candidates =
+                List.filter_map
+                  (fun (index, (location, occurrences)) ->
+                    let seed =
+                      match Frame.location_register_selection location with
+                      | Request.Unspecified -> Some 0L
+                      | Allocatable -> Some (Int64.div Int64.max_int 2L)
+                      | Disabled | Explicit _ -> None
+                    in
+                    Option.map
+                      (fun seed ->
+                        {
+                          Scored_register_allocation.member = index;
+                          (* PrsExp.HC:800-802 emits one frame address for each
+                             original member occurrence. OptPass3.HC:187-198
+                             adds one score/LEA, then :119-135,149-163,223-244
+                             adds one score and cancels that LEA for its sole
+                             authenticated read/write consumer. Initializers
+                             count as writes. The 32-member/512-instruction
+                             bound cannot overflow the REG_ALLOC seed. *)
+                          score =
+                            Int64.add seed (Int64.of_int (2 * occurrences));
+                          offset =
+                            Frame.frame_slot_displacement
+                              (Option.get (Frame.location_frame_slot location));
+                          lea_balance = 0L;
+                        })
+                      seed)
+                  (List.mapi (fun index member -> (index, member)) members)
+              in
+              explicit
+              @ List.map
+                  (fun (index, number) ->
+                    ( Frame.location_symbol (fst (List.nth members index)),
+                      number ))
+                  (Scored_register_allocation.allocate
+                     ~reserved:(List.map snd explicit) candidates))
+          exact
+      in
       Some
         {
           frame_ = frame;
@@ -3286,6 +3348,14 @@ let analyze_integer_function ~frame ~body =
                 ( Frame.location_symbol location,
                   if not (used location) then Unknown
                   else if stack_selected ~body location then Stack
+                  else if Option.is_some exact_registers then
+                    if
+                      List.exists
+                        (fun (symbol, _) ->
+                          symbol == Frame.location_symbol location)
+                        (Option.get exact_registers)
+                    then Register_candidate
+                    else Stack
                   else if
                     (not register_capacity_fits)
                     && Frame.location_register_selection location
@@ -3293,6 +3363,9 @@ let analyze_integer_function ~frame ~body =
                   then Unknown
                   else Register_candidate ))
               locations;
+          exact_registers_ = exact_registers;
+          exact_source_ =
+            Option.bind exact (fun _ -> Exact_register_scores.stamp_source body);
         }
 
 let complete_parameter_coverage ~frame =
@@ -3344,72 +3417,20 @@ let complete_parameter_coverage ~frame =
          = 1)
        parameters
 
-let analyze ~frame ~body =
-  if not (complete_parameter_coverage ~frame) then None
-  else
-    match analyze_parameter ~frame ~body with
-    | Some proof -> Some proof
-    | None -> (
-        match analyze_local ~frame ~body with
-        | Some proof -> Some proof
-        | None -> analyze_integer_function ~frame ~body)
-
-let selection t ~frame ~body ~symbol =
-  if
-    t.frame_ != frame || t.body_ != body
-    || (not (same_list ( == ) t.parameters_ (signature_parameters frame)))
-    || (not
-          (Option.equal (same_list ( == )) t.parameter_sources_
-             (source_parameters frame)))
-    || (not (Function_body.definition_matches_frame body frame))
-    || (not
-          (Option.equal ( == ) t.definition_
-             (Function_body.definition_declaration body)))
-    || (not
-          (Option.equal ( == ) t.source_ (Function_body.definition_source body)))
-    || t.options_ <> Function_body.compiler_options body
-    || t.flags_ <> Function_body.stored_flags body
-    || (not
-          (same_list
-             (fun original location ->
-               Option.fold ~none:false ~some:(equal_location original)
-                 (location_stamp ~frame location))
-             t.locations_
-             (Frame.function_locations frame)))
-    || (not (matches_blocks t.blocks_ (snapshot body)))
-    || not
-         (List.for_all
-            (fun (item, stamp) ->
-              Option.fold ~none:false ~some:(equal_stamp stamp)
-                (instruction_stamp item))
-            t.stamps_)
-  then None
-  else
-    let find selections =
-      List.find_map
-        (fun (original, selection) ->
-          if original == symbol then Some selection else None)
-        selections
-    in
-    match (find t.selections_, analyze ~frame ~body) with
-    | Some expected, Some current when find current.selections_ = Some expected
-      -> Some expected
-    | _ -> None
-
-let source_owned_requests t ~frame ~body (original : location_stamp) =
+let source_owned_requests ~frame ~body (original : location_stamp) =
   let members =
     match original.kind with
     | Frame.Named_parameter -> Function_body.parameters body
     | Automatic_local -> Function_body.locals body
     | Variadic_argc | Variadic_argv | Static_local -> []
   in
-  Option.is_some t.source_
+  Option.is_some (Function_body.definition_source body)
   && Option.fold ~none:false
        ~some:(fun definition ->
          Sema.Function_resolution.resolved_declaration_site definition
          |> Sema.Function_resolution.declaration_site_function
          |> ( == ) (Frame.function_header frame))
-       t.definition_
+       (Function_body.definition_declaration body)
   && List.exists
        (fun member -> Function_body.member_symbol member == original.symbol)
        members
@@ -3440,19 +3461,109 @@ let source_owned_requests t ~frame ~body (original : location_stamp) =
           | Allocatable_request | Disabled_request -> true
           | Unspecified_request | Explicit_request _ -> false))
 
+let analyze ~frame ~body =
+  if
+    (not (complete_parameter_coverage ~frame))
+    || (not (Exact_register_scores.permits_automatic_analysis body))
+    || not (Exact_register_scores.source_requests_match ~frame ~body)
+  then None
+  else
+    let exact =
+      if
+        List.for_all
+          (fun location ->
+            Option.fold ~none:false
+              ~some:(source_owned_requests ~frame ~body)
+              (location_stamp ~frame location))
+          (Frame.function_locations frame)
+      then
+        Option.bind (Exact_register_scores.analyze ~frame ~body) (fun scores ->
+            analyze_integer_function ~exact:scores ~frame ~body ())
+      else None
+    in
+    match exact with
+    | Some proof -> Some proof
+    | None -> (
+        match analyze_parameter ~frame ~body with
+        | Some proof -> Some proof
+        | None -> (
+            match analyze_local ~frame ~body with
+            | Some proof -> Some proof
+            | None -> analyze_integer_function ~frame ~body ()))
+
+let selection t ~frame ~body ~symbol =
+  if
+    t.frame_ != frame || t.body_ != body
+    || (not (same_list ( == ) t.parameters_ (signature_parameters frame)))
+    || (not
+          (Option.equal (same_list ( == )) t.parameter_sources_
+             (source_parameters frame)))
+    || (not (Function_body.definition_matches_frame body frame))
+    || (not
+          (Option.equal ( == ) t.definition_
+             (Function_body.definition_declaration body)))
+    || (not
+          (Option.equal ( == ) t.source_ (Function_body.definition_source body)))
+    || t.options_ <> Function_body.compiler_options body
+    || t.flags_ <> Function_body.stored_flags body
+    || Option.is_some t.exact_source_
+       && not
+            (Option.equal Exact_register_scores.equal_source_stamp
+               t.exact_source_
+               (Exact_register_scores.stamp_source body))
+    || (not
+          (same_list
+             (fun original location ->
+               Option.fold ~none:false ~some:(equal_location original)
+                 (location_stamp ~frame location))
+             t.locations_
+             (Frame.function_locations frame)))
+    || (not (matches_blocks t.blocks_ (snapshot body)))
+    || not
+         (List.for_all
+            (fun (item, stamp) ->
+              Option.fold ~none:false ~some:(equal_stamp stamp)
+                (instruction_stamp item))
+            t.stamps_)
+  then None
+  else
+    let find selections =
+      List.find_map
+        (fun (original, selection) ->
+          if original == symbol then Some selection else None)
+        selections
+    in
+    match (find t.selections_, analyze ~frame ~body) with
+    | Some expected, Some current
+      when find current.selections_ = Some expected
+           && Option.equal
+                (same_list (fun (left, register) (right, other) ->
+                     left == right && register = other))
+                t.exact_registers_ current.exact_registers_ -> Some expected
+    | _ -> None
+
 let physical_register t ~frame ~body ~symbol =
   match selection t ~frame ~body ~symbol with
   | Some Register_candidate
-    when List.for_all (source_owned_requests t ~frame ~body) t.locations_ ->
+    when List.for_all (source_owned_requests ~frame ~body) t.locations_ ->
       Option.bind
         (List.find_opt (fun original -> original.symbol == symbol) t.locations_)
         (fun original ->
           let supported number = List.mem number [ 6; 7; 12; 13; 14; 15 ] in
-          match original.request with
-          | Explicit_request (_, number, _) when supported number -> Some number
-          | (Unspecified_request | Allocatable_request)
-            when not (registers_disabled body) ->
-              (* OptPass3.HC:22-48 counts every unspecified integer member and
+          match t.exact_registers_ with
+          | Some registers ->
+              List.find_map
+                (fun (member, number) ->
+                  if member == symbol && supported number then Some number
+                  else None)
+                registers
+          | None -> (
+              match original.request with
+              | Explicit_request (_, number, _) when supported number ->
+                  Some number
+              | (Unspecified_request | Allocatable_request)
+                when not (registers_disabled body) ->
+                  (* OptPass3.HC:22-48 counts every unspecified integer member and
                  every REG_ALLOC, including unused members. Unknown selection
                  is not evidence of absence: specialized proofs intentionally
                  leave operands Unknown, and pressure proofs do likewise.
@@ -3461,42 +3572,43 @@ let physical_register t ~frame ~body ~symbol =
                  open (557-582). A sole candidate, or sole REG_ALLOC whose
                  I64_MAX/2 seed dominates these bounded ordinary scores, is
                  therefore first. Do not predict QSort's order for any tie. *)
-              let candidates =
-                List.filter
-                  (fun location ->
-                    location.request = Unspecified_request
-                    || location.request = Allocatable_request)
-                  t.locations_
-              in
-              let forced =
-                List.filter
-                  (fun location -> location.request = Allocatable_request)
-                  candidates
-              in
-              if
-                List.length candidates > 6
-                || not
-                     (List.length candidates = 1
-                     || original.request = Allocatable_request
-                        && List.length forced = 1)
-              then None
-              else
-                let reserved =
-                  List.filter_map
-                    (fun location ->
-                      match location.request with
-                      | Explicit_request (_, number, _) -> Some number
-                      | _ -> None)
-                    t.locations_
-                in
-                (* CInit.HC:244-256 builds the map in ascending register order.
+                  let candidates =
+                    List.filter
+                      (fun location ->
+                        location.request = Unspecified_request
+                        || location.request = Allocatable_request)
+                      t.locations_
+                  in
+                  let forced =
+                    List.filter
+                      (fun location -> location.request = Allocatable_request)
+                      candidates
+                  in
+                  if
+                    List.length candidates > 6
+                    || not
+                         (List.length candidates = 1
+                         || original.request = Allocatable_request
+                            && List.length forced = 1)
+                  then None
+                  else
+                    let reserved =
+                      List.filter_map
+                        (fun location ->
+                          match location.request with
+                          | Explicit_request (_, number, _) -> Some number
+                          | _ -> None)
+                        t.locations_
+                    in
+                    (* CInit.HC:244-256 builds the map in ascending register order.
                    Explicit requests reserve slots before scoring even when
                    unused. R10/R11 remain outside the physical query: do not
                    skip an unsupported first free register for a later one. *)
-                Option.bind
-                  (List.find_opt
-                     (fun number -> not (List.mem number reserved))
-                     general_variable_registers)
-                  (fun number -> if supported number then Some number else None)
-          | _ -> None)
+                    Option.bind
+                      (List.find_opt
+                         (fun number -> not (List.mem number reserved))
+                         general_variable_registers)
+                      (fun number ->
+                        if supported number then Some number else None)
+              | _ -> None))
   | Some Register_candidate | Some Stack | Some Unknown | None -> None

@@ -231,6 +231,16 @@ val top_level_root_value : top_level_root_result -> expression_result
 val top_level_root_result_use : top_level_root_result -> result_use option
 val function_symbol : resolved_function -> Symbol.t
 
+val function_source_body :
+  resolved_function -> Frontend.Ast.function_definition option
+(** Complete original parser-authenticated body when available, including
+    statements that do not contribute expression results. *)
+
+val function_source_body_valid : resolved_function -> bool
+(** Recheck the retained original syntax seal and its function/options owner.
+    Metadata-only producers without a body receipt remain explicitly absent;
+    changed or omitted receipts on source-backed functions are invalid. *)
+
 val function_compilation_options : resolved_function -> int64 option
 (** Options authenticated at original body completion, including lexer
     lookahead. Absent for semantic inputs without an observed body receipt. *)

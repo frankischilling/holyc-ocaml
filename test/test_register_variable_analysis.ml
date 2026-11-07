@@ -3708,7 +3708,7 @@ let explicit_register_selection () =
           Alcotest.(check bool)
             "explicit unchanged operand proved" true
             (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
-            = Some Analysis.Unknown))
+            = Some Analysis.Register_candidate))
         [ "RSI"; "RDI"; "R10"; "R11"; "R12"; "R13"; "R14"; "R15" ];
       List.iter
         (fun source ->
@@ -3778,11 +3778,11 @@ let physical_register_selection () =
       let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
       let symbol = location fn.frame "c" |> Frame.location_symbol in
       Alcotest.(check bool)
-        "explicit request can retain unknown selection" true
+        "exact proof authenticates unchanged explicit operand" true
         (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
-        = Some Analysis.Unknown);
+        = Some Analysis.Register_candidate);
       Alcotest.(check (option int))
-        "unknown explicit request grants no physical register" None
+        "authenticated used explicit operand keeps requested register" (Some 12)
         (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -3873,8 +3873,8 @@ let automatic_physical_register_selection () =
       List.iter
         (fun (label, expected, source) -> check mode label expected source)
         [
-          ( "unknown ordinary operand still competes",
-            None,
+          ( "ordinary scores count target and operand",
+            Some 6,
             "I64 F(I8 x,I64 c){x<<=c;return x;}42;" );
           ( "sole forced member precedes unknown ordinary operand",
             Some 6,
@@ -3885,23 +3885,23 @@ let automatic_physical_register_selection () =
           ( "unknown disabled operand does not compete",
             Some 6,
             "I64 F(I8 x,I64 noreg c){x<<=c;return x;}42;" );
-          ( "unknown forced operand still competes with forced target",
-            None,
+          ( "forced scores count target and operand",
+            Some 6,
             "I64 F(I8 reg x,I64 reg c){x<<=c;return x;}42;" );
-          ( "unused ordinary parameter still counts conservatively",
-            None,
+          ( "zero-score ordinary parameter sorts then disappears",
+            Some 6,
             "I64 F(I8 x,I64 unused){x+=1;return x;}42;" );
-          ( "unused plain reg still competes with forced target",
-            None,
+          ( "used forced score precedes unused forced seed",
+            Some 6,
             "I64 F(I8 reg x,I64 reg unused){x+=1;return x;}42;" );
-          ( "unused plain reg prevents ordinary first-place proof",
-            None,
+          ( "unused forced seed precedes ordinary target",
+            Some 7,
             "I64 F(I8 x,I64 reg unused){x+=1;return x;}42;" );
-          ( "ordinary scores are not guessed",
-            None,
+          ( "ordinary occurrence scores select highest member",
+            Some 6,
             "I64 F(I8 x,I64 c){x+=1;x+=1;x+=1;return x+c;}42;" );
-          ( "forced score ties are not guessed",
-            None,
+          ( "forced occurrence scores select highest member",
+            Some 6,
             "I64 F(I8 reg x,I64 reg c){x+=1;x+=1;return x+c;}42;" );
           ( "disabled target stays on the stack",
             None,
@@ -3924,8 +3924,9 @@ let automatic_physical_register_selection () =
                       (List.init count (fun index -> Printf.sprintf "p%d" index))
                 else "x"
               in
-              check mode "all ordinary candidates bound nonpointer activation"
-                (if count = 5 then Some 6 else None)
+              check mode
+                "surviving scored candidates determine nonpointer activation"
+                (if (not used) || count = 5 then Some 6 else Some 12)
                 (Printf.sprintf "I64 F(%s){x+=1;return %s;}42;"
                    (String.concat "," ("I8 reg x" :: ordinary))
                    rhs))
@@ -3950,12 +3951,15 @@ let automatic_physical_register_selection () =
         (fun name ->
           let symbol = location pressured.frame name |> Frame.location_symbol in
           Alcotest.(check bool)
-            "ordinary pressured operand remains unknown" true
+            "exact pressure winner or spill is proved" true
             (Analysis.selection pressure_proof ~frame:pressured.frame
                ~body:pressured.body ~symbol
-            = Some Analysis.Unknown);
+            = Some
+                (if name = "d" then Analysis.Register_candidate
+                 else Analysis.Stack));
           Alcotest.(check (option int))
-            "unknown pressured operand acquires no physical placement" None
+            "exact pressure placement follows original tie order"
+            (if name = "d" then Some 15 else None)
             (Analysis.physical_register pressure_proof ~frame:pressured.frame
                ~body:pressured.body ~symbol))
         [ "a"; "b"; "c"; "d"; "e" ];
@@ -3963,7 +3967,7 @@ let automatic_physical_register_selection () =
       let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
       let symbol = location fn.frame "c" |> Frame.location_symbol in
       Alcotest.(check (option int))
-        "unknown candidate cannot acquire a physical register" None
+        "used ordinary operand receives the second slot" (Some 7)
         (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -4147,34 +4151,34 @@ let physical_register_parameter_source_constructors () =
         (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
-let automatic_physical_register_options () =
-  let compile_option mode source =
-    let session = Session.create () in
-    let source =
-      Session.add_source session ~path:"register-options.hc" ~contents:source
-    in
-    let config =
-      Preprocessor.Config.create ~compilation_mode:mode () |> Result.get_ok
-    in
-    let report = compile_integer_program_report session ~config ~source in
-    let units =
-      match integer_program_compilation_result report with
-      | Ok result -> (
-          match result.value with
-          | Isolated program -> [ program ]
-          | Stateful _ -> integer_program_compilation_units report)
-      | Error diagnostics ->
-          failwith
-            (String.concat "; "
-               (List.map
-                  (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
-                  diagnostics))
-    in
-    units
-    |> List.concat_map integer_program_functions
-    |> List.find (fun (fn : Ir_integer_interpreter.function_definition) ->
-        Symbol.name (Body.symbol fn.body) = "F")
+let compile_option mode source =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"register-options.hc" ~contents:source
   in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:mode () |> Result.get_ok
+  in
+  let report = compile_integer_program_report session ~config ~source in
+  let units =
+    match integer_program_compilation_result report with
+    | Ok result -> (
+        match result.value with
+        | Isolated program -> [ program ]
+        | Stateful _ -> integer_program_compilation_units report)
+    | Error diagnostics ->
+        failwith
+          (String.concat "; "
+             (List.map
+                (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
+                diagnostics))
+  in
+  units
+  |> List.concat_map integer_program_functions
+  |> List.find (fun (fn : Ir_integer_interpreter.function_definition) ->
+      Symbol.name (Body.symbol fn.body) = "F")
+
+let automatic_physical_register_options () =
   List.iter
     (fun mode ->
       List.iter
@@ -4316,15 +4320,11 @@ let automatic_physical_register_ownership () =
             "forged request rejects old witness" None
             (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
                ~symbol);
-          let reproved =
-            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
-          in
-          Alcotest.(check (option int))
-            "forged reservation, forced priority or exclusion has no source \
-             authority"
-            None
-            (Analysis.physical_register reproved ~frame:fn.frame ~body:fn.body
-               ~symbol))
+          Alcotest.(check bool)
+            "forged reservation, forced priority or exclusion has no fresh \
+             source authority"
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           ("c", Request.Disabled);
           ("x", Request.Allocatable);
@@ -4513,7 +4513,12 @@ let physical_register_ownership () =
             (label ^ " cannot change physical authority")
             None
             (Analysis.physical_register proof ~frame:changed.frame
-               ~body:changed.body ~symbol))
+               ~body:changed.body ~symbol);
+          Alcotest.(check bool)
+            (label ^ " cannot acquire a fresh request witness")
+            true
+            (Option.is_none
+               (Analysis.analyze ~frame:changed.frame ~body:changed.body)))
         mutations;
       List.iter
         (fun source ->
@@ -6109,7 +6114,6 @@ let assignment_selection () =
           "I64 F(I64 n,I64 value){I8 x;if(n)x=value;return x;}42;";
           "I64 F(I64 n){I8 x;x=257;if(n)x=257;return x;}42;";
           "I64 F(I8 x,I64 value){if(value)x=value(I8);return x;}42;";
-          "I64 F(I8 noreg x,I64 value){if(value)return x=value;return x;}42;";
           "I64 F(I64 n,I64 value){if(n){I8 x=0;x=value;return x;}return 0;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -6118,38 +6122,230 @@ let consumed_assignment_selection () =
   List.iter
     (fun mode ->
       List.iter
-        (fun qualifier ->
+        (fun type_ ->
           List.iter
-            (fun source ->
-              let fn =
-                compile ~name:"F" mode (Printf.sprintf source qualifier)
-              in
-              let proof =
-                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
-              in
-              let symbol = location fn.frame "x" |> Frame.location_symbol in
-              Alcotest.(check bool)
-                "consumed assignment keeps selected storage" true
-                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
-                = Some Analysis.Register_candidate))
-            [
-              "I64 F(I8 %s x,I64 a){if(x=a+1)return x;return -1;}42;";
-              "I64 F(I8 %s x,I64 a){while(x=a+1)return x;return -1;}42;";
-              "I64 F(I8 %s x,I64 a){return x=a+1;}42;";
-              "I64 F(I64 a){I8 %s x=0;if(x=a+1)return x;return -1;}42;";
-            ])
-        [ ""; "reg"; "reg R12" ];
+            (fun qualifier ->
+              List.iter
+                (fun local ->
+                  List.iter
+                    (fun body ->
+                      let source =
+                        "I64 G(I64 value){return value;}"
+                        ^
+                        if local then
+                          Printf.sprintf "I64 F(I64 a){%s %s x=0;%s}42;" type_
+                            qualifier body
+                        else
+                          Printf.sprintf "I64 F(%s %s x,I64 a){%s}42;" type_
+                            qualifier body
+                      in
+                      let fn = compile ~name:"F" mode source in
+                      let proof =
+                        match
+                          Analysis.analyze ~frame:fn.frame ~body:fn.body
+                        with
+                        | Some proof -> proof
+                        | None ->
+                            Alcotest.fail ("missing assignment proof: " ^ source)
+                      in
+                      let symbol =
+                        location fn.frame "x" |> Frame.location_symbol
+                      in
+                      Alcotest.(check bool)
+                        "consumed assignment retains proven storage" true
+                        (Analysis.selection proof ~frame:fn.frame ~body:fn.body
+                           ~symbol
+                        = Some
+                            (if qualifier = "noreg" then Analysis.Stack
+                             else Analysis.Register_candidate)))
+                    [
+                      "if(x=a+1)return x;return -1;";
+                      "while(x=a+1)return x;return -1;";
+                      "do {a-=1;}while(x=a+1);return x;";
+                      "for(;(x=a+1)>0;a-=1){if(a)return x;}return x;";
+                      "return x=a+1;";
+                      "return (x=a+1)*3;";
+                      "return G(x=a+1);";
+                      "G(x=a+1);return x;";
+                    ])
+                [ false; true ])
+            [ ""; "reg"; "noreg"; "reg R12" ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ];
+      List.iter
+        (fun qualifier ->
+          let fn =
+            compile_option mode
+              (Printf.sprintf
+                 "I64 F(I8 %s x,I64 a){if(x=a+1)return x;return -1;}#exe \
+                  {Option(34,1);}42;"
+                 qualifier)
+          in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let symbol = location fn.frame "x" |> Frame.location_symbol in
+          Alcotest.(check bool)
+            "completed-body NO_REG_VAR retains explicit selection only" true
+            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+            = Some
+                (if qualifier = "reg R12" then Analysis.Register_candidate
+                 else Analysis.Stack)))
+        [ ""; "reg"; "noreg"; "reg R12" ];
       List.iter
         (fun source ->
           let fn = compile ~name:"F" mode source in
           Alcotest.(check bool)
-            "consumed stack assignment remains unproved" true
+            ("consumed assignment boundary remains unproved: " ^ source)
+            true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "I64 F(I8 noreg x,I64 a){if(x=a+1)return x;return -1;}42;";
-          "I64 F(I8 x,I64 a){if(x+=a)return x;return -1;}42;";
-          "I64 F(I8 x,I64 a){if(x=a(I8))return x;return -1;}42;";
+          "I64 F(I8 noreg x,I64 a){if(x+=a)return x;return -1;}42;";
+          "I64 F(I8 noreg x,I64 a){if(x*=a)return x;return -1;}42;";
+          "I64 F(I8 noreg x,I64 a){if(x=a(I8))return x;return -1;}42;";
+          "I64 G(I64 a){return a;}I64 F(I8 noreg x,I64 a){return x=G(a);}42;";
+          "I64 F(I8 noreg x,I8 noreg y,I64 a){return x=(y=a+1);}42;";
+          "I64 F(I64 a){I8 noreg x;if(x=a+1)return x;return -1;}42;";
+          "I64 F(I64 a){if(a){I8 noreg x=0;return x=a+1;}return 0;}42;";
+          "I64 F(I8 noreg x,I64 a){I8 *p=&x;return *p=a+1;}42;";
+          "I8 x;I64 F(I64 a){return x=a+1;}42;";
+          "I64 F(I8 reg R12 x,I64 reg R12 a){return x=a+1;}42;";
+          "I64 F(I8 reg RAX x,I64 a){return x=a+1;}42;";
+          "I64 F(Bool noreg x,I64 a){return x=a+1;}42;";
+          "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
+           h){if(x=a+1)return x+b+c+d+e+f+g+h;return -1;}42;";
+          "I64 F(I8 reg x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
+           h){if(a=b+1)return x+a+c+d+e+f+g+h;return -1;}42;";
         ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let consumed_assignment_ownership () =
+  let module O = Holyc_lib__Ir.Opcode in
+  let descriptions fn =
+    Body.body fn.Ir_integer_interpreter.body
+    |> Graph.blocks
+    |> List.concat_map (fun block ->
+        Graph.instructions block |> Seq.instructions |> List.map Seq.description)
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, mutate) ->
+          let source =
+            "I64 F(I8 noreg x,I8 noreg y,I64 a,I64 b){if(x=(a+1)*(b-2))return \
+             x+y;return -1;}42;"
+          in
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let symbol = location fn.frame "x" |> Frame.location_symbol in
+          mutate (descriptions fn);
+          Alcotest.(check bool)
+            (label ^ " revokes stack assignment witness")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+          Alcotest.(check bool)
+            (label ^ " cannot acquire a new stack assignment witness")
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          ( "changed assignment operator",
+            fun items ->
+              let assignment =
+                List.find
+                  (fun (d : Seq.description) -> d.opcode = O.Ic_assign)
+                  items
+              in
+              Obj.set_field (Obj.repr assignment) 1 (Obj.repr O.Ic_add_equ) );
+          ( "changed assignment span",
+            fun items ->
+              let assignment =
+                List.find
+                  (fun (d : Seq.description) -> d.opcode = O.Ic_assign)
+                  items
+              in
+              Obj.set_field (Obj.repr assignment) 7 (Obj.repr None) );
+          ( "assignment payload injection",
+            fun items ->
+              let assignment =
+                List.find
+                  (fun (d : Seq.description) -> d.opcode = O.Ic_assign)
+                  items
+              in
+              Obj.set_field (Obj.repr assignment) 5
+                (Obj.repr (Some (Seq.Integer 1L))) );
+          ( "reordered right-hand operands",
+            fun items ->
+              let expression =
+                List.find
+                  (fun (d : Seq.description) -> d.opcode = O.Ic_mul)
+                  items
+              in
+              Obj.set_field (Obj.repr expression) 2
+                (Obj.repr (List.rev expression.operands)) );
+          ( "changed right-hand literal",
+            fun items ->
+              let literal =
+                List.find
+                  (fun (d : Seq.description) ->
+                    d.opcode = O.Ic_imm_i64 && d.payload = Some (Seq.Integer 2L))
+                  items
+              in
+              Obj.set_field (Obj.repr literal) 5
+                (Obj.repr (Some (Seq.Integer 3L))) );
+          ( "substituted assignment destination",
+            fun items ->
+              let assignment =
+                List.find
+                  (fun (d : Seq.description) -> d.opcode = O.Ic_assign)
+                  items
+              in
+              let loads =
+                List.filter
+                  (fun (d : Seq.description) -> d.opcode = O.Ic_deref)
+                  items
+              in
+              let y = List.hd (List.rev loads) in
+              Obj.set_field (Obj.repr assignment) 2
+                (Obj.repr
+                   [ List.hd y.operands; List.nth assignment.operands 1 ]) );
+          ( "changed assignment result width",
+            fun items ->
+              let assignment =
+                List.find
+                  (fun (d : Seq.description) -> d.opcode = O.Ic_assign)
+                  items
+              in
+              let literal =
+                List.find
+                  (fun (d : Seq.description) ->
+                    d.opcode = O.Ic_imm_i64 && d.payload = Some (Seq.Integer 2L))
+                  items
+              in
+              Obj.set_field (Obj.repr assignment) 4
+                (Obj.repr literal.target_type) );
+        ];
+      let source = "I64 F(I8 noreg x,I64 a){return x=a+1;}42;" in
+      let fn = compile ~name:"F" mode source
+      and foreign = compile ~name:"F" mode source in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      Alcotest.(check bool)
+        "foreign frame cannot claim stack assignment semantics" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:foreign.frame ~body:fn.body ~symbol));
+      Alcotest.(check bool)
+        "foreign body cannot claim stack assignment semantics" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:foreign.body ~symbol));
+      let options =
+        Int64.logxor (Body.compiler_options fn.body) (Int64.shift_left 1L 34)
+      in
+      Obj.set_field (Obj.repr fn.body) 8 (Obj.repr options);
+      Alcotest.(check bool)
+        "forged stack option snapshot cannot acquire proof" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let dependent_initializer_selection () =
@@ -6426,11 +6622,273 @@ let ownership () =
               ~body:changed_frame.body ~symbol:original_symbol)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let scored_ownership () =
+  let module Exact = Holyc_lib__Ir.Exact_register_scores in
+  let module Typed = Semantic_function_call_expression_result in
+  let module Source = Semantic_function_call_resolution in
+  let module Ast = Holyc_lib__Frontend.Ast in
+  let module O = Ir_opcode in
+  let source =
+    "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I8 g,I8 h,I8 i){return \
+     a+b+c+d+e+f+g+h+i;}42;"
+  in
+  let typed fn =
+    Option.get (Body.definition_source fn.Ir_integer_interpreter.body)
+  in
+  let original fn = Option.get (Typed.function_source_body (typed fn)) in
+  let items fn =
+    Body.body fn.Ir_integer_interpreter.body
+    |> Graph.entry |> Graph.instructions |> Seq.instructions
+    |> List.map Seq.description
+  in
+  let mutations =
+    [
+      ( "frame member order",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr fn.Ir_integer_interpreter.frame)
+            4
+            (Obj.repr (List.rev (Frame.function_locations fn.frame))) );
+      ( "binding ordinal",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr
+               (Frame.location_binding
+                  (location fn.Ir_integer_interpreter.frame "a")))
+            2 (Obj.repr 8) );
+      ( "body member position",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr
+               (List.hd (Body.parameters fn.Ir_integer_interpreter.body)))
+            0 (Obj.repr 8) );
+      ( "missing read span",
+        fun fn ->
+          let read =
+            List.find
+              (fun (item : Seq.description) -> item.opcode = O.Ic_deref)
+              (items fn)
+          in
+          Obj.set_field (Obj.repr read) 7 (Obj.repr None) );
+      ( "changed member offset",
+        fun fn ->
+          let offset =
+            List.find
+              (fun (item : Seq.description) -> item.opcode = O.Ic_imm_i64)
+              (items fn)
+          in
+          Obj.set_field (Obj.repr offset) 5 (Obj.repr (Some (Seq.Integer 999L)))
+      );
+      ( "shared read address",
+        fun fn ->
+          let reads =
+            List.filter
+              (fun (item : Seq.description) -> item.opcode = O.Ic_deref)
+              (items fn)
+          in
+          Obj.set_field
+            (Obj.repr (List.nth reads 1))
+            2
+            (Obj.repr (List.hd reads).operands) );
+      ( "omitted body receipt",
+        fun fn -> Obj.set_field (Obj.repr (typed fn)) 14 (Obj.repr None) );
+      ( "copied body receipt owner",
+        fun fn ->
+          let source = Obj.repr (typed fn) in
+          let owner = Obj.field (Obj.field source 14) 0 in
+          Obj.set_field source 14 (Obj.repr (Some (Obj.obj (Obj.dup owner)))) );
+      ( "copied original body",
+        fun fn ->
+          let source = Obj.repr (typed fn) in
+          let owner = Obj.field (Obj.field source 14) 0 in
+          let definition = Obj.field owner 12 in
+          Obj.set_field owner 12 (Obj.dup definition) );
+      ( "changed original parameter order",
+        fun fn ->
+          let definition = original fn in
+          Obj.set_field (Obj.repr definition) 5
+            (Obj.repr (List.rev definition.parameters)) );
+      ( "added untyped try statement",
+        fun fn ->
+          let definition = original fn in
+          match definition.body with
+          | Some (Ast.Block_statement block) ->
+              let statement = List.hd block.block_statements in
+              let location = Ast.statement_location statement in
+              let tried =
+                Ast.Try_catch_statement
+                  (Ast.make_try_catch_statement ~try_keyword:location
+                     ~try_body:statement ~catch_keyword:location
+                     ~catch_body:statement ~location)
+              in
+              Obj.set_field (Obj.repr block) 1
+                (Obj.repr (tried :: block.block_statements))
+          | _ -> assert false );
+      ( "synchronized semantic children and canonical IR",
+        fun fn ->
+          let returned = List.hd (Typed.function_returns (typed fn)) in
+          let value = Option.get (Typed.return_value returned) in
+          let left, right = Option.get (Typed.result_binary_operands value) in
+          let binary =
+            match
+              Source.argument_expression_kind (Typed.result_source value)
+            with
+            | Source.Binary_expression binary -> binary
+            | _ -> assert false
+          in
+          Obj.set_field (Obj.repr value) 4 (Obj.repr (Some (right, left)));
+          Obj.set_field (Obj.repr binary) 2
+            (Obj.repr (Typed.result_source right));
+          Obj.set_field (Obj.repr binary) 3
+            (Obj.repr (Typed.result_source left));
+          let entry = Body.body fn.Ir_integer_interpreter.body |> Graph.entry in
+          let code = items fn in
+          let first = List.hd code in
+          let leave =
+            match (List.hd (List.rev code)).payload with
+            | Some (Seq.Block leave) -> leave
+            | _ -> assert false
+          in
+          let module Return = Holyc_lib__Ir.Return_lowering in
+          let lowered =
+            Return.lower_function_return ~frame:fn.frame ~optimize_shifts:true
+              ~optimize_division:true ~instruction_id:first.instruction_id
+              ~value_id:(Option.get first.result).value_id ~leave returned
+          in
+          let sequence =
+            match lowered with
+            | Ok (Return.Lowered result) -> Return.sequence result
+            | _ -> Alcotest.fail "mutation must still lower canonically"
+          in
+          Obj.set_field (Obj.repr entry) 1 (Obj.repr sequence) );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, mutate) ->
+          let fn = compile mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let symbol = location fn.frame "g" |> Frame.location_symbol in
+          Alcotest.(check (option int))
+            (label ^ " starts exact") (Some 12)
+            (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+               ~symbol);
+          mutate fn;
+          Alcotest.(check bool)
+            (label ^ " rejects saved proof")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+          Alcotest.(check bool)
+            (label ^ " rejects fresh score proof")
+            true
+            (Option.is_none (Exact.analyze ~frame:fn.frame ~body:fn.body));
+          Alcotest.(check bool)
+            (label ^ " cannot recover through fallback")
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        mutations;
+      let fn =
+        compile ~name:"F" mode
+          "extern U0 SysTry(U8 *catch_start,U8 *untry);extern U0 \
+           SysUntry();I64 F(I8 a){try{}catch{}return a;}42;"
+      in
+      Alcotest.(check bool)
+        "empty original try disables allocation" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      let definition = original fn in
+      (match definition.body with
+      | Some (Ast.Block_statement block) ->
+          Obj.set_field (Obj.repr block) 1
+            (Obj.repr
+               (List.filter
+                  (function
+                    | Ast.Try_catch_statement _ -> false
+                    | _ -> true)
+                  block.block_statements))
+      | _ -> assert false);
+      Alcotest.(check bool)
+        "deleting original empty try cannot mint authority" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let scored_selection () =
+  let module Exact = Holyc_lib__Ir.Exact_register_scores in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected) ->
+          let fn = compile mode source in
+          let scores = Exact.analyze ~frame:fn.frame ~body:fn.body in
+          Alcotest.(check bool)
+            ("complete exact source: " ^ source)
+            true (Option.is_some scores);
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          List.iter
+            (fun (name, register, selected) ->
+              let symbol = location fn.frame name |> Frame.location_symbol in
+              Alcotest.(check (option int))
+                ("source-scored register " ^ name)
+                register
+                (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+                   ~symbol);
+              Alcotest.(check bool)
+                ("source-scored storage " ^ name)
+                true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some selected))
+            expected)
+        [
+          ( "I64 F(I8 a,I8 b){return a+b;}42;",
+            [
+              ("a", Some 7, Analysis.Register_candidate);
+              ("b", Some 6, Analysis.Register_candidate);
+            ] );
+          ( "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I8 g,I8 h,I8 i){return \
+             a+b+c+d+e+f+g+h+i;}42;",
+            [
+              ("g", Some 12, Analysis.Register_candidate);
+              ("f", Some 13, Analysis.Register_candidate);
+              ("i", Some 6, Analysis.Register_candidate);
+              ("h", Some 7, Analysis.Register_candidate);
+              ("e", None, Analysis.Register_candidate);
+              ("b", None, Analysis.Register_candidate);
+              ("a", Some 14, Analysis.Register_candidate);
+              ("d", Some 15, Analysis.Register_candidate);
+              ("c", None, Analysis.Stack);
+            ] );
+          ( "I64 F(I64 a,I64 b,I64 c,I64 d){return c+d;}42;",
+            [
+              ("c", Some 6, Analysis.Register_candidate);
+              ("d", Some 7, Analysis.Register_candidate);
+              ("a", None, Analysis.Unknown);
+              ("b", None, Analysis.Unknown);
+            ] );
+          ( "I64 F(I8 a,I64 reg unused){a+=1;return a;}42;",
+            [
+              ("a", Some 7, Analysis.Register_candidate);
+              ("unused", None, Analysis.Unknown);
+            ] );
+          ( "I64 F(){I8 a=127,b=127;a+=1;b+=1;return a+b;}42;",
+            [
+              ("a", Some 7, Analysis.Register_candidate);
+              ("b", Some 6, Analysis.Register_candidate);
+            ] );
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Register variable analysis"
     [
       ( "source",
         [
+          Alcotest.test_case "exact scored selection" `Quick scored_selection;
+          Alcotest.test_case "exact scored ownership" `Quick scored_ownership;
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;
           Alcotest.test_case "multi-update selection" `Quick sequence_selection;
@@ -6499,8 +6957,10 @@ let () =
             computed_assignment_selection;
           Alcotest.test_case "parameter and local reassignment" `Quick
             assignment_selection;
-          Alcotest.test_case "consumed selected assignments" `Quick
+          Alcotest.test_case "consumed register and stack assignments" `Quick
             consumed_assignment_selection;
+          Alcotest.test_case "consumed stack assignment ownership" `Quick
+            consumed_assignment_ownership;
           Alcotest.test_case "ordered local initializers" `Quick
             dependent_initializer_selection;
           Alcotest.test_case "whole straight-line functions" `Quick

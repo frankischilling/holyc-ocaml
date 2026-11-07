@@ -1,4 +1,9 @@
 (test
+ (name test_scored_register_allocation)
+ (modules test_scored_register_allocation)
+ (libraries holyc_lib alcotest))
+
+(test
  (name test_nonvolatile_register_encoder)
  (modules test_nonvolatile_register_encoder)
  (libraries holyc_lib alcotest))
@@ -5800,3 +5805,40 @@
    %{exe:test_automatic_register_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(executable
+ (name test_consumed_stack_assignment_cli)
+ (modules test_consumed_stack_assignment_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/register-stack-assignment.hc)
+ (action
+  (run %{exe:test_consumed_stack_assignment_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/register-stack-assignment.hc)
+ (action
+  (run
+   %{exe:test_consumed_stack_assignment_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(executable
+ (name test_scored_register_cli)
+ (modules test_scored_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/scored-register-pressure.hc)
+ (action
+  (run %{exe:test_scored_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/scored-register-pressure.hc)
+ (action
+  (run %{exe:test_scored_register_cli.exe} %{exe:../bin/holyc.exe} --native)))

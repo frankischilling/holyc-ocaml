@@ -404,7 +404,7 @@ type operation =
   | Load_frame_value of frame_access * value
   | Load_reference_frame of frame_access * value
   | Load_code_frame of frame_access * int * value
-  | Store_frame_value of frame_access * value * value
+  | Store_frame_value of frame_access * value * value * bool
   | Store_reference_frame of frame_access * int * value * value
   | Store_code_frame of frame_access * int * value * value
   | Update_frame_value of
@@ -3127,8 +3127,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
             access.initialized_flag_offset;
           emit (load_frame_scalar instruction.span target access);
           assign position destination result
-      | Store_frame_value (access, input, result)
-      | Store_code_frame (access, _, input, result) ->
+      | ( Store_frame_value (access, input, result, _)
+        | Store_code_frame (access, _, input, result) ) as operation ->
           let inputs, protected = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
           let destination =
@@ -3139,6 +3139,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
             emit (Encoder.Mov (registers.(destination), registers.(source)));
           emit
             (store_frame_scalar instruction.span access registers.(destination));
+          (match operation with
+          | Store_frame_value (_, _, _, true) ->
+              (* BackC's by-value assignment returns the destination load, not
+                 the RHS temporary. This grant is for proved stack frames only. *)
+              emit
+                (load_frame_scalar instruction.span registers.(destination)
+                   access)
+          | _ -> ());
           Option.iter
             (fun flag_offset ->
               let scratch =
@@ -5454,7 +5462,7 @@ let preflight_program graph =
 type callable_slot = {
   slot_type : Type.t;
   slot_word : word_type;
-  narrow_update_result : bool;
+  proved_stack : bool;
   slot_dimensions : int64 list;
   slot_element_size : int;
   slot_element_count : int;
@@ -5890,9 +5898,10 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
              ~symbol:(Frame.location_symbol location)))
       register_proof
   in
-  let narrow_update_result location =
-    (* Proven stack-slot addition and subtraction return the stored narrow
-       value; multiplication and shift results retain their wider intermediate. *)
+  let proved_stack location =
+    (* Authenticated stack selection enables direct assignment reloads and
+       the separate addition/subtraction compound-result rule. Unknown
+       allocation is not evidence of stack storage. *)
     Option.fold ~none:false
       ~some:(fun proof ->
         Ir.Register_variable_analysis.selection proof ~frame ~body
@@ -6057,7 +6066,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         {
           slot_type = type_;
           slot_word = storage_scalar.word_type;
-          narrow_update_result = narrow_update_result location;
+          proved_stack = proved_stack location;
           slot_dimensions = [];
           slot_element_size = storage_scalar.byte_size;
           slot_element_count = (if Option.is_some aggregate then 8 else 1);
@@ -6149,7 +6158,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           {
             slot_type = argc_type;
             slot_word = I64;
-            narrow_update_result = false;
+            proved_stack = false;
             slot_dimensions = [];
             slot_element_size = 8;
             slot_element_count = 1;
@@ -6342,7 +6351,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         {
           slot_type = type_;
           slot_word = scalar.word_type;
-          narrow_update_result = narrow_update_result location;
+          proved_stack = proved_stack location;
           slot_dimensions = counts;
           slot_element_size = scalar.byte_size;
           slot_element_count = elements;
@@ -9693,7 +9702,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           (Computation.forward target_type)
                       in
                       if Type.pointer_depth target_type = 0 then
-                        (Store_frame_value (slot.access, input, value), None)
+                        ( Store_frame_value
+                            (slot.access, input, value, slot.proved_stack),
+                          None )
                       else (
                         mark_reference description value;
                         ( Store_reference_frame
@@ -9958,7 +9969,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             update,
                             input,
                             old_result,
-                            (slot.narrow_update_result
+                            (slot.proved_stack
                             &&
                             match update with
                             | Update_binary (Encoder.Add | Sub) -> true
@@ -10443,7 +10454,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
         (match operation with
         | Load_immediate (value, 0L) ->
             zero_values := Value_set.add value.value_id !zero_values
-        | Store_frame_value (access, input, _)
+        | Store_frame_value (access, input, _, _)
           when Option.is_some (code_source input) ->
             if not (Int_map.mem access.frame_offset code_cells) then
               unsupported description

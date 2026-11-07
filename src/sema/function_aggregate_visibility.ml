@@ -45,6 +45,9 @@ type function_ = {
   aggregate_references :
     (Ast.identifier -> Compiler_record.aggregate_reference_visibility option)
     option;
+  source_body : Ast.function_definition;
+  source_body_owner : Ast.function_definition;
+  source_body_seal : string;
 }
 
 type t = {
@@ -65,6 +68,17 @@ let origin = Initializer_source.origin_of_location
 let function_item_index (value : function_) = value.item_index
 let function_symbol (value : function_) = value.symbol
 let function_compilation_options (value : function_) = value.compilation_options
+
+let function_source_body (value : function_) =
+  (* This is an internal immutable syntax snapshot, never deserialized. Retain
+     it when the parser receipt is authenticated, not when an allocation query
+     happens. A changed original AST cannot become fresh allocation evidence,
+     even when the change removes a statement with no expression results. *)
+  if
+    value.source_body == value.source_body_owner
+    && Marshal.to_string value.source_body [] = value.source_body_seal
+  then Some value.source_body
+  else None
 
 let owns (value : t) ~table ~parent =
   value.table == table && value.parent == parent
@@ -465,6 +479,9 @@ let create ~table ~declarations ~bodies ?aggregate_references
                      parent;
                      symbol;
                      item_index;
+                     source_body = definition;
+                     source_body_owner = definition;
+                     source_body_seal = Marshal.to_string definition [];
                      compilation_options =
                        Frontend.Parser.function_body_compiler_options
                          (List.find (fun (_, body) -> body == definition) bodies
