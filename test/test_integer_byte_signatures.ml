@@ -120,7 +120,8 @@ let effects () =
       ("I64 F(U8 a,U8 b){U8 *p=&a;*p=554;return a+b;}F(0,0);", 42L);
       ("I64 F(U8 n){U8 *p=&n;return ++(*p);}F(255);", 0L);
       ("I64 F(U8 n){return n+=256;}F(42);", 298L);
-      ("I64 F(U8 n){n+=256;return n;}F(42);", 42L);
+      ("I64 F(U8 n){n+=256;return n;}F(42);", 298L);
+      ("I64 F(U8 noreg n){n+=256;return n;}F(42);", 42L);
       ("I64 F(U8 n){return n++;}F(255);", 255L);
     ];
   List.iter
@@ -313,17 +314,11 @@ let recursive_limits () =
 
 let initializer_boundaries =
   [
-    ("wide parameter assignment", "I64 F(U8 n){n=554;return n;}I64 N=F(0);N;");
-    ( "later wide assignment",
-      "I64 F(U8 n){I64 a=n;n=554;return n+a;}I64 N=F(0);N;" );
-    ("parameter compound", "I64 F(U8 n){n+=256;return n;}I64 N=F(42);N;");
     ( "explicit parameter register",
       "I64 F(U8 reg RAX n){return n;}I64 N=F(42);N;" );
     ( "wide byte return operand",
       "U8 G=84;U8 Wide(){return 554;}I64 F(){U8 n=Wide();return G/=n;}I64 \
        N=F();N;" );
-    ( "transitive wide parameter",
-      "I64 F(U8 n){n=554;return n;}I64 Outer(){return F(0);}I64 N=Outer();N;" );
     ( "direct parameter address write",
       "I64 F(U8 n){*(&n)=554;return n;}I64 N=F(0);N;" );
     ( "explicit parameter escape",
@@ -369,3 +364,22 @@ let tests =
                   (List.mem "initializer=N" error.notes))
               G.modes))
       initializer_boundaries
+  @ List.map
+      (fun (name, source, expected) ->
+        Alcotest.test_case name `Quick (fun () ->
+            B.cases [ (source, expected) ]))
+      [
+        ( "selected wide parameter assignment",
+          "I64 F(U8 n){n=554;return n;}I64 N=F(0);N;",
+          554L );
+        ( "selected later wide assignment",
+          "I64 F(U8 n){I64 a=n;n=554;return n+a;}I64 N=F(0);N;",
+          554L );
+        ( "selected parameter compound",
+          "I64 F(U8 n){n+=256;return n;}I64 N=F(42);N;",
+          298L );
+        ( "selected transitive wide parameter",
+          "I64 F(U8 n){n=554;return n;}I64 Outer(){return F(0);}I64 \
+           N=Outer();N;",
+          554L );
+      ]

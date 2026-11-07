@@ -2399,7 +2399,7 @@ let analyze_local ~frame ~body =
    activation. IC_CALL_INDIRECT2 is admitted only for a named definition's JIT
    address slot, not for a callback. Locals require a single source-owned literal
    or parameter initializer in the entry block. *)
-let analyze_control_parameters ~frame ~body =
+let analyze_integer_function ~frame ~body =
   let locations = Frame.function_locations frame in
   let integer_member location =
     (Frame.location_kind location = Frame.Named_parameter
@@ -2554,17 +2554,13 @@ let analyze_control_parameters ~frame ~body =
          (Function_body.stored_flags body)
          (Int64.lognot Function_body.ordinary_calling_flag_mask)
        <> 0L
-    || List.length locations < 2
+    || locations = []
     || List.length locations > 32
     || (not (List.for_all integer_member locations))
     || (not (safe_register_requests locations))
     || List.length blocks > 64
     || List.length code > 512
     || List.length targets <> List.length source_calls
-    || (not
-          (List.exists
-             (fun item -> branch item.Seq.opcode || direct_call item.Seq.opcode)
-             code))
     || not (List.for_all allowed code)
   then None
   else
@@ -3081,7 +3077,7 @@ let analyze ~frame ~body =
   | None -> (
       match analyze_local ~frame ~body with
       | Some proof -> Some proof
-      | None -> analyze_control_parameters ~frame ~body)
+      | None -> analyze_integer_function ~frame ~body)
 
 let selection t ~frame ~body ~symbol =
   if

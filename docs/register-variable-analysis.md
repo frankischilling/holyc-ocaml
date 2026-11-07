@@ -442,3 +442,39 @@ required even for shift counts. Calls, casts, short-circuit operators, power,
 consumed assignments and optimizer rewrites that no longer match this source
 tree remain outside the proof. These are hosted, source-derived checks, not new
 TempleOS runtime captures or a general physical register allocator.
+
+## Whole straight-line functions
+
+Register selection no longer requires a branch or named call. TempleOS scores
+and selects members across the complete function (`OptPass3.HC:22-48,516-621`),
+including straight-line bodies. The same owned whole-function proof now covers
+one to 32 integer frame members without imposing a return-expression shape or
+an arbitrary five-update limit. Existing code, block, expression-depth and
+register-capacity bounds still apply.
+
+A selected I8 local initialized to 127 can execute `x+=1; x*=3;` and return 384.
+Its stack counterpart returns -128. The
+[straight-line example](../examples/register-straight-line.hc) compares them.
+Other tests cover self-updates, operands changed by earlier statements, multiple
+locals, computed initialization and reassignment, seven used parameters and
+longer update sequences. The source matcher authenticates each update rather
+than requiring its operand to be an unchanged parameter.
+
+Earlier shape-specific negative cases that are now source-proven remain as
+positive regressions. Address escapes, conflicting or reserved-register
+requests, unsupported immediate updates, consumed update results outside the
+specialized proofs, and oversized bodies still cannot acquire a whole-function
+proof. Existing foreign-source, changed-operand and forged-option tests remain
+in force. This expands observable storage behavior; it does not claim a general
+physical allocator or new TempleOS runtime captures.
+
+Older storage tests now distinguish the selected and `noreg` cases explicitly.
+A U8 local assigned 298 returns 298 when selected and 42 in memory. An I8
+initialized with `256+42` likewise retains 298 after constant folding
+(`OptPass012.HC:485-492`). Parameter entry still converts through declared
+storage (`OptPass789A.HC:713-719`), but a later selected update can produce a
+full word. Raw-class tests intended to compare narrowed memory operands use
+`noreg`; they do not impose memory narrowing on register values. Previously
+blocked retained initializers that use these now-proved shapes have positive
+regressions, while unsupported literal-bitwise shapes still test rejection
+before execution.

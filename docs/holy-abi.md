@@ -372,3 +372,8 @@ required; ordering between local initializers is not inferred.
 add source-owned unary, division/remainder, shift and comparison trees to the
 bounded assignment/update/initializer proof. Division faults and original
 shift-count ownership are checked; calls, casts and general allocation remain open.
+
+[Whole straight-line functions](register-variable-analysis.md#whole-straight-line-functions)
+use the same owned integer storage proof without requiring a branch or call.
+Dependent updates, self-updates, multiple locals and longer sequences retain
+selected values under the existing capacity and ownership bounds.

@@ -514,6 +514,12 @@ let () =
             "253998" );
         ]
       in
+      let sources =
+        ( "#exe {I64 F(I8 x,I8 c){x<<=c;c++;return x;}I64 I(){return \
+           F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+          "254" )
+        :: sources
+      in
       List.iter
         (fun (variable, expected) ->
           List.iter
@@ -550,7 +556,7 @@ let () =
         sources;
       error
         (invoke ~target:"ir" ~status:1 compiler mode
-           "#exe {I64 F(I8 x,I8 c){x<<=c;c++;return x;}I64 I(){return \
+           "#exe {I64 F(I8 x,I8 c){x<<=c;x|=256;return x;}I64 I(){return \
             F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}")
         "HCRUN0006";
       let fault = member "hosted_fault_projection" fixture in

@@ -5,48 +5,37 @@ val analyze :
   frame:Sema.Function_frame_layout.function_layout ->
   body:Function_body.t ->
   t option
-(** Analyze source-proven narrow register variables under their original
-    compiler-option snapshots. Supported shapes include a function with two to
-    six scalar parameters that updates a narrow parameter, and a function that
-    initializes one narrow local from a literal or a signed or unsigned integer
-    parameter before returning it. The local may receive a supported literal or
-    parameter update, including a directly returned literal compound update. A
-    single narrow parameter also supports a directly returned literal compound
-    update. A narrow parameter or literal-initialized local may be incremented
-    or decremented before return, or returned with a prefix or postfix update.
-    Addition and subtraction by a literal in these shapes are limited to
-    nonnegative signed-32-bit operands. A bounded function may also apply
-    shifts, addition, subtraction, multiplication, division, remainder or
-    bitwise updates using one or two unchanged parameters to two scalar
-    parameters, at least one narrow, and return their sum or either updated
-    parameter. Three to five scalar parameters, at least one narrow, may each
-    receive a supported update using an unchanged parameter and return one
-    updated parameter or a sum of two to six updated parameters. Their widths
-    and signedness may differ. Two to five updates may also revisit a target,
-    provided every operand parameter remains unchanged. Distinct RSI, RDI and
-    R10 through R15 requests are covered in these shapes. Other explicit
-    registers, conflicting requests, escapes and extra locals remain unproved. A
-    separate whole-function proof covers branches and loops over two to 32
-    integer frame members when the automatic candidates fit the unreserved
-    variable banks, with statement-only compound updates whose operands are
-    direct member reads or supported immediate values. Add/subtract/multiply
-    immediates are nonnegative signed-32-bit values; immediate shifts use
-    normalized counts below 64. Discarded prefix/postfix increment and decrement
-    are also supported. Each update must match its exact typed source operator,
-    operand bindings and source position. Automatic locals require one original
-    literal or parameter initializer in the entry block. Parameters and those
-    initialized locals may subsequently receive statement-only assignments from
-    direct member reads or integer literals. Computed right-hand sides and
-    consumed assignment results remain unproved. Original named definitions with
-    provided fixed arguments and integer or U0 results may be called, including
-    recursive calls and the named JIT address-slot path. Callbacks, defaults and
-    variadic calls remain unproved. The proof accepts up to 64 blocks and 512
-    instructions, no address escapes, no Boolean parameters and default options
-    apart from the four warning bits and NO_REG_VAR. Warning settings do not
-    change allocation. NO_REG_VAR disables automatic selection, including plain
-    reg requests, but leaves supported explicit register requests selected. The
-    option mask must match the original definition snapshot. Other control flow
-    remains unproved. The witness itself does not alter execution. *)
+(** Analyze integer register selection using the original definition, frame,
+    typed occurrences and completed-body compiler options. Specialized proofs
+    cover direct returns of supported literal compound updates and prefix or
+    postfix updates. The whole-function proof covers one to 32 integer frame
+    members across straight-line code, branches, loops and original named calls.
+
+    Automatic locals require one original entry-block initializer. Initializer
+    expressions use parameter/literal leaves; later assignments and compound
+    operands may read any checked integer frame member. Source-owned arithmetic,
+    bitwise, unary, division/remainder, shift and comparison trees are
+    supported. Assignment and update results must be discarded in the
+    whole-function proof. Literal-only add/subtract/multiply updates remain
+    limited to nonnegative signed-32-bit operands. Each operation retains its
+    original typed operator, ordered operands and source position. Calls require
+    original named definitions, provided fixed arguments and integer or U0
+    results; callbacks, defaults and variadic calls remain outside this proof.
+
+    Distinct RSI, RDI and R10 through R15 requests are supported. Automatic
+    candidates must fit the unreserved variable banks unless forced requests
+    have guaranteed capacity and remaining ordinary members are I64/U64. Those
+    ordinary pressured members retain [Unknown] selection. Other explicit
+    registers, duplicate requests, address escapes and Boolean frame members
+    remain unproved. Limits are 64 blocks, 512 instructions and 32 expression
+    levels. Calls, casts, short-circuit expressions, power and unmatched
+    optimizer rewrites cannot acquire an expression-tree proof.
+
+    Only the four warning bits and NO_REG_VAR may differ from default options.
+    Warnings do not change allocation. NO_REG_VAR disables automatic and plain
+    reg selection, while supported explicit requests remain selected. Options
+    must match the original definition snapshot. The witness does not itself
+    change execution or claim physical register placement. *)
 
 val selection :
   t ->

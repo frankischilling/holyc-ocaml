@@ -1671,6 +1671,13 @@ let () =
             (report |> member "final_value" |> member "value" |> to_string
            = "256")
             "native parameter prefix return value");
+      with_file ".hc" "I64 F(U8 n){n=554;return n;}I64 N=F(0);N;" (fun path ->
+          let status, report = run path in
+          require
+            (status = Unix.WEXITED 0
+            && report |> member "final_value" |> member "value" |> to_string
+               = "554")
+            "native selected parameter reassignment");
       List.iter
         (fun text ->
           with_file ".hc" text (fun path ->
@@ -1684,7 +1691,6 @@ let () =
                 && report |> member "output_work" |> to_int = 0)
                 "native parameter and return proof boundary"))
         [
-          "I64 F(U8 n){n=554;return n;}I64 N=F(0);N;";
           "U8 G=84;U8 Wide(){return 554;}I64 F(){U8 n=Wide();return G/=n;}I64 \
            N=F();N;";
         ];

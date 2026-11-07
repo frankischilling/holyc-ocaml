@@ -3054,8 +3054,6 @@ let remainder_selection () =
             "remainder proof rejects aliases and effects" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "I64 F(I8 x,I64 c){x%=x;return x;}42;";
-          "I64 F(I8 x,I64 c){c+=x;x%=c;return x;}42;";
           "I64 F(I8 x,I64 c){I8 *p=&x;x%=c;return x;}42;";
           "I64 F(I8 reg RAX x,I64 c){x%=c;return x;}42;";
           "I64 F(I8 reg R12 x,I64 reg R12 c){x%=c;return x;}42;";
@@ -3144,8 +3142,8 @@ let repeated_selection () =
         (fun source ->
           let fn = compile mode source in
           Alcotest.(check bool)
-            "unproved repeated update stays rejected" true
-            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+            "whole-function repeated updates are selected" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I64 c){x+=c;x+=x;return x;}42;";
           "I64 F(I8 x,I64 c){x+=c;c+=x;x*=c;return x;}42;";
@@ -3204,8 +3202,8 @@ let many_parameter_selection () =
           "I64 F(I64 a,I64 b,I64 d,I64 e,I64 f,I8 x,I64 c){x<<=c;return x;}42;"
       in
       Alcotest.(check bool)
-        "more than six parameters remain unproved" true
-        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        "unused parameters do not consume the variable bank" true
+        (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let pair_selection () =
@@ -3344,13 +3342,7 @@ let pair_selection () =
           Alcotest.(check bool)
             "unproved two-update shape" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
-        [
-          "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return y+x;}42;";
-          "I64 F(I64 x,I64 y,I64 c){x+=c;y+=c;return x+y;}42;";
-          "I64 F(I8 x,I8 y,I64 c){x+=c;y+=x;return x+y;}42;";
-          "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return x+y+0;}42;";
-          "I64 F(I8 reg R12 x,I8 reg R12 y,I64 c){x+=c;y+=c;return x+y;}42;";
-        ])
+        [ "I64 F(I8 reg R12 x,I8 reg R12 y,I64 c){x+=c;y+=c;return x+y;}42;" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let sequence_selection () =
@@ -3669,8 +3661,8 @@ let sequence_selection () =
         (fun source ->
           let fn = compile mode source in
           Alcotest.(check bool)
-            "unproved update sequence" true
-            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+            "whole-function update sequence is selected" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I64 x,I64 y,I64 z,I64 c){x+=c;y+=c;z+=c;return x+y+z;}42;";
           "I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return x+y+c;}42;";
@@ -5268,6 +5260,46 @@ let assignment_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let straight_line_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            ("straight-line source proof: " ^ source)
+            true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I64 c){x%=x;return x;}42;";
+          "I64 F(I8 x,I64 c){c+=x;x%=c;return x;}42;";
+          "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return y+x;}42;";
+          "I64 F(I64 x,I64 y,I64 c){x+=c;y+=c;return x+y;}42;";
+          "I64 F(I8 x,I8 y,I64 c){x+=c;y+=x;return x+y;}42;";
+          "I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return x+y+0;}42;";
+          "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
+          "I64 F(){I8 x=255;x++;x++;return x;}42;";
+          "I64 F(){I8 x=1,y=2;x<<=1;return x;}42;";
+          "I64 F(I64 c,I8 n){I8 x=c;return x;}42;";
+          "I64 F(I64 c,I8 n){I8 x=c;x+=c;return x;}42;";
+          "I64 F(I64 c){I8 x=255;c++;return x;}42;";
+          "I64 F(I8 x,I64 c){x<<=c;return c;}42;";
+          "I64 F(I8 x,I64 c){x<<=c;return 42;}42;";
+          "I64 F(I8 x,I64 c){return x;x<<=c;}42;";
+          "I64 F(I8 x,I64 c,I64 a,I64 b,I64 d,I64 e,I64 f){x<<=c;return \
+           x+a+b+d+e+f;}42;";
+        ];
+      let fn =
+        compile mode
+          ("I64 F(I8 x,I64 c){"
+          ^ String.concat "" (List.init 40 (fun _ -> "c;"))
+          ^ "x<<=c;return x;}42;")
+      in
+      Alcotest.(check bool)
+        "bounded straight-line reads preserve selection" true
+        (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_selection () =
   List.iter
     (fun mode ->
@@ -5285,22 +5317,16 @@ let unsupported_selection () =
           "I64 F(I8 reg R12 x,I64 reg R12 c){if(c)x+=c;return x;}42;";
           "I64 F(I8 x,Bool c){if(c)x+=c;return x;}42;";
           "I64 F(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}42;";
-          "I64 F(){I8 x=1;x<<=1;x++;return x;}42;";
-          "I64 F(){I8 x=255;x++;x++;return x;}42;";
           "I64 F(){I8 x=255;return x+=2147483648;}42;";
           "I64 F(I8 x){return x+=2147483648;}42;";
-          "I64 F(){I8 x=1,y=2;x<<=1;return x;}42;";
           "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
           "I64 F(){I8 x;x<<=1;return x;}42;";
           "I64 F(){Bool x=1;x<<=1;return x;}42;";
-          "I64 F(I64 c,I8 n){I8 x=c;return x;}42;";
           "I64 F(I64 c,Bool n){I8 x=c;x+=n;return x;}42;";
-          "I64 F(I64 c,I8 n){I8 x=c;x+=c;return x;}42;";
           "I64 F(I64 c,I8 n){I8 x=c;x/=2;return x;}42;";
           "I64 F(Bool c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x-=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=2147483648;return x;}42;";
-          "I64 F(I64 c){I8 x=255;c++;return x;}42;";
           "I64 F(){I8 x=255;x/=2;return x;}42;";
           "I64 F(){I8 x=1;x|=256;return x;}42;";
           "I64 F(){I8 x=1;x^=256;return x;}42;";
@@ -5309,13 +5335,8 @@ let unsupported_selection () =
           "I64 F(){I8 x=255;x+=2147483648;return x;}42;";
           "I64 F(){I8 x=255;x-=0x8000000000000000;return x;}42;";
           "I64 F(){I8 x=255;x-=2147483648;return x;}42;";
-          "I64 F(I8 x,I64 c,I64 a,I64 b,I64 d,I64 e,I64 f){x<<=c;return \
-           x+a+b+d+e+f;}42;";
-          "I64 F(I8 x,I64 c){x<<=c;return c;}42;";
-          "I64 F(I8 x,I64 c){x<<=c;return 42;}42;";
-          "I64 F(I8 x,I64 c){return x;x<<=c;}42;";
           "I64 F(I8 x,I64 c){"
-          ^ String.concat "" (List.init 40 (fun _ -> "c;"))
+          ^ String.concat "" (List.init 200 (fun _ -> "c;"))
           ^ "x<<=c;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -5526,6 +5547,8 @@ let () =
             computed_assignment_selection;
           Alcotest.test_case "parameter and local reassignment" `Quick
             assignment_selection;
+          Alcotest.test_case "whole straight-line functions" `Quick
+            straight_line_selection;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;
           Alcotest.test_case "original ownership" `Quick ownership;
         ] );

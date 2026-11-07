@@ -321,6 +321,74 @@ let assignment_cases =
       ("U32", 32, false);
     ]
 
+let straight_line_cases =
+  List.concat_map
+    (fun (type_, bits, signed) ->
+      let normalize value =
+        let shift = 64 - bits in
+        let value = Int64.shift_left value shift in
+        if signed then Int64.shift_right value shift
+        else Int64.shift_right_logical value shift
+      in
+      let high =
+        Int64.pred (Int64.shift_left 1L (if signed then bits - 1 else bits))
+      in
+      List.concat_map
+        (fun qualifier ->
+          let store value =
+            if qualifier = "noreg" then normalize value else value
+          in
+          let once = store (Int64.succ high) in
+          let triple = Int64.to_string (store (Int64.mul once 3L)) in
+          let dynamic = store (Int64.add high 2L) in
+          let y = normalize (Int64.succ high) in
+          let rec repeat n value =
+            if n = 0 then value else repeat (n - 1) (store (Int64.succ value))
+          in
+          [
+            ( Printf.sprintf "I64 F(){%s %s x=%Ld;x+=1;x*=3;return x;}F;" type_
+                qualifier high,
+              triple );
+            ( Printf.sprintf "I64 F(%s %s x){x+=1;x=x*3;return x;}F(%Ld);" type_
+                qualifier high,
+              triple );
+            ( Printf.sprintf
+                "I64 F(%s %s x,I64 c){x+=c;c+=x;x*=c;return x;}F(%Ld,2);" type_
+                qualifier high,
+              Int64.to_string (store (Int64.mul dynamic (Int64.add 2L dynamic)))
+            );
+            ( Printf.sprintf
+                "I64 F(){%s %s x=%Ld;%s noreg y=%Ld;y+=1;x+=y;return x+y;}F;"
+                type_ qualifier high type_ high,
+              Int64.to_string (Int64.add (store (Int64.add high y)) y) );
+            ( Printf.sprintf
+                "I64 F(I64 a){%s %s x=(a+1)*3;x-=1;return x;}F(%Ld);" type_
+                qualifier high,
+              Int64.to_string
+                (store (Int64.pred (store (Int64.mul (Int64.succ high) 3L)))) );
+            ( Printf.sprintf
+                "I64 F(%s %s x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 \
+                 f){x+=a;return x+b+c+d+e+f;}F(%Ld,1,1,1,1,1,1);"
+                type_ qualifier high,
+              Int64.to_string (Int64.add once 5L) );
+            ( Printf.sprintf "I64 F(%s %s x){x+=1;x+=x;return x;}F(%Ld);" type_
+                qualifier high,
+              Int64.to_string (store (Int64.mul once 2L)) );
+            ( Printf.sprintf "I64 F(%s %s x){%sreturn x;}F(%Ld);" type_ qualifier
+                (String.concat "" (List.init 12 (fun _ -> "x+=1;")))
+                high,
+              Int64.to_string (repeat 12 high) );
+          ])
+        [ ""; "reg"; "noreg"; "reg R12" ])
+    [
+      ("I8", 8, true);
+      ("U8", 8, false);
+      ("I16", 16, true);
+      ("U16", 16, false);
+      ("I32", 32, true);
+      ("U32", 32, false);
+    ]
+
 let integer_expression_cases =
   List.concat_map
     (fun (type_, bits, signed) ->
@@ -571,8 +639,9 @@ let forced_pressure_cases =
 let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
   let cases =
-    integer_expression_cases @ computed_update_cases @ computed_assignment_cases
-    @ forced_pressure_cases @ assignment_cases @ loop_update_cases
+    straight_line_cases @ integer_expression_cases @ computed_update_cases
+    @ computed_assignment_cases @ forced_pressure_cases @ assignment_cases
+    @ loop_update_cases
     @ [
         (read "../examples/register-loop-updates.hc", "256");
         (read "../examples/register-reassignment.hc", "256");
@@ -581,6 +650,7 @@ let () =
         (read "../examples/register-computed-updates.hc", "256");
         (read "../examples/register-computed-initializers.hc", "256");
         (read "../examples/register-integer-expressions.hc", "-512");
+        (read "../examples/register-straight-line.hc", "512");
         ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
         ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
            c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",

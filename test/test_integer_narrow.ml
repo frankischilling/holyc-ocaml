@@ -34,7 +34,9 @@ let entry_values (name, _, maximum, expected, modulus) () =
       ( "I64 F(){" ^ name ^ " n=" ^ maximum ^ ";return n;}F();",
         Int64.of_string maximum );
       ("I64 F(" ^ name ^ " n){return n;}F(" ^ maximum ^ ");", expected);
-      ("I64 F(){" ^ name ^ " n=" ^ modulus ^ "+42;return n;}F();", 42L);
+      ( "I64 F(){" ^ name ^ " n=" ^ modulus ^ "+42;return n;}F();",
+        Int64.add (Int64.of_string modulus) 42L );
+      ("I64 F(){" ^ name ^ " noreg n=" ^ modulus ^ "+42;return n;}F();", 42L);
       ("I64 F(" ^ name ^ " n){return n;}F(" ^ modulus ^ "+42);", 42L);
       ( "I64 F(){" ^ name ^ " n=0x800000000000002A;return n;}F();",
         Int64.add Int64.min_int 42L );
@@ -87,8 +89,6 @@ let unsafe_initializers =
       "I8 A=-128;I64 D=-1;I64 F(){I8 n=(A/=D);return n;}I64 N=F();N;" );
     ("signed wider sink", "I8 A=-1;U16 N=(A&=255);N;");
     ("unsigned wider sink", "U8 A=42;U16 N=(A+=256);N;");
-    ( "later signed wide assignment",
-      "I64 F(I16 n){I64 a=n;n=65578;return n+a;}I64 N=F(0);N;" );
     ("explicit signed register", "I64 F(I16 reg RAX n){return n;}I64 N=F(42);N;");
     ( "unproved signed call result",
       "I8 V(){return 255;}I64 F(){I8 n=V();return n;}I64 N=F();N;" );
@@ -546,7 +546,8 @@ let raw_class_matrix () =
           let divide = if unsigned then Int64.unsigned_div else Int64.div in
           B.cases
             [
-              ( "I64 F(){" ^ left ^ " a=-1;" ^ right ^ " b=-2;return a/b;}F();",
+              ( "I64 F(){" ^ left ^ " noreg a=-1;" ^ right
+                ^ " noreg b=-2;return a/b;}F();",
                 divide left_bits right_bits );
             ])
         rows)
@@ -591,10 +592,15 @@ let unsupported_domains () =
     G.modes
 
 let tests =
-  List.map
-    (fun (name, source) ->
-      Alcotest.test_case name `Quick (fun () -> B.cases [ (source, 42L) ]))
-    gates
+  [
+    Alcotest.test_case "selected later signed wide assignment" `Quick (fun () ->
+        B.cases
+          [ ("I64 F(I16 n){I64 a=n;n=65578;return n+a;}I64 N=F(0);N;", 65578L) ]);
+  ]
+  @ List.map
+      (fun (name, source) ->
+        Alcotest.test_case name `Quick (fun () -> B.cases [ (source, 42L) ]))
+      gates
   @ List.concat_map
       (fun ((name, _, _, _, _) as family) ->
         [

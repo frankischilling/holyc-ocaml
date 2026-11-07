@@ -938,7 +938,16 @@ let retained_initializer_guard () =
     (run session task
        "I64 BlockStatic(){static I64 N=Block(21,1);return N;}BlockStatic();");
   ignore
-    (run session task "I64 Unproved(I8 n,I8 count){n<<=count;count++;return n;}"
+    (run session task
+       "I64 Dependent(I8 n,I8 count){n<<=count;count++;return n;}"
+    |> Test_integer_program.checked);
+  value 42L (run session task "I64 Proven=Dependent(21,1);Proven;");
+  value 42L
+    (run session task
+       "I64 ProvenStatic(){static I64 N=Dependent(21,1);return \
+        N;}ProvenStatic();");
+  ignore
+    (run session task "I64 Unproved(I8 n,I8 count){n<<=count;n|=256;return n;}"
     |> Test_integer_program.checked);
   List.iter
     (fun text ->

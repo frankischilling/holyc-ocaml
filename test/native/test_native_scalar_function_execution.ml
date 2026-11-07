@@ -228,8 +228,12 @@ let adjacent_storage_assignments_and_updates () =
         "U8 F(){U8 n=0;return (n=298);}\nF();",
         "U64",
         298L );
-      ( "plain assignment stores only the U8 low byte",
+      ( "plain assignment retains selected U8 register bits",
         "U8 F(){U8 n=0;n=298;return n;}\nF();",
+        "U64",
+        298L );
+      ( "plain assignment stores only the noreg U8 low byte",
+        "U8 F(){U8 noreg n=0;n=298;return n;}\nF();",
         "U64",
         42L );
       ( "compound assignment returns the full register payload",
