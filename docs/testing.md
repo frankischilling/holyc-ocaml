@@ -2617,3 +2617,13 @@ Mixed storage, duplicate requests, recursive large frames, exact quotas and
 same-image recovery accompany explicit depth-exhaustion errors. Focused tests
 also cover exact/one-below proof fuel, malformed extents, physical identity and
 duplicated instruction uses. See [allocation pressure](allocation-pressure.md).
+
+Native F64 comparison tests distinguish bitwise equality, each ordered template,
+producer link orientation and direct condition roles. Real-source arithmetic
+NaNs, signed zeros, precision boundaries, source zero normalization, integer
+conversions and mixed register pressure accompany exact quotas and repeated
+x87 cleanup. Saved and fresh receipts reject altered source owners, types,
+options, graphs and branches. Raw signaling/arbitrary-payload NaN probes use a
+separate controlled instruction harness and do not claim public source coverage.
+See [F64 comparisons](native-float-comparisons.md) and
+`examples/native-float-comparisons.hc`.

@@ -223,7 +223,7 @@ let excluded =
        never accept the incorrect 1.0 obtained by losing the linked value. *)
     ("constant division identity", expression "((a+b)+(1.0/1.0))-a");
     ("constant multiplication identity", expression "((a+b)+(1.0*1.0))-a");
-    ("linked comparison", function_source "return (a+b)<a;");
+    ("comparison result converted to F64", function_source "return (a+b)<a;");
     ("linked remainder", expression "(a+b)%a");
     ("linked update", function_source "a+=(a+b);return a;");
   ]

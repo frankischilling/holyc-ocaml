@@ -1438,6 +1438,12 @@ let analyze_with_budget ~budget ~frame ~body =
    - OptPass012.HC:308-432,485-658 folds immediates and arithmetic identities,
      retaining every nonconstant subtree (including x*0).
    - :435-484,725-816 folds bitwise/comparison nodes only with immediate inputs.
+     Scalar F64 comparisons keep both numeric member subtrees, including the
+     implicit integer-to-F64 conversions. OptPass3.HC:216-221 applies CmpF2
+     only to ordered comparisons; equality follows ICCmp after materialization
+     (OptPass789A.HC:567-595). OptLib.HC:141-157 may retag a direct
+     F64-dereference comparison against positive zero as integer for < or >=;
+     it keeps that dereference and its address. None adds a member score.
      Comparison chains and short-circuit forms are deliberately excluded.
    - :828-895 retains direct assignment and statement-update addresses.
    - :939-1068 removes conversion wrappers/constants, not member subtrees.
@@ -1607,7 +1613,21 @@ let analyze_accesses ?(owned = false) ~budget ~frame ~body ~statements () =
                     [ value; left; right ])
               && (not (comparison opcode && inside_comparison))
               && ((not (floating value || floating left || floating right))
-                 || List.mem opcode [ O.Ic_add; Ic_sub; Ic_mul; Ic_div ]));
+                 || List.mem opcode [ O.Ic_add; Ic_sub; Ic_mul; Ic_div ]
+                 || comparison opcode
+                    && (let type_ = get (Typed.result_type value) in
+                        Sema.Type.pointer_depth type_ = 0
+                        && Sema.Type.base type_
+                           = Sema.Type.Primitive
+                               ( Sema.Type.Internal_storage,
+                                 Sema.Primitive_type.I64 ))
+                    && Typed.result_class value = Typed.Integer_result
+                    && Typed.result_execution_class value = None
+                    && Typed.result_category value = Typed.Object_value
+                    && List.for_all
+                         (fun operand ->
+                           scalar_type (get (Typed.result_type operand)))
+                         [ left; right ]));
             let inside_comparison = inside_comparison || comparison opcode in
             expression (depth - 1) ~write:false ~inside_comparison left;
             expression (depth - 1) ~write:false ~inside_comparison right)

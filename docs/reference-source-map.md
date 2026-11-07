@@ -2711,3 +2711,16 @@ that order with an explicit partition stack and checked traversal work, includin
 sorting. Source/IR identity checks remain separate from the work allowance.
 See [allocation pressure](allocation-pressure.md) for the source-derived tests
 and the retained host safeguards.
+
+### F64 comparison consumers
+
+`OptPass789A.HC:567-595` separates integer-word equality from ordered x87
+comparison. `OptPass3.HC:216-221,372-377`, `BackFA.HC:519-546` and the three
+comparison families in `Templates.HC` retain asymmetric extended producers.
+`OptLib.HC:230-245,357-372` and `BackFB.HC:235-425` give direct conditions
+separate predicates and load events. `OptLib.HC:124-160` also rewrites exact
+public-F64 direct reads against positive zero; the original class, operands
+and continuation determine whether that rule applies. `BackLib.HC:423-442`
+selects FLDZ only for the zero word, preserving negative zero as a memory load.
+The hosted receipts preserve these distinctions without moving branch work
+across instruction-budget checks. See [F64 comparisons](native-float-comparisons.md).

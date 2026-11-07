@@ -52,6 +52,9 @@ type instruction =
   | Fbinary_st0 of x87_binary * x87_register
   | Fbinary_sti of x87_binary * x87_register
   | Fbinary_pop of x87_binary * x87_register
+  | Fcomip of x87_register
+  | Ffree of x87_register
+  | Fincstp
   | Fchs
   | Fld_constant of x87_constant
   | Mov_imm64 of register * int64
@@ -356,6 +359,9 @@ let fisttp64 = source_form "FISTTP" 1165
 let fld64 = source_form "FLD" 1168
 let fstp64 = source_form "FSTP" 1172
 let fchs = source_form "FCHS" 1189
+let fcomip = source_form "FCOMIP" 1235
+let ffree = source_form "FFREE" 1242
+let fincstp = source_form "FINCSTP" 1241
 
 let x87_binary_forms =
   List.map
@@ -444,6 +450,9 @@ let form = function
   | Fbinary_pop (operation, _) ->
       let _, _, _, pop = List.assoc operation x87_binary_forms in
       pop
+  | Fcomip _ -> fcomip
+  | Ffree _ -> ffree
+  | Fincstp -> fincstp
   | Fchs -> fchs
   | Fld_constant constant -> List.assoc constant x87_constant_forms
   | Mov_imm64 _ -> mov_immediate
@@ -768,9 +777,11 @@ let plans instruction =
         ()
   | Fbinary_st0 (_, register)
   | Fbinary_sti (_, register)
-  | Fbinary_pop (_, register) ->
+  | Fbinary_pop (_, register)
+  | Fcomip register
+  | Ffree register ->
       one ~opcode_patch:(Encoding.Add_low3 register.x87_index) ()
-  | Fchs | Fld_constant _ -> one ()
+  | Fincstp | Fchs | Fld_constant _ -> one ()
   | Mov_imm64 (destination, immediate) ->
       let destination = register_number destination in
       one

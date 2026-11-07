@@ -6063,3 +6063,45 @@
    %{exe:test_allocation_pressure_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(test
+ (name test_native_float_comparison_authority)
+ (modules test_native_float_comparison_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(executable
+ (name test_native_float_comparisons_cli)
+ (modules test_native_float_comparisons_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/native-float-comparisons.hc)
+ (action
+  (run
+   %{exe:test_native_float_comparisons_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/native-float-comparisons.hc})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/native-float-comparisons.hc)
+ (action
+  (run
+   %{exe:test_native_float_comparisons_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/native-float-comparisons.hc}
+   --native)))
+
+(executable
+ (name test_native_float_comparison_architecture)
+ (modules test_native_float_comparison_architecture)
+ (libraries alcotest)
+ (foreign_stubs
+  (language c)
+  (names native_float_comparison_test)))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_float_comparison_architecture.exe})))

@@ -75,6 +75,12 @@ type instruction =
   | Fbinary_st0 of x87_binary * x87_register
   | Fbinary_sti of x87_binary * x87_register
   | Fbinary_pop of x87_binary * x87_register
+  | Fcomip of x87_register
+      (** Compare ST0 with STi, set EFLAGS and pop ST0. The caller owns the
+          pinned predicate and unordered behavior. [Ffree] and [Fincstp] release
+          the remaining x87 operand without changing EFLAGS. *)
+  | Ffree of x87_register
+  | Fincstp
   | Fchs
   | Fld_constant of x87_constant
       (** x87 arithmetic and numeric conversion, never raw F64 bit transport.

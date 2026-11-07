@@ -358,6 +358,8 @@ type operation =
   | Load_function_slot of value * Global_storage.function_slot * value
   | Load_undefined_function_address of value
   | Apply_float of X86_64_float_plan.entry * value list * value
+  | Apply_float_comparison of
+      X86_64_float_plan.comparison_entry * value list * value
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
   | Apply_shift of Encoder.shift * value * value * value
@@ -2400,6 +2402,9 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             | op -> op
           in
           (match (plan.operation, values, plan.loads) with
+          | Literal_bits bits, [ _ ], [ _ ] ->
+              emit
+                (Encoder.Mov_imm64 (registers.(Option.get destination), bits))
           | ( X86_64_float_plan.Normalized receipt,
               [ value ],
               [ (Signed_integer | Bits) ] ) ->
@@ -2534,6 +2539,98 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
           Option.iter
             (fun destination -> assign position destination result)
             destination
+      | Apply_float_comparison (plan, values, result) ->
+          if !extended_owner <> plan.comparison_live_before then
+            reject ?span:instruction.span "HCBACK0003"
+              "F64 comparison ownership differs from its sealed plan";
+          let materialized =
+            List.filter
+              (fun value ->
+                not (List.mem value.value_id plan.comparison_live_before))
+              values
+          in
+          List.iter require_numeric_owner materialized;
+          let inputs, protected = ensure_inputs instruction.span materialized in
+          let sources = List.combine materialized inputs in
+          let source value =
+            match
+              List.find_opt (fun (v, _) -> v.value_id = value.value_id) sources
+            with
+            | Some (_, index) -> registers.(index)
+            | None ->
+                reject ?span:instruction.span "HCBACK0003"
+                  "comparison operand lacks a materialized integer home"
+          in
+          (* All allocation and possible spilling precede FCOMIP/CMP. The
+             cleanup below preserves flags until their private discriminator. *)
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
+          let target = registers.(destination) in
+          let scratch = fixed_stack_slot instruction.span float_scratch_index in
+          let memory = Encoder.X87_stack scratch in
+          let load value = function
+            | X86_64_float_plan.Zero ->
+                emit (Encoder.Fld_constant Encoder.Fzero)
+            | One -> emit (Encoder.Fld_constant Encoder.Fone)
+            | (Bits | Signed_integer) as loading ->
+                emit (Encoder.Store_stack (scratch, source value));
+                emit
+                  (if loading = Signed_integer then Encoder.Fild64 memory
+                   else Encoder.Fld64 memory)
+          in
+          (match (values, plan.comparison_loads) with
+          | [ left; right ], [ ll; rl ] ->
+              if plan.comparison_kind <> X86_64_float_plan.Ordered then
+                emit (Encoder.Cmp (source left, source right))
+              else (
+                (match plan.comparison_link with
+                | X86_64_float_plan.Linked_left ->
+                    if Option.is_some plan.comparison_conversion_input then
+                      load left ll;
+                    load right rl
+                | Linked_right ->
+                    if Option.is_some plan.comparison_conversion_input then
+                      load right rl;
+                    load left ll
+                | Unlinked ->
+                    if
+                      plan.comparison_orientation = X86_64_float_plan.Left_first
+                    then (
+                      load left ll;
+                      load right rl)
+                    else (
+                      load right rl;
+                      load left ll));
+                emit
+                  (Encoder.Fcomip
+                     (Encoder.x87_register ~index:1 |> Result.get_ok));
+                emit
+                  (Encoder.Ffree (Encoder.x87_register ~index:0 |> Result.get_ok));
+                emit Encoder.Fincstp)
+          | _ ->
+              reject ?span:instruction.span "HCBACK0003"
+                "comparison lost its exact two operand load plan");
+          let predicate =
+            if not plan.comparison_negate_result then plan.comparison_predicate
+            else
+              match plan.comparison_predicate with
+              | Encoder.E -> Encoder.NE
+              | NE -> E
+              | B -> AE
+              | AE -> B
+              | A -> BE
+              | BE -> A
+              | L -> GE
+              | GE -> L
+              | G -> LE
+              | LE -> G
+          in
+          emit (Encoder.Setcc (predicate, target));
+          emit (Encoder.Movzx8 (target, target));
+          extended_owner := [];
+          assign position destination result
       | Apply_unary (unary, input, result) ->
           require_numeric_owner input;
           let inputs, protected = ensure_inputs instruction.span [ input ] in
@@ -6967,37 +7064,38 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
         let error = List.hd errors in
         reject ?span:error.span "HCBACK0002" error.message
   in
-  let float_entries =
-    match X86_64_float_plan.validated_entries float_plan ~graph with
-    | Some entries ->
-        List.fold_left
-          (fun map entry ->
-            Instruction_map.add entry.X86_64_float_plan.instruction_id entry map)
-          Instruction_map.empty entries
+  let float_emission =
+    match X86_64_float_plan.validated_emission float_plan ~graph with
+    | Some emission -> emission
     | None ->
         reject "HCBACK0003" "native F64 source plan changed before emission"
   in
+  let float_entries =
+    List.fold_left
+      (fun map entry ->
+        Instruction_map.add entry.X86_64_float_plan.instruction_id entry map)
+      Instruction_map.empty float_emission.arithmetic_entries
+  in
   let numeric_conversions =
-    match X86_64_float_plan.validated_conversions float_plan ~graph with
-    | Some entries ->
-        List.fold_left
-          (fun map entry ->
-            Instruction_map.add entry.X86_64_float_plan.conversion_instruction
-              entry map)
-          Instruction_map.empty entries
-    | None ->
-        reject "HCBACK0003" "numeric conversion proof changed before emission"
+    List.fold_left
+      (fun map entry ->
+        Instruction_map.add entry.X86_64_float_plan.conversion_instruction entry
+          map)
+      Instruction_map.empty float_emission.conversion_entries
   in
   let numeric_intrinsics =
-    match X86_64_float_plan.validated_intrinsics float_plan ~graph with
-    | Some entries ->
-        List.fold_left
-          (fun map entry ->
-            Instruction_map.add entry.X86_64_float_plan.intrinsic_instruction
-              entry map)
-          Instruction_map.empty entries
-    | None ->
-        reject "HCBACK0003" "numeric intrinsic proof changed before emission"
+    List.fold_left
+      (fun map entry ->
+        Instruction_map.add entry.X86_64_float_plan.intrinsic_instruction entry
+          map)
+      Instruction_map.empty float_emission.intrinsic_entries
+  in
+  let float_comparisons =
+    List.fold_left
+      (fun map entry ->
+        Instruction_map.add entry.X86_64_float_plan.comparison_instruction entry
+          map)
+      Instruction_map.empty float_emission.comparison_entries
   in
   let float_entry description =
     Instruction_map.find_opt description.Sequence.instruction_id float_entries
@@ -10921,6 +11019,25 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
                   (Load_immediate (value, bits), None)
               | _ ->
                   malformed description "invalid native F64 literal transport")
+          | _ when Instruction_map.mem raw.instruction_id float_comparisons -> (
+              let plan =
+                Instruction_map.find raw.instruction_id float_comparisons
+              in
+              if Int64.logand description.flags (Int64.lognot 0x40L) <> 0L then
+                malformed description "F64 comparison has unsupported flags";
+              match (description.result, description.target_type) with
+              | Some result, Some target_type ->
+                  let inputs =
+                    List.map
+                      (operand values description position)
+                      plan.comparison_operands
+                  in
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  (Apply_float_comparison (plan, inputs, value), None)
+              | _ -> malformed description "F64 comparison lost its I64 result")
           | _
             when Option.fold ~none:false
                    ~some:(fun e ->
@@ -11006,7 +11123,7 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
               value.computation_type <- effective;
               let entry = float_entry raw in
               if
-                receipt.deferred
+                receipt.deferred || receipt.elided
                 || Option.fold ~none:false
                      ~some:(fun e ->
                        e.X86_64_float_plan.operation <> Convert_to_float)
@@ -13267,7 +13384,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   Option.is_some instruction.numeric_conversion
                   ||
                   match instruction.operation with
-                  | Apply_float _ -> true
+                  | Apply_float _ | Apply_float_comparison _ -> true
                   | _ -> false)
                 block.program_instructions)
             prepared.callable_blocks
@@ -14258,6 +14375,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                     | Fbinary_st0 _
                     | Fbinary_sti _
                     | Fbinary_pop _
+                    | Fcomip _
+                    | Ffree _
+                    | Fincstp
                     | Fchs
                     | Fld_constant _ -> true
                     | _ -> false)

@@ -118,9 +118,16 @@ A bounded direct-return identity group for I64→I64, I64→F64 and F64→I64 ha
 identities such as `n*1.0` return raw binary64 bits in the integer carrier;
 surviving copies such as `n/1.0` materialize before numeric truncation. Other
 converted identity contexts still reject. Treating these cases uniformly as
-floating arithmetic would silently change precision. Float comparisons,
-conversion-bearing aggregate/indirect storage, variadic conversion and other
-unproved normalization forms are outside this subset.
+floating arithmetic would silently change precision.
+
+[Native F64 comparisons](native-float-comparisons.md) also admit proved implicit
+integer operand conversions. Ordered predicates can retain signed FILD precision;
+bitwise equality materializes the converted word. The comparison's original
+source event determines its link orientation, including conversions within the
+comparison itself. Comparison-result conversion to F64, comparison chains,
+floating short circuit, arithmetic-wrapped comparison conditions,
+conversion-bearing aggregate/indirect storage, variadic
+conversion and other unproved normalization forms remain outside this subset.
 
 Boundary fixtures use short-mantissa scientific notation or exact bit patterns
 where applicable. TempleOS's lexer accumulates decimal mantissa digits in a

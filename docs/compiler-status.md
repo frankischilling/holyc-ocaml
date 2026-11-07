@@ -1166,3 +1166,14 @@ storage semantics. Existing source-shape restrictions, mutation-sensitive
 validation and native quotas still apply. See
 [allocation pressure](allocation-pressure.md). General allocation and issue
 #703 remain open.
+
+### Native F64 comparisons
+
+Source-authenticated comparisons now distinguish binary64-word equality from
+ordered x87 templates. Direct conditions retain their original branch phase,
+including the differences from a separately stored Boolean. Direct public F64
+reads compared with positive zero preserve the source's signed-word rewrite
+for `<` and `>=`. Conversion and linked-expression precision remain explicit.
+This does not enable general comparison-result conversion, comparison chains,
+short circuit or unproved optimizer normalization. See
+[F64 comparisons](native-float-comparisons.md) for exact limits and evidence.

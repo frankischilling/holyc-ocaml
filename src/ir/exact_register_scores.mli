@@ -44,10 +44,13 @@ val analyze_whole :
     original member order and one-to-one canonical address/consumer ownership.
     Every proved occurrence contributes score 2 and net LEA balance 0. All arms,
     loop components and returns count once, even when unreachable. Arithmetic,
-    implicit numeric conversions, provided named-call arguments and discarded
-    direct assignments/integer updates are admitted. Short circuit, chained
+    implicit numeric conversions, the six scalar F64 comparisons with an
+    internal-I64 result, provided named-call arguments and discarded direct
+    assignments/integer updates are admitted. Short circuit, chained
     comparisons, consumed writes, decrement conditions and address escapes fail
-    closed. This ledger alone is not an allocation witness. *)
+    closed. Comparisons preserve their operand accesses without adding a member
+    score; ordered x87 and equality materialization semantics require separate
+    execution proofs. This ledger alone is not an allocation witness. *)
 
 type member_score = {
   location : Sema.Function_frame_layout.location;

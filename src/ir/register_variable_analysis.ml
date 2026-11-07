@@ -2693,6 +2693,7 @@ module Mixed_scalar_source = struct
       let declaration = get (Function_body.definition_declaration body) in
       require
         (Function_body.definition_matches_frame body frame
+        && Function_body.body body == X87_stack.graph (Function_body.x87 body)
         && Frame.function_header frame
            == Sema.Function_resolution.declaration_site_function
                 (Sema.Function_resolution.resolved_declaration_site declaration)
@@ -2745,7 +2746,8 @@ module Mixed_scalar_source = struct
           Identities.replace owners value ())
         (Typed.function_all_results source);
       let seen = ref [] and seen_calls = ref [] in
-      let rec expression depth value =
+      let rec expression depth ~inside_comparison ~inside_floating_comparison
+          value =
         Budget.enter budget depth;
         require (not (Identities.mem claimed value));
         Identities.add claimed value ();
@@ -2760,11 +2762,14 @@ module Mixed_scalar_source = struct
           (Typed.result_origin value
           = Sema.Initializer_source.origin_of_location
               (Ast.expression_location ast));
-        let child expected value =
+        let child ?(inside_comparison = inside_comparison)
+            ?(inside_floating_comparison = inside_floating_comparison) expected
+            value =
           require
             (Option.equal ( == ) (Some expected)
                (Source.argument_expression_source (Typed.result_source value)));
-          expression (depth - 1) value
+          expression (depth - 1) ~inside_comparison ~inside_floating_comparison
+            value
         in
         let floating = f64_type (get (Typed.result_type value)) in
         match (Source.argument_expression_kind original, ast) with
@@ -2789,12 +2794,61 @@ module Mixed_scalar_source = struct
         | Postfix_expression _, Ast.Postfix_expression postfix ->
             require (not floating);
             child postfix.postfix_operand (get (Typed.result_operand value))
-        | Binary_expression _, Ast.Binary_expression binary ->
+        | Binary_expression original_binary, Ast.Binary_expression binary ->
             let left, right = get (Typed.result_binary_operands value) in
             let left_float = f64_type (get (Typed.result_type left))
             and right_float = f64_type (get (Typed.result_type right)) in
+            let comparison =
+              match binary.binary_operator_spec.spelling with
+              | "==" -> Some O.Ic_equ_equ
+              | "!=" -> Some O.Ic_not_equ
+              | "<" -> Some O.Ic_less
+              | "<=" -> Some O.Ic_less_equ
+              | ">" -> Some O.Ic_greater
+              | ">=" -> Some O.Ic_greater_equ
+              | _ -> None
+            in
+            let is_comparison = Option.is_some comparison in
+            let floating_comparison =
+              is_comparison && (left_float || right_float)
+            in
             require
-              ((floating = left_float && floating = right_float)
+              (not
+                 ((floating_comparison && inside_comparison)
+                 || (is_comparison && inside_floating_comparison)));
+            (if floating_comparison then
+               (* Comparisons consume numeric operands but produce an internal
+                 I64, unlike floating arithmetic. The canonical graph below
+                 separately authenticates USE_F64 and conversion flags. This
+                 source shape does not grant an x87 or branch execution plan. *)
+               let type_ = get (Typed.result_type value) in
+               require
+                 (Some (Source.binary_operator original_binary) = comparison
+                 && Sema.Type.pointer_depth type_ = 0
+                 && Sema.Type.base type_
+                    = Sema.Type.Primitive
+                        (Sema.Type.Internal_storage, Sema.Primitive_type.I64)
+                 && Typed.result_class value = Typed.Integer_result
+                 && Typed.result_execution_class value = None
+                 && Typed.result_category value = Typed.Object_value
+                 && List.for_all
+                      (fun operand ->
+                        let type_ = get (Typed.result_type operand) in
+                        scalar type_
+                        && Typed.result_execution_class operand = None
+                        && (Typed.result_class operand
+                           =
+                           if f64_type type_ then Typed.F64_result
+                           else Typed.Integer_result)
+                        && (not (Typed.result_is_array_address operand))
+                        &&
+                        match Typed.result_category operand with
+                        | Typed.Object_value | Lvalue -> true
+                        | _ -> false)
+                      [ left; right ]));
+            require
+              (floating_comparison
+              || (floating = left_float && floating = right_float)
               || floating
                  && (left_float || right_float)
                  && List.mem binary.binary_operator_spec.spelling
@@ -2805,8 +2859,17 @@ module Mixed_scalar_source = struct
               ((not floating)
               || List.mem binary.binary_operator_spec.spelling
                    [ "+"; "-"; "*"; "/"; "=" ]);
-            let left_calls = child binary.binary_left left in
-            left_calls @ child binary.binary_right right
+            let inside_comparison = inside_comparison || is_comparison in
+            let inside_floating_comparison =
+              inside_floating_comparison || floating_comparison
+            in
+            let left_calls =
+              child ~inside_comparison ~inside_floating_comparison
+                binary.binary_left left
+            in
+            left_calls
+            @ child ~inside_comparison ~inside_floating_comparison
+                binary.binary_right right
         | Source.Index_expression _, Ast.Index_expression index when owned ->
             let base, offset = get (Typed.result_index_operands value) in
             let first = child index.index_base base in
@@ -2848,7 +2911,8 @@ module Mixed_scalar_source = struct
                 (fun original argument ->
                   match original.Ast.call_argument_value with
                   | Ast.Provided_call_argument expected ->
-                      child expected argument
+                      child ~inside_comparison:false
+                        ~inside_floating_comparison:false expected argument
                   | Omitted_call_argument -> raise Unproved)
                 ast.call_arguments arguments
               |> List.concat
@@ -2857,7 +2921,10 @@ module Mixed_scalar_source = struct
         | _ -> raise Unproved
       in
       let validate value =
-        let pairs = expression Budget.max_depth value in
+        let pairs =
+          expression Budget.max_depth ~inside_comparison:false
+            ~inside_floating_comparison:false value
+        in
         let pairs =
           List.sort
             (fun (a, _) (b, _) ->
@@ -2940,7 +3007,10 @@ module Mixed_scalar_source = struct
               && matches (Typed.condition_value root) ast)
         in
         let value = Typed.condition_value root in
-        require (not (f64_type (get (Typed.result_type value))));
+        require
+          (Typed.result_source value
+           == Source.condition_expression (Typed.condition_source root)
+          && not (f64_type (get (Typed.result_type value))));
         validate value;
         value
       in
@@ -3264,7 +3334,24 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~budget ~frame
        let flags =
          if mixed then Int64.logand item.flags (Int64.lognot 3L) else item.flags
        in
-       flags = 0L || (flags = 0x2000L && scalar_result item))
+       flags = 0L
+       || (flags = 0x2000L && scalar_result item)
+       || mixed && flags = 0x40L
+          && (match item.opcode with
+            | O.Ic_equ_equ
+            | Ic_not_equ
+            | Ic_less
+            | Ic_less_equ
+            | Ic_greater
+            | Ic_greater_equ -> true
+            | _ -> false)
+          && Option.fold ~none:false
+               ~some:(fun type_ ->
+                 Sema.Type.pointer_depth type_ = 0
+                 && Sema.Type.base type_
+                    = Sema.Type.Primitive
+                        (Sema.Type.Internal_storage, Sema.Primitive_type.I64))
+               item.target_type)
     && (if direct_call item.opcode then
           (match item.payload with
             | Some (Seq.Symbol symbol) -> List.exists (( == ) symbol) targets

@@ -22,15 +22,18 @@ val analyze :
     original source body: named parameters, entry-initialized locals,
     expressions, returns, branches and loops. Every source root, typed child,
     instruction, bit payload and control edge must agree. Floating copies,
-    assignment, unary minus and +, -, *, / are admitted. Scalar numeric
-    conversions are reconstructed with their exact producer flags; floating
-    updates, pointers and unsupported source forms remain outside this mixed
-    proof. Named calls through [analyze_with_runtime] additionally require
-    original exact-owner target classifications, fixed provided arguments,
-    definition targets and canonical provided-argument conversions. Their
-    complete call sequences and control flow are independently re-lowered and
-    primitive-compared, never trusted from graph identity alone. Arithmetic and
-    x87 links still require their separate execution proof.
+    assignment, unary minus and +, -, *, / are admitted. The six scalar F64
+    comparisons retain their exact numeric children and internal-I64 result,
+    with canonical USE_F64 and conversion flags. Floating comparison chains
+    remain excluded. Scalar numeric conversions are reconstructed with their
+    exact producer flags; floating updates, pointers and unsupported source
+    forms remain outside this mixed proof. Named calls through
+    [analyze_with_runtime] additionally require original exact-owner target
+    classifications, fixed provided arguments, definition targets and canonical
+    provided-argument conversions. Their complete call sequences and control
+    flow are independently re-lowered and primitive-compared, never trusted from
+    graph identity alone. Arithmetic and x87 links still require their separate
+    execution proof.
 
     Ordinary F64 members are always [Stack] and do not compete. Plain [reg] F64
     members count as forced candidates even when unused. Explicit requests
@@ -57,7 +60,9 @@ val analyze :
     tree and canonical graph, then separately proves access survival through
     OptPass012. It admits if/else, while/do/for, multiple returns, fixed named
     calls and recursion with original runtime receipts, scalar numeric
-    conversions, entry initializers and discarded direct integer updates. Each
+    conversions, the six scalar F64 comparisons, entry initializers and
+    discarded direct integer updates. Comparisons add no member score, and do
+    not grant ordered x87 links or equality materialization authority. Each
     branch arm, loop component and return is scored once, including
     constant-dead arms, zero-trip bodies and statements after return. The ledger
     retains original member order, unused candidates and reservations. Every

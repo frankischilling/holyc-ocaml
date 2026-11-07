@@ -547,6 +547,437 @@ let authority () =
         "canonical relowering cannot launder reversed original operands" true
         (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
 
+let floating_comparison_reads () =
+  let module Scores = Holyc_lib__Ir.Exact_register_scores in
+  let module Lower = Holyc_lib__Ir.Integer_program_lowering in
+  modes (fun mode ->
+      List.iter
+        (fun operator ->
+          List.iter
+            (fun (parameters, left, right, expected) ->
+              let contents =
+                "I64 F(" ^ parameters ^ "){return " ^ left ^ operator ^ right
+                ^ ";}42;"
+              in
+              let fn, runtime = compile_with_runtime mode contents in
+              let evidence = proof fn in
+              let predicate =
+                descriptions fn
+                |> List.find (fun item ->
+                    List.mem item.Seq.opcode
+                      [
+                        O.Ic_equ_equ;
+                        Ic_not_equ;
+                        Ic_less;
+                        Ic_less_equ;
+                        Ic_greater;
+                        Ic_greater_equ;
+                      ])
+              in
+              Alcotest.(check int64)
+                "canonical comparison has USE_F64 and no result conversion"
+                0x40L predicate.flags;
+              Alcotest.(check int)
+                "canonical numeric operand conversion count"
+                (if left = "n" || right = "n" then 1 else 0)
+                (List.length
+                   (List.filter
+                      (fun item -> Int64.logand item.Seq.flags 1L <> 0L)
+                      (descriptions fn)));
+              Alcotest.(check bool)
+                "comparison source and canonical flags authenticate" true
+                (Analysis.authenticates_mixed_scalar_source ~runtime
+                   ~frame:fn.frame ~body:fn.body);
+              List.iter
+                (fun (name, selection, register) ->
+                  check fn evidence name selection register)
+                expected;
+              let source = Option.get (Body.definition_source fn.body) in
+              let returned = List.hd (Typed.function_returns source) in
+              let scores =
+                Scores.analyze_members ~frame:fn.frame ~body:fn.body
+                  ~statements:[ Lower.Return returned ]
+                |> Option.get
+              in
+              List.iter
+                (fun (member : Scores.member_score) ->
+                  Alcotest.(check int64)
+                    "comparison-only member read scores exactly twice" 2L
+                    member.score;
+                  Alcotest.(check int64)
+                    "comparison leaves no member LEA" 0L member.lea_balance)
+                scores)
+            ([
+               ( "reg F64 x,noreg F64 y",
+                 "x",
+                 "y",
+                 [
+                   ("x", Analysis.Register_candidate, Some 6);
+                   ("y", Analysis.Stack, None);
+                 ] );
+               ( "I8 n,F64 ordinary",
+                 "n",
+                 "ordinary",
+                 [
+                   ("n", Analysis.Register_candidate, Some 6);
+                   ("ordinary", Analysis.Stack, None);
+                 ] );
+               ( "I8 n,F64 ordinary",
+                 "ordinary",
+                 "n",
+                 [
+                   ("n", Analysis.Register_candidate, Some 6);
+                   ("ordinary", Analysis.Stack, None);
+                 ] );
+               ( "reg R10 F64 x,reg R10 F64 y",
+                 "x",
+                 "y",
+                 [
+                   ("x", Analysis.Stack, None);
+                   ("y", Analysis.Register_candidate, Some 10);
+                 ] );
+             ]
+            @ List.concat_map
+                (fun width ->
+                  List.map
+                    (fun (left, right) ->
+                      ( width ^ " n,F64 ordinary",
+                        left,
+                        right,
+                        [
+                          ("n", Analysis.Register_candidate, Some 6);
+                          ("ordinary", Analysis.Stack, None);
+                        ] ))
+                    [ ("n", "ordinary"); ("ordinary", "n") ])
+                [ "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ]))
+        [ "=="; "!="; "<"; "<="; ">"; ">=" ];
+      let fn =
+        compile mode "I64 F(reg F64 x,F64 y){I64 result=x<y;return result;}42;"
+      in
+      let evidence = proof fn in
+      check fn evidence "x" Analysis.Register_candidate (Some 6);
+      check fn evidence "result" Analysis.Register_candidate (Some 7))
+
+let floating_comparison_pressure () =
+  let names = [ "a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i" ] in
+  let parameters =
+    String.concat "," (List.map (fun name -> "I8 " ^ name) names)
+  in
+  let comparisons =
+    String.concat "" (List.map (fun name -> name ^ "<real;") names)
+  in
+  (* These literal orders follow the pinned QSort2b equal-score swaps. Every
+     comparison operand contributes one direct read, not a predicate bonus. *)
+  let tied =
+    [
+      ("g", 12);
+      ("f", 13);
+      ("i", 6);
+      ("h", 7);
+      ("e", 10);
+      ("b", 11);
+      ("a", 14);
+      ("d", 15);
+    ]
+  and weighted =
+    [
+      ("a", 12);
+      ("g", 13);
+      ("f", 6);
+      ("i", 7);
+      ("h", 10);
+      ("c", 11);
+      ("b", 14);
+      ("e", 15);
+    ]
+  and forced =
+    [
+      ("real", 12);
+      ("g", 13);
+      ("f", 6);
+      ("i", 7);
+      ("h", 10);
+      ("b", 11);
+      ("a", 14);
+      ("c", 15);
+    ]
+  in
+  modes (fun mode ->
+      List.iter
+        (fun (label, real, prefix, suffix, expected) ->
+          let fn =
+            compile mode
+              ("I64 F(" ^ parameters ^ "," ^ real ^ ",noreg I64 flag){" ^ prefix
+             ^ comparisons ^ "return 0;" ^ suffix ^ "}42;")
+          in
+          let evidence = proof fn in
+          List.iter
+            (fun name ->
+              let register = List.assoc_opt name expected in
+              check fn evidence name
+                (if Option.is_some register then Analysis.Register_candidate
+                 else Analysis.Stack)
+                register)
+            (names @ [ "real" ]);
+          Alcotest.(check bool)
+            (label ^ " shares proof work exhaustion")
+            true
+            (Analysis.analyze_with_work_limit ~max_work:0 ~frame:fn.frame
+               ~body:fn.body
+            = Error Analysis.Proof_limit_exceeded))
+        [
+          ("ordinary F64 exclusion", "F64 real", "", "", tied);
+          ("noreg F64 exclusion", "noreg F64 real", "", "", tied);
+          ("forced F64 precedence", "reg F64 real", "", "", forced);
+          ("constant-dead arm", "F64 real", "if(0)a<real;", "", weighted);
+          ( "both arms once",
+            "F64 real",
+            "if(flag)a<real;else a<real;",
+            "",
+            weighted );
+          ("zero-trip body", "F64 real", "while(0)a<real;", "", weighted);
+          ( "while comparison condition",
+            "F64 real",
+            "while(a<real){}",
+            "",
+            weighted );
+          ( "do comparison condition",
+            "F64 real",
+            "do{}while(a<real);",
+            "",
+            weighted );
+          ( "for condition and update",
+            "F64 real",
+            "for(;a<real;a<real){}",
+            "",
+            weighted );
+          ("post-return occurrence", "F64 real", "", "a<real;", weighted);
+        ])
+
+let floating_comparison_mutations () =
+  let contents =
+    "F64 G(F64 v){return v;}I64 F(reg R10 F64 x,F64 y,I8 n){if(x<y)return \
+     G(x)<n;return x>=y;}42;"
+  in
+  let comparison fn =
+    descriptions fn |> List.find (fun item -> item.Seq.opcode = O.Ic_less)
+  in
+  let typed_comparison fn =
+    let source =
+      Option.get (Body.definition_source fn.Ir_integer_interpreter.body)
+    in
+    Typed.function_all_results source
+    |> List.find (fun value ->
+        match Source.argument_expression_kind (Typed.result_source value) with
+        | Source.Binary_expression binary ->
+            Source.binary_operator binary = O.Ic_less
+        | _ -> false)
+  in
+  let mutations =
+    [
+      ( "comparison opcode",
+        fun fn ->
+          Obj.set_field (Obj.repr (comparison fn)) 1 (Obj.repr O.Ic_greater) );
+      ( "comparison ordered operands",
+        fun fn ->
+          let item = comparison fn in
+          Obj.set_field (Obj.repr item) 2 (Obj.repr (List.rev item.operands)) );
+      ( "comparison USE_F64 flag",
+        fun fn -> Obj.set_field (Obj.repr (comparison fn)) 6 (Obj.repr 0L) );
+      ( "comparison unsupported flags",
+        fun fn -> Obj.set_field (Obj.repr (comparison fn)) 6 (Obj.repr 0x2040L)
+      );
+      ( "comparison conversion flags",
+        fun fn -> Obj.set_field (Obj.repr (comparison fn)) 6 (Obj.repr 0x41L) );
+      ( "comparison target class",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (comparison fn))
+            4
+            (Obj.repr (Some (Frame.location_checked_type (location fn "x")))) );
+      ( "operand conversion flag",
+        fun fn ->
+          let item =
+            descriptions fn
+            |> List.find (fun item -> Int64.logand item.Seq.flags 1L <> 0L)
+          in
+          Obj.set_field (Obj.repr item) 6
+            (Obj.repr (Int64.logand item.flags (Int64.lognot 1L))) );
+      ( "typed source comparison opcode",
+        fun fn ->
+          let value = typed_comparison fn in
+          let binary =
+            match
+              Source.argument_expression_kind (Typed.result_source value)
+            with
+            | Source.Binary_expression binary -> binary
+            | _ -> assert false
+          in
+          Obj.set_field (Obj.repr binary) 0 (Obj.repr O.Ic_greater) );
+      ( "typed comparison operand class",
+        fun fn ->
+          let left, _ =
+            Option.get (Typed.result_binary_operands (typed_comparison fn))
+          in
+          Obj.set_field (Obj.repr left) 15 (Obj.repr Typed.Integer_result) );
+      ( "typed comparison operand execution class",
+        fun fn ->
+          let left, _ =
+            Option.get (Typed.result_binary_operands (typed_comparison fn))
+          in
+          Obj.set_field (Obj.repr left) 16 (Obj.repr (Some Typed.F64_result)) );
+      ( "copied condition expression owner",
+        fun fn ->
+          let source =
+            Option.get (Body.definition_source fn.Ir_integer_interpreter.body)
+          in
+          let root = List.hd (Typed.function_conditions source) in
+          let condition = Typed.condition_source root in
+          let copied =
+            Obj.obj (Obj.dup (Obj.repr (Source.condition_expression condition)))
+          in
+          Obj.set_field (Obj.repr condition) 3 (Obj.repr copied) );
+      ( "typed comparison result class",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (typed_comparison fn))
+            15
+            (Obj.repr Typed.F64_result) );
+      ( "typed comparison execution class",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (typed_comparison fn))
+            16
+            (Obj.repr (Some Typed.F64_result)) );
+      ( "typed comparison source class",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (typed_comparison fn))
+            13
+            (Obj.repr (Some (Frame.location_checked_type (location fn "x")))) );
+      ( "typed comparison category",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (typed_comparison fn))
+            14 (Obj.repr Typed.Lvalue) );
+      ( "typed comparison ordered children",
+        fun fn ->
+          let value = typed_comparison fn in
+          let left, right = Option.get (Typed.result_binary_operands value) in
+          Obj.set_field (Obj.repr value) 4 (Obj.repr (Some (right, left))) );
+      ( "copied typed comparison child",
+        fun fn ->
+          let value = typed_comparison fn in
+          let left, right = Option.get (Typed.result_binary_operands value) in
+          let copied = Obj.obj (Obj.dup (Obj.repr left)) in
+          Obj.set_field (Obj.repr value) 4 (Obj.repr (Some (copied, right))) );
+      ( "copied canonical graph with named-call receipts",
+        fun fn ->
+          let original = Body.body fn.Ir_integer_interpreter.body in
+          let blocks =
+            Graph.blocks original
+            |> List.map (fun block ->
+                {
+                  Graph.block_id = Graph.block_id block;
+                  instructions =
+                    Graph.instructions block |> Seq.instructions
+                    |> List.map (fun item ->
+                        Obj.obj (Obj.dup (Obj.repr (Seq.description item))));
+                })
+          in
+          let copied =
+            Graph.create ~entry:(Graph.block_id (Graph.entry original)) blocks
+            |> Result.get_ok
+          in
+          Obj.set_field (Obj.repr fn.body) 10 (Obj.repr copied) );
+      ( "copied canonical graph and refreshed x87 wrapper",
+        fun fn ->
+          let original = Body.body fn.Ir_integer_interpreter.body in
+          let blocks =
+            Graph.blocks original
+            |> List.map (fun block ->
+                {
+                  Graph.block_id = Graph.block_id block;
+                  instructions =
+                    Graph.instructions block |> Seq.instructions
+                    |> List.map (fun item ->
+                        Obj.obj (Obj.dup (Obj.repr (Seq.description item))));
+                })
+          in
+          let copied =
+            Graph.create ~entry:(Graph.block_id (Graph.entry original)) blocks
+            |> Result.get_ok
+          in
+          let checked =
+            Holyc_lib__Ir.X87_stack.verify copied |> Result.get_ok
+          in
+          Obj.set_field (Obj.repr fn.body) 10 (Obj.repr copied);
+          Obj.set_field (Obj.repr fn.body) 11 (Obj.repr checked) );
+    ]
+  in
+  modes (fun mode ->
+      List.iter
+        (fun (label, mutate) ->
+          let fn, runtime = compile_with_runtime mode contents in
+          let evidence =
+            Analysis.analyze_with_runtime ~runtime ~frame:fn.frame ~body:fn.body
+            |> Option.get
+          in
+          let symbol = Frame.location_symbol (location fn "x") in
+          mutate fn;
+          Alcotest.(check bool)
+            (label ^ " revokes saved proof")
+            true
+            (Option.is_none
+               (Analysis.selection evidence ~frame:fn.frame ~body:fn.body
+                  ~symbol));
+          Alcotest.(check bool)
+            (label ^ " rejects fresh proof")
+            true
+            (Option.is_none
+               (Analysis.analyze_with_runtime ~runtime ~frame:fn.frame
+                  ~body:fn.body)))
+        mutations;
+      let fn, runtime = compile_with_runtime mode contents in
+      let foreign, foreign_runtime = compile_with_runtime mode contents in
+      Alcotest.(check bool)
+        "foreign runtime cannot own floating comparison call" true
+        (Option.is_none
+           (Analysis.analyze_with_runtime ~runtime:foreign_runtime
+              ~frame:fn.frame ~body:fn.body));
+      Alcotest.(check bool)
+        "original runtime cannot own foreign comparison body" true
+        (Option.is_none
+           (Analysis.analyze_with_runtime ~runtime ~frame:foreign.frame
+              ~body:foreign.body));
+      List.iter
+        (fun expression ->
+          let contents =
+            "I64 F(reg F64 x,F64 y,I64 n){return " ^ expression ^ ";}42;"
+          in
+          match lowered mode contents with
+          | Error _ -> ()
+          | Ok program ->
+              let fn =
+                integer_program_functions program.value
+                |> List.find
+                     (fun (fn : Ir_integer_interpreter.function_definition) ->
+                       Symbol.name (Body.symbol fn.body) = "F")
+              in
+              Alcotest.(check bool)
+                "floating comparison chains remain excluded" true
+                (Option.is_none
+                   (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [ "x<y<n"; "x<(y<n)"; "(x<y)<n"; "(n<1)<x" ];
+      let fn, runtime =
+        compile_with_runtime mode
+          "I64 F(F64 ignored,I64 x,I64 y,I64 z){return x<y<z;}42;"
+      in
+      Alcotest.(check bool)
+        "existing integer comparison source grammar is preserved" true
+        (Analysis.authenticates_mixed_scalar_source ~runtime ~frame:fn.frame
+           ~body:fn.body))
+
 let () =
   Alcotest.run "mixed scalar register authority"
     [
@@ -562,5 +993,11 @@ let () =
             calls_and_control_flow;
           Alcotest.test_case "canonical graph mutation refusal" `Quick
             canonical_mutations;
+          Alcotest.test_case "floating comparison read scores" `Quick
+            floating_comparison_reads;
+          Alcotest.test_case "floating comparison pressure and phases" `Quick
+            floating_comparison_pressure;
+          Alcotest.test_case "floating comparison authority mutations" `Quick
+            floating_comparison_mutations;
         ] );
     ]

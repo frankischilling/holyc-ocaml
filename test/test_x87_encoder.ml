@@ -93,6 +93,12 @@ let constants () =
       ("FLDLG2", Fld_constant Flog10_2, "d9ec");
       ("FLDLN2", Fld_constant Floge_2, "d9ed");
       ("FCHS", Fchs, "d9e0");
+      ("FCOMIP ST1", Fcomip (x87_register ~index:1 |> checked), "dff1");
+      ("FCOMIP ST0", Fcomip (x87_register ~index:0 |> checked), "dff0");
+      ("FCOMIP ST7", Fcomip (x87_register ~index:7 |> checked), "dff7");
+      ("FFREE ST0", Ffree (x87_register ~index:0 |> checked), "ddc0");
+      ("FFREE ST7", Ffree (x87_register ~index:7 |> checked), "ddc7");
+      ("FINCSTP", Fincstp, "d9f7");
     ]
 
 let bounds () =

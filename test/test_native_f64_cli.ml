@@ -181,7 +181,6 @@ let excluded =
   [
     ( "unproved literal reassociation",
       "F64 F(F64 a){return (a+0.5)+0.5;}F(1.0);" );
-    ("comparison", "I64 F(F64 a,F64 b){return a<b;}F(1.0,2.0);");
     ("remainder", "F64 F(F64 a,F64 b){return a%b;}F(1.0,2.0);");
     ("compound update", "F64 F(F64 x){x+=1.0;return x;}F(1.0);");
     ("pointer", "F64 F(F64 *x){return *x;}42;");
@@ -192,7 +191,6 @@ let excluded =
     ( "callback invocation",
       "F64 Id(F64 x){return x;}F64 (*f)(F64 x)=&Id;f(1.0);" );
     ("unsupported fixed register", "F64 F(){F64 reg RAX x=1.0;return x;}42;");
-    ("unreachable comparison", "I64 Bad(F64 x){return x<1.0;}42;");
     ("float format", "extern U0 Print(U8 *fmt,...);Print(\"%f\",1.0);");
     ("shift", "F64 F(F64 x){return x<<1;}F(1.0);");
     ("power", "F64 F(F64 x){return x**2.0;}F(1.0);");

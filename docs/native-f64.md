@@ -57,9 +57,11 @@ not an invented eight-value x87 evaluation stack. Calls, stores and control-flow
 edges cannot carry an unproved extended value. Call-result and global-containing
 regions remain outside the source-link proof.
 
-Arithmetic immediate loading is distinct from bit transport. Zero, including
-negative zero, uses FLDZ; one uses FLD1. Other ordinary literals load from a
-binary64 word. PI and the logarithmic builtin constants currently reject in
+Arithmetic immediate loading is distinct from bit transport. Positive zero uses
+FLDZ; one uses FLD1. Negative zero and other ordinary literals load from a
+binary64 word. `ICBuiltInFloatConst` tests `!d` using raw-word truth, so negative
+zero's nonzero sign bit prevents the FLDZ shortcut (`BackLib.HC:423-428`,
+`OptLib.HC:235-242`, `BackB.HC:640-660`). PI and the logarithmic builtin constants currently reject in
 arithmetic because their source load rule depends on compiler-option evidence
 not yet retained by this plan. Their raw literal transport is unchanged.
 
@@ -111,10 +113,21 @@ Deleted identities and surviving copy barriers
 have different source phase histories and results; generic cast rules cannot
 replace those histories.
 
+## Comparisons
+
+[Native F64 comparisons](native-float-comparisons.md) cover source-owned scalar
+`==`, `!=`, `<`, `>=`, `>` and `<=` with I64 results and direct conditions.
+Equality compares materialized words, ordered comparisons use source-selected
+x87 predicates, and direct positive-zero comparisons have a separate signed-word
+normalization rule. Linked arithmetic and implicit integer operands retain their
+proved event order. Value results and direct conditions can differ on NaN.
+
 ## Current exclusions
 
-Unproved conversion normalization, comparisons, remainder, power, shifts,
-compound updates, increment/decrement, other floating intrinsics, variadic F64
+Unproved conversion normalization, comparison chains, floating short circuit,
+constant-only comparisons without a normalization proof, comparison results
+converted to F64, arithmetic-wrapped comparison conditions, remainder, power,
+shifts, compound updates, increment/decrement, other floating intrinsics, variadic F64
 arguments, `%f`, F64 pointers, arrays, aggregate fields, globals, statics,
 parameter defaults and callback invocation signatures remain unsupported. Mixed
 functions containing F64 also reject narrow integer frame members unless their

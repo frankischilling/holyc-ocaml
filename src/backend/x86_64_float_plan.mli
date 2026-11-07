@@ -9,6 +9,9 @@ type conversion_entry = private {
   conversion_result : Ir.Instruction_sequence.Value_id.t;
   conversion : conversion;
   deferred : bool;
+  elided : bool;
+      (** The source zero-to-I64 rewrite removed this exact integer-zero
+          conversion; its input word already equals binary64 positive zero. *)
 }
 
 val conversion_type : conversion -> Sema.Type.t
@@ -23,6 +26,9 @@ type intrinsic_entry = private {
 type operation =
   | Normalized of Ir.Numeric_normalization.t
   | Convert_to_float
+  | Literal_bits of int64
+      (** The source-authenticated unary minus of an immediate F64 positive zero
+          in a comparison region. Other constant folds remain closed. *)
   | Negate
   | Add
   | Subtract
@@ -47,6 +53,52 @@ type entry = private {
   orientation : orientation;
   live_steps : Ir.Instruction_sequence.Value_id.t list list;
   result_conversion : conversion option;
+}
+
+type comparison_kind =
+  | Bitwise
+  | Signed_word
+  | Ordered
+      (** [Bitwise] is pinned F64 equality. [Signed_word] is the exact
+          public-F64 direct-read versus positive-zero rewrite for original < or
+          >=. [Ordered] consumes two x87 operands with the source-selected
+          unordered predicate. *)
+
+type comparison_link = Unlinked | Linked_left | Linked_right
+
+type comparison_context =
+  | Comparison_value
+  | Comparison_branch of {
+      role : Sema.Function_call_resolution.condition_role;
+      negated : bool;
+      consumer : Ir.Instruction_sequence.Instruction_id.t;
+    }
+
+type comparison_entry = private {
+  comparison_instruction : Ir.Instruction_sequence.Instruction_id.t;
+  comparison_result : Ir.Instruction_sequence.Value_id.t;
+  comparison_operands : Ir.Instruction_sequence.Value_id.t list;
+  comparison_loads : load list;
+  comparison_kind : comparison_kind;
+  comparison_context : comparison_context;
+  comparison_opcode : Ir.Opcode.t;
+  comparison_predicate : X86_64_encoder.condition;
+  comparison_negate_result : bool;
+  comparison_orientation : orientation;
+  comparison_link : comparison_link;
+  comparison_conversion_input : Ir.Instruction_sequence.Value_id.t option;
+      (** Same-instruction CN_A1/CN_A2 FILD input, distinct from an extended
+          owner transferred by an earlier instruction. *)
+  comparison_live_before : Ir.Instruction_sequence.Value_id.t list;
+  comparison_live_steps : Ir.Instruction_sequence.Value_id.t list list;
+  comparison_peak_depth : int;
+}
+
+type emission = {
+  arithmetic_entries : entry list;
+  conversion_entries : conversion_entry list;
+  intrinsic_entries : intrinsic_entry list;
+  comparison_entries : comparison_entry list;
 }
 
 type error = { message : string; span : Common.Span.t option }
@@ -84,3 +136,12 @@ val validated_conversions :
 
 val validated_intrinsics :
   t -> graph:Ir.Block_graph.t -> intrinsic_entry list option
+
+val validated_comparisons :
+  t -> graph:Ir.Block_graph.t -> comparison_entry list option
+
+val validated_emission : t -> graph:Ir.Block_graph.t -> emission option
+(** Validate all arithmetic, conversion, intrinsic and terminal comparison
+    receipts once for immediate synchronous emission. Comparison orientation
+    denotes physical load order; [comparison_live_steps] lists ST0 first.
+    Ordered comparisons end with an empty x87 stack and an I64 discriminator. *)
