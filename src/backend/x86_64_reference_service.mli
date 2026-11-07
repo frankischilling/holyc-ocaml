@@ -5,6 +5,8 @@ type argument =
   | Arena_address of int
 
 val scratch_slots : int
+(** Eleven slots: the unchanged seven-register bank, callback result/helper and
+    return address, followed by dedicated RSI and RDI saves. *)
 
 type 'label emitter = {
   abi : X86_64_encoder.status_abi;
@@ -28,8 +30,9 @@ val emit :
   site:int option ->
   unit
 (** Native ownership bookkeeping through the private context callback. All
-    allocated registers, the instruction budget and arena/context bases survive
-    the C ABI call. The generated callable frame supplies its ABI home space. *)
+    allocated registers, RSI/RDI, the instruction budget and arena/context bases
+    survive the C ABI call. The generated callable frame supplies its ABI home
+    space. *)
 
 val emit_shared :
   abi:X86_64_encoder.status_abi ->
@@ -38,4 +41,6 @@ val emit_shared :
   stage:int ->
   unit
 (** Emit the shared service body within its caller's fixed frame. Entry and
-    return use jumps, so this adds no generated activation or stack charge. *)
+    return use jumps, so this adds no generated activation or stack charge.
+    RSI/RDI are saved before host argument setup and restored immediately after
+    the callback, including when the current function has no pinned locals. *)

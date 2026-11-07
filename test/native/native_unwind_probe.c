@@ -158,10 +158,12 @@ static const char *unwind_at_clobbered(void *code_mapping,
   initialize_context(&context, image_base + (DWORD64)offset, rsp);
   context.Rbp = rbp;
   context.Rax = rax;
-  if (clobbered & 1u) context.R12 = UINT64_C(0xc12c12c12c12c12c);
-  if (clobbered & 2u) context.R13 = UINT64_C(0xc13c13c13c13c13c);
-  if (clobbered & 4u) context.R14 = UINT64_C(0xc14c14c14c14c14c);
-  if (clobbered & 8u) context.R15 = UINT64_C(0xc15c15c15c15c15c);
+  if (clobbered & (1u << 6)) context.Rsi = UINT64_C(0xc06c06c06c06c06c);
+  if (clobbered & (1u << 7)) context.Rdi = UINT64_C(0xc07c07c07c07c07c);
+  if (clobbered & (1u << 12)) context.R12 = UINT64_C(0xc12c12c12c12c12c);
+  if (clobbered & (1u << 13)) context.R13 = UINT64_C(0xc13c13c13c13c13c);
+  if (clobbered & (1u << 14)) context.R14 = UINT64_C(0xc14c14c14c14c14c);
+  if (clobbered & (1u << 15)) context.R15 = UINT64_C(0xc15c15c15c15c15c);
   memset(&pointers, 0, sizeof(pointers));
   handler = RtlVirtualUnwind((DWORD)0, image_base, context.Rip,
                              function_entry, &context, &handler_data,
@@ -248,16 +250,20 @@ struct callable_layout {
   size_t restores;
   size_t epilogue;
   unsigned save_count;
-  struct callable_save saves[4];
+  struct callable_save saves[6];
 };
 
 static DWORD64 saved_register_value(unsigned reg)
 {
-  static const DWORD64 values[] = {
-    UINT64_C(0x5555666677778888), UINT64_C(0x6666777788889999),
-    UINT64_C(0x777788889999aaaa), UINT64_C(0x88889999aaaabbbb)
-  };
-  return values[reg - 12u];
+  switch (reg) {
+  case 6: return UINT64_C(0x3333444455556666);
+  case 7: return UINT64_C(0x4444555566667777);
+  case 12: return UINT64_C(0x5555666677778888);
+  case 13: return UINT64_C(0x6666777788889999);
+  case 14: return UINT64_C(0x777788889999aaaa);
+  case 15: return UINT64_C(0x88889999aaaabbbb);
+  default: return 0u; /* The independent owner validator rejects this case. */
+  }
 }
 
 static const char *check_callable_owner(const unsigned char *code,
@@ -279,7 +285,7 @@ static const char *check_callable_owner(const unsigned char *code,
   if (code[begin] != 0x55u || code[begin + 1u] != 0x48u ||
       code[begin + 2u] != 0x89u || code[begin + 3u] != 0xe5u)
     return "callable owner does not begin with PUSH RBP; MOV RBP,RSP";
-  if (unwind_length < 8u || unwind_length > 28u || unwind[0] != 1u ||
+  if (unwind_length < 8u || unwind_length > 36u || unwind[0] != 1u ||
       unwind[3] != 0u || unwind[1] < 4u || unwind[1] > end - begin)
     return "callable owner has an invalid unwind metadata header";
   count = unwind[2];
@@ -291,10 +297,11 @@ static const char *check_callable_owner(const unsigned char *code,
   while (slot + 1u < count && (unwind[5u + slot * 2u] & 15u) == 4u) {
     struct callable_save *saved;
     unsigned reg = unwind[5u + slot * 2u] >> 4;
-    if (layout->save_count == 4u || reg < 12u || reg > 15u ||
+    if (layout->save_count == 6u ||
+        (reg != 6u && reg != 7u && (reg < 12u || reg > 15u)) ||
         (layout->save_count != 0u &&
          reg >= layout->saves[layout->save_count - 1u].reg))
-      return "callable saves do not describe unique descending R12-R15 registers";
+      return "callable saves do not describe unique descending RSI/RDI/R12-R15 registers";
     saved = &layout->saves[layout->save_count++];
     saved->reg = reg;
     saved->endpoint = unwind[4u + slot * 2u];
@@ -362,18 +369,19 @@ static const char *check_callable_owner(const unsigned char *code,
     const struct callable_save *saved = &layout->saves[save];
     size_t store = allocation_end + save * 7u;
     size_t restore = layout->restores + save * 7u;
-    unsigned char modrm = (unsigned char)(0x85u | ((saved->reg - 8u) << 3));
+    unsigned char rex = saved->reg >= 8u ? 0x4cu : 0x48u;
+    unsigned char modrm = (unsigned char)(0x85u | ((saved->reg & 7u) << 3));
     uint32_t displacement = saved->rsp_offset - frame;
     unsigned previous;
     if (saved->rsp_offset >= frame ||
         saved->endpoint != store + 7u - begin ||
-        code[store] != 0x4cu || code[store + 1u] != 0x89u ||
+        code[store] != rex || code[store + 1u] != 0x89u ||
         code[store + 2u] != modrm || read_u32(code + store + 3u) != displacement)
       return "callable register-save instruction differs from unwind metadata";
     for (previous = 0; previous < save; ++previous)
       if (saved->rsp_offset == layout->saves[previous].rsp_offset)
         return "callable register-save slots overlap";
-    if (code[restore] != 0x4cu || code[restore + 1u] != 0x8bu ||
+    if (code[restore] != rex || code[restore + 1u] != 0x8bu ||
         code[restore + 2u] != modrm ||
         read_u32(code + restore + 3u) != displacement)
       return "callable register restore differs from its save instruction";
@@ -453,8 +461,9 @@ CAMLprim value holyc_test_native_unwind(value code_value, value unwind_value,
   if (failure == NULL)
     failure = unwind_at(code_mapping, &function_entry, (size_t)unwind[1],
         entry_rsp - frame_bytes, saved_rbp, 0u, entry_rsp, return_rip);
-  if (failure == NULL)
-    failure = unwind_at(code_mapping, &function_entry, epilogue_offset,
+  for (size_t offset = epilogue_offset;
+       failure == NULL && offset < code_length - 1u; ++offset)
+    failure = unwind_at(code_mapping, &function_entry, offset,
         entry_rsp - frame_bytes, saved_rbp, 0u, entry_rsp, return_rip);
   if (failure == NULL)
     failure = unwind_at(code_mapping, &function_entry, code_length - 1u,
@@ -531,7 +540,7 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
         (index != 0u && begin != Long_val(Field(Field(functions_value, index - 1u), 1))))
       caml_invalid_argument("callable unwind ranges are not contiguous and valid");
     unwind_length = (size_t)caml_string_length(unwind_value);
-    if (unwind_length < 8u || unwind_length > 28u || (unwind_length & 3u) != 0u)
+    if (unwind_length < 8u || unwind_length > 36u || (unwind_length & 3u) != 0u)
       caml_invalid_argument("callable unwind metadata has an unexpected size");
     if (unwind_length > SIZE_MAX - unwind_end)
       caml_invalid_argument("callable unwind metadata size overflow");
@@ -642,7 +651,7 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
             entry_rsp, return_rip, clobbered);
       memcpy(entry_stack - 8u - layout.frame + saved->rsp_offset,
              &original, sizeof(original));
-      clobbered |= 1u << (saved->reg - 12u);
+      clobbered |= 1u << saved->reg;
     }
     if (failure == NULL)
       failure = unwind_at_clobbered(mapping, found, layout.body,
@@ -656,10 +665,11 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
         failure = unwind_at_clobbered(mapping, found, offset,
             entry_rsp - 8u - layout.frame, entry_rsp - 8u, 0u,
             entry_rsp, return_rip, clobbered);
-      clobbered &= ~(1u << (layout.saves[save].reg - 12u));
+      clobbered &= ~(1u << layout.saves[save].reg);
     }
-    if (failure == NULL)
-      failure = unwind_at_clobbered(mapping, found, layout.epilogue,
+    for (size_t offset = layout.epilogue;
+         failure == NULL && offset < end - 2u; ++offset)
+      failure = unwind_at_clobbered(mapping, found, offset,
           entry_rsp - 8u - layout.frame, entry_rsp - 8u, 0u,
           entry_rsp, return_rip, clobbered);
     if (failure == NULL)

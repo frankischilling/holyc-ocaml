@@ -1349,10 +1349,10 @@ let compiled_callable_frame_and_rel32_bytes () =
   let code = Program.code image in
   Alcotest.(check int) "one named callable" 1 (Program.function_count image);
   Alcotest.(check int)
-    "identity bundle maximum frame" 144
+    "identity bundle maximum frame" 160
     (Program.frame_bytes image);
   Alcotest.(check int)
-    "identity entry physical stack charge" 160
+    "identity entry physical stack charge" 176
     (Program.entry_stack_bytes image);
   match Program.windows_unwind_functions image with
   | [
@@ -1363,16 +1363,16 @@ let compiled_callable_frame_and_rel32_bytes () =
       Alcotest.(check int)
         "identity range covers image tail" (String.length code) function_end;
       Alcotest.(check string)
-        "entry PUSH/MOV/SUB frame bytes" "554889e54881ec90000000"
+        "entry PUSH/MOV/SUB frame bytes" "554889e54881eca0000000"
         (String.sub code 0 11 |> hex);
       Alcotest.(check string)
-        "entry callable unwind bytes" "010b03000b01120001500000"
+        "entry callable unwind bytes" "010b03000b01140001500000"
         (hex entry_unwind);
       Alcotest.(check string)
         "identity PUSH/MOV frame bytes" "554889e5"
         (String.sub code function_begin 4 |> hex);
       Alcotest.(check string)
-        "identity owned reference frame unwind bytes" "010b02000bf20150"
+        "identity owned reference frame unwind bytes" "010b03000b01120001500000"
         (hex function_unwind);
       Alcotest.(check string)
         "identity POP/RET bytes" "5dc3"

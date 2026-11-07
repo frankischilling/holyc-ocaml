@@ -4,7 +4,7 @@ TempleOS can keep a narrow integer variable in a register without narrowing the 
 
 Selection depends on more than the declared type. The original `Compiler/OptPass3.HC` scores frame members and assigns a limited set of registers; escape and register pressure can prevent selection. The captures include a larger pressure case where the signed result is -2. The retained option experiment returns 254 despite enabling `OPTf_NO_REG_VAR` before the function header. The following `#exe` clears it during body-closing lookahead, before allocation. The compiler now uses that completed-body snapshot rather than the header's linkage options.
 
-For parameters, the analysis covers a straight-line function with two to six scalar integer parameters, one compound shift, addition, subtraction, multiplication, division, remainder or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return. It ties the result to the original typed source, frame and instruction graph and rejects changes to that evidence. Explicit `noreg` is classified as stack storage. Address escapes, extra statements, control flow and larger graphs remain unproved. Within the supported shapes, distinct requests from the variable-register banks described below are covered. Fixed registers and conflicting requests remain unproved; this models their observable value behavior. Explicit R12-R15 requests also have the physical placement described below.
+For parameters, the analysis covers a straight-line function with two to six scalar integer parameters, one compound shift, addition, subtraction, multiplication, division, remainder or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return. It ties the result to the original typed source, frame and instruction graph and rejects changes to that evidence. Explicit `noreg` is classified as stack storage. Address escapes, extra statements, control flow and larger graphs remain unproved. Within the supported shapes, distinct requests from the variable-register banks described below are covered. Fixed registers and conflicting requests remain unproved; this models their observable value behavior. Explicit RSI, RDI and R12-R15 requests also have the physical placement described below.
 
 The updated variable and operand may appear in any parameter position. For this bounded class, the interpreter and native backends preserve the full register value through the update and return. Arguments are first converted to their declared narrow type, as in the entry-conversion captures. Explicit `noreg` continues to use narrow memory storage. The native entry path normalizes the incoming value before preserving its full-width register value.
 
@@ -179,8 +179,8 @@ recursion-depth fault. General allocation and floating values remain open under
 Explicit requests now cover all eight TempleOS variable registers: RSI, RDI,
 R10, R11, R12, R13, R14 and R15. Distinct requests reserve their slots even when
 the variable is unused. RAX, RBX, RCX, RDX, R8, R9, RBP and RSP remain outside
-this proof, as do duplicate requests. The host backend preserves the selected
-values in private storage; these requests do not bind host machine registers.
+this proof, as do duplicate requests. The host backend physically places authenticated RSI, RDI and R12-R15
+requests as described below. Other selected values retain private homes.
 
 The whole-function proof accepts two to 32 scalar frame members, provided every
 automatic candidate fits without a score-dependent eviction. `noreg` members
@@ -527,8 +527,9 @@ runtime capture.
 
 An explicitly requested R12, R13, R14 or R15 now holds the variable's value in
 that machine register when the existing source proof classifies the member as
-`Register_candidate`. Ordinary automatic selection and other register requests
-still use the full-width private homes described above. This is not a general
+`Register_candidate`. Ordinary automatic selection and R10/R11 requests
+still use the full-width private homes described above. RSI/RDI placement is
+described in the following section. This is not a general
 register allocator, and issue #703 remains open. The
 [call example](../examples/physical-register-calls.hc) reuses R12 in a nested
 function without changing the caller's value.
@@ -560,3 +561,40 @@ slots rather than copying TempleOS's push sequence. On Windows, each save has a
 instruction and matching restore; the allocation endpoint remains distinct
 from the end of the full prologue. This is pinned-source and hosted-platform
 evidence, not a new TempleOS runtime capture or a complete HolyC ABI.
+
+## Physical RSI and RDI variables
+
+The same source-owned placement proof now covers explicit RSI and RDI requests.
+[The pair example](../examples/physical-register-pair.hc) keeps both values live
+across an unpinned callee and its hosted bookkeeping calls.
+They use typed parameter entry, full-width value operations, per-invocation save
+slots and the shared normal/fault epilogue. R10 and R11 remain private-home
+variables because the hosted runtime uses those registers for its instruction
+allowance and context pointer. Automatic placement and score ordering are still
+outside this physical subset.
+
+System V C calls may overwrite RSI and RDI. Saving only the registers used by
+the immediate source function would be insufficient: a pinned caller can call
+an unpinned function that invokes a host helper. Each generated-to-C bridge now
+saves both registers before setting up arguments and restores them immediately
+after the call, before checking faults. This covers reference bookkeeping,
+compiler options and formatted-source callbacks, including provider entries.
+Nested callbacks use their own stack scratch slots.
+
+The bridge pair uses two additional eight-byte scratch slots. Reference services
+use 11 slots, compiler options use six, and formatted output uses 46 fixed slots
+before variable arguments. Existing result and continuation slots retain their
+meaning. The extra space counts toward private and active stack limits, even
+when a function has no physical RSI/RDI variable. Defaults are unchanged.
+
+Windows unwind records support the six-register set RSI, RDI and R12-R15 in
+numeric order. Admission distinguishes the low-register save/restore prefix
+from the extended-register prefix and rejects other registers. Byte operations
+on SIL and DIL require a REX prefix; omitting it would select DH or BH instead.
+The encoder keeps these registers outside its temporary bank.
+
+TempleOS uses RSI/RDI in its variable mask (KernelA.HH:1801-1805) and preserves
+selected registers around functions (OptPass789A.HC:387-394,698-716). Its assembler
+requires REX for these low-byte registers (Asm.HC:475-476,586-593). The bridge
+saves adapt those source lifetimes to the host ABI; they are not a claim of
+byte-identical TempleOS function prologues or new TempleOS runtime captures.

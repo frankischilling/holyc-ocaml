@@ -1236,6 +1236,8 @@ let build_callable_windows_unwind_info ?(register_saves = []) frame_size =
       (fun index (register, offset) ->
         let number =
           match register with
+          | Encoder.Rsi -> 6
+          | Encoder.Rdi -> 7
           | Encoder.R12 -> 12
           | Encoder.R13 -> 13
           | Encoder.R14 -> 14
@@ -5872,6 +5874,8 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         Ir.Register_variable_analysis.physical_register proof ~frame ~body
           ~symbol:(Frame.location_symbol location))
     |> Option.map (function
+      | 6 -> Encoder.Rsi
+      | 7 -> Encoder.Rdi
       | 12 -> Encoder.R12
       | 13 -> Encoder.R13
       | 14 -> Encoder.R14

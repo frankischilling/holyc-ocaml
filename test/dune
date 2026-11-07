@@ -5764,13 +5764,17 @@
 
 (rule
  (alias runtest)
- (deps ../examples/physical-register-calls.hc)
+ (deps
+  ../examples/physical-register-calls.hc
+  ../examples/physical-register-pair.hc)
  (action
   (run %{exe:test_physical_register_cli.exe} %{exe:../bin/holyc.exe})))
 
 (rule
  (alias native-tests)
- (deps ../examples/physical-register-calls.hc)
+ (deps
+  ../examples/physical-register-calls.hc
+  ../examples/physical-register-pair.hc)
  (action
   (run
    %{exe:test_physical_register_cli.exe}

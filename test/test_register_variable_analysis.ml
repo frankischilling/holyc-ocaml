@@ -3750,7 +3750,14 @@ let physical_register_selection () =
                     register;
                 ])
             [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ])
-        [ ("R12", 12); ("R13", 13); ("R14", 14); ("R15", 15) ];
+        [
+          ("RSI", 6);
+          ("RDI", 7);
+          ("R12", 12);
+          ("R13", 13);
+          ("R14", 14);
+          ("R15", 15);
+        ];
       List.iter
         (fun qualifier ->
           let fn =
@@ -3766,7 +3773,7 @@ let physical_register_selection () =
             "selection alone grants no physical register" None
             (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
                ~symbol))
-        [ ""; "reg"; "noreg"; "reg RSI"; "reg RDI"; "reg R10"; "reg R11" ];
+        [ ""; "reg"; "noreg"; "reg R10"; "reg R11" ];
       let fn = compile mode "I64 F(I8 x,I64 reg R12 c){x<<=c;return x;}42;" in
       let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
       let symbol = location fn.frame "c" |> Frame.location_symbol in

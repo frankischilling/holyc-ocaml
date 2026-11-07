@@ -1,6 +1,20 @@
 module Facts = Generated.Opcode_keywords
 
-type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11 | R12 | R13 | R14 | R15
+type register =
+  | Rax
+  | Rcx
+  | Rdx
+  | Rsi
+  | Rdi
+  | R8
+  | R9
+  | R10
+  | R11
+  | R12
+  | R13
+  | R14
+  | R15
+
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 type shift = Shl | Shr | Sar
@@ -88,9 +102,9 @@ type instruction =
 
 let registers = [ Rax; Rcx; Rdx; R8; R9; R10; R11 ]
 
-(* Nonvolatile variable registers are encodable but never enter the temporary
+(* Physical variable registers are encodable but never enter the temporary
    allocator's bank. Their owners must preserve them across callable frames. *)
-let encodable_registers = registers @ [ R12; R13; R14; R15 ]
+let encodable_registers = registers @ [ Rsi; Rdi; R12; R13; R14; R15 ]
 let max_code_bytes = min (16 * 1024 * 1024) Sys.max_string_length
 
 let stack_slot ~offset =
@@ -137,6 +151,8 @@ let register_spelling = function
   | Rax -> "RAX"
   | Rcx -> "RCX"
   | Rdx -> "RDX"
+  | Rsi -> "RSI"
+  | Rdi -> "RDI"
   | R8 -> "R8"
   | R9 -> "R9"
   | R10 -> "R10"
@@ -563,6 +579,8 @@ let plans instruction =
       ?immediate ()
   in
   let memory ?(prefixes = []) ?(wide = true) ~reg ~base displacement =
+    (* Keep even a neutral REX for byte stores/atomics: register numbers six
+       and seven name SIL/DIL with REX, but DH/BH without it. *)
     let rex =
       (if wide then 0x48 else 0x40)
       lor ((reg land 8) lsr 1)
@@ -787,10 +805,14 @@ let plans instruction =
   | Setcc (_, destination) ->
       let destination = register_number destination in
       one
-        ~prefixes:(if destination >= 8 then [ 0x41 ] else [])
+        ~prefixes:
+          (if destination >= 4 then [ 0x40 lor ((destination land 8) lsr 3) ]
+           else [])
         ~modrm:(0xc0 lor (destination land 7))
         ()
   | Movzx8 (destination, source) ->
+      (* The qword destination forces REX.W, also selecting SIL/DIL rather
+         than DH/BH when source register numbers six/seven are used. *)
       register
         ~reg:(register_number destination)
         ~rm:(register_number source) ()

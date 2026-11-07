@@ -75,7 +75,9 @@ let quote_hex_value = quote_peek + 1
 let quote_hex_digits = quote_hex_value + 1
 let aux_value = quote_hex_digits + 1
 let packed_original = aux_value + 1
-let fixed_scratch_slots = packed_original + 1
+let saved_rsi = packed_original + 1
+let saved_rdi = saved_rsi + 1
+let fixed_scratch_slots = saved_rdi + 1
 let flag_left = 1L
 let flag_zero = 2L
 let flag_comma = 4L
@@ -1521,6 +1523,10 @@ let emit_internal ?provider ?(reference_guard = fun _ -> ()) emitter (call : t)
       store current_word E.Rax;
       store current_pointer E.R11;
       store current_offset E.R9;
+      (* Provider and unpinned frames may suspend a caller that owns RSI/RDI.
+         Dedicated slots keep these values out of the parser scratch state. *)
+      store saved_rsi E.Rsi;
+      store saved_rdi E.Rdi;
       (* R10 holds the live remaining instruction allowance. Publish it before
          the host callback and reload it after any admitted child execution. *)
       out (E.Load_context (E.Rax, 16));
@@ -1530,6 +1536,8 @@ let emit_internal ?provider ?(reference_guard = fun _ -> ()) emitter (call : t)
       out (E.Store_context (160, E.Rax));
       out (E.Source_arguments emitter.status_abi);
       out (E.Call_stack (stage current_word));
+      load E.Rsi saved_rsi;
+      load E.Rdi saved_rdi;
       store current_kind E.Rax;
       load E.R11 current_pointer;
       load E.R9 current_offset;

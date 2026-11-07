@@ -532,12 +532,13 @@ struct native_callable_unwind {
   unsigned allocation;
   unsigned allocation_offset;
   unsigned save_count;
-  /* Windows lists unwind operations in reverse prologue order. */
+  /* RSI, RDI, and R12-R15 are saved in ascending register order. Windows
+     lists their unwind operations in reverse prologue order. */
   struct {
     unsigned reg;
     unsigned code_offset;
     unsigned stack_offset;
-  } saves[4];
+  } saves[6];
 };
 
 static struct native_callable_unwind native_validate_program_unwind(value unwind)
@@ -606,7 +607,8 @@ static struct native_callable_unwind native_validate_program_unwind(value unwind
       result.allocation_offset = code_offset;
       break;
     case 4: /* UWOP_SAVE_NONVOL */
-      if (info < 12u || info > 15u || result.save_count == 4u ||
+      if ((info != 6u && info != 7u && (info < 12u || info > 15u)) ||
+          result.save_count == 6u ||
           saw_allocation || saw_push_rbp ||
           (result.save_count != 0u &&
            info >= result.saves[result.save_count - 1u].reg))
@@ -685,6 +687,7 @@ static void native_validate_nonvolatile_saves(
 
   for (index = 0; index < unwind->save_count; ++index) {
     const unsigned reverse = unwind->save_count - 1u - index;
+    const unsigned rex = unwind->saves[reverse].reg >= 8u ? 0x4cu : 0x48u;
     const unsigned modrm = 0x85u | ((unwind->saves[reverse].reg & 7u) << 3);
     const uint32_t displacement =
       (uint32_t)unwind->saves[reverse].stack_offset - unwind->allocation;
@@ -694,10 +697,10 @@ static void native_validate_nonvolatile_saves(
     uint32_t restore_displacement;
     memcpy(&save_displacement, save + 3u, sizeof(save_displacement));
     memcpy(&restore_displacement, restore + 3u, sizeof(restore_displacement));
-    if (save[0] != 0x4c || save[1] != 0x89 || save[2] != modrm ||
+    if (save[0] != rex || save[1] != 0x89 || save[2] != modrm ||
         save_displacement != displacement)
       caml_invalid_argument("native callable nonvolatile save disagrees with its unwind record");
-    if (restore[0] != 0x4c || restore[1] != 0x8b || restore[2] != modrm ||
+    if (restore[0] != rex || restore[1] != 0x8b || restore[2] != modrm ||
         restore_displacement != displacement)
       caml_invalid_argument("native callable nonvolatile restore disagrees with its saved register");
   }

@@ -15280,3 +15280,15 @@ status = "partial"
 issue = 703
 verification = "Independent request snapshots, exact register encodings, typed parameter entry, register-preserving callable frames and checked nonvolatile save/restore metadata."
 evidence_limit = "Only source-proved explicit R12-R15 integer variables are placed physically. General automatic allocation, other variable registers, floating allocation and complete HolyC ABI remain open. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-PHYSICAL-RSI-RDI"
+description = "Source-owned RSI/RDI placement with transitive preservation across generated-to-C bridges."
+sources = ["Kernel/KernelA.HH:1801-1805", "Compiler/OptPass3.HC:524-530", "Compiler/OptPass789A.HC:387-394,698-716", "Compiler/Asm.HC:475-476,586-593"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_reference_service.ml", "src/backend/x86_64_compiler_options.ml", "src/backend/x86_64_print_format.ml", "src/native_execution_stubs.c"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_nonvolatile_register_encoder.ml", "test/test_physical_register_cli.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/test_large_native_frames_cli.ml", "examples/physical-register-pair.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-stack-probing.md"]
+status = "partial"
+issue = 703
+verification = "Six-register request and encoding coverage, save/restore metadata, host-bridge lifetimes and charged scratch storage."
+evidence_limit = "Only authenticated explicit RSI/RDI/R12-R15 integer variables are physically placed. R10/R11 runtime roles, automatic score-based mapping, floating allocation and complete HolyC ABI remain open. No new TempleOS runtime capture."

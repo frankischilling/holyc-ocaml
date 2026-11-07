@@ -402,3 +402,8 @@ save slots. Normal and fault returns restore caller values. Windows unwind
 metadata describes each nonvolatile save, and admission checks the matching
 save/restore bytes. General automatic and floating register allocation remain
 outside this milestone.
+
+[Physical RSI/RDI variables](register-variable-analysis.md#physical-rsi-and-rdi-variables)
+add unconditional pair preservation at host service bridges, including calls
+through unpinned functions. Their scratch slots count toward stack limits;
+R10/R11 still serve the hosted instruction budget and context.

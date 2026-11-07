@@ -98,15 +98,15 @@ let () =
           run ~fault:true ~options:compile_options large "HCNATIVE0006" target
             mode;
           run
-            ~options:(compile_options @ [ "--active-stack-byte-limit=80320" ])
+            ~options:(compile_options @ [ "--active-stack-byte-limit=80352" ])
             large "42" target mode;
           run ~fault:true
-            ~options:(compile_options @ [ "--active-stack-byte-limit=80319" ])
+            ~options:(compile_options @ [ "--active-stack-byte-limit=80351" ])
             large "HCNATIVE0006" target mode;
           run
             ~options:
               [
-                "--stack-byte-limit=80144";
+                "--stack-byte-limit=80160";
                 "--code-byte-limit=262144";
                 "--active-stack-byte-limit=262144";
               ]
@@ -114,7 +114,7 @@ let () =
           run ~fault:true
             ~options:
               [
-                "--stack-byte-limit=80143";
+                "--stack-byte-limit=80159";
                 "--code-byte-limit=262144";
                 "--active-stack-byte-limit=262144";
               ]
@@ -162,9 +162,9 @@ let () =
           run ~options
             (read "../examples/large-native-frame.hc")
             "42" target mode;
-          run ~options:[ "--stack-byte-limit=16528" ] ordinary "42" target mode;
+          run ~options:[ "--stack-byte-limit=16544" ] ordinary "42" target mode;
           run ~fault:true
-            ~options:[ "--stack-byte-limit=16527" ]
+            ~options:[ "--stack-byte-limit=16543" ]
             ordinary "HCBACK0004" target mode;
           run ~fault:true ordinary "HCBACK0004" target mode;
           run ~options
@@ -189,10 +189,10 @@ let () =
             ordinary "HCIRVM0011" target mode;
           if target = "host-jit" then (
             run
-              ~options:(options @ [ "--active-stack-byte-limit=16704" ])
+              ~options:(options @ [ "--active-stack-byte-limit=16736" ])
               ordinary "42" target mode;
             run ~fault:true
-              ~options:(options @ [ "--active-stack-byte-limit=16703" ])
+              ~options:(options @ [ "--active-stack-byte-limit=16735" ])
               ordinary "HCNATIVE0006" target mode))
         [ "jit"; "aot" ])
     [ "host-jit"; "host-jit-task" ];

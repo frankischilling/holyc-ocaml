@@ -55,9 +55,9 @@ This change does not implement general integer or floating register allocation,
 requested-register conflicts or native exception handlers. Issue #703 stays open.
 
 `examples/compact-native-frame.hc` also returns 42. It uses a 40,000-byte array
-and an 80,144-byte callable frame. Run it with `--stack-byte-limit=131072`,
+and an 80,160-byte callable frame. Run it with `--stack-byte-limit=131072`,
 `--code-byte-limit=262144` and `--active-stack-byte-limit=262144` on either
-native target. Its exact simultaneous physical requirement is 80,320 bytes,
+native target. Its exact simultaneous physical requirement is 80,352 bytes,
 including the entry frame and callee return address/saved RBP. Both private
 and active-stack defaults remain too small for it. Enlarging the private-frame
 quota does not silently enlarge either the code or active-stack quota.

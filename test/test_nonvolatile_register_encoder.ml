@@ -30,18 +30,31 @@ let check_cases cases =
     "batch rejects one byte below its exact limit" true
     (Result.is_error (E.encode_all ~max_code_bytes:(bytes - 1) instructions))
 
-(* OpCodes.DD:93-96 assigns R12-R15 their numbers. Literal expectations below
-   follow the pinned MOV/MOVSX/MOVZX/MOVSXD forms and Asm.HC:580-638 REX.R/B
-   and ModR/M rules, independently of the encoder's generated-table lookup. *)
+(* OpCodes.DD:87-96 assigns RSI/RDI/R12-R15 their numbers; its RSIu8/RDIu8
+   aliases at lines 44-45 force REX via Asm.HC:623-640. Literal expectations
+   below follow the pinned MOV/MOVSX/MOVZX/MOVSXD forms and Asm.HC:580-640
+   REX.R/B and ModR/M rules, independently of the generated-table lookup. *)
 let temporary_bank () =
   Alcotest.(check bool)
-    "nonvolatile variables never join the temporary allocation bank" true
+    "physical variables never join the temporary allocation bank" true
     (E.registers = E.[ Rax; Rcx; Rdx; R8; R9; R10; R11 ])
 
 let moves () =
   let open E in
   check_cases
     [
+      ("MOV RSI,imm64", Mov_imm64 (Rsi, 42L), "48be2a00000000000000");
+      ("MOV RDI,imm64", Mov_imm64 (Rdi, -1L), "48bfffffffffffffffff");
+      ("MOV RSI,RAX", Mov (Rsi, Rax), "4889c6");
+      ("MOV RAX,RSI", Mov (Rax, Rsi), "4889f0");
+      ("MOV RDI,RCX", Mov (Rdi, Rcx), "4889cf");
+      ("MOV RCX,RDI", Mov (Rcx, Rdi), "4889f9");
+      ("MOV RSI,RDI", Mov (Rsi, Rdi), "4889fe");
+      ("MOV RDI,RSI", Mov (Rdi, Rsi), "4889f7");
+      ("MOV RSI,R12", Mov (Rsi, R12), "4c89e6");
+      ("MOV R12,RSI", Mov (R12, Rsi), "4989f4");
+      ("MOV RDI,R15", Mov (Rdi, R15), "4c89ff");
+      ("MOV R15,RDI", Mov (R15, Rdi), "4989ff");
       ("MOV R12,imm64", Mov_imm64 (R12, 42L), "49bc2a00000000000000");
       ("MOV R13,imm64", Mov_imm64 (R13, -1L), "49bdffffffffffffffff");
       ("MOV R14,imm64", Mov_imm64 (R14, Int64.min_int), "49be0000000000000080");
@@ -68,40 +81,42 @@ let fixed_storage () =
   let frame = frame_slot ~offset:(-8) |> checked in
   let arena = arena_slot ~offset:32 |> checked in
   [
-    (R12, "R12", "a4", "a5", "a1");
-    (R13, "R13", "ac", "ad", "a9");
-    (R14, "R14", "b4", "b5", "b1");
-    (R15, "R15", "bc", "bd", "b9");
+    (Rsi, "RSI", "48", "49", "b4", "b5", "b1");
+    (Rdi, "RDI", "48", "49", "bc", "bd", "b9");
+    (R12, "R12", "4c", "4d", "a4", "a5", "a1");
+    (R13, "R13", "4c", "4d", "ac", "ad", "a9");
+    (R14, "R14", "4c", "4d", "b4", "b5", "b1");
+    (R15, "R15", "4c", "4d", "bc", "bd", "b9");
   ]
-  |> List.concat_map (fun (register, name, rsp, rbp, r9) ->
+  |> List.concat_map (fun (register, name, rex, arena_rex, rsp, rbp, r9) ->
       [
         ( "load stack " ^ name,
           Load_stack (register, stack),
-          "4c8b" ^ rsp ^ "2418000000" );
+          rex ^ "8b" ^ rsp ^ "2418000000" );
         ( "store stack " ^ name,
           Store_stack (stack, register),
-          "4c89" ^ rsp ^ "2418000000" );
+          rex ^ "89" ^ rsp ^ "2418000000" );
         ( "address stack " ^ name,
           Address_stack (register, stack),
-          "4c8d" ^ rsp ^ "2418000000" );
+          rex ^ "8d" ^ rsp ^ "2418000000" );
         ( "load frame " ^ name,
           Load_frame (register, frame),
-          "4c8b" ^ rbp ^ "f8ffffff" );
+          rex ^ "8b" ^ rbp ^ "f8ffffff" );
         ( "store frame " ^ name,
           Store_frame (frame, register),
-          "4c89" ^ rbp ^ "f8ffffff" );
+          rex ^ "89" ^ rbp ^ "f8ffffff" );
         ( "address frame " ^ name,
           Address_frame (register, frame),
-          "4c8d" ^ rbp ^ "f8ffffff" );
+          rex ^ "8d" ^ rbp ^ "f8ffffff" );
         ( "load arena " ^ name,
           Load_arena (register, arena),
-          "4d8b" ^ r9 ^ "20000000" );
+          arena_rex ^ "8b" ^ r9 ^ "20000000" );
         ( "store arena " ^ name,
           Store_arena (arena, register),
-          "4d89" ^ r9 ^ "20000000" );
+          arena_rex ^ "89" ^ r9 ^ "20000000" );
         ( "address arena " ^ name,
           Address_arena (register, arena),
-          "4d8d" ^ r9 ^ "20000000" );
+          arena_rex ^ "8d" ^ r9 ^ "20000000" );
       ])
   |> check_cases
 
@@ -109,41 +124,43 @@ let narrow_frames () =
   let open E in
   let slot = scalar_frame_slot ~offset:(-3) |> checked in
   [
-    (R12, "R12", "a5");
-    (R13, "R13", "ad");
-    (R14, "R14", "b5");
-    (R15, "R15", "bd");
+    (Rsi, "RSI", "48", "40", "b5");
+    (Rdi, "RDI", "48", "40", "bd");
+    (R12, "R12", "4c", "44", "a5");
+    (R13, "R13", "4c", "44", "ad");
+    (R14, "R14", "4c", "44", "b5");
+    (R15, "R15", "4c", "44", "bd");
   ]
-  |> List.concat_map (fun (register, name, modrm) ->
+  |> List.concat_map (fun (register, name, wide_rex, narrow_rex, modrm) ->
       let suffix = modrm ^ "fdffffff" in
       [
         ( "load signed byte " ^ name,
           Load_frame_narrow (register, slot, Frame8, Sign_extend),
-          "4c0fbe" ^ suffix );
+          wide_rex ^ "0fbe" ^ suffix );
         ( "load unsigned byte " ^ name,
           Load_frame_narrow (register, slot, Frame8, Zero_extend),
-          "4c0fb6" ^ suffix );
+          wide_rex ^ "0fb6" ^ suffix );
         ( "load signed word " ^ name,
           Load_frame_narrow (register, slot, Frame16, Sign_extend),
-          "4c0fbf" ^ suffix );
+          wide_rex ^ "0fbf" ^ suffix );
         ( "load unsigned word " ^ name,
           Load_frame_narrow (register, slot, Frame16, Zero_extend),
-          "4c0fb7" ^ suffix );
+          wide_rex ^ "0fb7" ^ suffix );
         ( "load signed dword " ^ name,
           Load_frame_narrow (register, slot, Frame32, Sign_extend),
-          "4c63" ^ suffix );
+          wide_rex ^ "63" ^ suffix );
         ( "load unsigned dword " ^ name,
           Load_frame_narrow (register, slot, Frame32, Zero_extend),
-          "448b" ^ suffix );
+          narrow_rex ^ "8b" ^ suffix );
         ( "store byte " ^ name,
           Store_frame_narrow (slot, Frame8, register),
-          "4488" ^ suffix );
+          narrow_rex ^ "88" ^ suffix );
         ( "store word " ^ name,
           Store_frame_narrow (slot, Frame16, register),
-          "664489" ^ suffix );
+          "66" ^ narrow_rex ^ "89" ^ suffix );
         ( "store dword " ^ name,
           Store_frame_narrow (slot, Frame32, register),
-          "4489" ^ suffix );
+          narrow_rex ^ "89" ^ suffix );
       ])
   |> check_cases
 
@@ -152,6 +169,77 @@ let indirect_and_context () =
   let arena = arena_slot ~offset:3 |> checked in
   check_cases
     [
+      ("load RSI through RDI", Load_indirect (Rsi, Rdi, 8), "488bb708000000");
+      ("load RDI through RSI", Load_indirect (Rdi, Rsi, 0), "488bbe00000000");
+      ("load R12 through RSI", Load_indirect (R12, Rsi, 16), "4c8ba610000000");
+      ("load RSI through R12", Load_indirect (Rsi, R12, 8), "498bb42408000000");
+      ("store RDI through RSI", Store_indirect (Rsi, Rdi), "4889be00000000");
+      ( "store RSI through RDI",
+        Store_indirect_offset (Rdi, 24, Rsi),
+        "4889b718000000" );
+      ( "signed byte through RDI into RSI",
+        Load_indirect_narrow (Rsi, Rdi, Frame8, Sign_extend),
+        "480fbeb700000000" );
+      ( "unsigned byte through RSI into RDI",
+        Load_indirect_narrow (Rdi, Rsi, Frame8, Zero_extend),
+        "480fb6be00000000" );
+      ( "unsigned word through RDI into RSI",
+        Load_indirect_narrow (Rsi, Rdi, Frame16, Zero_extend),
+        "480fb7b700000000" );
+      ( "unsigned dword through RSI into RDI",
+        Load_indirect_narrow (Rdi, Rsi, Frame32, Zero_extend),
+        "408bbe00000000" );
+      ( "store SIL through RAX",
+        Store_indirect_narrow (Rax, Frame8, Rsi),
+        "4088b000000000" );
+      ( "store DIL through RAX",
+        Store_indirect_narrow (Rax, Frame8, Rdi),
+        "4088b800000000" );
+      ( "store SIL through RDI",
+        Store_indirect_narrow (Rdi, Frame8, Rsi),
+        "4088b700000000" );
+      ( "store DIL through RSI",
+        Store_indirect_narrow (Rsi, Frame8, Rdi),
+        "4088be00000000" );
+      ( "store SI through RDI",
+        Store_indirect_narrow (Rdi, Frame16, Rsi),
+        "664089b700000000" );
+      ( "store EDI through RSI",
+        Store_indirect_narrow (Rsi, Frame32, Rdi),
+        "4089be00000000" );
+      ( "arena signed byte into RSI",
+        Load_arena_narrow (Rsi, arena, Frame8, Sign_extend),
+        "490fbeb103000000" );
+      ( "arena unsigned word into RDI",
+        Load_arena_narrow (Rdi, arena, Frame16, Zero_extend),
+        "490fb7b903000000" );
+      ( "arena unsigned dword into RSI",
+        Load_arena_narrow (Rsi, arena, Frame32, Zero_extend),
+        "418bb103000000" );
+      ( "arena SIL store",
+        Store_arena_narrow (arena, Frame8, Rsi),
+        "4188b103000000" );
+      ( "arena DIL store",
+        Store_arena_narrow (arena, Frame8, Rdi),
+        "4188b903000000" );
+      ("context disp8 load RSI", Load_context (Rsi, 120), "498b7378");
+      ("context disp8 store RDI", Store_context (120, Rdi), "49897b78");
+      ("context disp32 load RDI", Load_context (Rdi, 128), "498bbb80000000");
+      ("context disp32 store RSI", Store_context (128, Rsi), "4989b380000000");
+      ("RIP-relative RSI", Address_code_relative (Rsi, -7L), "488d35f9ffffff");
+      ("RIP-relative RDI", Address_code_relative (Rdi, -7L), "488d3df9ffffff");
+      ( "locked byte ADD with SIL through RAX",
+        Lock_binary_indirect (Add, Rax, Atomic8, Rsi),
+        "f04000b000000000" );
+      ( "locked byte XOR with DIL through RSI",
+        Lock_binary_indirect (Xor, Rsi, Atomic8, Rdi),
+        "f04030be00000000" );
+      ( "locked byte CMPXCHG with SIL through RDI",
+        Lock_cmpxchg_indirect (Rdi, Atomic8, Rsi),
+        "f0400fb0b700000000" );
+      ( "locked byte CMPXCHG with DIL through RAX",
+        Lock_cmpxchg_indirect (Rax, Atomic8, Rdi),
+        "f0400fb0b800000000" );
       ("R12 base needs SIB", Load_indirect (R13, R12, 8), "4d8bac2408000000");
       ("R13 base retains disp32", Load_indirect (R14, R13, 0), "4d8bb500000000");
       ("R14 base", Load_indirect (R15, R14, 16), "4d8bbe10000000");
@@ -213,6 +301,28 @@ let arithmetic_and_predicates () =
   let open E in
   check_cases
     [
+      ("NEG RSI", Unary (Neg, Rsi), "48f7de");
+      ("NOT RDI", Unary (Not, Rdi), "48f7d7");
+      ("ADD RSI,RDI", Binary (Add, Rsi, Rdi), "4801fe");
+      ("SUB RDI,RSI", Binary (Sub, Rdi, Rsi), "4829f7");
+      ("AND RSI,RDI", Binary (And, Rsi, Rdi), "4821fe");
+      ("OR RDI,RSI", Binary (Or, Rdi, Rsi), "4809f7");
+      ("XOR RSI,RDI", Binary (Xor, Rsi, Rdi), "4831fe");
+      ("IMUL RSI,RDI", Binary (Imul, Rsi, Rdi), "480faff7");
+      ("IMUL RDI,RSI", Binary (Imul, Rdi, Rsi), "480faffe");
+      ("BSF RSI,RDI", Bsf (Rsi, Rdi), "480fbcf7");
+      ("BSR RDI,RSI", Bsr (Rdi, Rsi), "480fbdfe");
+      ("BT RSI,RDI", Bit (Bt, Rsi, Rdi), "480fa3fe");
+      ("BTS RDI,RSI", Bit (Bts, Rdi, Rsi), "480fabf7");
+      ("BTR RSI,RDI", Bit (Btr, Rsi, Rdi), "480fb3fe");
+      ("BTC RDI,RSI", Bit (Btc, Rdi, Rsi), "480fbbf7");
+      ("SHL RSI,CL", Shift_cl (Shl, Rsi), "48d3e6");
+      ("SHR RDI,1", Shift_immediate (Shr, Rdi, 1L), "48d1ef");
+      ("SAR RSI,63", Shift_immediate (Sar, Rsi, 63L), "48c1fe3f");
+      ("CMP RDI,imm8", Cmp_imm8 (Rdi, -1), "4883ffff");
+      ("DEC RSI", Dec Rsi, "48ffce");
+      ("CMP RSI,RDI", Cmp (Rsi, Rdi), "4839fe");
+      ("TEST RDI", Test Rdi, "4885ff");
       ("NEG R12", Unary (Neg, R12), "49f7dc");
       ("NOT R13", Unary (Not, R13), "49f7d5");
       ("ADD R14,R15", Binary (Add, R14, R15), "4d01fe");
@@ -245,6 +355,47 @@ let arithmetic_and_predicates () =
       ("MOVZX R15,R14b", Movzx8 (R15, R14), "4d0fb6fe");
     ]
 
+let low_byte_registers () =
+  let open E in
+  let predicates =
+    [
+      (E, "SETE", "94");
+      (NE, "SETNE", "95");
+      (L, "SETL", "9c");
+      (GE, "SETGE", "9d");
+      (G, "SETG", "9f");
+      (LE, "SETLE", "9e");
+      (B, "SETB", "92");
+      (AE, "SETAE", "93");
+      (A, "SETA", "97");
+      (BE, "SETBE", "96");
+    ]
+    |> List.concat_map (fun (condition, name, opcode) ->
+        [
+          (name ^ " SIL", Setcc (condition, Rsi), "400f" ^ opcode ^ "c6");
+          (name ^ " DIL", Setcc (condition, Rdi), "400f" ^ opcode ^ "c7");
+        ])
+  in
+  check_cases
+    (predicates
+    @ [
+        ("SETE AL retains no REX", Setcc (E, Rax), "0f94c0");
+        ("SETNE CL retains no REX", Setcc (NE, Rcx), "0f95c1");
+        ("SETL DL retains no REX", Setcc (L, Rdx), "0f9cc2");
+        ("MOVZX RAX,SIL", Movzx8 (Rax, Rsi), "480fb6c6");
+        ("MOVZX RAX,DIL", Movzx8 (Rax, Rdi), "480fb6c7");
+        ("MOVZX RSI,AL", Movzx8 (Rsi, Rax), "480fb6f0");
+        ("MOVZX RDI,AL", Movzx8 (Rdi, Rax), "480fb6f8");
+        ("MOVZX RSI,SIL", Movzx8 (Rsi, Rsi), "480fb6f6");
+        ("MOVZX RDI,DIL", Movzx8 (Rdi, Rdi), "480fb6ff");
+        ("MOVZX RSI,DIL", Movzx8 (Rsi, Rdi), "480fb6f7");
+        ("MOVZX RDI,SIL", Movzx8 (Rdi, Rsi), "480fb6fe");
+        ("MOVZX RSI,R12b", Movzx8 (Rsi, R12), "490fb6f4");
+        ("MOVZX R12,SIL", Movzx8 (R12, Rsi), "4c0fb6e6");
+        ("MOVZX RDI,R15b", Movzx8 (Rdi, R15), "490fb6ff");
+        ("MOVZX R15,DIL", Movzx8 (R15, Rdi), "4c0fb6ff");
+      ])
+
 let () =
   Alcotest.run "nonvolatile-register-encoder"
     [
@@ -259,5 +410,6 @@ let () =
             indirect_and_context;
           Alcotest.test_case "arithmetic and byte predicates" `Quick
             arithmetic_and_predicates;
+          Alcotest.test_case "SIL and DIL force REX" `Quick low_byte_registers;
         ] );
     ]

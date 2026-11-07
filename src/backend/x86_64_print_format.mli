@@ -42,8 +42,9 @@ type 'label emitter = {
 val scratch_slots : int -> int
 (** Fixed parser/layout counters, an 80-byte reverse numeric buffer and bounded
     quoted-field transducer state, auxiliary-format state and an original packed
-    word for repeated [%c]/[%C], followed by one kind tag for each variadic
-    argument. The caller bounds the complete frame before entry. *)
+    word for repeated [%c]/[%C], then dedicated RSI/RDI callback saves, followed
+    by one kind tag for each variadic argument. There are 46 fixed slots. The
+    caller bounds the complete frame before entry. *)
 
 val emit :
   ?reference_guard:(X86_64_encoder.register -> unit) ->
@@ -58,7 +59,9 @@ val emit :
     bytes are committed only after the entire format succeeds; charged work
     survives a fault. Formatted source checks the active block after formatting
     and may invoke its original C callback. The callback preserves the private
-    registers and returns the actual word into the staged source-call result. *)
+    registers and RSI/RDI, including in unpinned callees, and returns the actual
+    word into the staged source-call result. RSI/RDI are restored before
+    callback faults are checked. *)
 
 val emit_provider :
   ?reference_guard:(X86_64_encoder.register -> unit) ->

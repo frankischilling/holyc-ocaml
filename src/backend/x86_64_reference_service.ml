@@ -6,7 +6,7 @@ type argument =
   | Frame_address of int
   | Arena_address of int
 
-let scratch_slots = 9
+let scratch_slots = 11
 
 type 'label emitter = {
   abi : E.status_abi;
@@ -64,10 +64,16 @@ let emit_shared ~abi ~emit:out ~slot ~stage =
   List.iteri
     (fun index register -> out (E.Store_stack (slot index, register)))
     registers;
+  (* Preserve the source register pair even in an unpinned callee: its caller
+     may own either register, and the host ABI can clobber both. *)
+  out (E.Store_stack (slot 9, E.Rsi));
+  out (E.Store_stack (slot 10, E.Rdi));
   out (E.Load_context (E.Rax, 192));
   out (E.Store_stack (slot 7, E.Rax));
   out (E.Source_arguments abi);
   out (E.Call_stack (slot 7));
+  out (E.Load_stack (E.Rsi, slot 9));
+  out (E.Load_stack (E.Rdi, slot 10));
   out (E.Load_stack (E.R11, slot 6));
   out (E.Store_stack (slot 7, E.Rax));
   List.iteri

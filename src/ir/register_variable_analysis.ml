@@ -3265,7 +3265,8 @@ let physical_register t ~frame ~body ~symbol =
             in
             match original.request with
             | Explicit_request (spelling, number, Source_origin _)
-              when source_owned && number >= 12 && number <= 15
+              when source_owned
+                   && List.mem number [ 6; 7; 12; 13; 14; 15 ]
                    && Request.canonical_u64_register_number spelling
                       = Some number -> Some number
             | _ -> None)
