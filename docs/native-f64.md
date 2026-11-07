@@ -9,8 +9,9 @@ JSON. This subset is available through `host-jit` and `host-jit-task` in both
 outer preprocessing modes. The integer interpreter does not execute floating
 arithmetic; the closed integer expression/image APIs remain integer-only.
 
-The admitted arithmetic subset is unary minus and isolated `+`, `-`, `*`, `/`
-operations on F64 operands. For example:
+The admitted arithmetic subset is unary minus and `+`, `-`, `*`, `/` operations
+on F64 operands. Source-owned pure expression regions can retain intermediate
+values in x87 extended precision. For example:
 
 ```c
 F64 Add(F64 a,F64 b) { return a+b; }
@@ -30,20 +31,31 @@ that plan before emitting an operation. An admitted operation leaves the x87
 stack empty at its materialization boundary. Calls, branches and exits therefore
 cannot inherit an unproved extended value.
 
-The planner rejects linked arithmetic rather than rounding every intermediate to
-binary64. In particular, this expression is not yet admitted:
+Linked arithmetic requires an authenticated original function, runtime context
+and frame. The planner re-lowers disjoint pure source subtrees and compares their
+ordered graph slices. Only proved frame reads acquire the source's MOV producer
+classification. A raw graph cannot grant itself linked precision.
 
-```c
-F64 Linked(F64 a,F64 b) { return (a+b)-a; }
-```
+Linking follows the pinned compiler's asymmetric rule. With runtime operands
+`a=9007199254740992.0` and `b=1.0`, `(a+b)-a` returns 1.0, while
+`(a+b)-(a+b)` returns -1.0: the left subtree materializes to binary64 and the
+right remains extended. Explicit storage, as in `F64 t=a+b;return t-a;`, returns
+positive zero. Unary minus is also a materialization boundary in this subset.
+The complete example is `examples/native-linked-f64.hc`; run it with
+`holyc run --target=host-jit examples/native-linked-f64.hc` or `host-jit-task`.
 
-With `a=9007199254740992.0` and `b=1.0`, preserving an original x87 link matters.
-Admitting this expression requires a producer for the pinned compiler's link
-rules, not merely a depth-balanced set of suppression flags.
+Normalization happens before links are selected. Right-hand multiplication by
+one and supported positive-zero identities can disappear; surviving copy
+templates remain boundaries. Thus `((a+b)*1.0)-a` returns 1.0, but
+`(1.0*(a+b))-a` returns positive zero. The implementation rejects linked regions
+requiring unsupported constant folding or literal reassociation, including
+`((a+0.5)+0.5)-a`.
 
-An explicit local store is a different boundary. With the same operands,
-`F64 t=a+b;return t-a;` stores `t` as binary64 and returns positive zero. The
-regression suite checks that boundary separately from the rejected linked form.
+Only one proved extended value lives between operations, with at most two
+transient x87 operands. Deep expression trees pressure materialized word homes,
+not an invented eight-value x87 evaluation stack. Calls, stores and control-flow
+edges cannot carry an unproved extended value. Call-result and global-containing
+regions remain outside the source-link proof.
 
 Arithmetic immediate loading is distinct from bit transport. Zero, including
 negative zero, uses FLDZ; one uses FLD1. Other ordinary literals load from a
@@ -84,7 +96,8 @@ shifts, compound updates, increment/decrement, floating intrinsics, variadic F64
 arguments, `%f`, F64 pointers, arrays, aggregate fields, globals, statics,
 parameter defaults and callback invocation signatures remain unsupported. Mixed
 functions containing F64 also reject narrow integer frame members unless their
-register or stack selection has an authenticated allocation proof. I64/U64
+register or stack selection has an authenticated allocation proof; `noreg` alone
+does not supply that proof. I64/U64
 control variables do not have this width-dependent ambiguity. An unused callback
 header may still declare F64: its existing word-storage support does not admit
 invocation of that signature. A nested source callback requiring an I64 result
@@ -115,4 +128,5 @@ All references are to TempleOS commit
 
 These are source-derived contracts and hosted regressions, not a new TempleOS
 runtime-oracle capture. This subset does not complete issue #703 or establish
-general floating allocation, linked precision or full HolyC ABI compatibility.
+general floating allocation, complete floating normalization or full HolyC ABI
+compatibility.

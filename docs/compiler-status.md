@@ -475,13 +475,13 @@ a numeric final value. [Native scalar functions](native-scalars.md) explains
 the distinction between stored bytes, returned bits and no-value completion.
 
 [Native scalar F64](native-f64.md) adds bit-preserving parameters, automatic
-locals, direct calls and returns, plus isolated x87 unary minus and basic
-arithmetic to the source-owned native paths. Original graph plans retain operand
-orientation, literal rules and transient extended-value identities. Linked
-arithmetic, conversions, requested F64 GPRs and unproved mixed narrow storage
-remain excluded. Host x87 state is isolated at entry and callback boundaries;
-builds without that capability reject images requiring x87. Issue #703 remains
-open.
+locals, direct calls and returns, plus x87 unary minus and basic arithmetic.
+Source-authenticated pure expression regions reproduce asymmetric extended-value
+links, selected identity normalization and explicit materialization boundaries.
+Unsupported constant folding/reassociation, conversions, requested F64 GPRs and
+unproved mixed narrow storage still reject. Host x87 state is isolated at entry
+and callback boundaries; builds without that capability reject images requiring
+x87. Issue #703 remains open.
 
 `holyc run --target=host-jit examples/integer-goto.hc` and the ordinary `ir`
 target return I64 42 through function-local forward/backward gotos and labels.

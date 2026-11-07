@@ -649,6 +649,7 @@
   public_shift_class_cases
   test_native_program
   test_native_f64_transport
+  test_native_linked_float_authority
   test_native_literal_storage
   test_native_persistent_storage
   test_native_scalar_functions
@@ -5885,3 +5886,21 @@
  (deps ../examples/native-scalar-f64.hc)
  (action
   (run %{exe:test_native_f64_cli.exe} %{exe:../bin/holyc.exe} --native)))
+
+(executable
+ (name test_native_linked_f64_cli)
+ (modules test_native_linked_f64_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_native_linked_f64_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_native_linked_f64_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))

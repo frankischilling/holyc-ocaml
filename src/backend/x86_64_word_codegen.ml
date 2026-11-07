@@ -1461,6 +1461,7 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
   let rdx = register_index Encoder.Rdx in
   let r8 = register_index Encoder.R8 in
   let reserved = List.map register_index reserved_registers in
+  let extended_owner = ref [] in
   let owners : value option array = Array.make (Array.length registers) None in
   let slots : value option array = Array.make (max_stack_bytes / 8) None in
   let shared_slots =
@@ -2338,73 +2339,141 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
                    (Global_storage.undefined_code_owner_address owner) ));
           assign position destination result
       | Apply_float (plan, values, result) ->
-          let inputs, protected = ensure_inputs instruction.span values in
+          if !extended_owner <> plan.live_before then
+            reject ?span:instruction.span "HCBACK0003"
+              "F64 extended ownership differs from its sealed plan";
+          let materialized =
+            List.filter
+              (fun value -> not (List.mem value.value_id plan.live_before))
+              values
+          in
+          let inputs, protected = ensure_inputs instruction.span materialized in
+          let sources = List.combine materialized inputs in
+          let source value =
+            match
+              List.find_opt (fun (v, _) -> v.value_id = value.value_id) sources
+            with
+            | Some (_, index) -> index
+            | None ->
+                reject ?span:instruction.span "HCBACK0003"
+                  "extended F64 value has no integer home"
+          in
           let destination =
-            acquire_destination instruction.span position ~protected
-              ~excluded:[]
+            if plan.live_after <> [ result.value_id ] then
+              Some
+                (acquire_destination instruction.span position ~protected
+                   ~excluded:[])
+            else None
           in
           let scratch = fixed_stack_slot instruction.span float_scratch_index in
           let memory = Encoder.X87_stack scratch in
-          let load source = function
+          let load value = function
             | X86_64_float_plan.Zero ->
                 emit (Encoder.Fld_constant Encoder.Fzero)
             | One -> emit (Encoder.Fld_constant Encoder.Fone)
             | Bits ->
-                emit (Encoder.Store_stack (scratch, registers.(source)));
+                emit (Encoder.Store_stack (scratch, registers.(source value)));
                 emit (Encoder.Fld64 memory)
           in
-          (match (plan.operation, inputs, plan.loads) with
-          | ( ((X86_64_float_plan.Copy_left | Copy_right) as op),
+          let materialize () =
+            Option.iter
+              (fun destination ->
+                emit (Encoder.Fstp64 memory);
+                emit (Encoder.Load_stack (registers.(destination), scratch)))
+              destination
+          in
+          let reverse = function
+            | Encoder.Fsub -> Encoder.Fsubr
+            | Fdiv -> Fdivr
+            | op -> op
+          in
+          (match (plan.operation, values, plan.loads) with
+          | ( ((X86_64_float_plan.Alias_left | Alias_right) as op),
               [ left; right ],
               _ ) ->
-              let source =
+              let value =
+                if op = X86_64_float_plan.Alias_left then left else right
+              in
+              if not (List.mem value.value_id plan.live_before) then (
+                if plan.live_after = [ result.value_id ] then
+                  reject ?span:instruction.span "HCBACK0003"
+                    "F64 alias cannot invent an extended producer";
+                emit
+                  (Encoder.Mov
+                     ( registers.(Option.get destination),
+                       registers.(source value) )))
+          | ((Copy_left | Copy_right) as op), [ left; right ], _ ->
+              let value =
                 if op = X86_64_float_plan.Copy_left then left else right
               in
-              emit (Encoder.Mov (registers.(destination), registers.(source)))
-          | Negate, [ source ], [ loading ] ->
-              load source loading;
+              emit
+                (Encoder.Mov
+                   (registers.(Option.get destination), registers.(source value)))
+          | Negate, [ value ], [ loading ] ->
+              load value loading;
               emit Encoder.Fchs;
-              emit (Encoder.Fstp64 memory);
-              emit (Encoder.Load_stack (registers.(destination), scratch))
+              materialize ()
           | ( ((Add | Subtract | Multiply | Divide) as op),
               [ left; right ],
               [ ll; rl ] ) ->
               let binary =
                 match op with
                 | X86_64_float_plan.Add -> Encoder.Fadd
-                | Subtract -> Encoder.Fsub
-                | Multiply -> Encoder.Fmul
-                | Divide -> Encoder.Fdiv
+                | Subtract -> Fsub
+                | Multiply -> Fmul
+                | Divide -> Fdiv
                 | _ -> assert false
               in
-              (match (ll, rl) with
-              | _, X86_64_float_plan.Bits ->
-                  load left ll;
-                  emit (Encoder.Store_stack (scratch, registers.(right)));
-                  emit (Encoder.Fbinary64 (binary, memory))
-              | Bits, _ ->
-                  (* BackFA.HC:484-496 places the builtin in ST0 and
-                     reverses noncommutative operations against memory. *)
-                  load right rl;
-                  emit (Encoder.Store_stack (scratch, registers.(left)));
-                  let reverse =
-                    match binary with
-                    | Encoder.Fsub -> Encoder.Fsubr
-                    | Fdiv -> Fdivr
-                    | _ -> binary
+              (match plan.live_before with
+              | [ id ] -> (
+                  let other, loading, binary =
+                    if id = left.value_id then (right, rl, binary)
+                    else if id = right.value_id then (left, ll, reverse binary)
+                    else
+                      reject ?span:instruction.span "HCBACK0003"
+                        "F64 link is not an original operand"
                   in
-                  emit (Encoder.Fbinary64 (reverse, memory))
+                  match loading with
+                  | X86_64_float_plan.Bits ->
+                      emit
+                        (Encoder.Store_stack (scratch, registers.(source other)));
+                      emit (Encoder.Fbinary64 (binary, memory))
+                  | _ ->
+                      load other loading;
+                      let st1 =
+                        Encoder.x87_register ~index:1 |> Result.get_ok
+                      in
+                      emit (Encoder.Fbinary_pop (binary, st1)))
+              | [] -> (
+                  match (ll, rl) with
+                  | _, X86_64_float_plan.Bits ->
+                      load left ll;
+                      emit
+                        (Encoder.Store_stack (scratch, registers.(source right)));
+                      emit (Encoder.Fbinary64 (binary, memory))
+                  | Bits, _ ->
+                      load right rl;
+                      emit
+                        (Encoder.Store_stack (scratch, registers.(source left)));
+                      emit (Encoder.Fbinary64 (reverse binary, memory))
+                  | _ ->
+                      load left ll;
+                      load right rl;
+                      let st1 =
+                        Encoder.x87_register ~index:1 |> Result.get_ok
+                      in
+                      emit (Encoder.Fbinary_pop (binary, st1)))
               | _ ->
-                  load left ll;
-                  load right rl;
-                  let st1 = Encoder.x87_register ~index:1 |> Result.get_ok in
-                  emit (Encoder.Fbinary_pop (binary, st1)));
-              emit (Encoder.Fstp64 memory);
-              emit (Encoder.Load_stack (registers.(destination), scratch))
+                  reject ?span:instruction.span "HCBACK0003"
+                    "invalid F64 link depth");
+              materialize ()
           | _ ->
               reject ?span:instruction.span "HCBACK0003"
                 "invalid sealed F64 emission plan");
-          assign position destination result
+          extended_owner := plan.live_after;
+          Option.iter
+            (fun destination -> assign position destination result)
+            destination
       | Apply_unary (unary, input, result) ->
           require_numeric_owner input;
           let inputs, protected = ensure_inputs instruction.span [ input ] in
@@ -6731,7 +6800,7 @@ let validate_callable_returns graph return_kind =
           (Graph.successors block)
       done
 
-let preflight_callable_graph ~runtime_calls ~source_globals
+let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
     ~allow_retained_functions ~task_dynamic_code_words ~task_owned_targets
     ~capture_callback_default ~capture_data_default ~slot_root_runtime_calls
     ~slot_bindings ~task_snapshot ~parameter_defaults ~functions
@@ -6741,11 +6810,24 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     ~empty_frame_roots ~variadic ~expected_return ~source_item_index ~is_entry
     ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let float_plan =
-    match X86_64_float_plan.prepare graph with
+    match X86_64_float_plan.prepare ?source:float_source graph with
     | Ok plan -> plan
     | Error errors ->
         let error = List.hd errors in
         reject ?span:error.span "HCBACK0002" error.message
+  in
+  let float_entries =
+    match X86_64_float_plan.validated_entries float_plan ~graph with
+    | Some entries ->
+        List.fold_left
+          (fun map entry ->
+            Instruction_map.add entry.X86_64_float_plan.instruction_id entry map)
+          Instruction_map.empty entries
+    | None ->
+        reject "HCBACK0003" "native F64 source plan changed before emission"
+  in
+  let float_entry description =
+    Instruction_map.find_opt description.Sequence.instruction_id float_entries
   in
   let lock_validation = Lock_validation.of_graph graph in
   let function_addresses =
@@ -10636,14 +10718,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   (Load_immediate (value, bits), None)
               | _ ->
                   malformed description "invalid native F64 literal transport")
-          | _ when Option.is_some (X86_64_float_plan.find float_plan ~graph raw)
-            -> (
+          | _ when Option.is_some (float_entry raw) -> (
               if description.flags <> 0L then
                 malformed description
                   "native F64 operation has unsupported flags";
-              let plan =
-                Option.get (X86_64_float_plan.find float_plan ~graph raw)
-              in
+              let plan = Option.get (float_entry raw) in
               match (description.result, description.target_type) with
               | Some result, Some target_type ->
                   let inputs =
@@ -12774,7 +12853,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       let indirect_code_edges = ref [] in
       let arena_code_cells = ref Int_map.empty in
       let entry_prepared =
-        preflight_callable_graph ~runtime_calls ~source_globals:globals
+        preflight_callable_graph ~float_source:None ~runtime_calls
+          ~source_globals:globals
           ~allow_retained_functions:(Option.is_some task_snapshot)
           ~task_dynamic_code_words:(Option.is_some task_snapshot)
           ~task_owned_targets ~capture_callback_default ~capture_data_default
@@ -12791,7 +12871,15 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         Array.map
           (fun info ->
             let body = info.definition.body in
-            preflight_callable_graph ~runtime_calls:info.runtime_calls
+            preflight_callable_graph
+              ~float_source:
+                (Some
+                   {
+                     X86_64_float_plan.runtime = info.runtime_calls;
+                     body;
+                     frame = info.definition.frame;
+                   })
+              ~runtime_calls:info.runtime_calls
               ~source_globals:info.source_globals
               ~allow_retained_functions:(Option.is_some task_snapshot)
               ~task_dynamic_code_words:(Option.is_some task_snapshot)

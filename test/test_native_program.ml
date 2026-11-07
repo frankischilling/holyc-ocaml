@@ -759,7 +759,7 @@ let source_gate_is_compile_only () =
         ([
            "I64 *x[1]; 42;";
            "I64 Bad(){F64 reg x=1.0;return 0;} 42;";
-           "F64 Bad(F64 n){return (n+1.0)*2.0;} 42;";
+           "F64 Bad(F64 n){return n**2.0;} 42;";
            "I64 F(I64 p){static I64 n=p<<2;return ++n;} F(1);";
            "I64 Bad(){static I64 n={1/0};return 0;}42;";
            "I64 Bad(){static I64 *n;return 0;}42;";

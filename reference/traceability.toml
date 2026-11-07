@@ -15340,3 +15340,15 @@ status = "partial"
 issue = 703
 verification = "Hosted cases cover exact F64 bits, source/task results, arithmetic orientation and identity copies, signed zero, infinities, NaNs, loops, recursion, quotas, hostile host FP state and actual OCaml callback cleanup."
 evidence_limit = "No new TempleOS runtime capture. Unproved extended links, conversions, nonbasic operations, requested F64 GPRs and mixed narrow storage without allocation proof reject. Persistent, indirect, default and callback-invocation F64 remain outside this subset. Unsupported host compilers reject x87 images; this entry does not claim complete Windows qualification or completion of issue 703."
+
+[[feature]]
+id = "HC-NATIVE-LINKED-F64"
+description = "Source-authenticated pure F64 regions with asymmetric extended-value links and explicit materialization."
+sources = ["Compiler/PrsLib.HC:257-270", "Compiler/CInit.HC:52,65-72", "Compiler/OptPass012.HC:384-403,564-616,660-693", "Compiler/OptLib.HC:535-554", "Compiler/OptPass3.HC:165-221,481", "Compiler/OptPass6.HC:116-155", "Compiler/BackFA.HC:6-59", "Compiler/BackFB.HC:488-594"]
+implementation = ["src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_native_linked_float_authority.ml", "test/test_native_linked_f64_cli.ml"]
+documentation = ["docs/native-f64.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Exact original function/runtime/frame ownership and bounded disjoint subtree re-lowering authenticate MOV-class frame leaves, ordered producers and normalized aliases. Frozen graph snapshots and source revalidation invalidate stale plans. Hosted tests distinguish asymmetric rounding, unary/store/copy boundaries, normalized siblings, pressure, exact quotas and same-image fault recovery."
+evidence_limit = "Source-derived expectations, not a new TempleOS runtime capture. Constant folding and literal reassociation without normalization evidence, call-result/global-containing regions, conversions and general floating allocation remain outside the proof. Raw graph APIs cannot grant linked precision. Does not complete issue 703 or establish full HolyC ABI parity."

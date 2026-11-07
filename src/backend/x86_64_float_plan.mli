@@ -1,5 +1,5 @@
-(** Source-backed admission for the materialized scalar F64 subset. This is
-    deliberately not an optimizer: unproved extended-precision links reject. *)
+(** Source-backed admission for scalar F64 and authenticated pure linked
+    regions. Unproved normalization and extended-precision links reject. *)
 type load = Bits | Zero | One
 
 type operation =
@@ -10,6 +10,8 @@ type operation =
   | Divide
   | Copy_left
   | Copy_right
+  | Alias_left
+  | Alias_right
 
 type orientation = Left_first | Right_first | Bit_copy
 
@@ -30,7 +32,14 @@ type error = { message : string; span : Common.Span.t option }
 type t
 
 val is_f64 : Sema.Type.t -> bool
-val prepare : Ir.Block_graph.t -> (t, error list) result
+
+type source = {
+  runtime : Ir.Runtime_call_context.t;
+  body : Ir.Function_body.t;
+  frame : Sema.Function_frame_layout.function_layout;
+}
+
+val prepare : ?source:source -> Ir.Block_graph.t -> (t, error list) result
 
 val find :
   t ->
@@ -39,3 +48,7 @@ val find :
   entry option
 
 val peak_depth : t -> int
+
+val validated_entries : t -> graph:Ir.Block_graph.t -> entry list option
+(** Validate the complete frozen graph and original source region evidence once,
+    then return the entries for immediate synchronous emission. *)
