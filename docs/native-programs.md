@@ -415,3 +415,8 @@ narrows each store. General source and floating allocation remain open.
 now preserve values selected by the bounded parameter proof. Recursive callees
 still apply their declared entry conversions. Callback, default-argument and
 variadic call paths remain outside this proof.
+
+[Automatic local values](register-variable-analysis.md#local-values-across-control-flow-and-calls)
+can also survive bounded loops and named calls. Locals need one original
+literal or parameter initializer in the entry block. The six-member bound
+counts both parameters and locals; arbitrary local assignments remain unproved.

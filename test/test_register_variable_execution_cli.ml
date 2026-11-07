@@ -166,6 +166,15 @@ let () =
             if target = "host-jit-task" && mode = "jit" then 99 else 98
           in
           run ~steps source "133" target mode;
+          run ~fault:true ~steps:(steps - 1) source "HCIRVM0007" target mode;
+          let source =
+            "I64 F(I64 n,I64 c,I64 one){I8 x=127;while(n){x+=c;n-=one;}return \
+             x;}F(3,2,1);"
+          in
+          let steps =
+            if target = "host-jit-task" && mode = "jit" then 104 else 103
+          in
+          run ~steps source "133" target mode;
           run ~fault:true ~steps:(steps - 1) source "HCIRVM0007" target mode)
         [ "jit"; "aot" ])
     targets;
@@ -3263,11 +3272,69 @@ let () =
         ("U32", 32, false, 4294967295L);
       ]
   in
+  let local_control_cases =
+    List.concat_map
+      (fun (type_, bits, signed, initial) ->
+        let normalize value =
+          let shift = 64 - bits in
+          let value = Int64.shift_left value shift in
+          if signed then Int64.shift_right value shift
+          else Int64.shift_right_logical value shift
+        in
+        List.concat_map
+          (fun (qualifier, stack) ->
+            let initial = Int64.add initial 2L in
+            let stored value = if stack then normalize value else value in
+            let rec repeat value n =
+              if n = 0 then value
+              else repeat (stored (Int64.add value 2L)) (n - 1)
+            in
+            List.concat_map
+              (fun initializer_text ->
+                [
+                  ( Printf.sprintf
+                      "I64 F(I64 a,I64 n,I64 c,I64 one){%s %s \
+                       x=%s;while(n){x+=c;n-=one;}return x;}F(%Ld,3,2,1);"
+                      type_ qualifier initializer_text initial,
+                    Int64.to_string (repeat (stored initial) 3) );
+                  ( Printf.sprintf
+                      "I64 G(I64 v){return v*3;}I64 F(I64 a,I64 n,I64 c,I64 \
+                       one){%s %s x=%s;while(n){x+=c;G(x);n-=one;}return \
+                       G(x)+x;}F(%Ld,3,2,1);"
+                      type_ qualifier initializer_text initial,
+                    Int64.to_string (Int64.mul (repeat (stored initial) 3) 4L)
+                  );
+                ])
+              [ Int64.to_string initial; "a" ])
+          [ ("", false); ("reg R12", false); ("noreg", true) ])
+      [
+        ("I8", 8, true, 127L);
+        ("U8", 8, false, 255L);
+        ("I16", 16, true, 32767L);
+        ("U16", 16, false, 65535L);
+        ("I32", 32, true, 2147483647L);
+        ("U32", 32, false, 4294967295L);
+      ]
+  in
   let cases =
-    cases @ control_cases @ call_cases
+    cases @ control_cases @ call_cases @ local_control_cases
     @ [
         (read "../examples/register-control-flow.hc", "256");
         (read "../examples/register-call-lifetimes.hc", "-240");
+        (read "../examples/register-local-lifetimes.hc", "528");
+        ( "I64 F(I64 n,I64 c,I64 one){I8 x=129;U16 \
+           y=65537;while(n){x+=c;y+=c;n-=one;}return x+y;}F(3,2,1);",
+          "65678" );
+        ( "I64 F(I64 n,I64 c,I64 one){I8 noreg x=129;U16 \
+           y=65537;while(n){x+=c;y+=c;n-=one;}return x+y;}F(3,2,1);",
+          "65422" );
+        ( "I64 F(I64 n,I64 c,I64 one){I8 x=129;U16 noreg \
+           y=65537;while(n){x+=c;y+=c;n-=one;}return x+y;}F(3,2,1);",
+          "142" );
+        ( "I64 F(I64 a,I64 n,I64 c,I64 one){I8 noreg \
+           x=a;x+=c;if(n){n-=one;return F(x,n,c,one)+x;}return \
+           x;}F(127,3,2,1);",
+          "-496" );
         ( "U0 G(I64 n){n+=n;}I64 F(I8 x,I64 c){x+=c;G(x);x+=c;return \
            x;}F(127,2);",
           "131" );
@@ -3415,6 +3482,6 @@ let () =
           [ "host-jit"; "host-jit-task" ])
       [ "jit"; "aot" ];
   Printf.printf "Register execution checks passed (%d reports).\n"
-    ((List.length targets * 2 * (List.length cases + List.length faults + 4))
+    ((List.length targets * 2 * (List.length cases + List.length faults + 6))
     + 12
     + if native then 8 else 0)

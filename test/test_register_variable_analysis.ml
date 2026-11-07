@@ -4657,6 +4657,71 @@ let direct_call_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let local_control_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let x = Frame.location_symbol (location fn.frame "x") in
+          Alcotest.(check bool)
+            "local selected across control flow" true
+            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x
+            = Some Analysis.Register_candidate))
+        [
+          "I64 F(I64 n,I64 c,I64 one){I8 x=129;while(n){x+=c;n-=one;}return \
+           x;}42;";
+          "I64 F(I64 a,I64 n,I64 c,I64 one){I8 \
+           x=a;while(n){x+=c;n-=one;}return x;}42;";
+          "I64 G(I64 v){return v;}I64 F(I64 c){I8 x=129;G(x);x+=c;return x;}42;";
+          "I64 F(I64 n,I64 c,I64 one){I8 x=129;U16 \
+           y=65537;while(n){x+=c;y+=c;n-=one;}return x+y;}42;";
+        ];
+      let changed =
+        compile ~name:"F" mode
+          "I64 F(I64 n,I64 c){I8 x=129;if(n)x+=c;return x;}42;"
+      in
+      let proof =
+        Option.get (Analysis.analyze ~frame:changed.frame ~body:changed.body)
+      in
+      let x = Frame.location_symbol (location changed.frame "x") in
+      let initial =
+        Graph.blocks (Body.body changed.body)
+        |> List.concat_map (fun block ->
+            Seq.instructions (Graph.instructions block))
+        |> List.map Seq.description
+        |> List.find (fun (item : Seq.description) ->
+            item.opcode = Ir_opcode.Ic_imm_i64
+            && item.payload = Some (Seq.Integer 129L))
+      in
+      Obj.set_field (Obj.repr initial) 5 (Obj.repr (Some (Seq.Integer 130L)));
+      Alcotest.(check bool)
+        "changed initializer invalidates witness" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:changed.frame ~body:changed.body
+              ~symbol:x));
+      Alcotest.(check bool)
+        "foreign initializer cannot be reproved" true
+        (Option.is_none
+           (Analysis.analyze ~frame:changed.frame ~body:changed.body));
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "unsafe local shape remains unproved" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I64 n,I64 c){I8 x;if(n)x=c;return x;}42;";
+          "I64 F(I64 n,I64 c){I8 x=127;if(n)x=c;return x;}42;";
+          "I64 F(I64 n,I64 c){I8 x=n+c;if(n)x+=c;return x;}42;";
+          "I64 F(I64 n,I64 c){I8 x=127;I8 *p=&x;if(n)*p+=c;return x;}42;";
+          "I64 F(I64 n,I64 c){if(n){I8 x=127;x+=c;return x;}return 0;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_selection () =
   List.iter
     (fun mode ->
@@ -4882,6 +4947,8 @@ let () =
             control_flow_selection;
           Alcotest.test_case "direct-call parameter selection" `Quick
             direct_call_selection;
+          Alcotest.test_case "local control-flow selection" `Quick
+            local_control_selection;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;
           Alcotest.test_case "original ownership" `Quick ownership;
         ] );

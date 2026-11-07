@@ -142,3 +142,29 @@ arithmetic faults and same-image recovery after a depth fault. The recursive
 checks run with both source modes and all three executors. These remain
 source-derived expectations, not new TempleOS runtime captures or a general
 physical register allocator.
+
+## Local values across control flow and calls
+
+The whole-function proof also covers automatic integer locals initialized in
+its entry block. Parameters and locals together must fit the six-member bound.
+Each local needs exactly one initializer from its original typed source: an
+integer literal or a direct parameter read. The initializer must be a standalone
+assignment. Later assignments, conditional initializers, computed initializers,
+address escapes, Boolean members and non-default options remain unproved.
+Compound updates may read another checked frame member.
+
+`OptPass3.HC:22-48,223-247,511-621` scores local and parameter frame members in
+the same allocation pass. `OptPass4.HC:348-398` redirects an assignment to a
+selected register. Unlike a narrow parameter's entry conversion, an initializer
+can retain a wider integer in that register. Existing original initializer
+captures establish that distinction. The extension across blocks and calls is
+source-derived, not a new TempleOS runtime capture.
+
+For example, `I8 x=129` followed by three additions of 2 in a loop retains 135;
+its `noreg` control returns -121. Locals remain private to each recursive
+activation. The [recursive local example](../examples/register-local-lifetimes.hc)
+passes each value through an I64 parameter and sums 129, 131, 133 and 135 to 528.
+Tests cover all six narrow widths, literal and parameter initializers, register
+and stack controls, adjacent locals, calls, and repeated execution after a
+recursion-depth fault. General allocation and floating values remain open under
+#703.

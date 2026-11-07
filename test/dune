@@ -5695,7 +5695,8 @@
   ../examples/repeated-register-updates.hc
   ../examples/remainder-register-updates.hc
   ../examples/register-control-flow.hc
-  ../examples/register-call-lifetimes.hc)
+  ../examples/register-call-lifetimes.hc
+  ../examples/register-local-lifetimes.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5708,7 +5709,8 @@
   ../examples/repeated-register-updates.hc
   ../examples/remainder-register-updates.hc
   ../examples/register-control-flow.hc
-  ../examples/register-call-lifetimes.hc)
+  ../examples/register-call-lifetimes.hc
+  ../examples/register-local-lifetimes.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}

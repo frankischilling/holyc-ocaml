@@ -26,15 +26,16 @@ val analyze :
     provided every operand parameter remains unchanged. Distinct R12 through R15
     requests are covered in these call-free shapes. Other explicit registers,
     conflicting requests, escapes and extra locals remain unproved. A separate
-    whole-function proof covers branches and loops over two to six integer
-    parameters, with statement-only compound updates whose operands are direct
-    parameter reads. Original named definitions with provided fixed arguments
-    and integer or U0 results may be called, including recursive calls and the
-    named JIT address-slot path. Callbacks, defaults and variadic calls remain
-    unproved. The proof accepts up to 64 blocks and 512 instructions, no address
-    escapes, no Boolean parameters and only default compiler options. Other
-    control flow remains unproved. The witness itself does not alter execution.
-*)
+    whole-function proof covers branches and loops over two to six integer frame
+    members, with statement-only compound updates whose operands are direct
+    member reads. Automatic locals require one original literal or parameter
+    initializer in the entry block; reassignments remain unproved. Original
+    named definitions with provided fixed arguments and integer or U0 results
+    may be called, including recursive calls and the named JIT address-slot
+    path. Callbacks, defaults and variadic calls remain unproved. The proof
+    accepts up to 64 blocks and 512 instructions, no address escapes, no Boolean
+    parameters and only default compiler options. Other control flow remains
+    unproved. The witness itself does not alter execution. *)
 
 val selection :
   t ->

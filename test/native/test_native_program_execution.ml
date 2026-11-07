@@ -991,33 +991,41 @@ let source_parameter_default_limits_and_failures () =
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let register_call_fault_recovery () =
-  let source =
-    "I64 F(I8 x,I64 n,I64 c,I64 one){x+=c;if(n){n-=one;return \
-     F(x,n,c,one)+x;}return x;}F(127,3,2,1);"
+  let sources =
+    [
+      ( "I64 F(I8 x,I64 n,I64 c,I64 one){x+=c;if(n){n-=one;return \
+         F(x,n,c,one)+x;}return x;}F(127,3,2,1);",
+        -240L );
+      ( "I64 F(I64 a,I64 n,I64 c,I64 one){I8 x=a;x+=c;if(n){n-=one;return \
+         F(x,n,c,one)+x;}return x;}F(127,3,2,1);",
+        528L );
+    ]
   in
   List.iter
-    (fun mode ->
-      let unit_ = Fixture.integer_unit ~mode source in
-      let image =
-        Fixture.compile_callable unit_ |> require_ok Fixture.program_errors
-      in
-      let failed =
-        execute ~max_call_depth:3 "register recursion depth" image
-        |> faulted "register recursion depth"
-      in
-      Alcotest.(check string)
-        "register recursion one-below depth" "call-depth"
-        (Fixture.kind_name failed.kind);
-      for _ = 1 to 8 do
-        let result =
-          execute ~max_call_depth:4 "register recursion recovery" image
-          |> completed "register recursion recovery"
-        in
-        check_program_word
-          "recursive narrow argument conversion and live parent" "I64" (-240L)
-          result.final_value
-      done)
-    [ Preprocessor.Jit; Preprocessor.Aot ]
+    (fun (source, expected) ->
+      List.iter
+        (fun mode ->
+          let unit_ = Fixture.integer_unit ~mode source in
+          let image =
+            Fixture.compile_callable unit_ |> require_ok Fixture.program_errors
+          in
+          let failed =
+            execute ~max_call_depth:3 "register recursion depth" image
+            |> faulted "register recursion depth"
+          in
+          Alcotest.(check string)
+            "register recursion one-below depth" "call-depth"
+            (Fixture.kind_name failed.kind);
+          for _ = 1 to 8 do
+            let result =
+              execute ~max_call_depth:4 "register recursion recovery" image
+              |> completed "register recursion recovery"
+            in
+            check_program_word "recursive values and live parent" "I64" expected
+              result.final_value
+          done)
+        [ Preprocessor.Jit; Preprocessor.Aot ])
+    sources
 
 let function_resource_limits_and_fault_recovery () =
   let recursion =

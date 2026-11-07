@@ -2356,17 +2356,19 @@ let analyze_local ~frame ~body =
   | _ -> None
 
 (* OptPass3 scores member accesses across the whole function, not per basic
-   block. With at most six nonescaping integer parameters, every used automatic
+   block. With at most six nonescaping integer frame members, every used automatic
    candidate fits REGG_LOCAL_VARS. Keep updates statement-only and dynamically
    sourced so immediate rewrites and compound-expression results cannot change
    the required storage width. Named calls retain their original typed targets;
    OptPass789A saves and restores selected variable registers around each ordinary
    activation. IC_CALL_INDIRECT2 is admitted only for a named definition's JIT
-   address slot, not for a callback. *)
+   address slot, not for a callback. Locals require a single source-owned literal
+   or parameter initializer in the entry block. *)
 let analyze_control_parameters ~frame ~body =
   let locations = Frame.function_locations frame in
-  let integer_parameter location =
-    Frame.location_kind location = Frame.Named_parameter
+  let integer_member location =
+    (Frame.location_kind location = Frame.Named_parameter
+    || Frame.location_kind location = Frame.Automatic_local)
     && Frame.location_value_shape location = Frame.Scalar
     && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
     && (match Sema.Type.base (Frame.location_checked_type location) with
@@ -2496,6 +2498,7 @@ let analyze_control_parameters ~frame ~body =
        | Ic_greater
        | Ic_greater_equ
        | Ic_deref
+       | Ic_assign
        | Ic_end_exp
        | Ic_return_val
        | Ic_jmp
@@ -2512,7 +2515,7 @@ let analyze_control_parameters ~frame ~body =
        <> 0L
     || List.length locations < 2
     || List.length locations > 6
-    || (not (List.for_all integer_parameter locations))
+    || (not (List.for_all integer_member locations))
     || (not (safe_register_requests locations))
     || List.length blocks > 64
     || List.length code > 512
@@ -2598,10 +2601,84 @@ let analyze_control_parameters ~frame ~body =
              &&
              match (item.opcode, item.operands) with
              | O.Ic_deref, [ target ] -> Seq.Value_id.equal target id
-             | opcode, [ target; _ ] when update opcode ->
-                 Seq.Value_id.equal target id
+             | opcode, [ target; _ ] when update opcode || opcode = O.Ic_assign
+               -> Seq.Value_id.equal target id
              | _ -> false)
            consumers
+    in
+    let local_initializers =
+      Option.fold ~none:[] ~some:Typed.function_initializers
+        (Function_body.definition_source body)
+    in
+    let entry_code =
+      Function_body.body body |> Block_graph.entry |> descriptions
+    in
+    let initializer_matches location operand =
+      List.exists
+        (fun initialization ->
+          let local =
+            Typed.initializer_source initialization |> Calls.initializer_local
+          in
+          Sema.Local_type_resolution.local_symbol local
+          == Frame.location_symbol location
+          &&
+          let source = Typed.initializer_value initialization in
+          match Calls.argument_expression_kind (Typed.result_source source) with
+          | Calls.Integer_literal bits -> (
+              match Values.find_opt operand produced with
+              | Some
+                  {
+                    opcode = O.Ic_imm_i64;
+                    payload = Some (Seq.Integer actual);
+                    _;
+                  } -> bits = actual
+              | _ -> false)
+          | Calls.Bound_identifier_expression bound -> (
+              match
+                ( Sema.Module_expression_binding.occurrence_resolution
+                    (Calls.bound_identifier_occurrence bound),
+                  load operand )
+              with
+              | ( Sema.Module_expression_binding.Local_binding binding,
+                  Some (_, parameter) ) ->
+                  Frame.location_kind parameter = Frame.Named_parameter
+                  && binding == Frame.location_binding parameter
+              | _ -> false)
+          | _ -> false)
+        local_initializers
+    in
+    let initialization (item : Seq.description) =
+      match (item.opcode, item.operands, item.result) with
+      | O.Ic_assign, [ target; operand ], Some result -> (
+          match address target with
+          | Some (_, location)
+            when Frame.location_kind location = Frame.Automatic_local -> (
+              List.exists (( == ) item) entry_code
+              && initializer_matches location operand
+              &&
+              match users result.value_id with
+              | [ consumer ] -> consumer.opcode = O.Ic_end_exp
+              | _ -> false)
+          | _ -> false)
+      | _ -> false
+    in
+    let initialized_once location =
+      if Frame.location_kind location = Frame.Named_parameter then true
+      else
+        let stores =
+          List.filter
+            (fun (item : Seq.description) ->
+              match (item.opcode, item.operands) with
+              | O.Ic_assign, target :: _ -> (
+                  match address target with
+                  | Some (_, other) -> other == location
+                  | None -> false)
+              | _ -> false)
+            code
+        in
+        match stores with
+        | [ store ] -> initialization store
+        | _ -> false
     in
     let safe_instruction (item : Seq.description) =
       match (item.opcode, item.operands, item.result) with
@@ -2611,6 +2688,7 @@ let analyze_control_parameters ~frame ~body =
           && List.for_all
                (fun item -> Option.is_some (frame_address item))
                consumers
+      | O.Ic_assign, _, _ -> initialization item
       | O.Ic_deref, [ target ], _ -> Option.is_some (address target)
       | opcode, [ target; operand ], Some result when update opcode -> (
           Option.is_some (address target)
@@ -2625,6 +2703,7 @@ let analyze_control_parameters ~frame ~body =
     if
       not
         (List.for_all safe_address addresses
+        && List.for_all initialized_once locations
         && List.for_all safe_instruction code)
     then None
     else

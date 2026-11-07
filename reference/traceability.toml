@@ -15100,3 +15100,15 @@ status = "partial"
 issue = 703
 verification = "Source-derived six-width register/stack matrices cover caller values, nested arguments, recursive entry conversion, named live-JIT address slots, procedures, callee faults and repeated execution after exact/one-below recursion depth checks. Original typed call targets and physical symbol identity are rechecked."
 evidence_limit = "Extends the bounded parameter proof, not general physical/floating allocation. Calls need original named definition targets, provided fixed arguments and integer or U0 results. Callback, default, variadic and extern-only paths remain unproved. No new TempleOS runtime capture is claimed."
+
+[[feature]]
+id = "HC-REGISTER-LOCAL-CONTROL-LIFETIMES"
+description = "Preserve initialized automatic register locals across branches, loops and named calls."
+sources = ["Compiler/OptPass3.HC:22-48,223-247,511-621", "Compiler/OptPass4.HC:348-398", "Compiler/OptPass789A.HC:387-405,698-719"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "test/native/test_native_program_execution.ml", "examples/register-local-lifetimes.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-derived six-width literal/parameter initializer matrices cover selected and noreg locals, loops and named calls. Adjacent mixed-storage locals and recursive private values have independent expected results. Repeated native execution checks cleanup after a recursion-depth fault."
+evidence_limit = "Two to six total integer frame members, each local initialized exactly once in the entry block from an original literal or parameter source. Other proof bounds remain. General assignments, floating allocation and new TempleOS runtime captures are not claimed."
