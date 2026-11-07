@@ -5706,7 +5706,9 @@
   ../examples/register-computed-updates.hc
   ../examples/register-computed-initializers.hc
   ../examples/register-integer-expressions.hc
-  ../examples/register-straight-line.hc)
+  ../examples/register-straight-line.hc
+  ../examples/register-dependent-initializers.hc
+  ../examples/register-consumed-assignment.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5730,7 +5732,9 @@
   ../examples/register-computed-updates.hc
   ../examples/register-computed-initializers.hc
   ../examples/register-integer-expressions.hc
-  ../examples/register-straight-line.hc)
+  ../examples/register-straight-line.hc
+  ../examples/register-dependent-initializers.hc
+  ../examples/register-consumed-assignment.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}

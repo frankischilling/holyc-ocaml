@@ -15,8 +15,10 @@ val analyze :
     expressions use parameters, literals and locals initialized before each read
     in the entry block; later assignments and compound operands may read any
     checked integer frame member. Source-owned arithmetic, bitwise, unary,
-    division/remainder, shift and comparison trees are supported. Assignment and
-    update results must be discarded in the whole-function proof. Literal-only
+    division/remainder, shift and comparison trees are supported. Compound and
+    unary update results must be discarded in the whole-function proof. Plain
+    assignment results may be consumed only for proven register destinations;
+    stack and unknown-pressure results remain unproved. Literal-only
     add/subtract/multiply updates remain limited to nonnegative signed-32-bit
     operands. Each operation retains its original typed operator, ordered
     operands and source position. Calls require original named definitions,

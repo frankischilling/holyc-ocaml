@@ -3020,8 +3020,18 @@ let analyze_integer_function ~frame ~body =
                consumers
       | O.Ic_assign, [ target; _ ], Some result ->
           initialization item
-          || Option.is_some (address target)
-             && source_matches_update item && discarded result
+          || Option.fold ~none:false
+               ~some:(fun (_, location) ->
+                 source_matches_update item
+                 (* BackC's by-value assignment reloads its destination. Only
+                    a proven register destination agrees with RHS forwarding;
+                    a narrow memory destination needs a separate result rule. *)
+                 && (discarded result
+                    || (not (stack_selected ~body location))
+                       && (register_capacity_fits
+                          || Frame.location_register_selection location
+                             <> Request.Unspecified)))
+               (address target)
       | O.Ic_assign, _, _ -> false
       | O.Ic_deref, [ target ], _ -> Option.is_some (address target)
       | opcode, [ target; operand ], Some result when update opcode ->

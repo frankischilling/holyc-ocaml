@@ -498,3 +498,27 @@ Tests cover six narrow widths, four storage qualifiers, intervening updates,
 stack destinations and three-local chains. Reordering the initializer stores
 invalidates the saved witness and cannot acquire a new proof. These are source
 and hosted execution checks, not new TempleOS runtime captures.
+
+## Consumed selected assignments
+
+Plain assignments may feed a condition, return or other accepted expression
+when their destination is already proven to be a register variable. For
+`I64 F(I8 x,I64 a){if(x=a+1)return x;return -1;}`, `F(0,255)` retains and returns
+256. Selection no longer disappears merely because the assignment result is
+used. The [example](../examples/register-consumed-assignment.hc) exercises
+parameter and local destinations.
+
+OptPass3.HC:231-247 scores consumed assignments like discarded assignments.
+OptPass4.HC:363-399 selects the destination and sets the by-value path.
+BackC.HC:162-170 stores and reads that destination, and BackLib.HC:509-512
+keeps register-to-register copies at full width. OptPass6.HC:144-155 and
+BackB.HC:646-659 pass the result to a branch without narrowing it again.
+
+The proof excludes stack-selected and unknown-pressure destinations. TempleOS's
+by-value memory path reloads the narrowed destination, unlike the current hosted
+RHS-forwarding rule. For the same function with `noreg x`, source predicts -1
+while the hosted path currently returns 0. That existing optimizer boundary
+remains open; accepting its assignment into this proof would hide it. Consumed
+compound updates, casts and nested assignment operands remain outside this
+extension. The evidence is pinned source and hosted tests, not a new TempleOS
+runtime capture.

@@ -321,6 +321,32 @@ let assignment_cases =
       ("U32", 32, false);
     ]
 
+let consumed_assignment_cases =
+  List.concat_map
+    (fun (type_, high) ->
+      List.concat_map
+        (fun qualifier ->
+          List.map
+            (fun body ->
+              ( Printf.sprintf "I64 F(%s %s x,I64 a){%s}F(0,%Ld);" type_
+                  qualifier body high,
+                Int64.to_string (Int64.succ high) ))
+            [
+              "if(x=a+1)return x;return -1;";
+              "while(x=a+1)return x;return -1;";
+              "if(a)return x=a+1;return x;";
+              "if((x=a+1)>0)return x;return -1;";
+            ])
+        [ ""; "reg"; "reg R12" ])
+    [
+      ("I8", 127L);
+      ("U8", 255L);
+      ("I16", 32767L);
+      ("U16", 65535L);
+      ("I32", 2147483647L);
+      ("U32", 4294967295L);
+    ]
+
 let straight_line_cases =
   List.concat_map
     (fun (type_, bits, signed) ->
@@ -650,9 +676,9 @@ let forced_pressure_cases =
 let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
   let cases =
-    straight_line_cases @ integer_expression_cases @ computed_update_cases
-    @ computed_assignment_cases @ forced_pressure_cases @ assignment_cases
-    @ loop_update_cases
+    consumed_assignment_cases @ straight_line_cases @ integer_expression_cases
+    @ computed_update_cases @ computed_assignment_cases @ forced_pressure_cases
+    @ assignment_cases @ loop_update_cases
     @ [
         (read "../examples/register-loop-updates.hc", "256");
         (read "../examples/register-reassignment.hc", "256");
@@ -662,6 +688,8 @@ let () =
         (read "../examples/register-computed-initializers.hc", "256");
         (read "../examples/register-integer-expressions.hc", "-512");
         (read "../examples/register-straight-line.hc", "512");
+        (read "../examples/register-dependent-initializers.hc", "256");
+        (read "../examples/register-consumed-assignment.hc", "512");
         ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
         ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
            c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",

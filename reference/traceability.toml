@@ -15244,3 +15244,15 @@ status = "partial"
 issue = 703
 verification = "Six widths and four qualifiers across local dependencies, intervening updates, stack destinations and three-local chains. Self-initialization, uninitialized dependencies and reordered stores remain unproved."
 evidence_limit = "Every local requires one original entry-block initializer; each dependency store must precede its read. No general physical allocation or new TempleOS runtime capture is claimed."
+
+[[feature]]
+id = "HC-REGISTER-CONSUMED-ASSIGNMENT"
+description = "Preserve guaranteed selected storage through consumed plain assignments."
+sources = ["Compiler/OptPass3.HC:231-247", "Compiler/OptPass4.HC:363-399", "Compiler/BackC.HC:162-170", "Compiler/BackLib.HC:509-520", "Compiler/OptPass6.HC:144-155", "Compiler/BackB.HC:646-659"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/register_variable_analysis.mli"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-consumed-assignment.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six narrow widths and three selected qualifiers across conditions, loops, direct returns and comparisons. Stack destinations, consumed compound updates and cast operands remain unproved."
+evidence_limit = "Only independently guaranteed register destinations agree with hosted RHS forwarding. By-value memory result normalization, unknown-pressure selection and general physical allocation remain open. No new TempleOS runtime capture."

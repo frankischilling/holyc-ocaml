@@ -383,3 +383,8 @@ may read earlier initialized integer locals in the entry block. The proof
 requires each dependency store to precede its read and each read to precede
 the consuming initializer; self-initialization and uninitialized reads remain
 unproved.
+
+[Consumed selected assignments](register-variable-analysis.md#consumed-selected-assignments)
+retain register storage when a plain assignment feeds a condition or return.
+Stack-selected and unknown-pressure destinations remain excluded because their
+by-value expression results need separate optimizer rules.

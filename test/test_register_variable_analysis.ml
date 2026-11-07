@@ -5255,8 +5255,46 @@ let assignment_selection () =
           "I64 F(I64 n,I64 value){I8 x;if(n)x=value;return x;}42;";
           "I64 F(I64 n){I8 x;x=257;if(n)x=257;return x;}42;";
           "I64 F(I8 x,I64 value){if(value)x=value(I8);return x;}42;";
-          "I64 F(I8 x,I64 value){if(value)return x=value;return x;}42;";
+          "I64 F(I8 noreg x,I64 value){if(value)return x=value;return x;}42;";
           "I64 F(I64 n,I64 value){if(n){I8 x=0;x=value;return x;}return 0;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let consumed_assignment_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun qualifier ->
+          List.iter
+            (fun source ->
+              let fn =
+                compile ~name:"F" mode (Printf.sprintf source qualifier)
+              in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let symbol = location fn.frame "x" |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "consumed assignment keeps selected storage" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some Analysis.Register_candidate))
+            [
+              "I64 F(I8 %s x,I64 a){if(x=a+1)return x;return -1;}42;";
+              "I64 F(I8 %s x,I64 a){while(x=a+1)return x;return -1;}42;";
+              "I64 F(I8 %s x,I64 a){return x=a+1;}42;";
+              "I64 F(I64 a){I8 %s x=0;if(x=a+1)return x;return -1;}42;";
+            ])
+        [ ""; "reg"; "reg R12" ];
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "consumed stack assignment remains unproved" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 noreg x,I64 a){if(x=a+1)return x;return -1;}42;";
+          "I64 F(I8 x,I64 a){if(x+=a)return x;return -1;}42;";
+          "I64 F(I8 x,I64 a){if(x=a(I8))return x;return -1;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -5593,6 +5631,8 @@ let () =
             computed_assignment_selection;
           Alcotest.test_case "parameter and local reassignment" `Quick
             assignment_selection;
+          Alcotest.test_case "consumed selected assignments" `Quick
+            consumed_assignment_selection;
           Alcotest.test_case "ordered local initializers" `Quick
             dependent_initializer_selection;
           Alcotest.test_case "whole straight-line functions" `Quick
