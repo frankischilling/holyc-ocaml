@@ -6,7 +6,12 @@ module O = Opcode
 
 type selection = Register_candidate | Stack | Unknown
 type snapshot = Seq.Block_id.t * Seq.description list * Seq.Block_id.t list
-type payload_stamp = No_payload | Integer of int64 | Block of int
+
+type payload_stamp =
+  | No_payload
+  | Integer of int64
+  | Block of int
+  | Symbol of Sema.Symbol.t
 
 type instruction_stamp = {
   id : int;
@@ -21,7 +26,13 @@ type instruction_stamp = {
 
 let equal_stamp a b =
   a.id = b.id && a.opcode = b.opcode && a.operands = b.operands
-  && a.result = b.result && a.target = b.target && a.payload = b.payload
+  && a.result = b.result && a.target = b.target
+  && (match (a.payload, b.payload) with
+    | Symbol left, Symbol right -> left == right
+    | No_payload, No_payload -> true
+    | Integer left, Integer right -> left = right
+    | Block left, Block right -> left = right
+    | _ -> false)
   && a.flags = b.flags && a.span = b.span
 
 let instruction_stamp (item : Seq.description) =
@@ -39,6 +50,7 @@ let instruction_stamp (item : Seq.description) =
     | None -> Some No_payload
     | Some (Seq.Integer value) -> Some (Integer value)
     | Some (Seq.Block block) -> Some (Block (Seq.Block_id.to_int block))
+    | Some (Seq.Symbol symbol) -> Some (Symbol symbol)
     | _ -> None
   in
   Option.bind target (fun target ->
@@ -2347,7 +2359,10 @@ let analyze_local ~frame ~body =
    block. With at most six nonescaping integer parameters, every used automatic
    candidate fits REGG_LOCAL_VARS. Keep updates statement-only and dynamically
    sourced so immediate rewrites and compound-expression results cannot change
-   the required storage width. *)
+   the required storage width. Named calls retain their original typed targets;
+   OptPass789A saves and restores selected variable registers around each ordinary
+   activation. IC_CALL_INDIRECT2 is admitted only for a named definition's JIT
+   address slot, not for a callback. *)
 let analyze_control_parameters ~frame ~body =
   let locations = Frame.function_locations frame in
   let integer_parameter location =
@@ -2382,12 +2397,83 @@ let analyze_control_parameters ~frame ~body =
     | O.Ic_br_zero | Ic_br_not_zero -> true
     | _ -> false
   in
+  let module Typed = Sema.Function_call_expression_result in
+  let module Calls = Sema.Function_call_resolution in
+  let module Policy = Sema.Function_call_conversion_policy in
+  let module Resolution = Sema.Function_resolution in
+  let source_calls =
+    Option.fold ~none:[] ~some:Typed.function_calls
+      (Function_body.definition_source body)
+  in
+  let direct_target = function
+    | Typed.Direct_call_result call ->
+        let source = Typed.direct_source call |> Policy.direct_source in
+        let declaration = Typed.direct_declaration call in
+        if
+          Resolution.declaration_site_kind
+            (Resolution.resolved_declaration_site declaration)
+          = Resolution.Definition
+          && Option.is_none
+               (Sema.Function_type_resolution.function_variadic_bindings
+                  (Calls.direct_active_header source))
+          && List.for_all
+               (fun argument ->
+                 match Typed.fixed_path argument with
+                 | Typed.Provided_result _ -> true
+                 | Declared_default_result _ -> false)
+               (Typed.direct_fixed_results call)
+        then Some (Calls.direct_target_symbol source)
+        else None
+    | _ -> None
+  in
+  let targets = List.filter_map direct_target source_calls in
+  let direct_call = function
+    | O.Ic_call_start | Ic_call | Ic_call_indirect2 | Ic_call_end -> true
+    | _ -> false
+  in
+  let scalar_result (item : Seq.description) =
+    Option.fold ~none:false
+      ~some:(fun type_ ->
+        Sema.Type.pointer_depth type_ = 0
+        &&
+        match Sema.Type.base type_ with
+        | Sema.Type.Primitive
+            ( _,
+              (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64)
+            ) -> true
+        | _ -> false)
+      item.target_type
+  in
+  let call_result item =
+    scalar_result item
+    || Option.fold ~none:false
+         ~some:(fun type_ ->
+           Sema.Type.pointer_depth type_ = 0
+           &&
+           match Sema.Type.base type_ with
+           | Sema.Type.Primitive (_, (Sema.Primitive_type.I0 | U0)) -> true
+           | _ -> false)
+         item.Seq.target_type
+  in
   let allowed (item : Seq.description) =
-    (if item.opcode = O.Ic_end_exp then item.flags = 0x200L else item.flags = 0L)
+    (if item.opcode = O.Ic_end_exp then item.flags = 0x200L
+     else item.flags = 0L || (item.flags = 0x2000L && scalar_result item))
+    && (if direct_call item.opcode then
+          (match item.payload with
+            | Some (Seq.Symbol symbol) -> List.exists (( == ) symbol) targets
+            | _ -> false)
+          && (item.opcode = O.Ic_call_start || call_result item)
+        else true)
     && Option.is_some (instruction_stamp item)
     && (update item.opcode || branch item.opcode
        ||
        match item.opcode with
+       | O.Ic_call_start
+       | Ic_call
+       | Ic_call_indirect2
+       | Ic_call_end
+       | Ic_add_rsp
+       | Ic_add_rsp1
        | O.Ic_rbp
        | Ic_imm_i64
        | Ic_add
@@ -2430,7 +2516,11 @@ let analyze_control_parameters ~frame ~body =
     || (not (safe_register_requests locations))
     || List.length blocks > 64
     || List.length code > 512
-    || (not (List.exists (fun item -> branch item.Seq.opcode) code))
+    || List.length targets <> List.length source_calls
+    || (not
+          (List.exists
+             (fun item -> branch item.Seq.opcode || direct_call item.Seq.opcode)
+             code))
     || not (List.for_all allowed code)
   then None
   else

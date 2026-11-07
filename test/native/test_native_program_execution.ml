@@ -990,6 +990,35 @@ let source_parameter_default_limits_and_failures () =
         (Native_program.preparation_steps after_entry_report))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let register_call_fault_recovery () =
+  let source =
+    "I64 F(I8 x,I64 n,I64 c,I64 one){x+=c;if(n){n-=one;return \
+     F(x,n,c,one)+x;}return x;}F(127,3,2,1);"
+  in
+  List.iter
+    (fun mode ->
+      let unit_ = Fixture.integer_unit ~mode source in
+      let image =
+        Fixture.compile_callable unit_ |> require_ok Fixture.program_errors
+      in
+      let failed =
+        execute ~max_call_depth:3 "register recursion depth" image
+        |> faulted "register recursion depth"
+      in
+      Alcotest.(check string)
+        "register recursion one-below depth" "call-depth"
+        (Fixture.kind_name failed.kind);
+      for _ = 1 to 8 do
+        let result =
+          execute ~max_call_depth:4 "register recursion recovery" image
+          |> completed "register recursion recovery"
+        in
+        check_program_word
+          "recursive narrow argument conversion and live parent" "I64" (-240L)
+          result.final_value
+      done)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let function_resource_limits_and_fault_recovery () =
   let recursion =
     "I64 Recur(I64 n){if(n)return Recur(n-1);return 42;}\nRecur(3);"
@@ -1828,6 +1857,9 @@ let () =
                 "source default work, bytes and failures are bounded before \
                  entry"
                 `Quick source_parameter_default_limits_and_failures;
+              Alcotest.test_case
+                "register values survive recursive fault cleanup" `Quick
+                register_call_fault_recovery;
               Alcotest.test_case
                 "function depth frame faults unwind and recover" `Quick
                 function_resource_limits_and_fault_recovery;

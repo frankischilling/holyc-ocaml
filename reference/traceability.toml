@@ -15088,3 +15088,15 @@ status = "partial"
 issue = 703
 verification = "Source-derived expected values for six narrow widths and ten dynamic compound operators across branches, loops, register and stack controls, changed operands, early returns, gotos, zero iterations, arithmetic faults and exact step limits. Ownership tests reject foreign frames and changed branch records."
 evidence_limit = "Two to six integer parameters, no locals or calls, nonescaping addresses, statement-only compound results, parameter-read operands, default options, distinct R12-R15 requests, up to 64 blocks and 512 instructions. No new TempleOS runtime capture or general physical/floating register allocator is claimed."
+
+[[feature]]
+id = "HC-REGISTER-PARAMETER-CALL-LIFETIMES"
+description = "Preserve selected parameter values across original named calls and recursive activations."
+sources = ["Compiler/OptPass789A.HC:387-405,698-719", "Compiler/OptPass6.HC:32-92", "Compiler/PrsExp.HC:549-577"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "test/native/test_native_program_execution.ml", "examples/register-call-lifetimes.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-derived six-width register/stack matrices cover caller values, nested arguments, recursive entry conversion, named live-JIT address slots, procedures, callee faults and repeated execution after exact/one-below recursion depth checks. Original typed call targets and physical symbol identity are rechecked."
+evidence_limit = "Extends the bounded parameter proof, not general physical/floating allocation. Calls need original named definition targets, provided fixed arguments and integer or U0 results. Callback, default, variadic and extern-only paths remain unproved. No new TempleOS runtime capture is claimed."

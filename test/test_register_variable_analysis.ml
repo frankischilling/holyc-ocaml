@@ -4600,6 +4600,63 @@ let control_flow_selection () =
            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let direct_call_selection () =
+  let defaulted =
+    compile ~name:"F" Preprocessor.Aot
+      "I64 G(I64 n=1){return n;}I64 F(I8 x,I64 c){x+=c;G();return x;}42;"
+  in
+  Alcotest.(check bool)
+    "default arguments remain outside register call proof" true
+    (Option.is_none
+       (Analysis.analyze ~frame:defaulted.frame ~body:defaulted.body));
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let x = Frame.location_symbol (location fn.frame "x") in
+          Alcotest.(check bool)
+            "selected value survives direct call" true
+            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x
+            = Some Analysis.Register_candidate);
+          let foreign = compile ~name:"G" mode "I64 G(I64 n){return n;}42;" in
+          let call =
+            Graph.blocks (Body.body fn.body)
+            |> List.concat_map (fun block ->
+                Seq.instructions (Graph.instructions block))
+            |> List.find (fun item ->
+                (Seq.description item).opcode = Ir_opcode.Ic_call_start)
+            |> Seq.description
+          in
+          Obj.set_field (Obj.repr call) 5
+            (Obj.repr (Some (Seq.Symbol (Body.callable_symbol foreign.body))));
+          Alcotest.(check bool)
+            "foreign call symbol invalidates proof" true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x)))
+        [
+          "I64 G(I64 n){return n*3;}I64 F(I8 x,I64 c){x+=c;G(x);x+=c;return \
+           x;}42;";
+          "I64 F(I8 x,I64 n,I64 c,I64 one){x+=c;if(n){n-=one;return \
+           F(x,n,c,one)+x;}return x;}42;";
+          "U0 G(I64 n){n+=n;}I64 F(I8 x,I64 c){x+=c;G(x);return x;}42;";
+        ];
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "unproved call remains outside proof" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 G(I8 *p){return *p;}I64 F(I8 x,I64 c){x+=c;G(&x);return x;}42;";
+          "I64 G(I64 n){return n;}I64 F(I8 reg RAX x,I64 c){x+=c;G(x);return \
+           x;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_selection () =
   List.iter
     (fun mode ->
@@ -4823,6 +4880,8 @@ let () =
           Alcotest.test_case "local ownership" `Quick local_ownership;
           Alcotest.test_case "control-flow parameter selection" `Quick
             control_flow_selection;
+          Alcotest.test_case "direct-call parameter selection" `Quick
+            direct_call_selection;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;
           Alcotest.test_case "original ownership" `Quick ownership;
         ] );

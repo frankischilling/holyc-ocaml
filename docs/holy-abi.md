@@ -316,3 +316,8 @@ and floating register allocation remain open under issue #703.
 now cover bounded call-free branches and loops with dynamic statement updates.
 Selected narrow parameters retain full values across iterations; `noreg` still
 narrows each store. General source and floating allocation remain open.
+
+[Named calls and recursion](register-variable-analysis.md#values-held-across-named-calls)
+now preserve values selected by the bounded parameter proof. Recursive callees
+still apply their declared entry conversions. Callback, default-argument and
+variadic call paths remain outside this proof.

@@ -86,7 +86,7 @@ A separate whole-function proof covers two to six integer parameters across
 branches, `while`, `do`, `for`, early returns and gotos. Compound updates must be
 standalone statements with a parameter read as their operand. Parameters may
 change between updates, including self-updates and mutually updated parameters.
-The proof rejects calls, local variables, escaped addresses, Boolean parameters,
+The proof rejects local variables, escaped addresses, Boolean parameters,
 immediate compound operands, consumed compound results, conflicting register
 requests and non-default compiler options. It admits at most 64 blocks and 512
 instructions. Distinct R12 through R15 requests and `noreg` retain their existing
@@ -111,3 +111,34 @@ zero iterations, exact step limits and arithmetic faults in both source modes
 and all three hosted executors. These expectations follow the pinned source;
 no new TempleOS runtime capture is claimed. This models source-visible values,
 not a general physical register allocator.
+
+## Values held across named calls
+
+The same parameter proof now covers calls to original named definitions, with
+provided fixed arguments and integer or U0 results. It checks each call symbol
+against the retained typed source, including the named address-slot path used
+for live JIT recursion. A same-name symbol from another compilation is not that
+call target. Callbacks, omitted default arguments, variadic calls and extern-only
+declarations remain outside the proof. Passing a parameter's address also
+rejects the proof, including addresses carried by an implicit push flag.
+
+`OptPass789A.HC:387-405,698-719` saves and restores selected variable registers
+for ordinary activations. `OptPass6.HC:32-92` separately tracks temporary values
+and call clobbers. `PrsExp.HC:549-577` pushes ordinary arguments and distinguishes
+direct executable calls, named JIT address slots and computed callees. The
+hosted backend keeps the corresponding variable values in owned full-width
+frame storage, independently of temporary register allocation.
+
+A selected signed-byte parameter starting at 127 can retain 129 across a call,
+then become 131 after another addition of 2. Its stack control returns -125.
+Recursive calls still convert their own incoming arguments to the declared
+width. The [recursive example](../examples/register-call-lifetimes.hc) retains
+129 in the first caller while its descendants retain -125, -123 and -121. Their
+sum is -240; the `noreg` counterpart returns -496.
+
+Tests cover all six narrow widths, explicit registers, stack controls, nested
+calls, live arguments, procedures, loops containing calls, recursion, callee
+arithmetic faults and same-image recovery after a depth fault. The recursive
+checks run with both source modes and all three executors. These remain
+source-derived expectations, not new TempleOS runtime captures or a general
+physical register allocator.

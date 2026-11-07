@@ -3215,10 +3215,69 @@ let () =
         ("U32", 32, false, 4294967295L);
       ]
   in
+  let call_cases =
+    List.concat_map
+      (fun (type_, bits, signed, initial) ->
+        let normalize value =
+          let shift = 64 - bits in
+          let value = Int64.shift_left value shift in
+          if signed then Int64.shift_right value shift
+          else Int64.shift_right_logical value shift
+        in
+        List.concat_map
+          (fun (qualifier, stack) ->
+            let update value =
+              let result = Int64.add value 2L in
+              if stack then normalize result else result
+            in
+            let once = update initial in
+            let rec recursive value n =
+              let value = update value in
+              if n = 0 then value
+              else Int64.add value (recursive (normalize value) (n - 1))
+            in
+            [
+              ( Printf.sprintf
+                  "I64 G(I64 n){return n*3;}I64 F(%s %s x,I64 \
+                   c){x+=c;G(x);x+=c;return x;}F(%Ld,2);"
+                  type_ qualifier initial,
+                Int64.to_string (update once) );
+              ( Printf.sprintf
+                  "I64 G(I64 n){return n*3;}I64 F(%s %s x,I64 c){x+=c;return \
+                   G(G(x))+x;}F(%Ld,2);"
+                  type_ qualifier initial,
+                Int64.to_string (Int64.mul once 10L) );
+              ( Printf.sprintf
+                  "I64 F(%s %s x,I64 n,I64 c,I64 one){x+=c;if(n){n-=one;return \
+                   F(x,n,c,one)+x;}return x;}F(%Ld,3,2,1);"
+                  type_ qualifier initial,
+                Int64.to_string (recursive initial 3) );
+            ])
+          [ ("", false); ("reg R12", false); ("noreg", true) ])
+      [
+        ("I8", 8, true, 127L);
+        ("U8", 8, false, 255L);
+        ("I16", 16, true, 32767L);
+        ("U16", 16, false, 65535L);
+        ("I32", 32, true, 2147483647L);
+        ("U32", 32, false, 4294967295L);
+      ]
+  in
   let cases =
-    cases @ control_cases
+    cases @ control_cases @ call_cases
     @ [
         (read "../examples/register-control-flow.hc", "256");
+        (read "../examples/register-call-lifetimes.hc", "-240");
+        ( "U0 G(I64 n){n+=n;}I64 F(I8 x,I64 c){x+=c;G(x);x+=c;return \
+           x;}F(127,2);",
+          "131" );
+        ( "I64 G(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f){return a+b+c+d+e+f;}I64 \
+           F(I8 x,I64 n,I64 c,I64 one,I64 p,I64 q){x+=c;return \
+           G(x,n,c,one,p,q)+x;}F(127,3,2,1,4,5);",
+          "273" );
+        ( "I64 G(I64 n){return n;}I64 F(I8 x,I64 n,I64 c,I64 \
+           one){while(n){x+=c;G(x);n-=one;}return x;}F(127,3,2,1);",
+          "133" );
         ( "I64 F(I8 x,I64 n,I64 one){while(n){x+=x;n-=one;}return x;}F(127,3,1);",
           "1016" );
         ( "I64 F(I8 x,U8 y,I64 n,I64 one){while(n){x+=y;y-=x;n-=one;}return \
@@ -3279,6 +3338,9 @@ let () =
   in
   let faults =
     [
+      ( "I64 G(I64 n){return 42/n;}I64 F(I8 x,I64 c,I64 z){x+=c;G(z);return \
+         x;}F(127,2,0);",
+        "HCIRVM0009" );
       ( "I64 F(I8 x,I64 n,I64 c,I64 one){while(n){x/=c;n-=one;}return \
          x;}F(127,3,0,1);",
         "HCIRVM0009" );
