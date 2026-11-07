@@ -11,6 +11,11 @@ for native observations, execution checks and the separate AOT boundary.
 
 ## Unreleased
 
+- Reconstruct the source optimizer phases for grouped, computed and full
+  multidimensional local-array indices. Keep surviving scalar reads, dimension
+  strides and address events separate from algebraic index values. See
+  [local-index normalization](local-index-normalization.md).
+
 - Keep primitive local arrays in whole-function register scoring and pressure
   while assigning physical homes only to eligible members. Preserve source
   index-address events, checked array storage and large-frame probes. See

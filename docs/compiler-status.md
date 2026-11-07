@@ -1,5 +1,11 @@
 # Compiler status and implementation notes
 
+[Local-index normalization](local-index-normalization.md) extends array-bearing
+register allocation to bounded pure computed indices and full multidimensional
+chains. Receipts retain parser SIZEOF timing, whole-function optimization and
+supplied-argument preparation passes. Unproved arithmetic, side effects and
+partial escapes still reject.
+
 [Allocation beside local arrays](array-member-registers.md) keeps primitive
 array members in the original score, sort and pressure sequence. Eligible
 scalar homes can share an owner with checked large-array frames. Explicit array

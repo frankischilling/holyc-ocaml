@@ -1342,6 +1342,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
     let locations = source_order ~owned ~frame ~body () in
     let accesses = ref [] and seen = ref [] and seen_calls = ref [] in
     let initialized = ref [] in
+    let preliminary_passes = ref 0 in
     let scalar_or_void_call value =
       let type_ = get (Typed.result_type value) in
       (if owned then owned_type type_ else scalar_type type_)
@@ -1363,7 +1364,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
       seen := value :: !seen
     in
     let floating value = f64_type (get (Typed.result_type value)) in
-    let member value kind =
+    let member_location value =
       let bound =
         match Source.argument_expression_kind (Typed.result_source value) with
         | Source.Bound_identifier_expression bound -> bound
@@ -1390,6 +1391,10 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
       (match Frame_address_lowering.prepare ~frame value with
       | Ok (Some _) -> ()
       | _ -> raise Unproved);
+      location
+    in
+    let member value kind =
+      let location = member_location value in
       accesses :=
         { location; span = source_span (Typed.result_origin value); kind }
         :: !accesses;
@@ -1491,7 +1496,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
           let base = child ast.index_base base
           and index = child ast.index_value index in
           if Typed.result_array_rank base > 0 then
-            array_index (depth - 1) Read base index
+            array_index (depth - 1) Read value
           else (
             require (Sema.Type.pointer_depth (get (Typed.result_type base)) = 1);
             read base;
@@ -1532,8 +1537,19 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
             (fun original argument ->
               match original.Ast.call_argument_value with
               | Ast.Provided_call_argument ast ->
-                  expression (depth - 1) ~write:false ~inside_comparison:false
-                    (child ast argument)
+                  (* PrsExp.HC:474-475 preprocesses this exact provided fixed
+                     argument before restoring the enclosing stream. Nested
+                     arguments inherit those enclosing passes, in addition to
+                     their own. Source-declared numeric intrinsics authenticated
+                     on this direct PrsFunCall path receive the same schedule;
+                     an unowned AST call shape does not establish it. *)
+                  let outer = !preliminary_passes in
+                  preliminary_passes := outer + 2;
+                  Fun.protect
+                    ~finally:(fun () -> preliminary_passes := outer)
+                    (fun () ->
+                      expression (depth - 1) ~write:false
+                        ~inside_comparison:false (child ast argument))
               | Omitted_call_argument -> raise Unproved)
             ast.call_arguments arguments
       | _ -> raise Unproved
@@ -1551,43 +1567,194 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
       | Index_expression _ when owned ->
           let base, index = get (Typed.result_index_operands value) in
           if Typed.result_array_rank base > 0 then
-            array_index (depth - 1) kind base index
+            array_index (depth - 1) kind value
           else (
             require (Sema.Type.pointer_depth (get (Typed.result_type base)) = 1);
             expression (depth - 1) ~write:false ~inside_comparison:false base;
             expression (depth - 1) ~write:false ~inside_comparison:false index)
       | _ -> raise Unproved
-    and array_index depth kind base index =
-      require (depth > 0 && Typed.result_array_rank base = 1);
-      claim ~array:true base;
-      (* PrsExp.HC:772-803,1055-1099 emits the local base plus a scaled index.
-         OptPass012.HC:308-375,485-557 folds a literal index into the base
-         displacement; zero alone retains the exact starting offset. A direct
-         scalar index retains both the base LEA and its own scalar read.
-         No out-of-range constant can be attributed by declaration identity:
-         OptPass3 matches numeric ranges and could score a different member. *)
-      require
-        (Option.is_some
-           (Integer_scalar_storage.of_type (get (Typed.result_type index))));
-      let constant =
-        match Source.argument_expression_kind (Typed.result_source index) with
-        | Source.Integer_literal n -> Some n
-        | Bound_identifier_expression _ -> None
+    and array_index depth kind value =
+      let module N = Local_index_normalization in
+      (* PrsExp.HC:728-747 preserves a grouped INDEX expression but clears
+         CCF_ARRAY on a grouped BASE. Only original complete, ungrouped base
+         chains have the dimension/stride receipt below. The final consumer
+         has already claimed [value]; unfinished index nodes are claimed here. *)
+      let child expected typed =
+        require
+          (Option.equal ( == ) (Some expected)
+             (Source.argument_expression_source (Typed.result_source typed)));
+        typed
+      in
+      let rec chain depth current =
+        require (depth > 0);
+        let source = Typed.result_source current in
+        match
+          ( Source.argument_expression_kind source,
+            get (Source.argument_expression_source source) )
+        with
+        | Source.Index_expression original, Ast.Index_expression ast ->
+            let base, index = get (Typed.result_index_operands current) in
+            ignore (child ast.index_base base);
+            ignore (child ast.index_value index);
+            require
+              (Typed.result_source base == Source.index_base original
+              && Typed.result_source index == Source.index_value original
+              && Typed.result_array_rank base
+                 = Typed.result_array_rank current + 1
+              && Typed.result_is_array_address base
+              && Typed.result_intrinsic_conversion index = Typed.Result_to_int);
+            claim ~array:true base;
+            let root, indices = chain (depth - 1) base in
+            (root, indices @ [ (current, index) ])
+        | Bound_identifier_expression _, Ast.Identifier_expression _ ->
+            (current, [])
         | _ -> raise Unproved
       in
-      let location =
-        member base (Array_element (constant = Some 0L && kind <> Address))
-      in
+      let base, indices = chain depth value in
+      let location = member_location base in
       require
-        (Frame.location_kind location = Frame.Automatic_local
-        && Frame.location_value_shape location = Frame.Array);
-      let count =
-        match Frame.location_dimensions location with
-        | [ dimension ] -> Frame.dimension_value dimension
+        (Typed.result_array_rank value = 0
+        && Frame.location_kind location = Frame.Automatic_local
+        && Frame.location_value_shape location = Frame.Array
+        && List.length indices
+           = List.length (Frame.location_dimensions location)
+        && Typed.result_array_rank base = List.length indices);
+      List.iter
+        (fun (current, _) ->
+          require
+            (Sema.Type.equal
+               (get (Typed.result_type current))
+               (Frame.location_checked_type location)
+            (* Compiler_record.aggregate_index_element_size supplies an
+               observation only for aggregate classes. Primitive array strides
+               come exclusively from the original frame dimensions. *)
+            && Typed.result_index_element_size current = None))
+        indices;
+      (* Every node is authenticated against its typed class, original AST and
+         ordered operands before it enters the phase tree. No writes, calls,
+         casts, floating conversions, pointer arithmetic or nested array reads
+         can masquerade as a pure integer index. *)
+      let rec index_tree depth current =
+        require (depth > 0);
+        claim current;
+        require
+          (Option.is_some
+             (Integer_scalar_storage.of_type (get (Typed.result_type current)))
+          && Typed.result_class current = Typed.Integer_result
+          && (match Typed.result_execution_class current with
+            | None | Some Typed.Integer_result -> true
+            | _ -> false)
+          && (match Typed.result_category current with
+            | Typed.Object_value | Lvalue -> true
+            | _ -> false)
+          && Source.argument_expression_origin (Typed.result_source current)
+             = Typed.result_origin current
+          &&
+          match Typed.result_intrinsic_conversion current with
+          | Typed.No_intrinsic_conversion | Result_to_int -> true
+          | _ -> false);
+        let original = Typed.result_source current in
+        match
+          ( Source.argument_expression_kind original,
+            get (Source.argument_expression_source original) )
+        with
+        | Source.Integer_literal bits, Ast.Integer_literal literal ->
+            require (literal.literal_value = Ast.Integer_value bits);
+            N.Immediate bits
+        | Bound_identifier_expression _, Ast.Identifier_expression _ ->
+            let scalar = member current Read in
+            require (Frame.location_value_shape scalar = Frame.Scalar);
+            N.Scalar current
+        | Parenthesized_expression _, Ast.Parenthesized_expression group ->
+            index_tree (depth - 1)
+              (child group.grouped_expression
+                 (get (Typed.result_operand current)))
+        | Prefix_expression prefix, Ast.Prefix_expression ast -> (
+            let operand =
+              index_tree (depth - 1)
+                (child ast.prefix_operand (get (Typed.result_operand current)))
+            in
+            match
+              ( Source.prefix_operator prefix,
+                ast.prefix_operator_kind,
+                ast.prefix_operator.operator_spelling )
+            with
+            | Source.Unary_plus, Ast.Unary_plus, "+" -> operand
+            | Unary_minus, Unary_minus, "-" -> N.Negate operand
+            | _ -> raise Unproved)
+        | Binary_expression binary, Ast.Binary_expression ast -> (
+            let opcode = binary_opcode ast.binary_operator_spec.spelling in
+            require (Source.binary_operator binary = opcode);
+            let left, right = get (Typed.result_binary_operands current) in
+            let left = index_tree (depth - 1) (child ast.binary_left left)
+            and right = index_tree (depth - 1) (child ast.binary_right right) in
+            match opcode with
+            | O.Ic_add -> N.Scalar_add (left, right)
+            | Ic_sub -> N.Scalar_subtract (left, right)
+            | Ic_mul -> N.Multiply (left, right)
+            | _ -> raise Unproved)
         | _ -> raise Unproved
       in
-      Option.iter (fun n -> require (n >= 0L && n < count)) constant;
-      expression (depth - 1) ~write:false ~inside_comparison:false index
+      let rec strides = function
+        | [] -> (Frame.location_element_size location, [])
+        | dimension :: rest ->
+            let bytes, tail = strides rest in
+            let count = Frame.dimension_value dimension in
+            require
+              (bytes > 0L && count > 0L
+              && count <= Int64.div Int64.max_int bytes);
+            (Int64.mul count bytes, (count, bytes) :: tail)
+      in
+      let bytes, dimensions = strides (Frame.location_dimensions location) in
+      require (bytes = Frame.location_allocated_size location);
+      let displacement =
+        Frame.frame_slot_displacement (get (Frame.location_frame_slot location))
+      in
+      let tree =
+        List.fold_left2
+          (fun address (_, index) (count, stride) ->
+            let operand = index_tree (depth - 1) index in
+            (* Reject constant out-of-range dimensions independently, including
+               dead/unreachable uses. They could charge another candidate's
+               numeric range, even when a flattened total appears in bounds. *)
+            (match
+               get (N.normalize ~preliminary_passes:!preliminary_passes operand)
+             with
+            | N.Immediate n -> require (n >= 0L && n < count)
+            | _ -> ());
+            N.Add (address, N.Multiply (N.Immediate stride, operand)))
+          (N.Add (N.Frame, N.Immediate displacement))
+          indices dimensions
+      in
+      let normalized =
+        get (N.normalize ~preliminary_passes:!preliminary_passes tree)
+      in
+      require
+        (same_list ( == ) (N.scalar_reads tree) (N.scalar_reads normalized));
+      (* OptPass3.HC:179-199 charges the actual surviving RBP ADD, not an
+         algebraic displacement. A dynamic prefix prevents reassociation with
+         a later immediate suffix. The source address must stay in this exact
+         member's nonoverlapping range or the entire ledger rejects. *)
+      let address =
+        match get (N.frame_displacements normalized) with
+        | [ address ] -> address
+        | _ -> raise Unproved
+      in
+      require (address >= displacement && address < Int64.add displacement bytes);
+      let canceled =
+        kind <> Address
+        &&
+        match normalized with
+        | N.Add (N.Frame, N.Immediate n) -> n = displacement
+        | _ -> false
+      in
+      accesses :=
+        {
+          location;
+          span = source_span (Typed.result_origin base);
+          kind = Array_element canceled;
+        }
+        :: !accesses
     in
     let value ~write root =
       expression 32 ~write ~inside_comparison:false root

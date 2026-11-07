@@ -8147,11 +8147,363 @@ let local_array_member_authority () =
         mutations)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let local_index_phase_normalization () =
+  let module N = Holyc_lib__Ir.Local_index_normalization in
+  let open N in
+  let base = Add (Frame, Immediate (-48L)) in
+  let index address stride value =
+    Add (address, Multiply (Immediate stride, value))
+  in
+  let matrix i j = index (index base 24L i) 8L j in
+  let check label original expected displacement reads =
+    let actual = normalize original |> Option.get in
+    Alcotest.(check bool)
+      (label ^ " exact two-pass address tree")
+      true (actual = expected);
+    Alcotest.(check (option (list int64)))
+      (label ^ " surviving source LEA")
+      (Some [ displacement ])
+      (frame_displacements actual);
+    Alcotest.(check (list string))
+      (label ^ " surviving source reads")
+      reads (scalar_reads actual)
+  in
+  check "all-zero dimensions"
+    (matrix (Immediate 0L) (Immediate 0L))
+    base (-48L) [];
+  check "all-constant dimensions"
+    (matrix (Immediate 1L) (Immediate 2L))
+    (Add (Frame, Immediate (-8L)))
+    (-8L) [];
+  check "zero prefix and dynamic suffix"
+    (matrix (Immediate 0L) (Scalar "j"))
+    (Add (base, Shift_left (Scalar "j", 3)))
+    (-48L) [ "j" ];
+  check "constant prefix and dynamic suffix"
+    (matrix (Immediate 1L) (Scalar "j"))
+    (Add (Add (Frame, Immediate (-24L)), Shift_left (Scalar "j", 3)))
+    (-24L) [ "j" ];
+  let dynamic = Add (base, Multiply (Immediate 24L, Scalar "i")) in
+  check "dynamic prefix and zero suffix"
+    (matrix (Scalar "i") (Immediate 0L))
+    dynamic (-48L) [ "i" ];
+  check "dynamic prefix and constant suffix"
+    (matrix (Scalar "i") (Immediate 2L))
+    (Add (dynamic, Immediate 16L))
+    (-48L) [ "i" ];
+  check "two dynamic dimensions"
+    (matrix (Scalar "i") (Scalar "j"))
+    (Add (dynamic, Shift_left (Scalar "j", 3)))
+    (-48L) [ "i"; "j" ];
+  check "computed constant zero"
+    (index base 8L (Scalar_subtract (Immediate 1L, Immediate 1L)))
+    base (-48L) [];
+  check "add-zero preserves index read"
+    (index base 8L (Scalar_add (Scalar "i", Immediate 0L)))
+    (Add (base, Shift_left (Scalar "i", 3)))
+    (-48L) [ "i" ];
+  check "multiply-zero is not a constant"
+    (index base 8L (Multiply (Scalar "i", Immediate 0L)))
+    (Add (base, Shift_left (Multiply (Scalar "i", Immediate 0L), 3)))
+    (-48L) [ "i" ];
+  check "new shifts are not revisited"
+    (index base 8L (Multiply (Scalar "i", Immediate 2L)))
+    (Add (base, Shift_left (Shift_left (Scalar "i", 1), 3)))
+    (-48L) [ "i" ];
+  check "new zero child is not revisited"
+    (index base 8L
+       (Scalar_subtract (Scalar_add (Scalar "i", Immediate 1L), Immediate 1L)))
+    (Add (base, Shift_left (Add (Scalar "i", Immediate 0L), 3)))
+    (-48L) [ "i" ];
+  check "scalar SIZEOF deletion delays constant addition"
+    (index base 8L
+       (Multiply
+          ( Multiply (Scalar "i", Immediate 2L),
+            Scalar_add (Immediate 1L, Immediate 1L) )))
+    (Add (base, Shift_left (Shift_left (Shift_left (Scalar "i", 1), 1), 3)))
+    (-48L) [ "i" ];
+  check "right sign-bit multiplier becomes source shift 63"
+    (index base 8L (Multiply (Scalar "i", Immediate Int64.min_int)))
+    (Add (base, Shift_left (Shift_left (Scalar "i", 63), 3)))
+    (-48L) [ "i" ];
+  check "left sign-bit multiplier waits for pass two"
+    (index base 8L (Multiply (Immediate Int64.min_int, Scalar "i")))
+    (Add (base, Shift_left (Shift_left (Scalar "i", 63), 3)))
+    (-48L) [ "i" ];
+  check "byte element preserves shift 63 without a scale wrapper"
+    (index base 1L (Multiply (Scalar "i", Immediate Int64.min_int)))
+    (Add (base, Shift_left (Scalar "i", 63)))
+    (-48L) [ "i" ];
+  let argument =
+    index base 8L
+      (Multiply
+         ( Multiply (Scalar "i", Immediate 2L),
+           Scalar_add (Immediate 1L, Immediate 1L) ))
+  in
+  List.iter
+    (fun preliminary_passes ->
+      Alcotest.(check bool)
+        "provided argument passes merge existing inner shifts" true
+        (normalize ~preliminary_passes argument
+        = Some (Add (base, Shift_left (Shift_left (Scalar "i", 2), 3)))))
+    [ 2; 4 ];
+  let boundary =
+    index base 1L
+      (Multiply
+         ( Multiply
+             ( Multiply (Scalar "i", Immediate 2L),
+               Scalar_add (Immediate 1L, Immediate 1L) ),
+           Immediate 0x4000000000000000L ))
+  in
+  Alcotest.(check bool)
+    "fresh final shifts are not prematurely combined" true
+    (normalize boundary
+    = Some (Add (base, Shift_left (Shift_left (Scalar "i", 1), 63))));
+  List.iter
+    (fun preliminary_passes ->
+      Alcotest.(check bool)
+        "argument passes expose unproved merged shift 64" true
+        (Option.is_none (normalize ~preliminary_passes boundary)))
+    [ 2; 4 ];
+  List.iter
+    (fun tree ->
+      Alcotest.(check bool)
+        "unproved constant overflow rejects" true
+        (Option.is_none (normalize tree)))
+    [
+      Add (Immediate Int64.max_int, Immediate 1L);
+      Subtract (Immediate Int64.min_int, Immediate 1L);
+      Multiply (Immediate Int64.min_int, Immediate (-1L));
+      Multiply (Immediate Int64.max_int, Immediate 2L);
+      Negate (Immediate Int64.min_int);
+      Shift_left (Shift_left (Scalar "i", 63), 1);
+      Multiply (Multiply (Scalar "i", Immediate 2L), Immediate Int64.min_int);
+    ];
+  Alcotest.(check bool)
+    "commutativity cannot invent source instruction order" true
+    (Option.is_none (frame_displacements (Add (Immediate (-48L), Frame))))
+
+let local_index_receipt_authority () =
+  let module Typed = Semantic_function_call_expression_result in
+  let module Source = Semantic_function_call_resolution in
+  let module Ast = Holyc_lib__Frontend.Ast in
+  let source =
+    "I64 F(I64 i,I64 j){I64 scratch[2][3];scratch[(i+0)][j*1]=41;"
+    ^ "return scratch[1-1][(0)]+i+j;}42;"
+  in
+  let values fn =
+    Body.definition_source fn.Ir_integer_interpreter.body
+    |> Option.get |> Typed.function_all_results
+  in
+  let find fn predicate = List.find predicate (values fn) in
+  let indexed fn =
+    find fn (fun value -> Option.is_some (Typed.result_index_operands value))
+  in
+  let grouped fn =
+    find fn (fun value ->
+        match Source.argument_expression_kind (Typed.result_source value) with
+        | Source.Parenthesized_expression _ -> true
+        | _ -> false)
+  in
+  let binary fn =
+    find fn (fun value -> Option.is_some (Typed.result_binary_operands value))
+  in
+  let root fn = find fn (fun value -> Typed.result_array_rank value = 2) in
+  let mutations =
+    [
+      ( "copied function header",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr fn.Ir_integer_interpreter.frame)
+            1
+            (Obj.dup (Obj.repr (Frame.function_header fn.frame))) );
+      ( "copied index source",
+        fun fn ->
+          let value = indexed fn in
+          Obj.set_field (Obj.repr value) 1
+            (Obj.dup (Obj.repr (Typed.result_source value))) );
+      ( "index operand order",
+        fun fn ->
+          let value = indexed fn in
+          let left, right = Typed.result_index_operands value |> Option.get in
+          Obj.set_field (Obj.repr value) 5 (Obj.repr (Some (right, left))) );
+      ( "index bracket class size",
+        fun fn -> Obj.set_field (Obj.repr (indexed fn)) 6 (Obj.repr (Some 1L))
+      );
+      ( "index conversion intent",
+        fun fn ->
+          let _, index =
+            Typed.result_index_operands (indexed fn) |> Option.get
+          in
+          Obj.set_field (Obj.repr index) 20
+            (Obj.repr Typed.No_intrinsic_conversion) );
+      ( "index raw class",
+        fun fn ->
+          let _, index =
+            Typed.result_index_operands (indexed fn) |> Option.get
+          in
+          Obj.set_field (Obj.repr index) 15 (Obj.repr Typed.F64_result) );
+      ( "index checked type",
+        fun fn ->
+          let _, index =
+            Typed.result_index_operands (indexed fn) |> Option.get
+          in
+          Obj.set_field (Obj.repr index) 13 (Obj.repr None) );
+      ( "array rank",
+        fun fn -> Obj.set_field (Obj.repr (root fn)) 17 (Obj.repr 1) );
+      ( "array address provenance",
+        fun fn -> Obj.set_field (Obj.repr (root fn)) 18 (Obj.repr false) );
+      ( "copied grouped operand",
+        fun fn ->
+          let group = grouped fn in
+          let operand = Typed.result_operand group |> Option.get in
+          let copy = Obj.dup (Obj.repr operand) in
+          Obj.set_field (Obj.repr group) 3 (Obj.repr (Some (Obj.obj copy))) );
+      ( "computed operand order",
+        fun fn ->
+          let value = binary fn in
+          let left, right = Typed.result_binary_operands value |> Option.get in
+          Obj.set_field (Obj.repr value) 4 (Obj.repr (Some (right, left))) );
+      ( "original group AST",
+        fun fn ->
+          match
+            Source.argument_expression_source (Typed.result_source (grouped fn))
+            |> Option.get
+          with
+          | Ast.Parenthesized_expression group ->
+              Obj.set_field (Obj.repr group) 1
+                (Obj.dup (Obj.repr group.grouped_expression))
+          | _ -> assert false );
+      ( "reordered dimensions",
+        fun fn ->
+          let array = location fn.Ir_integer_interpreter.frame "scratch" in
+          Obj.set_field (Obj.repr array) 9
+            (Obj.repr (List.rev (Frame.location_dimensions array))) );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let fn = compile ~name:"F" mode source in
+      Alcotest.(check bool)
+        "grouped multidimensional source receives proof" true
+        (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      List.iter
+        (fun (label, mutate) ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Analysis.analyze ~frame:fn.frame ~body:fn.body |> Option.get
+          in
+          let symbol = location fn.frame "i" |> Frame.location_symbol in
+          mutate fn;
+          Alcotest.(check bool)
+            (label ^ " revokes saved index receipt")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+          Alcotest.(check bool)
+            (label ^ " rejects fresh index receipt")
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        mutations)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let local_index_call_context_authority () =
+  let module Typed = Semantic_function_call_expression_result in
+  let source =
+    "I64 Id(I64 n){return n;}I64 F(I64 i){I64 scratch[2];scratch[0]=42;"
+    ^ "return Id(Id(scratch[(i*2)*(1+1)]));}42;"
+  in
+  let compile mode =
+    let session = Session.create () in
+    let input =
+      Session.add_source session ~path:"index-call-proof.hc" ~contents:source
+    in
+    let config =
+      Preprocessor.Config.create ~compilation_mode:mode () |> Result.get_ok
+    in
+    let program =
+      compile_integer_program session ~config ~source:input |> Result.get_ok
+    in
+    let fn =
+      integer_program_functions program.value
+      |> List.find (fun (fn : Ir_integer_interpreter.function_definition) ->
+          Symbol.name (Body.symbol fn.body) = "F")
+    in
+    (fn, integer_program_runtime_calls program.value)
+  in
+  let call fn =
+    let source =
+      Body.definition_source fn.Ir_integer_interpreter.body |> Option.get
+    in
+    match List.hd (Typed.function_calls source) with
+    | Typed.Direct_call_result call -> call
+    | _ -> assert false
+  in
+  List.iter
+    (fun mode ->
+      let fn, runtime = compile mode in
+      let foreign, foreign_runtime = compile mode in
+      Alcotest.(check bool)
+        "provided index arguments require owned runtime calls" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      Alcotest.(check bool)
+        "nested provided index arguments have complete authority" true
+        (Option.is_some
+           (Analysis.analyze_with_runtime ~runtime ~frame:fn.frame ~body:fn.body));
+      Alcotest.(check bool)
+        "foreign runtime cannot authorize index prepasses" true
+        (Option.is_none
+           (Analysis.analyze_with_runtime ~runtime:foreign_runtime
+              ~frame:fn.frame ~body:fn.body));
+      List.iter
+        (fun (label, mutate) ->
+          let fn, runtime = compile mode in
+          let proof =
+            Analysis.analyze_with_runtime ~runtime ~frame:fn.frame ~body:fn.body
+            |> Option.get
+          in
+          let symbol = location fn.frame "i" |> Frame.location_symbol in
+          mutate fn;
+          Alcotest.(check bool)
+            (label ^ " revokes saved argument phase receipt")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+          Alcotest.(check bool)
+            (label ^ " rejects fresh argument phase receipt")
+            true
+            (Option.is_none
+               (Analysis.analyze_with_runtime ~runtime ~frame:fn.frame
+                  ~body:fn.body)))
+        [
+          ( "foreign call owner",
+            fun fn ->
+              Obj.set_field
+                (Obj.repr (call fn))
+                0
+                (Obj.repr (Typed.direct_source (call foreign))) );
+          ( "omitted provided argument",
+            fun fn -> Obj.set_field (Obj.repr (call fn)) 1 (Obj.repr []) );
+          ( "copied argument function header",
+            fun fn ->
+              Obj.set_field
+                (Obj.repr fn.Ir_integer_interpreter.frame)
+                1
+                (Obj.dup (Obj.repr (Frame.function_header fn.frame))) );
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Register variable analysis"
     [
       ( "source",
         [
+          Alcotest.test_case "local index call context authority" `Quick
+            local_index_call_context_authority;
+          Alcotest.test_case "local index source phase normalization" `Quick
+            local_index_phase_normalization;
+          Alcotest.test_case "local index receipt authority" `Quick
+            local_index_receipt_authority;
           Alcotest.test_case "local array member authority" `Quick
             local_array_member_authority;
           Alcotest.test_case "duplicate explicit selection" `Quick

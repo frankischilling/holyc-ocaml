@@ -6023,3 +6023,25 @@
    %{exe:test_array_member_register_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(executable
+ (name test_local_index_register_cli)
+ (modules test_local_index_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run
+   %{exe:test_local_index_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/local-index-normalization.hc})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_local_index_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/local-index-normalization.hc}
+   --native)))

@@ -468,6 +468,15 @@ let access_cases =
          scratch[index]+x;}F(127,1);"
         148L
         [ ("index", "RSI"); ("x", "RDI") ];
+      case "computed scalar index retains neighboring widened home"
+        "I64 F(I8 x,I64 noreg i){I64 scratch[2];scratch[i+1]=42;x+=1;return \
+         x;}F(127,0);"
+        128L
+        [ ("x", "RSI") ];
+      case "complete multidimensional chain retains neighboring widened home"
+        "I64 F(I8 x){I64 scratch[2][2];scratch[0][0]=42;x+=1;return x;}F(127);"
+        128L
+        [ ("x", "RSI") ];
       case "unsigned word array index retains its own access score"
         "I64 F(I8 x,U64 index){I64 scratch[2];scratch[index]=20;x+=1;return \
          scratch[index]+x;}F(127,1);"
@@ -690,11 +699,6 @@ let exclusions =
     ("array of pointers", "I64 F(I8 x){I64 *scratch[2];x+=1;return x;}F(127);");
     ( "bare array decay",
       "I64 F(I8 x){I64 scratch[2];I64 *p=scratch;x+=1;return x;}F(127);" );
-    ( "computed scalar array index",
-      "I64 F(I8 x,I64 noreg i){I64 scratch[2];scratch[i+1]=42;x+=1;return \
-       x;}F(127,0);" );
-    ( "multidimensional indexed access",
-      "I64 F(I8 x){I64 scratch[2][2];scratch[0][0]=42;x+=1;return x;}F(127);" );
   ]
   @ List.concat_map
       (fun index ->

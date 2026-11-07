@@ -2683,3 +2683,21 @@ address events from exact-start cancellation. Its candidate construction at
 without assigning dimensioned locals an automatic register. See
 [allocation beside arrays](array-member-registers.md) for admitted shapes and
 separate execution limits.
+
+## Source-normalized local array indices
+
+`Compiler/PrsExp.HC:173-180` inserts scalar arithmetic SIZEOF wrappers;
+`OptLib.HC:484-503` and `OptPass012.HC:1259-1265` remove those wrappers after
+the enclosing first-pass rewrite attempt. `PrsExp.HC:728-747` distinguishes
+index grouping from grouped array-base flags. `PrsVar.HC:247-281` and
+`PrsExp.HC:1069-1099` retain original dimension products and scaled address order.
+The admitted two-pass rules in `OptPass012.HC:308-375,485-557` preserve dynamic
+zero multiplication, delayed folds and source-triggered shift combination.
+`OptPass3.HC:119-163,179-199,223-245` consumes the resulting RBP displacement
+events and exact-start cancellation. See
+[local-index normalization](local-index-normalization.md).
+
+For provided fixed-call arguments, `PrsExp.HC:469-485` runs preliminary passes
+zero and one before the whole-function passes. Nested argument contexts retain
+each preparation step; argument-value conversion is attached afterward rather
+than to the index subtree.

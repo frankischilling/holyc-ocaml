@@ -67,9 +67,18 @@ val analyze_members :
     declarations remain members without granting readable storage. Positive,
     source-authenticated primitive local arrays remain in original member order
     and candidate pressure even though they cannot receive physical homes.
-    Rank-one literal in-bounds and direct scalar-variable indexing prove
-    distinct zero/interior/dynamic LEA events, retaining scalar index accesses.
-    Empty, formal, pointer, callback, aggregate and explicitly registered
-    arrays, array initializers and other index expressions remain outside this
-    proof. The caller must independently reconstruct and authenticate the
-    complete canonical graph. *)
+    Complete multidimensional chains retain the original dimensions and
+    per-dimension strides. Pure integer indices admit literals, owned scalar
+    reads, grouping, unary +/- and binary +,-,*. A bounded two-pass source tree
+    models parser SIZEOF removal, constant folding and access-preserving
+    rewrites, including the surviving read in multiplication by zero. Each
+    enclosing authenticated provided fixed named-call argument contributes its
+    original pass-0/pass-1 preprocessing before whole-function passes 1 and 2.
+    Its actual RBP ADD and final consumer prove zero/interior/dynamic LEA
+    events; a flattened algebraic index cannot replace this receipt. Every
+    constant dimension must remain in bounds, and unproved constant overflow
+    rejects. Empty, formal, pointer, callback, aggregate and explicitly
+    registered arrays, array initializers, grouped array bases, partial array
+    escapes, casts and side effects in indices remain outside this proof. The
+    caller must independently reconstruct and authenticate the complete
+    canonical graph. *)

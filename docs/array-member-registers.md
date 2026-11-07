@@ -36,7 +36,9 @@ and its initialization metadata remain in the frame.
 
 ## Array address events
 
-The admitted access recipes distinguish three rank-one index shapes:
+The initial access recipes distinguish three rank-one index shapes. The
+[source-normalized extension](local-index-normalization.md) adds bounded
+computed/grouped indices and full multidimensional chains:
 
 - A constant zero index folds to the original frame displacement. A final read,
   assignment or supported update can cancel the exact-start address event,
@@ -87,8 +89,10 @@ Explicit array register requests, zero-sized or overlapping ranges, broader
 aggregate/callback members, unproved index expressions and unsupported numeric
 or storage operations remain excluded. Membership for a multidimensional array
 does not by itself prove multidimensional access normalization.
-Static arrays, bare array decay and computed or grouped index expressions are
-outside this allocation extension.
+Static arrays and bare array decay remain outside this allocation extension.
+Computed/grouped indices and multidimensional accesses require the separate
+[source-normalization receipts](local-index-normalization.md); membership alone
+does not establish their address events.
 
 The [array-member example](../examples/array-member-registers.hc) compares the
 six-parameter maps with noreg and plain-reg scratch arrays. Both functions

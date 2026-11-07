@@ -2597,3 +2597,15 @@ Windows execution is separately qualified by CI. Source-owner and dimension
 mutations invalidate saved and fresh proofs. Explicit requests, invalid ranges
 and existing storage/index/conversion boundaries retain negative controls.
 See [allocation beside arrays](array-member-registers.md).
+
+Normalized local-index tests use independent source recipes and literal maps
+for grouped indices, constant arithmetic, surviving zero multiplication, full
+multidimensional chains and mixed constant/dynamic prefixes. Internal tree
+checks retain the parser's SIZEOF timing, nested shifts and the bit-63 rule.
+Saved and fresh proofs reject copied operands, altered classes/conversions,
+foreign headers, changed bracket metadata and reordered dimensions. Public
+checks combine narrow scalar homes, exact strides, compact frames, resource
+boundaries and repeated same-image fault recovery. Side effects, partial chains,
+grouped array bases, per-dimension invalid constants and existing execution
+limits remain explicit controls. See
+[local-index normalization](local-index-normalization.md).
