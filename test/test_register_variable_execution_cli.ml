@@ -71,6 +71,109 @@ let run ?(fault = false) ?steps source expected target mode =
                  = `String expected)
                   (target ^ " " ^ mode ^ ": " ^ Yojson.Safe.to_string result))))
 
+let option_cases =
+  let cases =
+    List.concat_map
+      (fun (type_, bits, signed, initial) ->
+        let normalize value =
+          let shift = 64 - bits in
+          let value = Int64.shift_left value shift in
+          if signed then Int64.shift_right value shift
+          else Int64.shift_right_logical value shift
+        in
+        List.concat_map
+          (fun warning_mask ->
+            let warnings =
+              List.init 4 (fun bit ->
+                  Printf.sprintf "Option(%d,%d);" (16 + bit)
+                    ((warning_mask lsr bit) land 1))
+              |> String.concat ""
+            in
+            List.concat_map
+              (fun disabled ->
+                List.concat_map
+                  (fun (qualifier, force_stack, explicit) ->
+                    let stored value =
+                      if force_stack || (disabled && not explicit) then
+                        normalize value
+                      else value
+                    in
+                    let prefix =
+                      Printf.sprintf "#exe {%sOption(34,%d);" warnings
+                        (if disabled then 1 else 0)
+                    in
+                    [
+                      ( prefix
+                        ^ Printf.sprintf
+                            "I64 F(%s %s x,I64 c){x+=c;x+=c;return \
+                             x;}StreamPrint(\"%%d;\",F(%Ld,2));}"
+                            type_ qualifier initial,
+                        Int64.to_string (stored (Int64.add initial 4L)) );
+                      ( prefix
+                        ^ Printf.sprintf
+                            "I64 F(I64 n,I64 c,I64 one){%s %s \
+                             x=%Ld;while(n){x+=c;n-=one;}return \
+                             x;}StreamPrint(\"%%d;\",F(3,2,1));}"
+                            type_ qualifier (Int64.add initial 2L),
+                        Int64.to_string (stored (Int64.add initial 8L)) );
+                    ])
+                  [
+                    ("", false, false);
+                    ("reg", false, false);
+                    ("noreg", true, false);
+                    ("reg R12", false, true);
+                  ])
+              [ false; true ])
+          [ 0; 6; 9; 15 ])
+      [
+        ("I8", 8, true, 127L);
+        ("U8", 8, false, 255L);
+        ("I16", 16, true, 32767L);
+        ("U16", 16, false, 65535L);
+        ("I32", 32, true, 2147483647L);
+        ("U32", 32, false, 4294967295L);
+      ]
+  in
+  cases
+  @ [
+      ( "#exe {Option(16,0);I64 F(){I8 x=127;x+=2;return \
+         x;}StreamPrint(\"%d;\",F());}",
+        "129" );
+      ( "#exe {Option(34,1);I64 F(){I8 x=127;x+=2;return \
+         x;}StreamPrint(\"%d;\",F());}",
+        "-127" );
+      ( "#exe {I64 A(I8 x,I64 c){if(c)x+=c;return x;}Option(34,1);I64 B(I8 \
+         x,I64 c){if(c)x+=c;return \
+         x;}Option(34,0);StreamPrint(\"%d;\",A(127,2)-B(127,2));}",
+        "256" );
+      ( "#exe {I64 G(I64 v){Option(34,1);return v;}I64 F(I8 x,I64 \
+         c){x+=c;G(x);x+=c;return x;}StreamPrint(\"%d;\",F(127,2));}",
+        "131" );
+      ( "#exe {Option(34,1);I64 F(I8 reg x,I64 reg a,I64 reg b,I64 reg c,I64 \
+         reg d,I64 reg e,I64 reg f,I64 reg g,I64 reg h){if(a)x+=a;return \
+         x+b+c+d+e+f+g+h;}StreamPrint(\"%d;\",F(127,2,0,0,0,0,0,0,0));}",
+        "-127" );
+      ( "#exe {Option(34,1);I64 F(I8 x,I64 c){if(c)x+=c;return \
+         x;}StreamPrint(\"I64 prior=%d;\",F(127,2));}I64 G(I8 x,I64 \
+         c){if(c)x+=c;return x;}prior+G(127,2);",
+        "-254" );
+      ( "#exe {Option(34,1);}I64 F(I8 x,I64 c){x<<=c;return x;}#exe \
+         {Option(34,0);}F(127,1);",
+        "254" );
+      ( "#exe {Option(34,0);}I64 F(I8 x,I64 c){x<<=c;return x;}#exe \
+         {Option(34,1);}F(127,1);",
+        "-2" );
+      ( "#exe {Option(34,0);}I64 F(I8 reg R12 x,I64 c){x<<=c;return x;}#exe \
+         {Option(34,1);}F(127,1);",
+        "254" );
+      ( "#exe {I64 F(I8 x,I64 c){if(c)x+=c;return x;}I64 \
+         child=StreamExePrint(\"Option(34,1);I64 G(I8 x,I64 \
+         c){if(c)x+=c;return \
+         x;}G(127,2);\");StreamPrint(\"%d;\",child+F(127,2));}",
+        "2" );
+      (read "../examples/register-option-snapshots.hc", "256");
+    ]
+
 let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
   let cases =
@@ -3538,7 +3641,15 @@ let () =
               "HCBACK0002" target mode)
           [ "host-jit"; "host-jit-task" ])
       [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected) ->
+          run source expected (if native then "host-jit-task" else "ir") mode)
+        option_cases)
+    [ "jit"; "aot" ];
   Printf.printf "Register execution checks passed (%d reports).\n"
     ((List.length targets * 2 * (List.length cases + List.length faults + 6))
     + 12
+    + (2 * List.length option_cases)
     + if native then 8 else 0)

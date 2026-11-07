@@ -293,6 +293,7 @@ type resolved_function = {
   returns : return_result list;
   initializers : initializer_result list;
   expression_results : expression_result list;
+  compilation_options : int64 option;
 }
 
 and initializer_result = {
@@ -456,6 +457,10 @@ let top_level_root_source result = result.top_level_root_source
 let top_level_root_value result = result.top_level_root_value
 let top_level_root_result_use result = result.top_level_root_result_use
 let function_symbol (function_ : resolved_function) = function_.symbol
+
+let function_compilation_options (function_ : resolved_function) =
+  function_.compilation_options
+
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
 let function_calls (function_ : resolved_function) = function_.calls
@@ -5813,6 +5818,11 @@ let type_function table members policies outer state source =
                                         switch_cases;
                                         returns;
                                         initializers;
+                                        compilation_options =
+                                          Option.map
+                                            Function_aggregate_visibility
+                                            .function_compilation_options
+                                            state.function_visibility;
                                         expression_results =
                                           List.filter
                                             (fun result ->

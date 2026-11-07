@@ -66,6 +66,10 @@ val function_table : function_ -> Symbol_table.t
 val find_function : t -> symbol:Symbol.t -> item_index:int -> function_ option
 val function_item_index : function_ -> int
 val function_symbol : function_ -> Symbol.t
+
+val function_compilation_options : function_ -> int64
+(** Options from this exact body's authenticated completion receipt. *)
+
 val before_expression : function_ -> Frontend.Ast.expression -> int option
 
 val before_local : function_ -> Frontend.Ast.identifier -> int option

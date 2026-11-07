@@ -424,3 +424,8 @@ counts both parameters and locals; arbitrary local assignments remain unproved.
 [Register-bank accounting](register-variable-analysis.md#variable-register-bank-capacity)
 covers distinct RSI, RDI and R10 through R15 requests and larger mixed
 register/stack frames. It rejects uncertain automatic allocation pressure.
+
+[Compiler option snapshots](register-variable-analysis.md#compiler-option-snapshots)
+keep warning settings independent of register values. NO_REG_VAR disables
+automatic selection while preserving supported explicit register requests.
+Each decision uses the original function definition, not the later live options.

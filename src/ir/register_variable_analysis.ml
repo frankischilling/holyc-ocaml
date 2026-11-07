@@ -183,6 +183,39 @@ let safe_register_requests locations =
   in
   check [] locations
 
+let registers_disabled body =
+  Sema.Compiler_option.is_enabled
+    ~mask:(Function_body.compiler_options body)
+    Sema.Compiler_option.No_reg_var
+
+let supported_options body =
+  let module Options = Sema.Compiler_option in
+  let allowed_changes =
+    List.fold_left
+      (fun mask option -> Int64.logor mask (Options.mask option))
+      0L
+      [
+        Options.Warn_unused_var;
+        Warn_paren;
+        Warn_dup_types;
+        Warn_header_mismatch;
+        No_reg_var;
+      ]
+  in
+  let actual = Function_body.compiler_options body in
+  Int64.logand
+    (Int64.logxor actual Options.initial_mask)
+    (Int64.lognot allowed_changes)
+  = 0L
+  && Option.fold ~none:false ~some:(Int64.equal actual)
+       (Function_body.definition_compiler_options body)
+
+let stack_selected ~body location =
+  match Frame.location_register_selection location with
+  | Request.Disabled -> true
+  | Request.Explicit _ -> false
+  | Request.Unspecified | Request.Allocatable -> registers_disabled body
+
 let analyze_parameter ~frame ~body =
   let locations = Frame.function_locations frame in
   let ordinary =
@@ -192,7 +225,7 @@ let analyze_parameter ~frame ~body =
          (Function_body.stored_flags body)
          (Int64.lognot Function_body.ordinary_calling_flag_mask)
        = 0L
-    && Function_body.compiler_options body = Sema.Compiler_option.initial_mask
+    && supported_options body
     && List.length locations >= 2
     && List.length locations <= 6
     && safe_register_requests locations
@@ -1091,9 +1124,7 @@ let analyze_parameter ~frame ~body =
             (fun location ->
               let selection =
                 if not (List.exists (( == ) location) targets) then Unknown
-                else if
-                  Frame.location_register_selection location = Request.Disabled
-                then Stack
+                else if stack_selected ~body location then Stack
                 else Register_candidate
               in
               (Frame.location_symbol location, selection))
@@ -1147,7 +1178,7 @@ let analyze_local ~frame ~body =
   let ordinary =
     Option.is_some (Function_body.definition_declaration body)
     && Function_body.definition_matches_frame body frame
-    && Function_body.compiler_options body = Sema.Compiler_option.initial_mask
+    && supported_options body
     && safe_register_requests locations
     && Int64.logand
          (Function_body.stored_flags body)
@@ -2352,10 +2383,7 @@ let analyze_local ~frame ~body =
             selections_ =
               [
                 ( Frame.location_symbol location,
-                  if
-                    Frame.location_register_selection location
-                    = Request.Disabled
-                  then Stack
+                  if stack_selected ~body location then Stack
                   else Register_candidate );
               ];
           }
@@ -2514,7 +2542,7 @@ let analyze_control_parameters ~frame ~body =
   if
     Option.is_none (Function_body.definition_declaration body)
     || (not (Function_body.definition_matches_frame body frame))
-    || Function_body.compiler_options body <> Sema.Compiler_option.initial_mask
+    || (not (supported_options body))
     || Int64.logand
          (Function_body.stored_flags body)
          (Int64.lognot Function_body.ordinary_calling_flag_mask)
@@ -2619,7 +2647,7 @@ let analyze_control_parameters ~frame ~body =
       (* OptPass3 opens the nonpointer bank only when there are more than six
          scored candidates, not when explicit requests exhaust the general
          bank. Require capacity even if optimization removes some accesses. *)
-      candidates <= general
+      registers_disabled body || candidates <= general
       || general = 6
          && candidates <= general + available nonpointer_variable_registers
     in
@@ -2772,10 +2800,7 @@ let analyze_control_parameters ~frame ~body =
               (fun location ->
                 ( Frame.location_symbol location,
                   if not (used location) then Unknown
-                  else if
-                    Frame.location_register_selection location
-                    = Request.Disabled
-                  then Stack
+                  else if stack_selected ~body location then Stack
                   else Register_candidate ))
               locations;
         }

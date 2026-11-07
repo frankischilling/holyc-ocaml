@@ -31,6 +31,7 @@ type function_ = {
   symbol : Symbol.t;
   item_index : int;
   source_function : Frontend.Parser.function_publication;
+  compilation_options : int64;
   assignments :
     (Ast.expression -> Compiler_record.aggregate_assignment_visibility option)
     option;
@@ -63,6 +64,7 @@ type t = {
 let origin = Initializer_source.origin_of_location
 let function_item_index (value : function_) = value.item_index
 let function_symbol (value : function_) = value.symbol
+let function_compilation_options (value : function_) = value.compilation_options
 
 let owns (value : t) ~table ~parent =
   value.table == table && value.parent == parent
@@ -463,6 +465,12 @@ let create ~table ~declarations ~bodies ?aggregate_references
                      parent;
                      symbol;
                      item_index;
+                     compilation_options =
+                       Frontend.Parser.function_body_compiler_options
+                         (List.find (fun (_, body) -> body == definition) bodies
+                         |> fst)
+                         definition
+                       |> Result.get_ok;
                      source_function =
                        (List.find (fun (_, body) -> body == definition) bodies
                        |> fst)

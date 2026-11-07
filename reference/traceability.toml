@@ -15124,3 +15124,15 @@ status = "partial"
 issue = 703
 verification = "Six-width explicit-bank matrices, automatic eight-candidate frames, explicit nonpointer reservations, large noreg frames, unused parameters and unused reg requests, duplicate and uncertain-pressure negatives, recursive caller values and repeated recovery after depth faults."
 evidence_limit = "At most 32 nonescaping integer frame members with enough capacity regardless of score tie order or removed accesses. General pressure-based eviction, other fixed register requests, physical/floating allocation and new TempleOS runtime captures are not claimed."
+
+[[feature]]
+id = "HC-REGISTER-COMPILER-OPTION-SNAPSHOTS"
+description = "Use original function option snapshots for warning-independent and NO_REG_VAR-aware integer register selection."
+sources = ["Kernel/KernelA.HH:1548-1554", "Compiler/CMisc.HC:1-8", "Compiler/PrsStmt.HC:163-184,805-839,923-930", "Compiler/Lex.HC:1031-1035", "Compiler/CMain.HC:579-588,673-686", "Compiler/OptPass3.HC:22-48,536-621"]
+implementation = ["src/sema/function_aggregate_visibility.ml", "src/sema/function_call_expression_result.ml", "src/ir/register_variable_analysis.ml", "src/ir/function_body.ml", "src/driver/integer_update_initializers.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-option-snapshots.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-derived six-width/four-warning-mask matrices compare automatic, plain reg, noreg and explicit requests with NO_REG_VAR enabled or disabled. Retained definitions, body-closing lookahead, live setter calls, shared #exe control, StreamExePrint child isolation and forged body masks are checked."
+evidence_limit = "Admits warning bits 16-19 and NO_REG_VAR only when the body agrees with its authenticated completed-body snapshot. Other nondefault options remain unproved. Hosted tests do not claim a new TempleOS option capture or physical register allocation."

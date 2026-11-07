@@ -68,17 +68,28 @@ val with_definition :
   t ->
   (t, error list) result
 (** Bind a body's definition owner to its checked callable identity. The exact
-    record, typed source, frame, members, type, flags and options must agree.
-    Typed sources retain the exact resolved declaration, and the frame retains
-    its exact input header; reconstructed metadata cannot replace either. The
-    callable identity comes from the selected Definition snapshot; [symbol] and
-    frame ownership remain attached to that definition's own header. *)
+    record, typed source, frame, members, type, flags and header options must
+    agree. The bound body then retains authenticated compilation-time options
+    from its typed source, when available; these include body-closing lexer
+    lookahead. Typed sources retain the exact resolved declaration, and the
+    frame retains its exact input header; reconstructed metadata cannot replace
+    either. The callable identity comes from the selected Definition snapshot;
+    [symbol] and frame ownership remain attached to that definition's own
+    header. *)
 
 val callable_symbol : t -> Sema.Symbol.t
 (** The checked module call identity, or [symbol] for a raw body. *)
 
 val definition_declaration :
   t -> Sema.Function_resolution.resolved_declaration option
+
+val header_compiler_options : t -> int64
+(** Original header options for declaration and persistent-storage ownership. A
+    raw body retains its supplied options. *)
+
+val definition_compiler_options : t -> int64 option
+(** Authenticated compilation-time options, distinct from header linkage
+    options. *)
 
 val definition_source :
   t -> Sema.Function_call_expression_result.resolved_function option

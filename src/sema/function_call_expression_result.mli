@@ -230,6 +230,11 @@ val top_level_root_source :
 val top_level_root_value : top_level_root_result -> expression_result
 val top_level_root_result_use : top_level_root_result -> result_use option
 val function_symbol : resolved_function -> Symbol.t
+
+val function_compilation_options : resolved_function -> int64 option
+(** Options authenticated at original body completion, including lexer
+    lookahead. Absent for semantic inputs without an observed body receipt. *)
+
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_calls : resolved_function -> call_result list

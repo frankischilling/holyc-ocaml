@@ -2,9 +2,9 @@
 
 TempleOS can keep a narrow integer variable in a register without narrowing the result of a compound shift back to the declared type. With a signed byte parameter initialized to 127, `x <<= 1` followed by `return x` produces 254 when the parameter is selected for a register. An explicit `noreg` parameter or taking its address produces -2 instead. The unsigned byte counterparts produce 510 and 254. The reference captures in `test/oracle/register-variable-analysis` record both JIT and compiled observations.
 
-Selection depends on more than the declared type. The original `Compiler/OptPass3.HC` scores frame members and assigns a limited set of registers; escape and register pressure can prevent selection. The captures include a larger pressure case where the signed result is -2. An option experiment enabled an option in the surrounding compiler context but still returned 254 from a compiled function. That experiment does not establish the function's own option snapshot, so the analysis declines non-default option states.
+Selection depends on more than the declared type. The original `Compiler/OptPass3.HC` scores frame members and assigns a limited set of registers; escape and register pressure can prevent selection. The captures include a larger pressure case where the signed result is -2. The retained option experiment returns 254 despite enabling `OPTf_NO_REG_VAR` before the function header. The following `#exe` clears it during body-closing lookahead, before allocation. The compiler now uses that completed-body snapshot rather than the header's linkage options.
 
-For parameters, the analysis covers a default-option, straight-line function with two to six scalar integer parameters, one compound shift, addition, subtraction, multiplication, division, remainder or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return. It ties the result to the original typed source, frame and instruction graph and rejects changes to that evidence. Explicit `noreg` is classified as stack storage. Address escapes, extra statements, control flow and larger graphs remain unproved. Within the supported call-free shapes, distinct explicit R12, R13, R14 and R15 requests are covered. Other explicit registers and conflicting requests remain unproved; this models their observable value behavior rather than binding host machine registers.
+For parameters, the analysis covers a straight-line function with two to six scalar integer parameters, one compound shift, addition, subtraction, multiplication, division, remainder or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return. It ties the result to the original typed source, frame and instruction graph and rejects changes to that evidence. Explicit `noreg` is classified as stack storage. Address escapes, extra statements, control flow and larger graphs remain unproved. Within the supported shapes, distinct requests from the variable-register banks described below are covered. Fixed registers and conflicting requests remain unproved; this models their observable value behavior rather than binding host machine registers.
 
 The updated variable and operand may appear in any parameter position. For this bounded class, the interpreter and native backends preserve the full register value through the update and return. Arguments are first converted to their declared narrow type, as in the entry-conversion captures. Explicit `noreg` continues to use narrow memory storage. The native entry path normalizes the incoming value before preserving its full-width register value.
 
@@ -90,7 +90,7 @@ change between updates, including self-updates and mutually updated parameters.
 Locals need the initializer proof described below. The proof rejects escaped
 addresses, Boolean members,
 immediate compound operands, consumed compound results, conflicting register
-requests and non-default compiler options. It admits at most 64 blocks and 512
+requests and unsupported compiler options. It admits at most 64 blocks and 512
 instructions. The register-bank checks below account for explicit requests
 and `noreg`.
 
@@ -153,7 +153,7 @@ capacity check below.
 Each local needs exactly one initializer from its original typed source: an
 integer literal or a direct parameter read. The initializer must be a standalone
 assignment. Later assignments, conditional initializers, computed initializers,
-address escapes, Boolean members and non-default options remain unproved.
+address escapes, Boolean members and unsupported options remain unproved.
 Compound updates may read another checked frame member.
 
 `OptPass3.HC:22-48,223-247,511-621` scores local and parameter frame members in
@@ -205,3 +205,54 @@ conversion. Hosted tests cover all six narrow widths, division/remainder
 clobbers, calls, the 32-member bound and mixed `noreg` frames. These are
 source-derived expectations, not new TempleOS runtime captures or a completed
 physical register allocator.
+
+## Compiler option snapshots
+
+The proof admits changes to the four warning options (bits 16 through 19) and
+`OPTf_NO_REG_VAR` (bit 34). Other option changes remain outside this proof.
+Turning off the unused-variable warning must not turn a selected signed-byte
+result of 129 into -127. Warning choices now leave that allocation decision
+alone.
+
+`OptPass3.HC:22-48` reserves explicit register requests before the automatic
+selection guard at lines 536-537. Consequently, `OPTf_NO_REG_VAR` forces
+ordinary and plain `reg` candidates to stack storage, but supported explicit
+requests such as `reg R12` still retain full register values. `noreg` remains
+stack storage in either state. When automatic allocation is disabled, its
+register-capacity bound does not reject an otherwise supported frame.
+
+The function body's option mask must equal its authenticated completed-body
+snapshot. Header linkage options remain separate. A later `Option` call cannot change an already compiled function's
+selection. Tests also reject a forged body mask, even when it contains only an
+otherwise supported warning bit. `CMisc.HC:1-8` makes `Option` and `GetOption`
+operate on the current compiler control; that mutable control is not a
+replacement for the definition snapshot.
+
+The [option snapshot example](../examples/register-option-snapshots.hc) defines
+one selected function, enables `OPTf_NO_REG_VAR` before defining a second, then
+clears it before calling both. Their results still differ by 256. Tests cover
+six narrow widths, four warning masks, automatic/plain-reg/noreg/explicit
+requests, local initializers and loops, retained definitions, a setter called
+while a selected frame is active, and a child compiler's isolation from its
+parent. These run through live IR and native task execution in both source
+modes. The closed native batch gate does not provide a live `Option` control.
+
+`PrsStmt.HC:923-930` advances the lexer after a closing brace. A following
+`#exe` runs immediately through `Lex.HC:1031-1035` and `PrsStreamBlk`
+(`PrsStmt.HC:805-839`), on the same compiler control. `PrsFun` compiles only
+after that lookahead (`PrsStmt.HC:163-184`). Thus the option fixture's later
+`Option(34,0)` affects allocation of the preceding function. Tests cover both
+setting and clearing the bit at this boundary, including an explicit request.
+The authenticated body options survive semantic analysis and IR binding;
+changing the earlier header mask is neither necessary nor correct. Persistent
+static ownership still checks that original header mask, even when an
+initializer changes the compiler options.
+
+A `#exe` block shares its parent's options. In contrast, `StreamExePrint` calls
+`ExePutS`, which copies options into a child compiler control
+(`CMain.HC:579-588,673-686`). Tests distinguish these two paths.
+
+The matrix expectations come from pinned source and existing register/stack
+captures. The lookahead regression also reproduces the recorded result in
+`test/oracle/register-variable-analysis/option.hc`; no new TempleOS capture is
+claimed. Other option-dependent optimizer paths remain outside this proof.

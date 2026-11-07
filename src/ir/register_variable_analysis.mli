@@ -5,15 +5,15 @@ val analyze :
   frame:Sema.Function_frame_layout.function_layout ->
   body:Function_body.t ->
   t option
-(** Analyze source-proven narrow register variables under default compiler
-    options. Supported shapes include a function with two to six scalar
-    parameters that updates a narrow parameter, and a function that initializes
-    one narrow local from a literal or a signed or unsigned integer parameter
-    before returning it. The local may receive a supported literal or parameter
-    update, including a directly returned literal compound update. A single
-    narrow parameter also supports a directly returned literal compound update.
-    A narrow parameter or literal-initialized local may be incremented or
-    decremented before return, or returned with a prefix or postfix update.
+(** Analyze source-proven narrow register variables under their original
+    compiler-option snapshots. Supported shapes include a function with two to
+    six scalar parameters that updates a narrow parameter, and a function that
+    initializes one narrow local from a literal or a signed or unsigned integer
+    parameter before returning it. The local may receive a supported literal or
+    parameter update, including a directly returned literal compound update. A
+    single narrow parameter also supports a directly returned literal compound
+    update. A narrow parameter or literal-initialized local may be incremented
+    or decremented before return, or returned with a prefix or postfix update.
     Addition and subtraction by a literal in these shapes are limited to
     nonnegative signed-32-bit operands. A bounded function may also apply
     shifts, addition, subtraction, multiplication, division, remainder or
@@ -35,8 +35,12 @@ val analyze :
     results may be called, including recursive calls and the named JIT
     address-slot path. Callbacks, defaults and variadic calls remain unproved.
     The proof accepts up to 64 blocks and 512 instructions, no address escapes,
-    no Boolean parameters and only default compiler options. Other control flow
-    remains unproved. The witness itself does not alter execution. *)
+    no Boolean parameters and default options apart from the four warning bits
+    and NO_REG_VAR. Warning settings do not change allocation. NO_REG_VAR
+    disables automatic selection, including plain reg requests, but leaves
+    supported explicit register requests selected. The option mask must match
+    the original definition snapshot. Other control flow remains unproved. The
+    witness itself does not alter execution. *)
 
 val selection :
   t ->

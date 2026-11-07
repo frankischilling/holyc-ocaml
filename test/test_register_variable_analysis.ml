@@ -4912,10 +4912,24 @@ let ownership () =
            (Analysis.selection option_proof ~frame:changed_option.frame
               ~body:changed_option.body ~symbol:option_x));
       Alcotest.(check bool)
-        "nondefault option remains unproved" true
+        "forged option snapshot cannot be reproved" true
         (Option.is_none
            (Analysis.analyze ~frame:changed_option.frame
               ~body:changed_option.body));
+      List.iter
+        (fun bit ->
+          let changed = compile mode source in
+          let forged =
+            Int64.logxor
+              (Body.compiler_options changed.body)
+              (Int64.shift_left 1L bit)
+          in
+          Obj.set_field (Obj.repr changed.body) 8 (Obj.repr forged);
+          Alcotest.(check bool)
+            "warning snapshot requires original definition" true
+            (Option.is_none
+               (Analysis.analyze ~frame:changed.frame ~body:changed.body)))
+        [ 16; 17; 18; 19 ];
       let changed_slot = compile mode source in
       let slot_proof =
         Option.get

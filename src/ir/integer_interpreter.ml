@@ -6714,7 +6714,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             Integer_globals.static_frame slot == frame
             && Integer_globals.static_location slot == location
             && Integer_globals.static_owner_compiler_options slot
-               = Function.compiler_options function_
+               = Function.header_compiler_options function_
         | None -> false)
       statics
   in

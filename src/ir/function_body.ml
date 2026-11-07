@@ -65,6 +65,7 @@ type description = {
 type member = member_description
 
 type definition_binding = {
+  compiler_options : int64;
   declaration : Sema.Function_resolution.resolved_declaration;
   source : Sema.Function_call_expression_result.resolved_function;
   frame : Sema.Function_frame_layout.function_layout;
@@ -311,6 +312,13 @@ let callable_symbol function_ =
 let definition_declaration function_ =
   Option.map (fun binding -> binding.declaration) function_.definition_
 
+let header_compiler_options function_ =
+  match definition_declaration function_ with
+  | None -> compiler_options function_
+  | Some declaration ->
+      Sema.Function_resolution.resolved_declaration_site declaration
+      |> Sema.Function_resolution.declaration_site_compiler_option_mask
+
 let definition_source function_ =
   Option.map (fun binding -> binding.source) function_.definition_
 
@@ -318,6 +326,9 @@ let definition_matches_frame function_ frame =
   Option.fold ~none:true
     ~some:(fun binding -> binding.frame == frame)
     function_.definition_
+
+let definition_compiler_options function_ =
+  Option.map (fun binding -> binding.compiler_options) function_.definition_
 
 let with_definition ~records ~sources ~frames ~definition ~frame function_ =
   let module Records = Sema.Function_record_classification in
@@ -401,6 +412,10 @@ let with_definition ~records ~sources ~frames ~definition ~frame function_ =
          = Resolution.declaration_site_compiler_option_mask site)
       "function body type, flags or options differ from its definition snapshot"
   in
+  let compilation_options =
+    Typed.function_compilation_options source
+    |> Option.value ~default:(compiler_options function_)
+  in
   let locations kind =
     Frame.function_locations frame
     |> List.filter (fun location -> Frame.location_kind location = kind)
@@ -443,9 +458,11 @@ let with_definition ~records ~sources ~frames ~definition ~frame function_ =
   Ok
     {
       function_ with
+      compiler_options_ = compilation_options;
       definition_ =
         Some
           {
+            compiler_options = compilation_options;
             declaration;
             source;
             frame;
