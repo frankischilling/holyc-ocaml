@@ -4,12 +4,12 @@ module Program = X86_64_program
 module Runtime = Native_program_execution
 module Disassembly = Asm_disassembler
 
-(* This exercises the conservative fallback proof outside the scored subset,
-   not a general allocator
-   or a byte-for-byte TempleOS compiler oracle. OptPass3.HC:22-48 reserves
-   explicit registers even when unused and seeds plain reg with I64_MAX/2.
-   CInit.HC:244-256 and OptPass3.HC:557-601 establish the first free general
-   slot only while at most six possible candidates remain. *)
+(* These source-derived checks cover exact whole-function selection and the
+   conservative fallback, not a byte-for-byte TempleOS compiler oracle.
+   OptPass3.HC:22-48 reserves explicit registers even when unused and seeds
+   plain reg with I64_MAX/2. Each admitted direct access scores two; the
+   QSort2b equal-score swaps precede zero trimming and bank selection.
+   OptPass3.HC:536-615 opens R12/R13 above six surviving candidates. *)
 let require condition message = if not condition then failwith message
 
 let read path =
@@ -276,6 +276,8 @@ let assert_bytes label register instructions =
         ("RDI", 7);
         ("R10", 10);
         ("R11", 11);
+        ("R12", 12);
+        ("R13", 13);
         ("R14", 14);
         ("R15", 15);
       ]
@@ -332,11 +334,42 @@ let assert_saved_registers label expected instructions =
    ^ ", expected " ^ String.concat "," expected);
   if expected = [] then incr exclusions
 
+(* Decode the original parameter offset paired with its register write.
+   Literal expected maps below come from source scores and pinned QSort2b,
+   independently of the compiler's allocation result. *)
+let assert_entries label expected instructions =
+  let rec collect result = function
+    | (load : Disassembly.instruction) :: store :: rest -> (
+        match (load.operands, store.operands) with
+        | [ destination; source ], [ target; word ]
+          when List.mem load.opcode [ "MOV"; "MOVSX"; "MOVZX"; "MOVSXD" ]
+               && List.mem destination.text [ "U64 RAX"; "U32 EAX" ]
+               && String.ends_with ~suffix:"[RBP]" source.text
+               && Option.fold ~none:false ~some:(fun n -> n >= 16L) source.value
+               && store.opcode = "MOV" && word.text = "U64 RAX" ->
+            let result =
+              match
+                List.find_opt (fun r -> target.text = "U64 " ^ r) supported
+              with
+              | None -> result
+              | Some register ->
+                  ((Int64.to_int (Option.get source.value) - 16) / 8, register)
+                  :: result
+            in
+            collect result (store :: rest)
+        | _ -> collect result (store :: rest))
+    | _ -> List.sort_uniq compare result
+  in
+  require
+    (collect [] instructions = List.sort_uniq compare expected)
+    (label ^ ": source-derived parameter map differs")
+
 type case = {
   name : string;
   source : string;
   expected : int64;
   register : string option;
+  entries : (int * string) list option;
   saved : string list;
   output : string;
   children : (string * string) list;
@@ -344,14 +377,15 @@ type case = {
   options : string list;
 }
 
-let case ?register ?(saved = []) ?(output = "") ?(children = []) ?directive_body
-    ?(options = []) name source expected =
+let case ?register ?entries ?(saved = []) ?(output = "") ?(children = [])
+    ?directive_body ?(options = []) name source expected =
   let saved = Option.fold ~none:saved ~some:(fun r -> r :: saved) register in
   {
     name;
     source;
     expected;
     register;
+    entries;
     saved;
     output;
     children;
@@ -457,9 +491,14 @@ let reservation_cases =
 
 let priority_cases =
   [
+    (* Scores: x=seed+4, a=4, b..e=2. QSort order x,a,e,d,b,c. *)
     case ~register:"RSI"
-      "branch fallback keeps sole forced parameter ahead of five ordinary \
-       candidates"
+      ~saved:[ "RDI"; "R10"; "R11"; "R14"; "R15" ]
+      ~entries:
+        [
+          (0, "RDI"); (1, "R14"); (2, "R15"); (3, "R11"); (4, "R10"); (5, "RSI");
+        ]
+      "whole-function branch keeps forced parameter ahead of five candidates"
       "I64 F(I64 a,I64 b,I64 c,I64 d,I64 e,I64 reg x){if(a<0)return x;return \
        x+a+b+c+d+e;}F(1,2,3,4,5,27);"
       42L;
@@ -468,17 +507,24 @@ let priority_cases =
       "I64 F(I64 a,I64 b,I64 c,I64 d,I64 e,I64 reg x){return \
        x;}F(1,2,3,4,5,42);"
       42L;
+    (* Scores: x=seed+6, a=14, b..e=4. Same sorted order as above. *)
     case ~register:"RSI"
-      "branch fallback keeps sole forced local ahead of ordinary members"
+      ~saved:[ "RDI"; "R10"; "R11"; "R14"; "R15" ]
+      ~entries:[ (0, "RDI") ]
+      "whole-function branch keeps forced local ahead of ordinary members"
       "I64 F(I64 a){I64 b=a;I64 c=a;I64 d=a;I64 e=a;I64 reg \
        x=a+1;if(a<0)return x;return x+a+b+c+d+e;}F(7);"
       43L;
-    case ~register:"RDI" "branch fallback respects unused explicit reservation"
+    (* Unused RSI stays reserved; x precedes a in RDI,R10. *)
+    case ~register:"RDI" ~saved:[ "R10" ]
+      ~entries:[ (1, "R10"); (2, "RDI") ]
+      "whole-function branch respects unused explicit reservation"
       "I64 F(I64 reg RSI reserved,I64 a,I64 reg x){if(a<0)return x;return \
        x+a;}F(0,12,30);"
       42L;
-    case ~register:"RSI"
-      "branch fallback keeps forced target ahead of unknown operand"
+    case ~register:"RSI" ~saved:[ "RDI" ]
+      ~entries:[ (0, "RSI"); (1, "RDI") ]
+      "whole-function branch keeps forced target ahead of shift operand"
       "I64 F(I8 reg x,I64 count){if(count<0)return x;x<<=count;return \
        x;}F(127,1);"
       254L;
@@ -491,36 +537,63 @@ let priority_cases =
       130L;
   ]
 
-let negative_cases =
+(* These formerly conservative branch fixtures now have complete source
+   ledgers. Every arm counts once, including the early return. Unused forced
+   members retain their seed; unused ordinary parameters are trimmed only
+   after QSort. Initializer writes survive scoring even without later reads. *)
+let whole_function_cases =
   [
-    case "branch fallback does not invent a two-member tie order"
+    case ~register:"RDI" ~saved:[ "RSI" ]
+      ~entries:[ (0, "RDI"); (1, "RSI") ]
+      "whole-function branch exact two-member tie order"
       "I64 F(I64 x,I64 y){if(x<0)return y;return x+y;}F(20,22);" 42L;
-    case "branch fallback does not invent unequal scores"
+    case ~register:"RSI" ~saved:[ "RDI" ]
+      ~entries:[ (0, "RSI"); (1, "RDI") ]
+      "whole-function branch unequal scores eight and four"
       "I64 F(I64 x,I64 y){if(x<0)return y;return x+x+x+y;}F(10,12);" 42L;
-    case "branch fallback does not invent a forced tie order"
+    case ~register:"RDI" ~saved:[ "RSI" ]
+      ~entries:[ (0, "RDI"); (1, "RSI") ]
+      "whole-function branch exact forced tie order"
       "I64 F(I64 reg x,I64 reg y){if(x<0)return y;return x+y;}F(20,22);" 42L;
-    case "branch fallback counts unused forced member"
+    case ~register:"RSI"
+      ~entries:[ (0, "RSI") ]
+      "whole-function branch reserves unused forced member after x"
       "I64 F(I64 reg x,I64 reg unused){if(x<0)return 0;return x;}F(42,0);" 42L;
-    case "branch fallback counts unused ordinary member"
+    case ~register:"RSI"
+      ~entries:[ (0, "RSI") ]
+      "whole-function branch trims unused ordinary member"
       "I64 F(I64 x,I64 unused){if(x<0)return 0;return x;}F(42,0);" 42L;
-    case "branch fallback counts unused initialized local"
+    case ~register:"RSI" ~saved:[ "RDI" ] ~entries:[]
+      "whole-function branch scores unused initializer write"
       "I64 F(){I64 unused=0;I64 x=42;if(x<0)return 0;return x;}F();" 42L;
-    case "branch fallback counts specialized operand"
+    case ~register:"RDI" ~saved:[ "RSI" ]
+      ~entries:[ (0, "RDI"); (1, "RSI") ]
+      "whole-function branch scores shift target and operand equally"
       "I64 F(I8 x,I64 count){if(count<0)return 0;x<<=count;return x;}F(127,1);"
       254L;
-    case "branch fallback counts six unused ordinary members"
+    case ~register:"RSI"
+      ~entries:[ (6, "RSI") ]
+      "whole-function branch trims six unused ordinary parameters"
       "I64 F(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 reg x){if(x<0)return \
        0;return x;}F(0,0,0,0,0,0,42);"
       42L;
-    case "branch fallback counts six unused initialized locals"
+    (* x=seed+6; a..f=2. QSort x,e,f,d,a,b,c opens both banks. *)
+    case ~register:"R12"
+      ~saved:[ "R13"; "RSI"; "RDI"; "R10"; "R11"; "R14" ]
+      ~entries:[] "whole-function branch scores six unused initialized locals"
       "I64 F(){I64 a=0;I64 b=0;I64 c=0;I64 d=0;I64 e=0;I64 f=0;I64 reg \
        x=42;if(x<0)return 0;return x;}F();"
       42L;
-    case
-      "branch fallback counts six unused members beside narrow forced candidate"
+    case ~register:"RSI"
+      ~entries:[ (0, "RSI") ]
+      "whole-function branch trims unused members beside narrow forced target"
       "I64 F(I8 reg x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f){if(x<0)return \
        0;x<<=1;return x;}F(127,0,0,0,0,0,0);"
       254L;
+  ]
+
+let negative_cases =
+  [
     case "noreg remains a declared-width stack parameter"
       "I64 F(I8 noreg x){x+=3;return x;}F(127);" (-126L);
     case ~directive_body:"Option(34,1);I64 F(I8 x){x+=3;return x;}F(127);"
@@ -742,6 +815,9 @@ let directive_placement mode case body =
         (fun register -> assert_bytes label register instructions)
         case.register;
       assert_saved_registers label case.saved instructions;
+      Option.iter
+        (fun entries -> assert_entries label entries instructions)
+        case.entries;
       observed := true);
     match result with
     | Program.Completed execution ->
@@ -791,8 +867,8 @@ let directive_placement mode case body =
 
 let () =
   let cases =
-    width_cases @ reservation_cases @ priority_cases @ negative_cases
-    @ control_cases
+    width_cases @ reservation_cases @ priority_cases @ whole_function_cases
+    @ negative_cases @ control_cases
   in
   List.iter
     (fun mode ->
@@ -809,6 +885,9 @@ let () =
                 (fun register -> assert_bytes label register instructions)
                 case.register;
               assert_saved_registers label case.saved instructions;
+              Option.iter
+                (fun entries -> assert_entries label entries instructions)
+                case.entries;
               List.iter
                 (fun (name, register) ->
                   let instructions = function_instructions label name image in

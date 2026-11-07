@@ -55,7 +55,11 @@ let return_values () =
   B.cases
     [
       ("U8 F(){return 554;}I64 G(){I64 n=F();return n;}G();", 554L);
-      ("U8 F(){return 554;}I64 G(){U8 n=F();return n;}G();", 42L);
+      (* PrsVar reparses the initializer as assignment; its write plus the
+         return read give n score four. OptPass3 selects RSI, so the local
+         retains F's full return word. Only noreg performs a byte store. *)
+      ("U8 F(){return 554;}I64 G(){U8 n=F();return n;}G();", 554L);
+      ("U8 F(){return 554;}I64 G(){U8 noreg n=F();return n;}G();", 42L);
       ("U8 F(){return 554;}I64 Id(U8 n){return n;}Id(F());", 42L);
       ("U8 F(U8 n){return n+512;}I64 G(){return F(554);}G();", 554L);
       ("U8 F(){return 40;}F()+2;", 42L);

@@ -481,8 +481,10 @@ Source-authenticated pure expression regions reproduce asymmetric extended-value
 links, selected identity normalization and explicit materialization boundaries.
 The mixed-scalar allocation proof also covers exact explicit F64 GPRs,
 sole-forced placement and capacity-proved narrow integer storage, including
-fixed named calls and control flow. Straight-line mixed functions also use
-source-proved access scores and the original unstable tie order under pressure.
+fixed named calls and control flow. Source-proved access scores and the original
+unstable tie order now cover supported whole functions, including branches, loops,
+multiple returns and named calls. Scores count static source accesses before
+dead-code removal, not runtime iterations or only reachable blocks.
 [Numeric conversions](native-f64-conversions.md) now cover checked scalar
 assignment, initialization, arguments, returns and mixed arithmetic, with
 source-proved extended conversion links and bounded explicit builtins. Explicit
@@ -1097,7 +1099,8 @@ covers distinct RSI, RDI and R10 through R15 requests and larger mixed
 register/stack frames. It rejects uncertain automatic allocation pressure.
 
 [Compiler option snapshots](register-variable-analysis.md#compiler-option-snapshots)
-keep warning settings independent of register values. NO_REG_VAR disables
+keep warnings, ECHO, TRACE and KEEP_PRIVATE independent of register values.
+Their original snapshots remain authenticated. NO_REG_VAR disables
 automatic selection while preserving supported explicit register requests.
 Each decision uses the original function definition, not the later live options.
 
@@ -1111,3 +1114,15 @@ General allocation remains open under #703.
 now preserves full integer values in parameters and initialized locals when the
 right-hand side is a direct member read or literal. Stack destinations still
 narrow. Computed assignments and general register allocation remain unproved.
+
+
+[Whole-function scored allocation](register-variable-analysis.md#whole-function-phase-qualified-allocation)
+now gives the bounded scalar callable grammar exact TempleOS member scores and
+physical homes across branches, loops, multiple returns, named calls and recursion.
+A source-phase ledger counts all surviving accesses once, including zero-trip and
+unreachable source statements before OptPass4 deletion. Narrow pressure, unused
+reservations, forced F64 competition and qualified numeric conversions use the
+existing eight-register allocator. IR and native execution share original call
+receipts. ECHO, TRACE and KEEP_PRIVATE are allocation-neutral with sealed option
+snapshots. Unsupported rewrites and unclassified option bits remain fail-closed;
+general pointer/member coverage and issue #703 remain open.

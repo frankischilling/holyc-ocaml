@@ -10,8 +10,8 @@ module Disassembly = Asm_disassembler
    OptPass3:536-615 applies NO_REG_VAR only to candidates and opens the
    R12/R13 bank above six surviving candidates. Narrow selected variables
    retain full words; noreg stores retain declared width. Exact placements
-   below are asserted only for explicit registers or a sole scored candidate.
-   Capacity-only cases intentionally make no tied winner/placement claim. *)
+   below include source-derived whole-function ties as well as explicit and
+   sole-candidate placements. *)
 let require condition message = if not condition then failwith message
 
 let checked = function
@@ -415,13 +415,34 @@ let width_cases =
       ("U32", 4294967295L, 4294967296L, 0L);
     ]
 
-let unsupported_pressure_source n =
+let branch_pressure_source n =
   let params = List.init n (fun i -> "F64 reg f" ^ string_of_int i) in
   "I64 F("
   ^ String.concat "," (params @ [ "I8 x"; "I64 noreg branch" ])
   ^ "){if(branch)x++;else x--;return x;}F("
   ^ String.concat "," (List.init n (fun _ -> "1.5") @ [ "127"; "1" ])
   ^ ");"
+
+(* Nine unused forced F64 members keep seed=I64_MAX/2, while x scores six
+   from two branch updates and the return. QSort2b gives
+   f6,f5,f8,f7,f4,f1,f0,f3,f2,x; the first eight consume both banks.
+   f2 and x spill, so the reached I8 increment stores -128, not 128. *)
+let branch_pressure =
+  case ~kind:"i64"
+    ~entries:
+      [
+        (6, "R12");
+        (5, "R13");
+        (8, "RSI");
+        (7, "RDI");
+        (4, "R10");
+        (1, "R11");
+        (0, "R14");
+        (3, "R15");
+      ]
+    ~required:registers ~forbidden:[ 2; 9; 10 ]
+    "whole-function branch pressure retains unused forced F64 seeds"
+    (branch_pressure_source 9) (-128L)
 
 let all_explicit =
   let names = List.mapi (fun i r -> ("x" ^ string_of_int i, r)) registers in
@@ -489,8 +510,9 @@ let payload_cases =
     registers
 
 let cases =
-  explicit_cases @ mixed_cases @ width_cases @ [ all_explicit ] @ call_cases
-  @ payload_cases
+  explicit_cases @ mixed_cases @ width_cases
+  @ [ all_explicit; branch_pressure ]
+  @ call_cases @ payload_cases
 
 let excluded =
   [
@@ -500,11 +522,6 @@ let excluded =
       "F64 F(F64 x){F64 reg R11 y=x;I64 reg R11 n=1;return y;}F(1.5);" );
     ("F64 update", "F64 F(F64 reg RSI x){x+=1.0;return x;}F(1.5);");
     ("unsupported register", "F64 F(F64 reg RAX x){return x;}F(1.5);");
-    (* Straight-line six-through-nine candidate pressure is now covered by
-       exact positive maps in test_mixed_register_scores_cli. Real control
-       flow remains outside that new scoring grammar, and nine forced F64
-       candidates do not fit the separate conservative capacity proof. *)
-    ("unproved branch pressure", unsupported_pressure_source 9);
   ]
 
 let directive_placement mode (case : case) body =

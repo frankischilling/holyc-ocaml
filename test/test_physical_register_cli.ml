@@ -389,10 +389,16 @@ let unsupported_cases =
     ( "addressable neighbor and pointer member",
       "I64 F(I64 reg R12 x){I64 noreg y=5;I64 *p=&y;*p+=2;x+=*p;return \
        x+y;}F(28);" );
-    ( "call-valued local initializer",
-      "I64 Child(I64 reg R12 y){return y+1;}I64 F(I64 reg R12 x){I64 noreg \
-       saved=Child(x);return x+saved;}F(20);" );
   ]
+
+(* Whole-function source/call receipts now prove this entry initializer.
+   F and Child each own explicit R12; saved stays noreg. Child(20)=21,
+   and the caller's preserved x contributes 20 again, producing 41. *)
+let call_initializer_case =
+  case "proved call-valued local initializer preserves explicit R12"
+    "I64 Child(I64 reg R12 y){return y+1;}I64 F(I64 reg R12 x){I64 noreg \
+     saved=Child(x);return x+saved;}F(20);"
+    41L
 
 let bounded_rejections mode =
   List.iter
@@ -1264,6 +1270,7 @@ let () =
   let cases =
     width_cases @ register_cases @ all_register_cases
     @ [
+        call_initializer_case;
         case "maintained physical register pair example"
           (read "../examples/physical-register-pair.hc")
           42L;
@@ -1283,6 +1290,15 @@ let () =
               (fun target ->
                 let report = invoke ~target ~mode case.name case.source in
                 value (case.name ^ " " ^ target) case.expected report;
+                (* Task reports need not expose a standalone native image. *)
+                if case == call_initializer_case && target = "host-jit" then
+                  List.iter
+                    (fun name ->
+                      assert_placement
+                        (case.name ^ " " ^ name)
+                        "R12"
+                        (function_instructions case.name name report))
+                    [ "F"; "Child" ];
                 require
                   (member "final_value" report
                   |> member "bits"

@@ -379,6 +379,11 @@ let supported_options body =
         Warn_dup_types;
         Warn_header_mismatch;
         No_reg_var;
+        (* Lex/trace output and symbol retention do not alter OptPass3's
+           candidate membership, scores or banks. Keep their original snapshots. *)
+        Echo;
+        Trace;
+        Keep_private;
       ]
   in
   let actual = Function_body.compiler_options body in
@@ -2597,10 +2602,10 @@ let analyze_local ~frame ~body =
           }
   | _ -> None
 
-(* Canonical mixed-scalar graphs authenticate execution-shaped accesses, not
-   TempleOS optimizer scores. The broader grammar here supplies capacity
-   evidence only; Exact_register_scores separately proves access conservation
-   for its strictly bounded straight-line integer/F64 grammar. *)
+(* Canonical scalar graphs authenticate complete source ownership and control
+   flow, not TempleOS optimizer scores. Retain the original statement tree so
+   Exact_register_scores can separately prove optimizer-phase access survival.
+   Unsupported phase shapes keep the existing capacity proof. *)
 module Mixed_scalar_source = struct
   module Typed = Sema.Function_call_expression_result
   module Source = Sema.Function_call_resolution
@@ -2629,9 +2634,21 @@ module Mixed_scalar_source = struct
         ) -> true
     | _ -> false
 
+  let scalar_or_void_call value =
+    let type_ = get (Typed.result_type value) in
+    scalar type_
+    || Sema.Type.pointer_depth type_ = 0
+       && (match Sema.Type.base type_ with
+         | Sema.Type.Primitive (_, (Sema.Primitive_type.I0 | U0)) -> true
+         | _ -> false)
+       &&
+       match Source.argument_expression_kind (Typed.result_source value) with
+       | Source.Unresolved_expression Source.Call_expression -> true
+       | _ -> false
+
   let direct_resolution call = Typed.direct_source call |> Policy.direct_source
 
-  let authenticate ?runtime ~frame ~body () =
+  let reconstruct ?runtime ~frame ~body () =
     try
       let source = get (Function_body.definition_source body) in
       let declaration = get (Function_body.definition_declaration body) in
@@ -2686,7 +2703,7 @@ module Mixed_scalar_source = struct
         require
           (List.exists (( == ) value) (Typed.function_all_results source)
           && Typed.result_array_rank value = 0
-          && scalar (get (Typed.result_type value)));
+          && scalar_or_void_call value);
         seen := value :: !seen;
         let original = Typed.result_source value in
         let ast = get (Source.argument_expression_source original) in
@@ -2989,8 +3006,11 @@ module Mixed_scalar_source = struct
                   (descriptions expected) (descriptions actual))
            (Block_graph.blocks canonical)
            (Block_graph.blocks actual));
-      true
-    with Unproved -> false
+      Some statements
+    with Unproved -> None
+
+  let authenticate ?runtime ~frame ~body () =
+    Option.is_some (reconstruct ?runtime ~frame ~body ())
 end
 
 let authenticates_mixed_scalar_source ~runtime ~frame ~body =
@@ -3495,7 +3515,7 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
                 matches_expression_operand ~allowed_load (depth - 1) inner input
             | _ -> false)
         | Some (Frontend.Ast.Call_expression call), _, Some expression
-          when mixed ->
+          when mixed || Option.is_some exact ->
             expression.opcode = O.Ic_call_end
             && expression.span = Some call.call_location.span
             && Option.equal Sema.Type.equal (Typed.result_type value)
@@ -4035,8 +4055,18 @@ let analyze_with_context ?runtime ~frame ~body () =
               (location_stamp ~frame location))
           (Frame.function_locations frame)
       then
-        Option.bind (Exact_register_scores.analyze ~frame ~body) (fun scores ->
-            analyze_integer_function ~exact:scores ~mixed ~frame ~body ())
+        let scores =
+          match Exact_register_scores.analyze ~frame ~body with
+          | Some _ as scores -> scores
+          | None ->
+              Option.bind
+                (Mixed_scalar_source.reconstruct ?runtime ~frame ~body ())
+                (fun statements ->
+                  Exact_register_scores.analyze_whole ~frame ~body ~statements)
+        in
+        Option.bind scores (fun scores ->
+            analyze_integer_function ?runtime ~exact:scores ~mixed ~frame ~body
+              ())
       else None
     in
     match exact with

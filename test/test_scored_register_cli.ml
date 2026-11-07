@@ -658,13 +658,199 @@ let allocation_cases =
       768L;
   ]
 
+(* Whole-body maps are fixed source deductions, including unreachable accesses.
+   Weighted ten-member QSort2b order: a,h,g,flag,i,f,c,b,e,d.
+   Weighted nine-member order: a,g,f,i,h,c,b,e,d. *)
+let whole_function_cases =
+  let members = names 9 in
+  let parameters = String.concat "," (List.map (fun n -> "I8 " ^ n) members) in
+  let sum = String.concat "+" members in
+  let updates = String.concat "" (List.map (fun n -> n ^ "+=1;") members) in
+  let weighted =
+    [
+      (0, "R12");
+      (7, "R13");
+      (6, "RSI");
+      (9, "RDI");
+      (8, "R10");
+      (5, "R11");
+      (2, "R14");
+      (1, "R15");
+    ]
+  in
+  let nine_weighted =
+    [
+      (0, "R12");
+      (6, "R13");
+      (5, "RSI");
+      (8, "RDI");
+      (7, "R10");
+      (2, "R11");
+      (1, "R14");
+      (4, "R15");
+    ]
+  in
+  let tied =
+    [
+      (6, "R12");
+      (5, "R13");
+      (8, "RSI");
+      (7, "RDI");
+      (4, "R10");
+      (1, "R11");
+      (0, "R14");
+      (3, "R15");
+    ]
+  in
+  let define ?(flag = "I64 flag") body =
+    "I64 F(" ^ parameters ^ "," ^ flag ^ "){" ^ body ^ "}"
+  in
+  let weighted_call = "F(127,0,0,0,0,0,0,0,0,1);" in
+  [
+    case ~saved:supported
+      "entry locals and initializer calls join whole-function pressure"
+      ("I64 G(I64 x){return x;}I64 F(I64 noreg flag){"
+      ^ String.concat ""
+          (List.map (fun name -> "I8 " ^ name ^ "=G(127);") members)
+      ^ "if(flag){" ^ updates ^ "}return " ^ sum ^ ";}F(1);")
+      896L;
+    case ~entries:weighted "whole-function weighted branch pressure"
+      (define ("if(flag)a=a+1;return " ^ sum ^ ";") ^ weighted_call)
+      128L;
+    case ~entries:weighted "whole-function named call argument pressure"
+      ("I64 G(I64 x){return x;}"
+      ^ define ("if(flag)a=G(a+1);return " ^ sum ^ ";")
+      ^ weighted_call)
+      128L;
+    case ~entries:weighted "whole-function recursive pressure"
+      (define
+         ("if(flag)return F(a,b,c,d,e,f,g,h,i,flag-1);a+=1;return " ^ sum ^ ";")
+      ^ weighted_call)
+      128L;
+    case ~entries:weighted "multiple source returns compete before reachability"
+      (define "if(flag)return a+a+a;return b+c+d+e+f+g+h+i;"
+      ^ "F(14,0,0,0,0,0,0,0,0,1);")
+      42L;
+    case ~entries:nine_weighted
+      "zero-trip loop still contributes source accesses"
+      ("I64 F(" ^ parameters ^ "){while(0)a=a+1;return " ^ sum
+     ^ ";}F(42,0,0,0,0,0,0,0,0);")
+      42L;
+    case ~entries:nine_weighted
+      "constant-dead arm still contributes source accesses"
+      ("I64 F(" ^ parameters ^ "){if(0)a=a+1;return " ^ sum
+     ^ ";}F(42,0,0,0,0,0,0,0,0);")
+      42L;
+    case ~entries:nine_weighted
+      "after-return reads are scored before dead-code deletion"
+      ("I64 F(" ^ parameters ^ "){a+=1;return " ^ sum
+     ^ ";a;a;}F(127,0,0,0,0,0,0,0,0);")
+      128L;
+    case ~entries:tied
+      ~stack_entries:[ (2, 8) ]
+      "equal branch scores preserve narrow spill"
+      (define ~flag:"I64 noreg flag"
+         ("if(flag){" ^ updates ^ "}return " ^ sum ^ ";")
+      ^ "F(127,127,127,127,127,127,127,127,127,1);")
+      896L;
+    case ~entries:tied
+      ~stack_entries:[ (2, 8) ]
+      "do loop counts static accesses once"
+      (define ~flag:"I64 noreg flag"
+         ("do{" ^ updates ^ "}while(flag);return " ^ sum ^ ";")
+      ^ "F(127,127,127,127,127,127,127,127,127,0);")
+      896L;
+    case ~entries:tied
+      ~stack_entries:[ (2, 8) ]
+      "for update and condition retain static source count"
+      (define ~flag:"I64 noreg flag"
+         ("for(flag=0;flag<1;flag++){" ^ updates ^ "}return " ^ sum ^ ";")
+      ^ "F(127,127,127,127,127,127,127,127,127,0);")
+      896L;
+    case
+      ~entries:
+        [
+          (6, "R13");
+          (5, "RSI");
+          (8, "RDI");
+          (7, "R10");
+          (4, "R11");
+          (1, "R14");
+          (0, "R15");
+        ]
+      ~stack_entries:[ (2, 8); (3, 8) ]
+      "unused explicit reservation under branch pressure"
+      ("I64 F(" ^ parameters ^ ",I64 reg R12 unused,I64 noreg flag){if(flag){"
+     ^ updates ^ "}return " ^ sum
+     ^ ";}F(127,127,127,127,127,127,127,127,127,0,1);")
+      640L;
+    case
+      ~entries:
+        [
+          (4, "R13"); (5, "RSI"); (3, "RDI"); (0, "R10"); (1, "R11"); (2, "R14");
+        ]
+      "unused forced member opens nonpointer bank across branch"
+      "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I64 reg unused,I64 noreg \
+       flag){if(flag){a+=1;b+=1;c+=1;d+=1;e+=1;f+=1;}return \
+       a+b+c+d+e+f;}F(127,127,127,127,127,127,0,1);"
+      768L;
+  ]
+  @ List.concat_map
+      (fun count ->
+        let members = names count in
+        let parameters =
+          String.concat "," (List.map (fun n -> "I8 " ^ n) members)
+        in
+        let updates =
+          String.concat "" (List.map (fun n -> n ^ "+=1;") members)
+        in
+        let entries =
+          assignments count
+          |> List.filter_map (fun (i, r) -> Option.map (fun r -> (i, r)) r)
+        in
+        let stack_entries =
+          assignments count
+          |> List.filter_map (fun (i, r) ->
+              if r = None then Some (i, 8) else None)
+        in
+        List.map
+          (fun iterations ->
+            let expected =
+              Int64.of_int
+                ((count * (127 + iterations)) - if count = 9 then 256 else 0)
+            in
+            case ~entries ~stack_entries
+              (Printf.sprintf
+                 "%d loop candidates %d iterations preserve static tie order"
+                 count iterations)
+              ("I64 F(" ^ parameters ^ ",I64 noreg flag){while(flag>0){"
+             ^ updates ^ "flag-=1;}return " ^ String.concat "+" members ^ ";}F("
+              ^ String.concat ","
+                  (List.init count (fun _ -> "127")
+                  @ [ string_of_int iterations ])
+              ^ ");")
+              expected)
+          [ 1; 3 ])
+      [ 6; 7; 8; 9 ]
+
 let fallback_cases =
   [
-    case "branch keeps two-candidate allocation conservative"
+    case
+      ~entries:[ (0, "RSI"); (1, "RDI") ]
+      "discarded U0 call arguments retain source scores"
+      "U0 G(I64 x){return;}I64 F(I8 a,I8 b){G(a);a+=1;return a+b;}F(127,0);"
+      128L;
+    case
+      ~entries:[ (1, "RSI"); (0, "RDI") ]
+      "branch ties use whole-function allocation"
       "I64 F(I64 a,I64 b){if(a<0)return b;return a+b;}F(20,22);" 42L;
-    case "loop keeps two-candidate allocation conservative"
+    case
+      ~entries:[ (0, "RSI"); (1, "RDI") ]
+      "loop uses static whole-function scores"
       "I64 F(I64 a,I64 b){while(a<20)a++;return a+b;}F(19,22);" 42L;
-    case "named call keeps two-candidate allocation conservative"
+    case
+      ~entries:[ (1, "RSI"); (0, "RDI") ]
+      "named call arguments use whole-function scores"
       "I64 G(I64 noreg x){return x;}I64 F(I64 a,I64 b){return G(a)+b;}F(20,22);"
       42L;
     case "cast keeps two-candidate allocation conservative"
@@ -946,8 +1132,8 @@ let directive_placement mode (case : case) body =
 
 let () =
   let cases =
-    width_cases @ observation_cases @ allocation_cases @ fallback_cases
-    @ option_cases
+    width_cases @ observation_cases @ allocation_cases @ whole_function_cases
+    @ fallback_cases @ option_cases
     @ [ example_case; outer_call_case ]
   in
   List.iter

@@ -2620,3 +2620,19 @@ claim, before execution. See [U0 initializer warnings](void-initializer-warnings
 contract from `Compiler/OptPass789A.HC:387-405,698-719`. Guard-page probes and
 variable allocation offsets in Windows unwind records are host adaptations,
 using the Microsoft x64 prologue and unwind specifications linked there.
+
+## Whole-function scored register allocation
+
+`Compiler/PrsStmt.HC:461-563` emits each branch arm and loop component once,
+including the saved for-update fragment. `PrsLib.HC:257-270` orders both
+OptPass012 runs before OptPass3 scoring and OptPass4 dead-code removal.
+`OptLib.HC:230-484` preserves direct scalar operands through the admitted branch
+fusions. `OptPass012.HC:308-895,939-1068` supplies the admitted arithmetic,
+direct-update and conversion access-survival rules. `OptPass3.HC:119-163,
+179-199,223-245` gives each direct frame access two score points and zero net
+LEA balance; `22-48,530-615` governs member order, reservations, forced seeds,
+unstable QSort and bank selection. `OptPass4.HC:152-163` deletes dead code only
+after those decisions. See [register allocation](register-variable-analysis.md)
+for the source-owned whole-function ledger, unsupported rewrites and tests.
+`Lex.HC:257`, `PrsLib.HC:309`, `CMain.HC:296` and `Kernel/KHashB.HC:161` distinguish
+allocation-neutral ECHO/TRACE/KEEP_PRIVATE from NO_REG_VAR's allocation effects.

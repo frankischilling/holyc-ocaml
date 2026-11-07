@@ -3772,7 +3772,8 @@ let physical_register_selection () =
           in
           let symbol = location fn.frame "x" |> Frame.location_symbol in
           Alcotest.(check (option int))
-            "selection alone grants no physical register" None
+            "whole-function scores grant an ordinary physical register"
+            (if qualifier = "noreg" then None else Some 6)
             (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
                ~symbol))
         [ ""; "noreg" ];
@@ -4201,6 +4202,28 @@ let compile_option mode source =
 let automatic_physical_register_options () =
   List.iter
     (fun mode ->
+      List.iter
+        (fun bit ->
+          let fn =
+            compile_option mode
+              (Printf.sprintf
+                 "#exe {Option(%d,1);}I64 F(I8 x,I8 y){if(y)x+=1;return \
+                  x+y;}42;"
+                 bit)
+          in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          List.iter
+            (fun (name, register) ->
+              let symbol = location fn.frame name |> Frame.location_symbol in
+              Alcotest.(check (option int))
+                "allocation-neutral option retains tied source order"
+                (Some register)
+                (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+                   ~symbol))
+            [ ("y", 6); ("x", 7) ])
+        [ 0; 1; 33 ];
       List.iter
         (fun (qualifier, expected) ->
           List.iter
@@ -5647,12 +5670,13 @@ let register_bank_selection () =
             "fixed and frame registers remain outside proof" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [ "RAX"; "RCX"; "RDX"; "RBX"; "RSP"; "RBP"; "R8"; "R9" ];
-      List.iter
-        (fun source ->
+      List.iteri
+        (fun index source ->
           let fn = compile ~name:"F" mode source in
           Alcotest.(check bool)
-            "unproved register pressure rejected" true
-            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+            "exact pressure is proved; duplicate requests still reject"
+            (index < 3)
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
            h){if(h)x+=a;return x+b+c+d+e+f+g+h;}42;";
@@ -5810,19 +5834,18 @@ let forced_pressure_selection () =
             (fun (name, expected) ->
               let symbol = location fn.frame name |> Frame.location_symbol in
               Alcotest.(check bool)
-                "pressure preserves proven and unknown selections" true
+                "whole-function pressure proves winners and spills" true
                 (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
                 = Some expected))
             [
               ( "x",
                 if qualifier = "noreg" then Analysis.Stack
                 else Analysis.Register_candidate );
-              ( "a",
+              ("a", Analysis.Register_candidate);
+              ("h", Analysis.Register_candidate);
+              ( "d",
                 if qualifier = "noreg" then Analysis.Register_candidate
-                else Analysis.Unknown );
-              ( "h",
-                if qualifier = "noreg" then Analysis.Register_candidate
-                else Analysis.Unknown );
+                else Analysis.Stack );
             ])
         [ "reg"; "reg RSI"; "reg R12"; "noreg" ];
       List.iter
@@ -5849,22 +5872,22 @@ let forced_pressure_selection () =
           (6, [], true);
           (7, [], true);
           (8, [], true);
-          (9, [], false);
+          (9, [], true);
           (5, [ "RSI" ], true);
-          (6, [ "RSI" ], false);
+          (6, [ "RSI" ], true);
           (7, [ "RSI" ], true);
-          (8, [ "RSI" ], false);
+          (8, [ "RSI" ], true);
           (7, [ "R12" ], true);
-          (8, [ "R12" ], false);
+          (8, [ "R12" ], true);
           (6, [ "R12"; "R13" ], true);
-          (7, [ "R12"; "R13" ], false);
+          (7, [ "R12"; "R13" ], true);
         ];
       List.iter
         (fun source ->
           let fn = compile ~name:"F" mode source in
           Alcotest.(check bool)
-            "uncertain narrow pressure remains unproved" true
-            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+            "whole-function narrow pressure receives exact selection" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
            h){if(a)x+=1;return x+a+b+c+d+e+f+g+h;}42;";
@@ -6902,12 +6925,288 @@ let scored_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+(* Literal expectations independently derived from OptPass3 and QSort2b.
+   The flag is an ordinary tenth candidate in weighted cases. A has three
+   accesses, all others one: [a,h,g,flag,i,f,c,b,e,d], with e/d spilled.
+   The nine-member weighted permutation is [a,g,f,i,h,c,b,e,d]. *)
+let whole_scored_selection () =
+  let names = [ "a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i" ] in
+  let parameters =
+    String.concat "," (List.map (fun name -> "I8 " ^ name) names)
+  in
+  let sum = String.concat "+" names in
+  let updates = String.concat "" (List.map (fun name -> name ^ "+=1;") names) in
+  let weighted =
+    [
+      ("a", 12);
+      ("h", 13);
+      ("g", 6);
+      ("flag", 7);
+      ("i", 10);
+      ("f", 11);
+      ("c", 14);
+      ("b", 15);
+    ]
+  in
+  let nine_weighted =
+    [
+      ("a", 12);
+      ("g", 13);
+      ("f", 6);
+      ("i", 7);
+      ("h", 10);
+      ("c", 11);
+      ("b", 14);
+      ("e", 15);
+    ]
+  in
+  let tied =
+    [
+      ("g", 12);
+      ("f", 13);
+      ("i", 6);
+      ("h", 7);
+      ("e", 10);
+      ("b", 11);
+      ("a", 14);
+      ("d", 15);
+    ]
+  in
+  let definition ?(flag = "I64 flag") body =
+    "I64 F(" ^ parameters ^ "," ^ flag ^ "){" ^ body ^ "}42;"
+  in
+  let compile mode contents =
+    let session = Session.create () in
+    let source =
+      Session.add_source session ~path:"whole-register-proof.hc" ~contents
+    in
+    let config =
+      Preprocessor.Config.create ~compilation_mode:mode () |> Result.get_ok
+    in
+    match compile_integer_program session ~config ~source with
+    | Error errors ->
+        Alcotest.fail
+          (String.concat "; "
+             (List.map (fun (d : Diagnostic.t) -> d.message) errors))
+    | Ok program ->
+        let fn =
+          List.find
+            (fun (fn : Ir_integer_interpreter.function_definition) ->
+              Symbol.name (Body.symbol fn.body) = "F")
+            (integer_program_functions program.value)
+        in
+        (fn, integer_program_runtime_calls program.value)
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, expected, spills) ->
+          let fn, runtime = compile mode source in
+          let proof =
+            match
+              Analysis.analyze_with_runtime ~runtime ~frame:fn.frame
+                ~body:fn.body
+            with
+            | Some proof -> proof
+            | None -> Alcotest.fail (label ^ ": missing whole-function proof")
+          in
+          List.iter
+            (fun name ->
+              let symbol = location fn.frame name |> Frame.location_symbol in
+              let expected = List.assoc_opt name expected in
+              Alcotest.(check (option int))
+                (label ^ " register " ^ name)
+                expected
+                (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+                   ~symbol);
+              Alcotest.(check bool)
+                (label ^ " selection " ^ name)
+                true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some
+                    (if Option.is_some expected then Analysis.Register_candidate
+                     else Analysis.Stack)))
+            (List.map fst expected @ spills))
+        [
+          ( "weighted branch",
+            definition ("if(flag)a=a+1;return " ^ sum ^ ";"),
+            weighted,
+            [ "d"; "e" ] );
+          ( "equal branch arms",
+            definition ~flag:"I64 noreg flag"
+              ("if(flag){" ^ updates ^ "}return " ^ sum ^ ";"),
+            tied,
+            [ "c" ] );
+          ( "multiple returns",
+            definition "if(flag)return a+a+a;return b+c+d+e+f+g+h+i;",
+            weighted,
+            [ "d"; "e" ] );
+          ( "zero trip loop",
+            "I64 F(" ^ parameters ^ "){while(0)a=a+1;return " ^ sum ^ ";}42;",
+            nine_weighted,
+            [ "d" ] );
+          ( "dead-looking arm",
+            "I64 F(" ^ parameters ^ "){if(0)a=a+1;return " ^ sum ^ ";}42;",
+            nine_weighted,
+            [ "d" ] );
+          ( "after return",
+            "I64 F(" ^ parameters ^ "){a+=1;return " ^ sum ^ ";a;a;}42;",
+            nine_weighted,
+            [ "d" ] );
+          ( "while static counts",
+            definition ~flag:"I64 noreg flag"
+              ("while(flag>0){" ^ updates ^ "flag-=1;}return " ^ sum ^ ";"),
+            tied,
+            [ "c" ] );
+          ( "do static counts",
+            definition ~flag:"I64 noreg flag"
+              ("do{" ^ updates ^ "}while(flag);return " ^ sum ^ ";"),
+            tied,
+            [ "c" ] );
+          ( "for static counts",
+            definition ~flag:"I64 noreg flag"
+              ("for(flag=0;flag<1;flag++){" ^ updates ^ "}return " ^ sum ^ ";"),
+            tied,
+            [ "c" ] );
+          ( "named call arguments",
+            "I64 G(I64 x){return x;}"
+            ^ definition ("if(flag)a=G(a+1);return " ^ sum ^ ";"),
+            weighted,
+            [ "d"; "e" ] );
+          ( "recursive arguments",
+            definition
+              ("if(flag)return F(a,b,c,d,e,f,g,h,i,flag-1);a+=1;return " ^ sum
+             ^ ";"),
+            weighted,
+            [ "d"; "e" ] );
+          ( "unused explicit reservation",
+            "I64 F(" ^ parameters
+            ^ ",I64 reg R12 unused,I64 noreg flag){if(flag){" ^ updates
+            ^ "}return " ^ sum ^ ";}42;",
+            [
+              ("g", 13);
+              ("f", 6);
+              ("i", 7);
+              ("h", 10);
+              ("e", 11);
+              ("b", 14);
+              ("a", 15);
+            ],
+            [ "c"; "d" ] );
+          ( "mixed forced member",
+            "I64 F(" ^ parameters
+            ^ ",F64 reg real,I64 noreg flag){if(flag){real=real+1.0;" ^ updates
+            ^ "}return " ^ sum ^ ";}42;",
+            [
+              ("real", 12);
+              ("g", 13);
+              ("f", 6);
+              ("i", 7);
+              ("h", 10);
+              ("b", 11);
+              ("a", 14);
+              ("c", 15);
+            ],
+            [ "d"; "e" ] );
+        ];
+      let call_source =
+        "I64 G(I64 x){return x;}"
+        ^ definition ("if(flag)a=G(a+1);return " ^ sum ^ ";")
+      in
+      let fn, runtime = compile mode call_source in
+      let foreign, foreign_runtime = compile mode call_source in
+      Alcotest.(check bool)
+        "whole call pressure requires original runtime receipts" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      Alcotest.(check bool)
+        "foreign runtime cannot mint whole call scores" true
+        (Option.is_none
+           (Analysis.analyze_with_runtime ~runtime:foreign_runtime
+              ~frame:fn.frame ~body:fn.body));
+      Alcotest.(check bool)
+        "original runtime cannot authorize foreign whole body" true
+        (Option.is_none
+           (Analysis.analyze_with_runtime ~runtime ~frame:foreign.frame
+              ~body:foreign.body));
+      (* Reconstructing a canonical graph must not excuse changed original
+       statements, control edges, source accesses or definition options. *)
+      List.iter
+        (fun (label, mutate) ->
+          let fn, runtime =
+            compile mode (definition ("if(flag)a=a+1;return " ^ sum ^ ";"))
+          in
+          let proof =
+            Option.get
+              (Analysis.analyze_with_runtime ~runtime ~frame:fn.frame
+                 ~body:fn.body)
+          in
+          let symbol = location fn.frame "a" |> Frame.location_symbol in
+          mutate fn;
+          Alcotest.(check bool)
+            (label ^ " revokes saved proof")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+          Alcotest.(check bool)
+            (label ^ " cannot mint a new pressure proof")
+            true
+            (Option.is_none
+               (Analysis.analyze_with_runtime ~runtime ~frame:fn.frame
+                  ~body:fn.body)))
+        [
+          ( "changed branch edge",
+            fun fn ->
+              let entry =
+                Graph.entry (Body.body fn.Ir_integer_interpreter.body)
+              in
+              let branch =
+                Graph.instructions entry |> Seq.instructions
+                |> List.map Seq.description
+                |> List.find (fun (d : Seq.description) ->
+                    d.opcode = Ir_opcode.Ic_br_zero)
+              in
+              Obj.set_field (Obj.repr branch) 5
+                (Obj.repr (Some (Seq.Block (Graph.block_id entry)))) );
+          ( "changed access payload",
+            fun fn ->
+              let code =
+                Graph.blocks (Body.body fn.Ir_integer_interpreter.body)
+                |> List.concat_map (fun b ->
+                    Graph.instructions b |> Seq.instructions
+                    |> List.map Seq.description)
+              in
+              let item =
+                List.find
+                  (fun (d : Seq.description) -> d.opcode = Ir_opcode.Ic_imm_i64)
+                  code
+              in
+              Obj.set_field (Obj.repr item) 5
+                (Obj.repr (Some (Seq.Integer 999L))) );
+          ( "changed nested original arm",
+            fun fn ->
+              let module T = Semantic_function_call_expression_result in
+              let original =
+                Option.get
+                  (T.function_source_body
+                     (Option.get
+                        (Body.definition_source fn.Ir_integer_interpreter.body)))
+              in
+              match original.Holyc_lib__Frontend.Ast.body with
+              | Some (Holyc_lib__Frontend.Ast.Block_statement block) ->
+                  Obj.set_field (Obj.repr block) 1
+                    (Obj.repr (List.rev block.block_statements))
+              | _ -> assert false );
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Register variable analysis"
     [
       ( "source",
         [
           Alcotest.test_case "exact scored selection" `Quick scored_selection;
+          Alcotest.test_case "whole-function scored selection" `Quick
+            whole_scored_selection;
           Alcotest.test_case "exact scored ownership" `Quick scored_ownership;
           Alcotest.test_case "reference controls" `Quick source_controls;
           Alcotest.test_case "bounded simple selection" `Quick simple_selection;

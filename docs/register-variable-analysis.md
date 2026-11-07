@@ -606,7 +606,7 @@ byte-identical TempleOS function prologues or new TempleOS runtime captures.
 
 ## Bounded automatic placement
 
-Outside the exact straight-line subset below, the conservative proof handles
+Outside the exact straight-line and whole-function subsets below, the conservative proof handles
 a bounded set of automatic placements. A sole automatic integer candidate can now use the first free general variable
 register. A sole plain `reg` candidate can also take that position when there
 are at most six possible automatic candidates. The existing source-owned
@@ -767,8 +767,9 @@ stack stores in mixed functions. Requested F64 needs an exact physical home;
 capacity alone does not invent one. Straight-line mixed functions can instead
 use the exact scored allocator above. It admits homogeneous F64 reads, literals,
 unary plus/minus, basic arithmetic, plain assignments and initialized entry
-locals. Calls, control flow, conversions and floating updates remain outside
-exact scoring; the conservative mixed proof retains its supported cases.
+locals. The whole-function ledger below extends exact scoring to qualified calls,
+control flow and scalar conversions. Floating updates remain outside that
+ledger; the conservative mixed proof retains its supported cases.
 Unsupported fixed registers and duplicate explicit requests still reject as a
 hosted safety boundary, not because TempleOS forbids their syntax.
 
@@ -786,9 +787,9 @@ excluded. An ordinary integer helper can own global state while a mixed caller
 uses its checked return value. [Numeric conversions](native-f64-conversions.md)
 can use this canonical mixed proof for conservative placement. A separate
 numeric-only target query admits sealed conversion intrinsics without broadening
-the ordinary call-target query. Conversion-bearing
-roots remain outside exact scoring. Floating updates retain their separate native
-admission limits.
+the ordinary call-target query. Conversion-bearing roots can receive whole-function scores when their original
+call/producer ownership and phase-surviving accesses are proved. Floating updates
+retain their separate native admission limits.
 
 The [mixed-register example](../examples/native-f64-registers.hc) keeps R10 and
 R11 F64 values live across a generated call and returns 9.0.
@@ -821,3 +822,62 @@ Score evidence does not authorize floating execution by itself. The separate
 F64 operation and expression-link checks still reject unsupported arithmetic
 normalization. These expectations derive from the pinned source, not new
 TempleOS runtime captures.
+
+## Whole-function phase-qualified allocation
+
+The exact allocator now consumes a separate member-access ledger for the bounded
+scalar callable grammar. Complete original-source reconstruction authenticates
+all typed roots, call targets, instructions, conversion flags, blocks and edges.
+The returned statement tree is built before lowering and before any reachability
+analysis. A second proof admits only optimizer rewrites that preserve its direct
+member accesses. Neither canonical hosted IR nor ordinary liveness alone grants
+TempleOS allocation authority.
+
+The pinned phase order matters: `PrsLib.HC:257-270` runs OptPass012 twice, then
+OptPass3, then OptPass4. The admitted integer and F64 arithmetic identities remove
+constants or operators, not member leaves. Plain NOT, comparison and bitwise-AND
+branch fusions in `OptLib.HC:230-484` retain their direct scalar children.
+Conversion flags and qualified conversion calls also retain member accesses.
+Direct frame addresses score once and increment LEA balance in
+`OptPass3.HC:179-199`; their read, assignment or statement-update consumer scores
+once and cancels the balance at `119-163,223-245`. Every admitted ledger record
+therefore contributes exactly two points and zero net LEA balance.
+
+Supported bodies combine named scalar parameters, entry-initialized locals,
+if/else, while, do/while, for, multiple returns, original fixed named calls and
+recursion. Every arm and loop component counts once. Runtime iteration counts do
+not multiply scores. Zero-trip bodies, constant-dead arms and statements after
+return still contribute because original dead-code removal starts only in
+`OptPass4.HC:152-163`, after scoring. The canonical hosted lowerer retains all
+these blocks; tests verify its source/access bijection over the complete graph.
+A future lowering deletion would need an explicit phase-deletion receipt.
+
+The existing allocator still performs the original unstable QSort2b, zero-score
+trimming, LEA filtering and bank selection. Unused integer candidates remain in
+the sort, ordinary F64 members stay excluded, and unused explicit reservations
+and forced seeds remain effective. All eight variable-register homes use the
+existing call/recursion preservation machinery. The IR interpreter receives the
+same original call context so narrow storage decisions agree with native code.
+Temporary liveness and physical source-variable selection remain separate.
+
+For the [whole-function example](../examples/whole-function-register-pressure.hc),
+`a` has three accesses and every other byte parameter plus `flag` has one.
+Original QSort2b orders them `a,h,g,flag,i,f,c,b,e,d`. Thus `a` receives R12;
+`e` and `d` spill. Incrementing `a=127` in the taken branch returns 128, making the
+allocation decision observable. Tests also check tied pressure at six through
+nine candidates, loop iteration independence, member-specific machine moves,
+mixed F64 competition, conversion-bearing calls, exact quotas and fault recovery.
+
+ECHO, TRACE and KEEP_PRIVATE are allocation-neutral alongside the warning bits:
+their pinned consumers control text output or symbol retention, not OptPass3
+membership, scores or banks. Original option snapshots are still required.
+NO_REG_VAR disables automatic/plain-reg selection and preserves explicit
+reservations. Other unclassified options and unknown bits still reject.
+
+Pointers/address escapes, unnamed formals, duplicate or unsupported explicit
+requests, branch-local initialization, consumed writes, decrement conditions,
+short-circuit expressions, comparison chains, unsupported intrinsics and
+unsupported statement forms remain outside this exact ledger. Existing
+conservative proofs remain available without invented scores. Floating and
+numeric execution still require their independent receipts. These are pinned
+source deductions and hosted tests, not new TempleOS captures or closure of #703.

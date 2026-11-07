@@ -1072,3 +1072,345 @@ let analyze ~frame ~body =
                   !accesses) ))
          locations)
   with Unproved -> None
+
+(* This ledger is a separate obligation from canonical source reconstruction.
+   The statement tree is the complete original tree authenticated by
+   Register_variable_analysis.Mixed_scalar_source, before Lower.lower runs.
+   PrsStmt.HC:461-563 emits each condition, arm, body and saved for-update once.
+   PrsLib.HC:257-270 runs OptPass012 twice, then scoring, then OptPass4.
+
+   The expression whitelist below admits only access-conserving rewrites:
+   - OptPass012.HC:308-432,485-658 folds immediates and arithmetic identities,
+     retaining every nonconstant subtree (including x*0).
+   - :435-484,725-816 folds bitwise/comparison nodes only with immediate inputs.
+     Comparison chains and short-circuit forms are deliberately excluded.
+   - :828-895 retains direct assignment and statement-update addresses.
+   - :939-1068 removes conversion wrappers/constants, not member subtrees.
+     Implicit conversion flags likewise do not remove a member access.
+   - OptLib.HC:230-484 fuses NOT/comparison/AND branch operators but retains
+     their member operands. Decrement-in-condition and nested writes are not
+     admitted here; they need their own branch/update phase receipt.
+
+   Each surviving direct frame address contributes score +1, LEA +1 at
+   OptPass3.HC:179-199. Its unique direct read (:119-135), unary update
+   (:149-163), or assignment/compound update (:223-245) contributes score +1,
+   LEA -1. Thus each ledger record proves score=2 and lea_balance=0. This is
+   not an estimate from hosted loads or temporary liveness. *)
+let analyze_whole ~frame ~body ~statements =
+  let module Lower = Integer_program_lowering in
+  let module Policy = Sema.Function_call_conversion_policy in
+  try
+    require
+      (Function_body.definition_matches_frame body frame
+      && permits_automatic_analysis body
+      && source_requests_match ~frame ~body);
+    let source = get (Function_body.definition_source body) in
+    let locations = source_order ~frame ~body in
+    let accesses = ref [] and seen = ref [] and seen_calls = ref [] in
+    let initialized = ref [] in
+    let scalar_or_void_call value =
+      let type_ = get (Typed.result_type value) in
+      scalar_type type_
+      || Sema.Type.pointer_depth type_ = 0
+         && (match Sema.Type.base type_ with
+           | Sema.Type.Primitive (_, (Sema.Primitive_type.I0 | U0)) -> true
+           | _ -> false)
+         &&
+         match Source.argument_expression_kind (Typed.result_source value) with
+         | Source.Unresolved_expression Source.Call_expression -> true
+         | _ -> false
+    in
+    let claim value =
+      require
+        ((not (List.exists (( == ) value) !seen))
+        && List.exists (( == ) value) (Typed.function_all_results source)
+        && Typed.result_array_rank value = 0
+        && scalar_or_void_call value);
+      seen := value :: !seen
+    in
+    let floating value = f64_type (get (Typed.result_type value)) in
+    let member value kind =
+      let bound =
+        match Source.argument_expression_kind (Typed.result_source value) with
+        | Source.Bound_identifier_expression bound -> bound
+        | _ -> raise Unproved
+      in
+      let binding =
+        match
+          Sema.Module_expression_binding.occurrence_resolution
+            (Source.bound_identifier_occurrence bound)
+        with
+        | Sema.Module_expression_binding.Local_binding binding -> binding
+        | _ -> raise Unproved
+      in
+      let location =
+        get
+          (List.find_opt
+             (fun location -> Frame.location_binding location == binding)
+             locations)
+      in
+      require
+        (Frame.location_kind location = Frame.Named_parameter
+        || List.exists (( == ) location) !initialized);
+      (match Frame_address_lowering.prepare ~frame value with
+      | Ok (Some _) -> ()
+      | _ -> raise Unproved);
+      accesses :=
+        { location; span = source_span (Typed.result_origin value); kind }
+        :: !accesses
+    in
+    let rec expression depth ~write ~inside_comparison value =
+      require (depth > 0);
+      claim value;
+      let original = Typed.result_source value in
+      let ast = get (Source.argument_expression_source original) in
+      let child expected value =
+        require
+          (Option.equal ( == ) (Some expected)
+             (Source.argument_expression_source (Typed.result_source value)));
+        value
+      in
+      let read = expression (depth - 1) ~write:false ~inside_comparison in
+      match (Source.argument_expression_kind original, ast) with
+      | Source.Integer_literal bits, Ast.Integer_literal literal ->
+          require (literal.literal_value = Ast.Integer_value bits)
+      | Float_literal bits, Ast.Float_literal literal -> (
+          match literal.literal_value with
+          | Ast.Float_value actual -> require (Int64.bits_of_float actual = bits)
+          | _ -> raise Unproved)
+      | Bound_identifier_expression _, Ast.Identifier_expression _ ->
+          member value Read
+      | Parenthesized_expression _, Ast.Parenthesized_expression group ->
+          read
+            (child group.grouped_expression (get (Typed.result_operand value)))
+      | Prefix_expression prefix, Ast.Prefix_expression ast -> (
+          let operand =
+            child ast.prefix_operand (get (Typed.result_operand value))
+          in
+          match Source.prefix_operator prefix with
+          | Source.Unary_plus | Unary_minus -> read operand
+          | Bitwise_not | Logical_not ->
+              require ((not (floating value)) && not (floating operand));
+              read operand
+          | (Pre_increment | Pre_decrement) when write ->
+              require ((not (floating value)) && not (floating operand));
+              claim operand;
+              member operand Write
+          | _ -> raise Unproved)
+      | Postfix_expression _, Ast.Postfix_expression ast when write ->
+          let operand =
+            child ast.postfix_operand (get (Typed.result_operand value))
+          in
+          require ((not (floating value)) && not (floating operand));
+          claim operand;
+          member operand Write
+      | Binary_expression binary, Ast.Binary_expression ast ->
+          let opcode = binary_opcode ast.binary_operator_spec.spelling in
+          require (Source.binary_operator binary = opcode);
+          let left, right = get (Typed.result_binary_operands value) in
+          let left = child ast.binary_left left
+          and right = child ast.binary_right right in
+          if write_opcode opcode then (
+            require
+              (write
+              && (opcode = O.Ic_assign
+                 || not (floating value || floating left || floating right)));
+            claim left;
+            member left Write;
+            expression (depth - 1) ~write:false ~inside_comparison:false right)
+          else (
+            require
+              ((not (comparison opcode && inside_comparison))
+              && ((not (floating value || floating left || floating right))
+                 || List.mem opcode [ O.Ic_add; Ic_sub; Ic_mul; Ic_div ]));
+            let inside_comparison = inside_comparison || comparison opcode in
+            expression (depth - 1) ~write:false ~inside_comparison left;
+            expression (depth - 1) ~write:false ~inside_comparison right)
+      | Unresolved_expression Source.Call_expression, Ast.Call_expression ast ->
+          let direct =
+            match Typed.result_call_resolution value with
+            | Some (Source.Direct_call direct) -> direct
+            | _ -> raise Unproved
+          in
+          let call =
+            match
+              List.filter_map
+                (function
+                  | Typed.Direct_call_result call
+                    when Typed.direct_source call |> Policy.direct_source
+                         == direct -> Some call
+                  | _ -> None)
+                (Typed.function_calls source)
+            with
+            | [ call ] -> call
+            | _ -> raise Unproved
+          in
+          require
+            ((not (List.exists (( == ) call) !seen_calls))
+            && Typed.direct_variadic_results call = []);
+          seen_calls := call :: !seen_calls;
+          let arguments =
+            List.map
+              (fun fixed ->
+                match Typed.fixed_path fixed with
+                | Typed.Provided_result value -> value
+                | Declared_default_result _ -> raise Unproved)
+              (Typed.direct_fixed_results call)
+          in
+          require (List.length arguments = List.length ast.call_arguments);
+          List.iter2
+            (fun original argument ->
+              match original.Ast.call_argument_value with
+              | Ast.Provided_call_argument ast ->
+                  expression (depth - 1) ~write:false ~inside_comparison:false
+                    (child ast argument)
+              | Omitted_call_argument -> raise Unproved)
+            ast.call_arguments arguments
+      | _ -> raise Unproved
+    in
+    let value ~write root =
+      expression 32 ~write ~inside_comparison:false root
+    in
+    let budget = ref 1024 in
+    let rec statement depth = function
+      | _ when depth = 0 || !budget = 0 -> raise Unproved
+      | node -> (
+          decr budget;
+          let statement = statement (depth - 1) in
+          match node with
+          | Lower.Empty _ | Break _ -> ()
+          | Block children -> List.iter statement children
+          | Expression root -> value ~write:true root
+          | Return root ->
+              Option.iter (value ~write:false) (Typed.return_value root)
+          | Initialize root ->
+              value ~write:false (Typed.initializer_value root);
+              let local =
+                Typed.initializer_source root |> Source.initializer_local
+              in
+              let location =
+                get
+                  (List.find_opt
+                     (fun location ->
+                       Option.equal ( == ) (Some local)
+                         (Frame.location_local_source location))
+                     locations)
+              in
+              require (not (List.exists (( == ) location) !initialized));
+              initialized := location :: !initialized;
+              accesses :=
+                {
+                  location;
+                  span =
+                    source_span
+                      (Sema.Symbol.origin (Frame.location_symbol location));
+                  kind = Write;
+                }
+                :: !accesses
+          | If (condition, yes, no) ->
+              value ~write:false condition;
+              statement yes;
+              Option.iter statement no
+          | While (condition, body) ->
+              value ~write:false condition;
+              statement body
+          | Do_while (body, condition) ->
+              statement body;
+              value ~write:false condition
+          | For (initial, condition, update, body) ->
+              statement initial;
+              value ~write:false condition;
+              statement body;
+              Option.iter statement update
+          | _ -> raise Unproved)
+    in
+    List.iter (statement 32) statements;
+    require
+      (List.length !seen = List.length (Typed.function_all_results source)
+      && List.length !seen_calls = List.length (Typed.function_calls source)
+      && List.for_all
+           (fun location ->
+             Frame.location_kind location = Frame.Named_parameter
+             || List.exists (( == ) location) !initialized)
+           locations);
+    (* The canonical lowerer retains every original block, including statements
+       after returns: ensure_open opens another block, finish records it, and
+       graph construction consumes the entire reversed block list. Conditions
+       do not prune constant-dead arms. The x87 verifier retains that graph.
+       Verify this conservation invariant here, never use reachable blocks.
+       A future DCE lowerer must supply an explicit phase-deletion receipt. *)
+    let blocks = Block_graph.blocks (Function_body.body body) in
+    let code = List.concat_map descriptions blocks in
+    require (List.length blocks <= 64 && List.length code <= 512);
+    let produced =
+      List.fold_left
+        (fun map (item : Seq.description) ->
+          match item.result with
+          | None -> map
+          | Some result -> Values.add result.value_id item map)
+        Values.empty code
+    in
+    let users id =
+      List.filter
+        (fun (item : Seq.description) ->
+          List.exists (Seq.Value_id.equal id) item.operands)
+        code
+    in
+    let sole = function
+      | [ item ] -> item
+      | _ -> raise Unproved
+    in
+    let remaining = ref !accesses in
+    List.iter
+      (fun (item : Seq.description) ->
+        if item.opcode = O.Ic_rbp then (
+          let rbp = (get item.result).Seq.value_id in
+          let address = sole (users rbp) in
+          require (address.opcode = O.Ic_add && address.payload = None);
+          let offset =
+            match address.operands with
+            | [ base; offset ] when Seq.Value_id.equal base rbp ->
+                get (Values.find_opt offset produced)
+            | _ -> raise Unproved
+          in
+          require
+            (offset.opcode = O.Ic_imm_i64
+            && users (get offset.result).value_id = [ address ]);
+          let displacement =
+            match offset.payload with
+            | Some (Seq.Integer n) -> n
+            | _ -> raise Unproved
+          in
+          let consumer = sole (users (get address.result).value_id) in
+          let kind =
+            if consumer.opcode = O.Ic_deref then Read
+            else (
+              require (write_opcode consumer.opcode);
+              Write)
+          in
+          let span = get address.span in
+          let access =
+            sole
+              (List.filter
+                 (fun access ->
+                   access.span = span && access.kind = kind
+                   && Frame.frame_slot_displacement
+                        (get (Frame.location_frame_slot access.location))
+                      = displacement)
+                 !remaining)
+          in
+          require (item.span = Some span && offset.span = Some span);
+          remaining :=
+            List.filter (fun candidate -> candidate != access) !remaining))
+      code;
+    require (!remaining = []);
+    Some
+      (List.map
+         (fun location ->
+           ( location,
+             List.length
+               (List.filter
+                  (fun access -> access.location == location)
+                  !accesses) ))
+         locations)
+  with Unproved -> None

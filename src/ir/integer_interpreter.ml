@@ -6725,8 +6725,8 @@ let stored_bytes = function
   | Stored_narrow scalar -> Scalar.byte_size scalar
   | Stored_word _ | Stored_pointer _ -> 8
 
-let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
-    ~arguments function_ =
+let frame_context ?globals ?runtime_calls ?(pointer_arguments = false)
+    ~max_frame_bytes ~frame ~arguments function_ =
   let invalid message =
     Error
       [
@@ -6736,7 +6736,11 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
   in
   let locations = Frame.function_locations frame in
   let register_proof =
-    Register_variable_analysis.analyze ~frame ~body:function_
+    match runtime_calls with
+    | None -> Register_variable_analysis.analyze ~frame ~body:function_
+    | Some runtime ->
+        Register_variable_analysis.analyze_with_runtime ~runtime ~frame
+          ~body:function_
   in
   let wide_register location =
     Option.fold ~none:false
@@ -14244,8 +14248,8 @@ let execute_program_with_output ?task ?isolated_budget
               ]
           else
             let* context =
-              frame_context ?globals ~pointer_arguments:true ~max_frame_bytes
-                ~frame
+              frame_context ?globals ?runtime_calls ~pointer_arguments:true
+                ~max_frame_bytes ~frame
                 ~arguments:(List.init parameter_count (fun _ -> 0L))
                 body
               |> Result.map_error (List.map (identify body))

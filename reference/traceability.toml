@@ -15397,3 +15397,16 @@ documentation = ["docs/native-numeric-normalization.md", "docs/native-f64-conver
 status = "partial"
 issue = 703
 verification = "Canonical source, graph and original header receipts authenticate exact single-use runtime frame loads and direct return roots for I64-to-I64, I64-to-F64 and F64-to-I64 families. Records distinguish input and return classes, raw class, transient and normalized class2, stacked class, phase-specific conversion flags, eliminated nodes and ordered event owners/positions. Four deleted positive-zero/one identities transport binary64 bits through I64; two surviving copy barriers materialize then truncate. Cross-family recipes retain alias and barrier histories, rounding I64 to binary64 or truncating F64 with FISTTP. Tests cover extrema, infinities, NaN, negative/zero controls, source/header/graph mutations, exact event sequences, instruction-derived CPU requirements, quotas and retained-image recovery. Other contexts remain unproved. Results are independently crosschecked source deductions, not new TempleOS captures."
+
+
+[[feature]]
+id = "HC-WHOLE-FUNCTION-REGISTER-SCORES"
+description = "Phase-qualified whole-function scalar member-access scores and exact source register placement."
+sources = ["Compiler/PrsStmt.HC:461-563", "Compiler/PrsLib.HC:257-270,309", "Compiler/OptPass012.HC:308-895,939-1068", "Compiler/OptLib.HC:230-484", "Compiler/OptPass3.HC:22-48,119-163,179-199,223-245,530-615", "Compiler/OptPass4.HC:152-163", "Kernel/QSort.HC:60-87", "Compiler/Lex.HC:257", "Compiler/CMain.HC:296", "Kernel/KHashB.HC:161"]
+implementation = ["src/ir/exact_register_scores.ml", "src/ir/register_variable_analysis.ml", "src/ir/scored_register_allocation.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_scored_register_cli.ml", "test/test_mixed_register_scores_cli.ml", "examples/whole-function-register-pressure.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/reference-source-map.md"]
+status = "partial"
+issue = 703
+verification = "Complete original statement reconstruction and canonical source/call/CFG ownership are separate from the optimizer-phase access-conservation ledger. All arms, loop components, returns and provided call arguments contribute once, including zero-trip, constant-dead and after-return accesses. Independent fixed maps cover unequal and tied pressure, six through nine candidates, unused explicit/forced members, narrow spills, mixed F64 homes, numeric conversion arguments, recursion, primitive mutations, option snapshots, exact code/IR/frame/depth limits and retained fault recovery. IR and native storage selection use the same original runtime context."
+evidence_limit = "Bounded direct scalar accesses only. Pointer escapes, unnamed members, conflicting/unsupported requests, branch-local initialization, consumed writes, decrement conditions, short circuit, comparison chains and unsupported intrinsics/statements remain outside exact scoring. ECHO/TRACE/KEEP_PRIVATE are allocation-neutral; unclassified and unknown option bits still reject. Numeric/F64 execution requires independent receipts. Source deductions and hosted tests, not new TempleOS captures or completion of issue 703."

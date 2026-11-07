@@ -28,9 +28,9 @@ val analyze :
     Ordinary F64 members are always [Stack] and do not compete. Plain [reg] F64
     members count as forced candidates even when unused. Explicit requests
     reserve their slot before type filtering and NO_REG_VAR, including unused
-    F64 members. Outside the exact straight-line subset below, mixed candidates
-    must fit the source variable banks. Canonical hosted instructions alone are
-    not source optimizer access-survival evidence.
+    F64 members. Outside the exact phase-qualified subsets below, mixed
+    candidates must fit the source variable banks. Canonical hosted instructions
+    alone are not source optimizer access-survival evidence.
 
     A stricter proof runs first for complete straight-line integer/F64
     functions: named parameters, initialized locals, discarded writes/integer
@@ -44,10 +44,22 @@ val analyze :
     remain. The exact six-slot threshold, two non-pointer slots, explicit
     reservations and plain-reg seeds decide both winners and spills. Used
     winners are [Register_candidate], used losers are [Stack]; unused forced F64
-    candidates also receive their proved winner/spill selection. Branches,
-    calls, casts, nested writes and chained comparisons retain the conservative
-    proof below rather than receiving speculative scores. These scores do not
-    authorize floating arithmetic or x87 behavior without its execution proof.
+    candidates also receive their proved winner/spill selection.
+
+    The whole-function exact path reconstructs the complete original statement
+    tree and canonical graph, then separately proves access survival through
+    OptPass012. It admits if/else, while/do/for, multiple returns, fixed named
+    calls and recursion with original runtime receipts, scalar numeric
+    conversions, entry initializers and discarded direct integer updates. Each
+    branch arm, loop component and return is scored once, including
+    constant-dead arms, zero-trip bodies and statements after return. The ledger
+    retains original member order, unused candidates and reservations. Every
+    direct address/consumer pair proves score 2 and net LEA balance 0. Graph
+    pairing uses all blocks; the current canonical lowerer preserves them even
+    when unreachable. No dynamic iteration count or reachable-only graph can
+    replace the ledger. Casts, nested writes, short circuit, chained comparisons
+    and decrement conditions retain conservative proofs. Scores do not authorize
+    floating arithmetic, conversions or x87 behavior without execution proofs.
 
     Automatic locals require one original entry-block initializer. Initializer
     expressions use parameters, literals and locals initialized before each read
@@ -65,26 +77,28 @@ val analyze :
     defaults and variadic calls remain outside this proof.
 
     Distinct RSI, RDI and R10 through R15 requests are supported. Outside the
-    exact straight-line subset, automatic candidates must fit the unreserved
-    variable banks unless forced requests have guaranteed capacity and remaining
-    ordinary members are I64/U64. Those ordinary pressured members retain
-    [Unknown] selection. Other explicit registers, duplicate requests, address
-    escapes and Boolean frame members remain unproved. Every original signature
-    parameter must have its own named frame location. Unnamed formals are
-    rejected because their original _anon_ members can still reserve or compete
-    for registers, but are not represented by this frame API. Limits are 64
-    blocks, 512 instructions and 32 expression levels. Calls, casts,
-    short-circuit expressions, power and unmatched optimizer rewrites cannot
-    acquire an expression-tree proof.
+    exact subsets, automatic candidates must fit the unreserved variable banks
+    unless forced requests have guaranteed capacity and remaining ordinary
+    members are I64/U64. Those ordinary pressured members retain [Unknown]
+    selection. Other explicit registers, duplicate requests, address escapes and
+    Boolean frame members remain unproved. Every original signature parameter
+    must have its own named frame location. Unnamed formals are rejected because
+    their original _anon_ members can still reserve or compete for registers,
+    but are not represented by this frame API. Limits are 64 blocks, 512
+    instructions and 32 expression levels. Calls, casts, short-circuit
+    expressions, power and unmatched optimizer rewrites cannot acquire an
+    expression-tree proof.
 
-    Only the four warning bits and NO_REG_VAR may differ from default options.
-    Warnings do not change allocation. NO_REG_VAR disables automatic and plain
-    reg selection, while supported explicit requests remain selected. Options
-    must match the original definition snapshot. The independently sealed whole
-    source body must remain original; missing receipts and try/catch reject both
-    exact and fallback proofs. Every register request must still agree with its
-    original AST qualifier. The witness does not itself change execution or
-    claim physical register placement. *)
+    The four warning bits, ECHO, TRACE, KEEP_PRIVATE and NO_REG_VAR may differ
+    from default options. Warning/output/symbol-retention options do not change
+    allocation. Unknown bits and other unclassified options reject. NO_REG_VAR
+    disables automatic and plain reg selection, while supported explicit
+    requests remain selected. Options must match the original definition
+    snapshot. The independently sealed whole source body must remain original;
+    missing receipts and try/catch reject both exact and fallback proofs. Every
+    register request must still agree with its original AST qualifier. The
+    witness does not itself change execution or claim physical register
+    placement. *)
 
 val analyze_with_runtime :
   runtime:Runtime_call_context.t ->
@@ -92,9 +106,10 @@ val analyze_with_runtime :
   body:Function_body.t ->
   t option
 (** As [analyze], with original call target receipts for independently
-    re-lowered mixed functions containing named calls. The context is retained
-    and revalidated on every query. A foreign or changed context cannot grant
-    mixed-call allocation evidence. *)
+    re-lowered scalar functions containing named calls. Exact whole-function
+    call scores require this context, including integer-only functions. It is
+    retained and revalidated on every query; foreign or changed contexts cannot
+    grant call allocation evidence. *)
 
 val selection :
   t ->
@@ -117,7 +132,7 @@ val physical_register :
     register. The original source/IR bijection, member order and complete
     allocation map are rechecked, not inferred from fallback selections.
 
-    Outside that strict subset, also admit the sole possible automatic
+    Outside both exact subsets, also admit the sole possible automatic
     candidate, or the sole plain [reg] candidate when at most six frame members
     could be automatic candidates. Count every unspecified and plain [reg]
     integer member and every plain [reg] scalar member, including unused and

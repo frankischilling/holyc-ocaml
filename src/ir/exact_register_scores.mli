@@ -31,3 +31,20 @@ val analyze :
     floating updates, nested writes, calls and control flow are not admitted.
     Float payloads are compared as raw int64 bits. This is score evidence only:
     callers still check requests, compiler options and value semantics. *)
+
+val analyze_whole :
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  statements:Integer_program_lowering.statement list ->
+  (Sema.Function_frame_layout.location * int) list option
+(** Phase-surviving direct access ledger for a complete original statement tree.
+    The caller must independently reconstruct this tree from the sealed source
+    and compare its complete canonical graph and call receipts with [body]. This
+    function proves the separate OptPass012 access-conservation obligation,
+    original member order and one-to-one canonical address/consumer ownership.
+    Every proved occurrence contributes score 2 and net LEA balance 0. All arms,
+    loop components and returns count once, even when unreachable. Arithmetic,
+    implicit numeric conversions, provided named-call arguments and discarded
+    direct assignments/integer updates are admitted. Short circuit, chained
+    comparisons, consumed writes, decrement conditions and address escapes fail
+    closed. This ledger alone is not an allocation witness. *)

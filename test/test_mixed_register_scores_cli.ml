@@ -935,6 +935,99 @@ let source_isolation mode =
     ignore
       (Runtime.execute_report ~max_steps:100000 second |> completed_word 128L))
 
+let whole_function_cases =
+  [
+    case
+      ~stores:[ (3, 8); (4, 8) ]
+      "whole-function mixed forced pressure"
+      "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I8 g,I8 h,I8 i,F64 reg real,I64 \
+       noreg \
+       flag){if(flag){real=real+1.0;a+=1;b+=1;c+=1;d+=1;e+=1;f+=1;g+=1;h+=1;i+=1;}return \
+       a+b+c+d+e+f+g+h+i;}F(127,127,127,127,127,127,127,127,127,1.0,1);"
+      640L
+      [
+        (9, "R12");
+        (6, "R13");
+        (5, "RSI");
+        (8, "RDI");
+        (7, "R10");
+        (1, "R11");
+        (0, "R14");
+        (2, "R15");
+      ];
+    case "whole-function mixed recursive homes"
+      "I64 F(F64 reg left,F64 reg right,I8 x,I64 noreg n){if(n)return \
+       F(left,right,x,n-1);left=left+right;x+=1;return x;}F(1.0,2.0,127,2);"
+      128L
+      [ (0, "RSI"); (1, "RDI"); (2, "R10") ];
+    case "whole-function numeric conversion preserves member access"
+      "I64 F(F64 reg real,I8 x,I64 noreg flag){if(flag)real=x;x+=1;return \
+       x;}F(1.0,127,1);"
+      128L
+      [ (0, "RSI"); (1, "RDI") ];
+    case "whole-function qualified numeric normalization"
+      "I64 F(F64 reg real,I64 x,I64 noreg flag){if(flag)return x+0.0;return \
+       real;}F(1.0,128,1);"
+      (* OptPass012 deletes +0 but retains the input I64-to-F64 flag;
+         OptPass3 sees the survivor's raw I64 class and adds no F64-to-I64
+         return conversion. The I64 result is therefore binary64(128)'s word,
+         independently fixed as 0x4060000000000000, not integer 128. *)
+      0x4060000000000000L
+      [ (0, "RSI"); (1, "RDI") ];
+    case "whole-function numeric conversion in named argument"
+      "F64 G(F64 x){return x;}I64 F(F64 reg real,I8 x,I64 noreg \
+       flag){if(flag)real=G(x);x+=1;return x;}F(1.0,127,1);"
+      128L
+      [ (0, "RSI"); (1, "RDI") ];
+  ]
+
+let whole_function_limits mode =
+  let fixture = List.nth whole_function_cases 1 in
+  let compiled = image mode fixture.source in
+  placement fixture compiled;
+  let ir = Image.ir_instructions compiled
+  and code = Image.code_bytes compiled in
+  ignore
+    (compile ~max_ir_instructions:ir ~max_code_bytes:code mode fixture.source
+    |> Result.map_error diagnostic_text
+    |> checked);
+  require
+    (Result.is_error (compile ~max_ir_instructions:(ir - 1) mode fixture.source)
+    && Result.is_error (compile ~max_code_bytes:(code - 1) mode fixture.source)
+    )
+    "whole-function exact compile limits were not enforced";
+  let retained = Runtime.retain compiled |> checked in
+  Fun.protect
+    ~finally:(fun () -> Runtime.release retained |> checked)
+    (fun () ->
+      let run ?max_frame_bytes ?max_call_depth steps =
+        Runtime.execute_retained_report ?max_frame_bytes ?max_call_depth
+          ~max_steps:steps retained
+      in
+      let steps = run 100000 |> completed_word 128L in
+      ignore
+        (run ~max_frame_bytes:96 ~max_call_depth:3 steps |> completed_word 128L);
+      ignore (run ~max_frame_bytes:95 steps |> fault Image.Frame_limit_exceeded);
+      ignore (run ~max_call_depth:2 steps |> fault Image.Call_depth_exceeded);
+      ignore (run (steps - 1) |> fault Image.Step_limit_exceeded);
+      ignore (run steps |> completed_word 128L));
+  (* A global is owned by the caller only. The recursively scored callee has
+     no global leaves, and its selected F64/I8 homes must survive fault cleanup. *)
+  let source =
+    "I64 count=0;I64 F(F64 reg left,F64 reg right,I8 x,I64 noreg n,I64 noreg \
+     divisor){if(n)return \
+     F(left,right,x,n-1,divisor);left=left+right;x+=1;return \
+     x/divisor;}F(1.0,2.0,127,2,count++);"
+  in
+  let retained = image mode source |> Runtime.retain |> checked in
+  Fun.protect
+    ~finally:(fun () -> Runtime.release retained |> checked)
+    (fun () ->
+      let run () = Runtime.execute_retained_report ~max_steps:100000 retained in
+      ignore (run () |> fault Image.Division_by_zero);
+      ignore (run () |> completed_word 128L);
+      ignore (run () |> completed_word 64L))
+
 let failures = ref []
 
 let check label action =
@@ -968,13 +1061,17 @@ let () =
                       invoke ~status:1 ~target ~mode case.label case.source
                       |> rejected "x87 capability")
                   targets))
-        cases;
+        (cases @ whole_function_cases);
+      if native then
+        check (mode ^ " whole-function limits and recovery") (fun () ->
+            whole_function_limits mode);
       if native then
         check (mode ^ " retained quotas and recovery") (fun () -> retained mode))
     modes;
   Printf.printf
     "mixed register scores: %d cases, %d CLI reports (%s), %d failures\n"
-    (List.length cases) !count
+    (List.length (cases @ whole_function_cases))
+    !count
     (if native then "native" else "admission")
     (List.length !failures);
   if !failures <> [] then failwith (String.concat "\n" (List.rev !failures))

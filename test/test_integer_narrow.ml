@@ -55,8 +55,13 @@ let return_values (name, type_, _, _, modulus) () =
     ];
   B.cases
     [
+      (* The initializer write and return read score n four, selecting RSI.
+         The call returns a full word; only the noreg control narrows it. *)
       ( name ^ " F(){return " ^ modulus ^ "+42;}I64 G(){" ^ name
         ^ " n=F();return n;}G();",
+        Int64.add (Int64.of_string modulus) 42L );
+      ( name ^ " F(){return " ^ modulus ^ "+42;}I64 G(){" ^ name
+        ^ " noreg n=F();return n;}G();",
         42L );
       ( name ^ " F(){return " ^ modulus ^ "+42;}I64 G(" ^ name
         ^ " n){return n;}G(F());",
