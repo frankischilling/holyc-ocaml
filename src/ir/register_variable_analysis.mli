@@ -29,18 +29,22 @@ val analyze :
     separate whole-function proof covers branches and loops over two to 32
     integer frame members when the automatic candidates fit the unreserved
     variable banks, with statement-only compound updates whose operands are
-    direct member reads. Automatic locals require one original literal or
-    parameter initializer in the entry block; reassignments remain unproved.
-    Original named definitions with provided fixed arguments and integer or U0
-    results may be called, including recursive calls and the named JIT
-    address-slot path. Callbacks, defaults and variadic calls remain unproved.
-    The proof accepts up to 64 blocks and 512 instructions, no address escapes,
-    no Boolean parameters and default options apart from the four warning bits
-    and NO_REG_VAR. Warning settings do not change allocation. NO_REG_VAR
-    disables automatic selection, including plain reg requests, but leaves
-    supported explicit register requests selected. The option mask must match
-    the original definition snapshot. Other control flow remains unproved. The
-    witness itself does not alter execution. *)
+    direct member reads or supported immediate values. Add/subtract/multiply
+    immediates are nonnegative signed-32-bit values; immediate shifts use
+    normalized counts below 64. Discarded prefix/postfix increment and decrement
+    are also supported. Each update must match its exact typed source operator,
+    operand bindings and source position. Automatic locals require one original
+    literal or parameter initializer in the entry block; reassignments remain
+    unproved. Original named definitions with provided fixed arguments and
+    integer or U0 results may be called, including recursive calls and the named
+    JIT address-slot path. Callbacks, defaults and variadic calls remain
+    unproved. The proof accepts up to 64 blocks and 512 instructions, no address
+    escapes, no Boolean parameters and default options apart from the four
+    warning bits and NO_REG_VAR. Warning settings do not change allocation.
+    NO_REG_VAR disables automatic selection, including plain reg requests, but
+    leaves supported explicit register requests selected. The option mask must
+    match the original definition snapshot. Other control flow remains unproved.
+    The witness itself does not alter execution. *)
 
 val selection :
   t ->

@@ -2391,9 +2391,10 @@ let analyze_local ~frame ~body =
 
 (* OptPass3 scores member accesses across the whole function, not per basic
    block. Check that all automatic candidates fit the remaining variable banks,
-   without relying on score tie ordering. Keep updates statement-only and dynamically
-   sourced so immediate rewrites and compound-expression results cannot change
-   the required storage width. Named calls retain their original typed targets;
+   without relying on score tie ordering. Keep updates statement-only. Dynamic operands, bounded add/subtract/multiply
+   and shift literals, and discarded increment/decrement have source-backed
+   storage behavior; other immediate rewrites and compound-expression results
+   remain outside the proof. Named calls retain their original typed targets;
    OptPass789A saves and restores selected variable registers around each ordinary
    activation. IC_CALL_INDIRECT2 is admitted only for a named definition's JIT
    address slot, not for a callback. Locals require a single source-owned literal
@@ -2427,6 +2428,10 @@ let analyze_control_parameters ~frame ~body =
     | Ic_and_equ
     | Ic_or_equ
     | Ic_xor_equ -> true
+    | _ -> false
+  in
+  let unary_update = function
+    | O.Ic_pp_ | Ic_mm_ | Ic__pp | Ic__mm -> true
     | _ -> false
   in
   let branch = function
@@ -2501,7 +2506,7 @@ let analyze_control_parameters ~frame ~body =
           && (item.opcode = O.Ic_call_start || call_result item)
         else true)
     && Option.is_some (instruction_stamp item)
-    && (update item.opcode || branch item.opcode
+    && (update item.opcode || unary_update item.opcode || branch item.opcode
        ||
        match item.opcode with
        | O.Ic_call_start
@@ -2671,6 +2676,8 @@ let analyze_control_parameters ~frame ~body =
              &&
              match (item.opcode, item.operands) with
              | O.Ic_deref, [ target ] -> Seq.Value_id.equal target id
+             | opcode, [ target ] when unary_update opcode ->
+                 Seq.Value_id.equal target id
              | opcode, [ target; _ ] when update opcode || opcode = O.Ic_assign
                -> Seq.Value_id.equal target id
              | _ -> false)
@@ -2723,7 +2730,8 @@ let analyze_control_parameters ~frame ~body =
           match address target with
           | Some (_, location)
             when Frame.location_kind location = Frame.Automatic_local -> (
-              List.exists (( == ) item) entry_code
+              item.payload = None
+              && List.exists (( == ) item) entry_code
               && initializer_matches location operand
               &&
               match users result.value_id with
@@ -2750,6 +2758,114 @@ let analyze_control_parameters ~frame ~body =
         | [ store ] -> initialization store
         | _ -> false
     in
+    let source_matches_update (item : Seq.description) =
+      let binding_matches value location =
+        match Calls.argument_expression_kind (Typed.result_source value) with
+        | Calls.Bound_identifier_expression bound -> (
+            match
+              Sema.Module_expression_binding.occurrence_resolution
+                (Calls.bound_identifier_occurrence bound)
+            with
+            | Sema.Module_expression_binding.Local_binding binding ->
+                binding == Frame.location_binding location
+            | _ -> false)
+        | _ -> false
+      in
+      let span_matches (operator : Frontend.Ast.expression_operator) =
+        item.span = Some operator.operator_location.span
+      in
+      let matches_operand value operand =
+        match load operand with
+        | Some (_, location) -> binding_matches value location
+        | None -> (
+            match
+              ( Calls.argument_expression_kind (Typed.result_source value),
+                Values.find_opt operand produced )
+            with
+            | ( Calls.Integer_literal bits,
+                Some
+                  {
+                    opcode = O.Ic_imm_i64;
+                    payload = Some (Seq.Integer actual);
+                    _;
+                  } ) ->
+                actual
+                =
+                if item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ then
+                  Int64.logand bits 63L
+                else bits
+            | _ -> false)
+      in
+      let matches value =
+        match
+          ( Calls.argument_expression_source (Typed.result_source value),
+            item.operands )
+        with
+        | Some (Frontend.Ast.Binary_expression binary), [ target; operand ] -> (
+            match (address target, Typed.result_binary_operands value) with
+            | Some (_, location), Some (left, right) -> (
+                span_matches binary.binary_operator
+                && binding_matches left location
+                && matches_operand right operand
+                &&
+                match (binary.binary_operator_spec.spelling, item.opcode) with
+                | "+=", O.Ic_add_equ
+                | "-=", Ic_sub_equ
+                | "*=", Ic_mul_equ
+                | "/=", Ic_div_equ
+                | "%=", Ic_mod_equ
+                | "<<=", Ic_shl_equ
+                | ">>=", Ic_shr_equ
+                | "&=", Ic_and_equ
+                | "|=", Ic_or_equ
+                | "^=", Ic_xor_equ -> true
+                | _ -> false)
+            | _ -> false)
+        | Some (Frontend.Ast.Prefix_expression prefix), [ target ] -> (
+            match (address target, Typed.result_operand value) with
+            | Some (_, location), Some operand -> (
+                span_matches prefix.prefix_operator
+                && binding_matches operand location
+                &&
+                match (prefix.prefix_operator_kind, item.opcode) with
+                | Frontend.Ast.Pre_increment, O.Ic_pp_
+                | Frontend.Ast.Pre_decrement, Ic_mm_ -> true
+                | _ -> false)
+            | _ -> false)
+        | Some (Frontend.Ast.Postfix_expression postfix), [ target ] -> (
+            match (address target, Typed.result_operand value) with
+            | Some (_, location), Some operand -> (
+                span_matches postfix.postfix_operator
+                && binding_matches operand location
+                &&
+                match (postfix.postfix_operator_kind, item.opcode) with
+                | Frontend.Ast.Post_increment, O.Ic__pp
+                | Frontend.Ast.Post_decrement, Ic__mm -> true
+                | _ -> false)
+            | _ -> false)
+        | _ -> false
+      in
+      item.payload = None
+      && Option.fold ~none:false
+           ~some:(fun source ->
+             List.exists matches (Typed.function_all_results source))
+           (Function_body.definition_source body)
+    in
+    let literal_operand opcode operand =
+      match Values.find_opt operand produced with
+      | Some { opcode = O.Ic_imm_i64; payload = Some (Seq.Integer n); _ } -> (
+          match opcode with
+          | O.Ic_add_equ | Ic_sub_equ | Ic_mul_equ ->
+              n >= 0L && n <= Int64.of_int32 Int32.max_int
+          | O.Ic_shl_equ | Ic_shr_equ -> n >= 0L && n < 64L
+          | _ -> false)
+      | _ -> false
+    in
+    let discarded result =
+      match users result.Seq.value_id with
+      | [ consumer ] -> consumer.opcode = O.Ic_end_exp
+      | _ -> false
+    in
     let safe_instruction (item : Seq.description) =
       match (item.opcode, item.operands, item.result) with
       | O.Ic_rbp, [], Some result ->
@@ -2760,14 +2876,14 @@ let analyze_control_parameters ~frame ~body =
                consumers
       | O.Ic_assign, _, _ -> initialization item
       | O.Ic_deref, [ target ], _ -> Option.is_some (address target)
-      | opcode, [ target; operand ], Some result when update opcode -> (
+      | opcode, [ target; operand ], Some result when update opcode ->
           Option.is_some (address target)
-          && Option.is_some (load operand)
-          &&
-          match users result.value_id with
-          | [ consumer ] -> consumer.opcode = O.Ic_end_exp
-          | _ -> false)
-      | opcode, _, _ when update opcode -> false
+          && (Option.is_some (load operand) || literal_operand opcode operand)
+          && source_matches_update item && discarded result
+      | opcode, [ target ], Some result when unary_update opcode ->
+          Option.is_some (address target)
+          && source_matches_update item && discarded result
+      | opcode, _, _ when update opcode || unary_update opcode -> false
       | _ -> true
     in
     if

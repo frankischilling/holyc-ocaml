@@ -256,3 +256,32 @@ The matrix expectations come from pinned source and existing register/stack
 captures. The lookahead regression also reproduces the recorded result in
 `test/oracle/register-variable-analysis/option.hc`; no new TempleOS capture is
 claimed. Other option-dependent optimizer paths remain outside this proof.
+
+## Literal and unary loop updates
+
+The whole-function proof now admits statement-only addition, subtraction and
+multiplication by nonnegative signed-32-bit literals, shifts by normalized
+literal counts, and discarded prefix or postfix increment/decrement. These
+work in branches, `for`, `while` and `do` loops, including automatic locals and
+values retained across named calls. For example, a selected `I8` starting at
+127 reaches 129 after two iterations of `x+=1`; `noreg` reaches -127.
+[The loop example](../examples/register-loop-updates.hc) compares both storage
+choices with literal and unary updates.
+
+`OptPass3.HC:149-165,223-248` scores unary and compound accesses to frame
+members. `OptPass4.HC:239-261,351-380` maps those accesses to the selected
+variable register. The existing literal and unary captures supply the value
+semantics. `OptPass012.HC:828-854` also rewrites constant multiplication,
+division and remainder. This extension admits the supported multiply and
+shift forms; division/remainder and bitwise literals remain outside this
+whole-function proof, as do consumed update results and large add/subtract
+immediates.
+
+Each accepted update must match the original typed operator, operand bindings
+and source position. A substituted operand, changed operator or injected
+payload cannot acquire a fresh proof. The same checks cover the earlier
+variable-sourced updates. Register capacity, address-escape restrictions and
+single-entry local initialization requirements are unchanged. The tests use
+six widths, four register qualifiers and four loop/call shapes, with independent
+expected register and stack arithmetic. These are hosted tests backed by pinned
+source and existing captures, not new TempleOS runtime captures.

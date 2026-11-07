@@ -15136,3 +15136,15 @@ status = "partial"
 issue = 703
 verification = "Source-derived six-width/four-warning-mask matrices compare automatic, plain reg, noreg and explicit requests with NO_REG_VAR enabled or disabled. Retained definitions, body-closing lookahead, live setter calls, shared #exe control, StreamExePrint child isolation and forged body masks are checked."
 evidence_limit = "Admits warning bits 16-19 and NO_REG_VAR only when the body agrees with its authenticated completed-body snapshot. Other nondefault options remain unproved. Hosted tests do not claim a new TempleOS option capture or physical register allocation."
+
+[[feature]]
+id = "HC-REGISTER-LOOP-IMMEDIATE-UPDATES"
+description = "Preserve selected integer values through literal and unary loop updates with original typed update ownership."
+sources = ["Compiler/OptPass3.HC:149-165,223-248", "Compiler/OptPass4.HC:239-261,351-380", "Compiler/OptPass012.HC:828-854"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-loop-updates.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Six narrow widths, four qualifiers, literal and unary updates, for/while/do loops, initialized locals and named calls. Typed operator and operand substitution checks preserve ownership."
+evidence_limit = "Statement-only bounded updates with sufficient variable-register capacity. Large add/subtract/multiply literals, division/remainder and bitwise literals, consumed update results and general allocation are not claimed. No new TempleOS capture is claimed."

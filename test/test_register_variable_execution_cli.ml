@@ -174,52 +174,127 @@ let option_cases =
       (read "../examples/register-option-snapshots.hc", "256");
     ]
 
+let loop_update_cases =
+  List.concat_map
+    (fun (type_, bits, signed) ->
+      let normalize value =
+        let shift = 64 - bits in
+        let shifted = Int64.shift_left value shift in
+        if signed then Int64.shift_right shifted shift
+        else Int64.shift_right_logical shifted shift
+      in
+      let high =
+        Int64.pred (Int64.shift_left 1L (if signed then bits - 1 else bits))
+      in
+      let low =
+        if signed then Int64.neg (Int64.shift_left 1L (bits - 1)) else 0L
+      in
+      List.concat_map
+        (fun qualifier ->
+          List.concat_map
+            (fun (update, initial, apply) ->
+              let step value =
+                let result = apply value in
+                if qualifier = "noreg" then normalize result else result
+              in
+              let expected = Int64.to_string (step (step initial)) in
+              [
+                ( Printf.sprintf
+                    "I64 F(%s %s x,I64 count){I64 \
+                     i=0;for(;i<count;i++){%s;}return x;}F(%Ld,2);"
+                    type_ qualifier update initial,
+                  expected );
+                ( Printf.sprintf
+                    "I64 F(%s seed,I64 count){%s %s x=seed;I64 \
+                     i=0;while(i<count){%s;++i;}return x;}F(%Ld,2);"
+                    type_ type_ qualifier update initial,
+                  expected );
+                ( Printf.sprintf
+                    "I64 Touch(I64 x){return x;}I64 F(%s %s x,I64 \
+                     count){if(count){%s;Touch(x);%s;}return x;}F(%Ld,2);"
+                    type_ qualifier update update initial,
+                  expected );
+                ( Printf.sprintf
+                    "I64 F(%s %s x,I64 \
+                     count){do{%s;--count;}while(count);return x;}F(%Ld,2);"
+                    type_ qualifier update initial,
+                  expected );
+              ])
+            [
+              ("x+=1", high, fun x -> Int64.add x 1L);
+              ("x-=1", low, fun x -> Int64.sub x 1L);
+              ("x*=2", high, fun x -> Int64.mul x 2L);
+              ("x<<=1", high, fun x -> Int64.shift_left x 1);
+              ( "x>>=1",
+                low,
+                fun x ->
+                  if signed then Int64.shift_right x 1
+                  else Int64.shift_right_logical x 1 );
+              ("++x", high, Int64.succ);
+              ("x++", high, Int64.succ);
+              ("--x", low, Int64.pred);
+              ("x--", low, Int64.pred);
+            ])
+        [ ""; "reg"; "noreg"; "reg R12" ])
+    [
+      ("I8", 8, true);
+      ("U8", 8, false);
+      ("I16", 16, true);
+      ("U16", 16, false);
+      ("I32", 32, true);
+      ("U32", 32, false);
+    ]
+
 let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
   let cases =
-    [
-      ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
-      ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
-         c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",
-        "1020" );
-      ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 noreg z,I64 c,I64 d,I64 \
-         e){x+=c;y*=d;z<<=e;return x+y+z;}F(255,255,255,2,2,1);",
-        "1021" );
-      ( "I64 F(I8 reg R12 x,U16 reg R13 y,I32 noreg z,I64 c,I64 d,I64 \
-         e){x+=c;y*=d;z<<=e;return x+y+z;}F(127,65535,2147483647,2,2,1);",
-        "131197" );
-      ( "I64 F(I64 reg R12 x,I8 reg R13 y,U16 noreg z,I64 c,I64 d,I64 \
-         e){x+=c;y*=d;z<<=e;return x+y+z;}F(42,127,65535,2,2,1);",
-        "65832" );
-      ( "I64 F(I8 reg R12 x,U16 reg R13 y,I32 reg R14 z,U32 reg R15 w,I64 \
-         noreg v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
-         x+y+z+w+v;}F(127,65535,2147483647,4294967295,42,2);",
-        "21474902220" );
-      ( "I64 F(I8 reg R12 x,U16 reg R13 y,I32 reg R14 z,U32 reg R15 w,U8 noreg \
-         v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
-         x+y+z+w+v;}F(127,65535,2147483647,4294967295,255,2);",
-        "21474902390" );
-      ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,U8 reg R15 w,U8 noreg \
-         v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
-         x+y+z+w+v;}F(255,255,255,255,255,2);",
-        "2294" );
-      ("I64 F(I64 x,I8 y,I64 c){x+=c;y+=c;return x+y;}F(42,127,1);", "171");
-      ( "I64 F(I8 noreg x,I64 noreg y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);",
-        "-85" );
-      ( "I64 F(I64 noreg x,I8 noreg y,I64 c){x+=c;y+=c;return x+y;}F(42,127,1);",
-        "-85" );
-      ("I64 F(I8 x,I8 c){x<<=c;return x;}F(127,1);", "254");
-      ("I64 F(I8 noreg x,I8 c){x<<=c;return x;}F(127,1);", "-2");
-      ("I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}F(127,1);", "-2");
-      ("I64 F(U8 x,I8 c){x<<=c;return x;}F(255,1);", "510");
-      ("I64 F(U8 noreg x,I8 c){x<<=c;return x;}F(255,1);", "254");
-      ("I64 F(I8 x,I8 c){x<<=c;return x;}F(255,0);", "-1");
-      ("I64 F(U8 x,I8 c){x<<=c;return x;}F(256,0);", "0");
-      ( "I64 F(I8 x,I64 c,I64 a,I64 b,I64 d,I64 e,I64 f,I64 g,I64 h,I64 \
-         i){x<<=c;return \
-         x+a+a+a+b+b+b+d+d+d+e+e+e+f+f+f+g+g+g+h+h+h+i+i+i;}F(127,1,0,0,0,0,0,0,0,0);",
-        "-2" );
-    ]
+    loop_update_cases
+    @ [
+        (read "../examples/register-loop-updates.hc", "256");
+        ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
+        ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
+           c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",
+          "1020" );
+        ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+y+z;}F(255,255,255,2,2,1);",
+          "1021" );
+        ( "I64 F(I8 reg R12 x,U16 reg R13 y,I32 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+y+z;}F(127,65535,2147483647,2,2,1);",
+          "131197" );
+        ( "I64 F(I64 reg R12 x,I8 reg R13 y,U16 noreg z,I64 c,I64 d,I64 \
+           e){x+=c;y*=d;z<<=e;return x+y+z;}F(42,127,65535,2,2,1);",
+          "65832" );
+        ( "I64 F(I8 reg R12 x,U16 reg R13 y,I32 reg R14 z,U32 reg R15 w,I64 \
+           noreg v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
+           x+y+z+w+v;}F(127,65535,2147483647,4294967295,42,2);",
+          "21474902220" );
+        ( "I64 F(I8 reg R12 x,U16 reg R13 y,I32 reg R14 z,U32 reg R15 w,U8 \
+           noreg v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
+           x+y+z+w+v;}F(127,65535,2147483647,4294967295,255,2);",
+          "21474902390" );
+        ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,U8 reg R15 w,U8 noreg \
+           v,I64 c){x+=c;y-=c;z*=c;w<<=c;v*=c;return \
+           x+y+z+w+v;}F(255,255,255,255,255,2);",
+          "2294" );
+        ("I64 F(I64 x,I8 y,I64 c){x+=c;y+=c;return x+y;}F(42,127,1);", "171");
+        ( "I64 F(I8 noreg x,I64 noreg y,I64 c){x+=c;y+=c;return \
+           x+y;}F(127,42,1);",
+          "-85" );
+        ( "I64 F(I64 noreg x,I8 noreg y,I64 c){x+=c;y+=c;return \
+           x+y;}F(42,127,1);",
+          "-85" );
+        ("I64 F(I8 x,I8 c){x<<=c;return x;}F(127,1);", "254");
+        ("I64 F(I8 noreg x,I8 c){x<<=c;return x;}F(127,1);", "-2");
+        ("I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}F(127,1);", "-2");
+        ("I64 F(U8 x,I8 c){x<<=c;return x;}F(255,1);", "510");
+        ("I64 F(U8 noreg x,I8 c){x<<=c;return x;}F(255,1);", "254");
+        ("I64 F(I8 x,I8 c){x<<=c;return x;}F(255,0);", "-1");
+        ("I64 F(U8 x,I8 c){x<<=c;return x;}F(256,0);", "0");
+        ( "I64 F(I8 x,I64 c,I64 a,I64 b,I64 d,I64 e,I64 f,I64 g,I64 h,I64 \
+           i){x<<=c;return \
+           x+a+a+a+b+b+b+d+d+d+e+e+e+f+f+f+g+g+g+h+h+h+i+i+i;}F(127,1,0,0,0,0,0,0,0,0);",
+          "-2" );
+      ]
   in
   let cases =
     cases

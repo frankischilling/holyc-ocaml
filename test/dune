@@ -5698,7 +5698,8 @@
   ../examples/register-call-lifetimes.hc
   ../examples/register-local-lifetimes.hc
   ../examples/register-bank-capacity.hc
-  ../examples/register-option-snapshots.hc)
+  ../examples/register-option-snapshots.hc
+  ../examples/register-loop-updates.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5714,7 +5715,8 @@
   ../examples/register-call-lifetimes.hc
   ../examples/register-local-lifetimes.hc
   ../examples/register-bank-capacity.hc
-  ../examples/register-option-snapshots.hc)
+  ../examples/register-option-snapshots.hc
+  ../examples/register-loop-updates.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}

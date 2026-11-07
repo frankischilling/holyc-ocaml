@@ -4794,6 +4794,133 @@ let register_bank_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let loop_update_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun qualifier ->
+          List.iter
+            (fun update ->
+              let fn =
+                compile ~name:"F" mode
+                  (Printf.sprintf
+                     "I64 F(I8 %s x,I64 n){I64 i=0;for(;i<n;i++){%s;}return \
+                      x;}42;"
+                     qualifier update)
+              in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let symbol = location fn.frame "x" |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "loop update retains checked storage selection" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some
+                    (if qualifier = "noreg" then Analysis.Stack
+                     else Analysis.Register_candidate)))
+            [
+              "x+=1";
+              "x-=2147483647";
+              "x*=3";
+              "x<<=63";
+              "x>>=0";
+              "++x";
+              "x++";
+              "--x";
+              "x--";
+            ])
+        [ ""; "reg"; "noreg"; "reg R12" ];
+      List.iter
+        (fun update ->
+          let fn =
+            compile ~name:"F" mode
+              (Printf.sprintf "I64 F(I8 x,I64 n){if(n){%s;}return x;}42;" update)
+          in
+          Alcotest.(check bool)
+            ("unproved immediate or consumed update remains rejected: " ^ update)
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "x+=2147483648";
+          "x*=2147483648";
+          "x<<=n+1";
+          "x/=2";
+          "x%=2";
+          "x|=1";
+          "return x++";
+          "return ++x";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let loop_update_ownership () =
+  let module O = Holyc_lib__Ir.Opcode in
+  let module Typed = Semantic_function_call_expression_result in
+  let module Calls = Semantic_function_call_resolution in
+  List.iter
+    (fun mode ->
+      let fn =
+        compile ~name:"F" mode
+          "I64 F(I8 x,I64 c,I64 d){if(c){x+=c;x*=d;}return x;}42;"
+      in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      let items =
+        Body.body fn.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+      in
+      let first =
+        List.find (fun (d : Seq.description) -> d.opcode = O.Ic_add_equ) items
+      in
+      let second =
+        List.find (fun (d : Seq.description) -> d.opcode = O.Ic_mul_equ) items
+      in
+      let original = second.operands in
+      Obj.set_field (Obj.repr second) 2
+        (Obj.repr [ List.hd original; List.nth first.operands 1 ]);
+      Alcotest.(check bool)
+        "loop operand substitution invalidates existing proof" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+      Alcotest.(check bool)
+        "loop operand substitution cannot be reproved" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      Obj.set_field (Obj.repr second) 2 (Obj.repr original);
+      let source = Option.get (Body.definition_source fn.body) in
+      let binary =
+        Typed.function_all_results source
+        |> List.find_map (fun value ->
+            match
+              Calls.argument_expression_source (Typed.result_source value)
+            with
+            | Some (Ast.Binary_expression binary)
+              when binary.binary_operator_spec.spelling = "+=" -> Some binary
+            | _ -> None)
+        |> Option.get
+      in
+      Obj.set_field (Obj.repr binary) 2
+        (Obj.repr (Option.get (Operator.find_binary "-=")));
+      Alcotest.(check bool)
+        "loop typed operator mutation cannot be reproved" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      let fn =
+        compile ~name:"F" mode
+          "I64 F(I8 x,I64 n){while(n){x++;--n;}return x;}42;"
+      in
+      let update =
+        Body.body fn.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+        |> List.find (fun (d : Seq.description) -> d.opcode = O.Ic__pp)
+      in
+      Obj.set_field (Obj.repr update) 5 (Obj.repr (Some (Seq.Integer 1L)));
+      Alcotest.(check bool)
+        "unary loop payload cannot acquire a proof" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_selection () =
   List.iter
     (fun mode ->
@@ -4801,10 +4928,11 @@ let unsupported_selection () =
         (fun source ->
           let fn = compile mode source in
           Alcotest.(check bool)
-            "unproved allocation remains unknown" true
+            ("unproved allocation remains unknown: " ^ source)
+            true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "I64 F(I8 x,I64 c){if(c)x+=1;return x;}42;";
+          "I64 F(I8 x,I64 c){if(c)x+=2147483648;return x;}42;";
           "I64 F(I8 x,I64 c){if(c)return x+=c;return x;}42;";
           "I64 F(I8 x,I64 c){I8 *p=&x;if(c)*p+=c;return x;}42;";
           "I64 F(I8 reg R12 x,I64 reg R12 c){if(c)x+=c;return x;}42;";
@@ -5035,6 +5163,10 @@ let () =
             local_control_selection;
           Alcotest.test_case "register bank capacity" `Quick
             register_bank_selection;
+          Alcotest.test_case "literal and unary loop updates" `Quick
+            loop_update_selection;
+          Alcotest.test_case "loop update ownership" `Quick
+            loop_update_ownership;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;
           Alcotest.test_case "original ownership" `Quick ownership;
         ] );

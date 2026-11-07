@@ -1078,3 +1078,9 @@ register/stack frames. It rejects uncertain automatic allocation pressure.
 keep warning settings independent of register values. NO_REG_VAR disables
 automatic selection while preserving supported explicit register requests.
 Each decision uses the original function definition, not the later live options.
+
+[Literal and unary loop updates](register-variable-analysis.md#literal-and-unary-loop-updates)
+retain selected narrow values through bounded constant updates and discarded
+prefix/postfix increment/decrement, including locals and named calls. Typed
+operators, operand bindings and source positions are checked before selection.
+General allocation remains open under #703.
