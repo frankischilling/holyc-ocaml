@@ -7990,11 +7990,170 @@ let duplicate_explicit_authority () =
         mutations)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let local_array_member_authority () =
+  let module Typed = Semantic_function_call_expression_result in
+  let module Local = Semantic_local_type_resolution in
+  let module Ast = Holyc_lib__Frontend.Ast in
+  let source =
+    "I64 F(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f){"
+    ^ "U8 noreg pad;U8 reg scratch[9];return \
+       a+a+a+a+a+a+b+b+b+b+b+c+c+c+c+d+d+d+e+e+f;}42;"
+  in
+  let scratch fn = location fn.Ir_integer_interpreter.frame "scratch" in
+  let semantic fn = Frame.location_local_source (scratch fn) |> Option.get in
+  let dimension fn = List.hd (Frame.location_dimensions (scratch fn)) in
+  let original_dimension fn =
+    List.hd (Local.local_array_dimensions (semantic fn))
+  in
+  let mutations =
+    [
+      ( "array source-dimension receipt",
+        fun fn -> Obj.set_field (Obj.repr (scratch fn)) 10 (Obj.repr false) );
+      ( "array frame extent",
+        fun fn -> Obj.set_field (Obj.repr (scratch fn)) 14 (Obj.repr 8L) );
+      ( "array slot extent",
+        fun fn ->
+          let slot = Frame.location_frame_slot (scratch fn) |> Option.get in
+          Obj.set_field (Obj.repr slot) 1 (Obj.repr 8L) );
+      ( "array element size",
+        fun fn -> Obj.set_field (Obj.repr (scratch fn)) 13 (Obj.repr 8L) );
+      ( "array element rather than allocation alignment",
+        fun fn -> Obj.set_field (Obj.repr (scratch fn)) 15 (Obj.repr 1) );
+      ( "array overlap",
+        fun fn ->
+          let slot = Frame.location_frame_slot (scratch fn) |> Option.get in
+          Obj.set_field (Obj.repr slot) 0 (Obj.repr (-1L)) );
+      ( "zero-size candidate range",
+        fun fn -> Obj.set_field (Obj.repr (dimension fn)) 1 (Obj.repr 0L) );
+      ( "coherent foreign array extent",
+        fun fn ->
+          (* Both sizes still fit the same 16-byte frame and alignment. A fresh
+           proof must compare the dimension against the original expression. *)
+          Obj.set_field (Obj.repr (dimension fn)) 1 (Obj.repr 10L);
+          Obj.set_field (Obj.repr (scratch fn)) 14 (Obj.repr 10L);
+          let slot = Frame.location_frame_slot (scratch fn) |> Option.get in
+          Obj.set_field (Obj.repr slot) 1 (Obj.repr 10L) );
+      ( "array dimension kind",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (dimension fn))
+            0
+            (Obj.repr Frame.Compiler_placeholder_extent) );
+      ( "array semantic ordinal",
+        fun fn ->
+          Obj.set_field (Obj.repr (original_dimension fn)) 0 (Obj.repr 1) );
+      ( "copied array source dimension",
+        fun fn ->
+          let dimension = original_dimension fn in
+          let original = Local.array_dimension_source dimension |> Option.get in
+          let copied : Ast.array_dimension =
+            Obj.obj (Obj.dup (Obj.repr original))
+          in
+          Obj.set_field (Obj.repr dimension) 5 (Obj.repr (Some copied)) );
+      ( "copied array source expression",
+        fun fn ->
+          let dimension = original_dimension fn in
+          let original =
+            Local.array_dimension_source_expression dimension |> Option.get
+          in
+          let copied : Ast.expression = Obj.obj (Obj.dup (Obj.repr original)) in
+          Obj.set_field (Obj.repr dimension) 4 (Obj.repr (Some copied)) );
+      ( "omitted array membership",
+        fun fn ->
+          let location = scratch fn in
+          Obj.set_field
+            (Obj.repr fn.Ir_integer_interpreter.frame)
+            4
+            (Obj.repr
+               (List.filter
+                  (fun item -> item != location)
+                  (Frame.function_locations fn.frame)));
+          Obj.set_field (Obj.repr fn.body) 6
+            (Obj.repr
+               (List.filter
+                  (fun member ->
+                    Body.member_symbol member != Frame.location_symbol location)
+                  (Body.locals fn.body))) );
+      ( "changed original array declaration",
+        fun fn ->
+          let definition =
+            Body.definition_source fn.Ir_integer_interpreter.body
+            |> Option.get |> Typed.function_source_body |> Option.get
+          in
+          let rec change = function
+            | Ast.Local_declaration_statement declaration ->
+                List.exists
+                  (fun item ->
+                    if item.Ast.local_array_dimensions = [] then false
+                    else (
+                      Obj.set_field (Obj.repr item) 4 (Obj.repr []);
+                      true))
+                  declaration.local_declarators
+            | Block_statement block -> List.exists change block.block_statements
+            | Sequence_statement sequence ->
+                List.exists
+                  (fun element -> change element.Ast.sequence_statement)
+                  sequence.sequence_elements
+            | _ -> false
+          in
+          Alcotest.(check bool)
+            "changed original array declarator" true
+            (Option.fold ~none:false ~some:change definition.body) );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let fn = compile ~name:"F" mode source in
+      let array = scratch fn in
+      Alcotest.(check int64)
+        "total allocation controls primitive array alignment" (-16L)
+        (Frame.location_frame_slot array
+        |> Option.get |> Frame.frame_slot_displacement);
+      Alcotest.(check int)
+        "array extent alignment" 8
+        (Frame.location_alignment array);
+      Alcotest.(check int64)
+        "array complete allocation extent" 9L
+        (Frame.location_allocated_size array);
+      let proof =
+        Analysis.analyze ~frame:fn.frame ~body:fn.body |> Option.get
+      in
+      let scalar = location fn.frame "a" |> Frame.location_symbol in
+      Alcotest.(check (option int))
+        "array member enables nonpointer scalar bank" (Some 12)
+        (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+           ~symbol:scalar);
+      Alcotest.(check (option int))
+        "array member never receives a physical home" None
+        (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+           ~symbol:(Frame.location_symbol array));
+      List.iter
+        (fun (label, mutate) ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Analysis.analyze ~frame:fn.frame ~body:fn.body |> Option.get
+          in
+          let symbol = location fn.frame "a" |> Frame.location_symbol in
+          mutate fn;
+          Alcotest.(check bool)
+            (label ^ " revokes saved proof")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+          Alcotest.(check bool)
+            (label ^ " cannot mint a fresh proof")
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        mutations)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Register variable analysis"
     [
       ( "source",
         [
+          Alcotest.test_case "local array member authority" `Quick
+            local_array_member_authority;
           Alcotest.test_case "duplicate explicit selection" `Quick
             duplicate_explicit_selection;
           Alcotest.test_case "anonymous formal source authority" `Quick

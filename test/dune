@@ -6003,3 +6003,23 @@
  (deps ../examples/formal-member-identity.hc)
  (action
   (run %{exe:test_formal_member_cli.exe} %{exe:../bin/holyc.exe} --native)))
+
+(executable
+ (name test_array_member_register_cli)
+ (modules test_array_member_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/array-member-registers.hc)
+ (action
+  (run %{exe:test_array_member_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/array-member-registers.hc)
+ (action
+  (run
+   %{exe:test_array_member_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))

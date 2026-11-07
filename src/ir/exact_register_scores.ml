@@ -102,7 +102,10 @@ let authenticate_type location reference specifier layers =
 let descriptions block =
   Block_graph.instructions block |> Seq.instructions |> List.map Seq.description
 
-type access_kind = Read | Write | Address
+type access_kind = Read | Write | Address | Array_element of bool
+(* Array_element records whether the pre-scoring normalized address is exactly
+   the member start. It is not an ordinary scalar-member read: interior and
+   dynamic indexing retain the array LEA. *)
 
 type access = {
   location : Frame.location;
@@ -471,9 +474,25 @@ let source_order ?(owned = false) ~frame ~body () =
   require
     (List.for_all
        (fun location ->
-         Frame.location_value_shape location = Frame.Scalar
+         (match
+            ( Frame.location_value_shape location,
+              Frame.location_dimensions location )
+          with
+           | Frame.Scalar, [] -> true
+           | Frame.Array, _ :: _ when owned -> (
+               Frame.location_kind location = Frame.Automatic_local
+               && owned_type (Frame.location_checked_type location)
+               && Sema.Type.pointer_depth (Frame.location_checked_type location)
+                  = 0
+               && Frame.location_source_dimensions_checked location
+               &&
+               match Frame.location_register_selection location with
+               | Request.Explicit _ -> false
+               | _ -> true)
+           | _ -> false)
          && Frame.location_declarator_shape location = Frame.Object
-         && Frame.location_dimensions location = []
+         && Option.is_none (Frame.location_callback_pointer location)
+         && Option.is_none (Frame.location_aggregate_allocation location)
          && (if owned then
                owned_type (Frame.location_checked_type location)
                && Sema.Type.pointer_depth (Frame.location_checked_type location)
@@ -546,7 +565,6 @@ let source_order ?(owned = false) ~frame ~body () =
       let item = get (List.nth_opt source.Ast.local_declarators declarator) in
       require
         (source.local_storage = Ast.Automatic_local
-        && item.local_array_dimensions = []
         && item.local_function_pointer = None
         && item.local_name.spelling
            = Sema.Symbol.name (Frame.location_symbol location)
@@ -556,7 +574,35 @@ let source_order ?(owned = false) ~frame ~body () =
            = Option.is_some (Local.local_initializer original));
       authenticate_type location
         (Local.local_type_reference original)
-        source.local_type_specifier item.local_pointer_layers);
+        source.local_type_specifier item.local_pointer_layers;
+      let dimensions = Local.local_array_dimensions original in
+      require
+        (same_list
+           (fun ast dimension ->
+             Option.equal ( == ) (Some ast)
+               (Local.array_dimension_source dimension)
+             && Option.equal ( == ) ast.Ast.dimension_expression
+                  (Local.array_dimension_source_expression dimension))
+           item.local_array_dimensions dimensions);
+      require
+        (same_list
+           (fun (index, original) dimension ->
+             Local.array_dimension_index original = index
+             && Frame.dimension_kind dimension = Frame.Source_extent
+             && Frame.dimension_runtime_dependencies dimension = []
+             && Frame.dimension_offset_dependencies dimension = []
+             && Frame.dimension_value dimension > 0L
+             &&
+             match Local.array_dimension_source_expression original with
+             | None -> false
+             | Some expression ->
+                 Sema.Aggregate_layout.evaluate_expression
+                   ~context:Sema.Aggregate_layout.Array_dimension
+                   ~current_position:0L
+                   (Sema.Closed_layout_expression.of_ast expression)
+                 = Ok (Frame.dimension_value dimension))
+           (List.mapi (fun index dimension -> (index, dimension)) dimensions)
+           (Frame.location_dimensions location)));
     (declaration, declarator)
   in
   let locals =
@@ -638,20 +684,38 @@ let source_order ?(owned = false) ~frame ~body () =
         require (List.mem element [ 1; 2; 4; 8 ]);
         let offset, bytes, alignment =
           if index < List.length parameter_locations then
-            (Int64.of_int (16 + (8 * index)), 8, 8)
-          else (
-            cursor :=
-              Int64.logand
-                (Int64.sub !cursor (Int64.of_int element))
-                (Int64.neg (Int64.of_int element));
-            (!cursor, element, element))
+            (Int64.of_int (16 + (8 * index)), 8L, 8)
+          else
+            let bytes =
+              List.fold_left
+                (fun bytes dimension ->
+                  let count = Frame.dimension_value dimension in
+                  require (count > 0L && count <= Int64.div Int64.max_int bytes);
+                  Int64.mul bytes count)
+                (Int64.of_int element)
+                (Frame.location_dimensions location)
+            in
+            (* PrsVar.HC:590-606 aligns by the complete allocation extent,
+               not by the primitive element size. Positive extents also make
+               candidate ranges disjoint, so first-offset matching is unique. *)
+            let alignment =
+              if bytes >= 8L then 8
+              else if bytes >= 4L then 4
+              else if bytes >= 2L then 2
+              else 1
+            in
+            require (Int64.sub Int64.min_int !cursor <= Int64.neg bytes);
+            let next = Int64.sub !cursor bytes in
+            require (next >= Int64.add Int64.min_int (Int64.of_int alignment));
+            cursor := Int64.logand next (Int64.neg (Int64.of_int alignment));
+            (!cursor, bytes, alignment)
         in
         let slot = get (Frame.location_frame_slot location) in
         require
           (Frame.location_element_size location = Int64.of_int element
-          && Frame.location_allocated_size location = Int64.of_int bytes
+          && Frame.location_allocated_size location = bytes
           && Frame.location_alignment location = alignment
-          && Frame.frame_slot_size slot = Int64.of_int bytes
+          && Frame.frame_slot_size slot = bytes
           && Frame.frame_slot_displacement slot = offset))
       ordered;
     require
@@ -1290,11 +1354,11 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
          | Source.Unresolved_expression Source.Call_expression -> true
          | _ -> false
     in
-    let claim value =
+    let claim ?(array = false) value =
       require
         ((not (List.exists (( == ) value) !seen))
         && List.exists (( == ) value) (Typed.function_all_results source)
-        && Typed.result_array_rank value = 0
+        && (Typed.result_array_rank value = 0 || array)
         && scalar_or_void_call value);
       seen := value :: !seen
     in
@@ -1328,7 +1392,8 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
       | _ -> raise Unproved);
       accesses :=
         { location; span = source_span (Typed.result_origin value); kind }
-        :: !accesses
+        :: !accesses;
+      location
     in
     let rec expression depth ~write ~inside_comparison value =
       require (depth > 0);
@@ -1350,7 +1415,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
           | Ast.Float_value actual -> require (Int64.bits_of_float actual = bits)
           | _ -> raise Unproved)
       | Bound_identifier_expression _, Ast.Identifier_expression _ ->
-          member value Read
+          ignore (member value Read)
       | Parenthesized_expression _, Ast.Parenthesized_expression group ->
           read
             (child group.grouped_expression (get (Typed.result_operand value)))
@@ -1423,9 +1488,14 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
             expression (depth - 1) ~write:false ~inside_comparison right)
       | Source.Index_expression _, Ast.Index_expression ast when owned ->
           let base, index = get (Typed.result_index_operands value) in
-          require (Sema.Type.pointer_depth (get (Typed.result_type base)) = 1);
-          read (child ast.index_base base);
-          read (child ast.index_value index)
+          let base = child ast.index_base base
+          and index = child ast.index_value index in
+          if Typed.result_array_rank base > 0 then
+            array_index (depth - 1) Read base index
+          else (
+            require (Sema.Type.pointer_depth (get (Typed.result_type base)) = 1);
+            read base;
+            read index)
       | Unresolved_expression Source.Call_expression, Ast.Call_expression ast ->
           let direct =
             match Typed.result_call_resolution value with
@@ -1471,7 +1541,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
       require (depth > 0);
       claim value;
       match Source.argument_expression_kind (Typed.result_source value) with
-      | Source.Bound_identifier_expression _ -> member value kind
+      | Source.Bound_identifier_expression _ -> ignore (member value kind)
       | Parenthesized_expression _ when owned ->
           lvalue (depth - 1) kind (get (Typed.result_operand value))
       | Prefix_expression prefix
@@ -1480,10 +1550,44 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
             (get (Typed.result_operand value))
       | Index_expression _ when owned ->
           let base, index = get (Typed.result_index_operands value) in
-          require (Sema.Type.pointer_depth (get (Typed.result_type base)) = 1);
-          expression (depth - 1) ~write:false ~inside_comparison:false base;
-          expression (depth - 1) ~write:false ~inside_comparison:false index
+          if Typed.result_array_rank base > 0 then
+            array_index (depth - 1) kind base index
+          else (
+            require (Sema.Type.pointer_depth (get (Typed.result_type base)) = 1);
+            expression (depth - 1) ~write:false ~inside_comparison:false base;
+            expression (depth - 1) ~write:false ~inside_comparison:false index)
       | _ -> raise Unproved
+    and array_index depth kind base index =
+      require (depth > 0 && Typed.result_array_rank base = 1);
+      claim ~array:true base;
+      (* PrsExp.HC:772-803,1055-1099 emits the local base plus a scaled index.
+         OptPass012.HC:308-375,485-557 folds a literal index into the base
+         displacement; zero alone retains the exact starting offset. A direct
+         scalar index retains both the base LEA and its own scalar read.
+         No out-of-range constant can be attributed by declaration identity:
+         OptPass3 matches numeric ranges and could score a different member. *)
+      require
+        (Option.is_some
+           (Integer_scalar_storage.of_type (get (Typed.result_type index))));
+      let constant =
+        match Source.argument_expression_kind (Typed.result_source index) with
+        | Source.Integer_literal n -> Some n
+        | Bound_identifier_expression _ -> None
+        | _ -> raise Unproved
+      in
+      let location =
+        member base (Array_element (constant = Some 0L && kind <> Address))
+      in
+      require
+        (Frame.location_kind location = Frame.Automatic_local
+        && Frame.location_value_shape location = Frame.Array);
+      let count =
+        match Frame.location_dimensions location with
+        | [ dimension ] -> Frame.dimension_value dimension
+        | _ -> raise Unproved
+      in
+      Option.iter (fun n -> require (n >= 0L && n < count)) constant;
+      expression (depth - 1) ~write:false ~inside_comparison:false index
     in
     let value ~write root =
       expression 32 ~write ~inside_comparison:false root
@@ -1601,24 +1705,32 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
             | _ -> raise Unproved
           in
           let consumer = sole (users (get address.result).value_id) in
-          let kind =
-            if consumer.opcode = O.Ic_deref then Read
-            else if owned && consumer.opcode = O.Ic_addr then Address
-            else (
-              require (write_opcode consumer.opcode);
-              Write)
-          in
           let span = get address.span in
           let access =
             sole
               (List.filter
                  (fun access ->
-                   access.span = span && access.kind = kind
+                   access.span = span
                    && Frame.frame_slot_displacement
                         (get (Frame.location_frame_slot access.location))
                       = displacement)
                  !remaining)
           in
+          (match access.kind with
+          | Array_element _ ->
+              (* Hosted checked indexing keeps the base and scaled addition
+                 separate. The complete canonical graph proves that chain;
+                 it must not be mistaken for a scalar base read. *)
+              require (owned && consumer.opcode = O.Ic_add)
+          | kind ->
+              let actual =
+                if consumer.opcode = O.Ic_deref then Read
+                else if owned && consumer.opcode = O.Ic_addr then Address
+                else (
+                  require (write_opcode consumer.opcode);
+                  Write)
+              in
+              require (kind = actual));
           require (item.span = Some span && offset.span = Some span);
           remaining :=
             List.filter (fun candidate -> candidate != access) !remaining))
@@ -1650,7 +1762,9 @@ let analyze_members ~frame ~body ~statements =
          let address_count =
            List.fold_left
              (fun count access ->
-               if access.kind = Address then count + 1 else count)
+               if access.kind = Address || access.kind = Array_element false
+               then count + 1
+               else count)
              0 accesses
          in
          {

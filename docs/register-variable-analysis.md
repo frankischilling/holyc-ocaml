@@ -902,7 +902,9 @@ pointer stars nor dimensions and assigns R12/R13. It does not simply take the
 first two records. The general bank follows at `590-595`; its dimension rule
 admits a dimensioned positive-offset parameter unless its original name is
 `argv`. The allocator models that rule, while the authenticated executable domain
-here remains fixed scalar members without dimensions.
+here remains fixed scalar members without dimensions. The pinned parser itself
+rejects public array-formal syntax (`PrsVar.HC:255-257`); these later bank
+predicates do not authorize that syntax.
 
 The ledger distinguishes direct member access from address formation. A direct
 read or discarded write contributes two points and zero LEA balance. `&x`
@@ -953,3 +955,12 @@ Tests also cover descriptor copies, indexing, rebinding, calls, recursion,
 address-taking, initialization and bounds faults, source/shape mutation, exact
 limits and fault recovery. These are pinned-source deductions and hosted tests,
 not new TempleOS captures or completion of issue #703.
+
+## Scalar homes beside local arrays
+
+The [local-array extension](array-member-registers.md) separates complete member
+participation from physical-home eligibility. Positive, source-authenticated
+primitive local arrays retain their dimensions, extent, order and access events
+in the whole-function ledger. Their sort and pressure effects remain visible
+even though neither automatic bank assigns them a register. Existing array
+storage, initialization, bounds checks and large-frame probes are unchanged.

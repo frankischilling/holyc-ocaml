@@ -1,5 +1,10 @@
 # Compiler status and implementation notes
 
+[Allocation beside local arrays](array-member-registers.md) keeps primitive
+array members in the original score, sort and pressure sequence. Eligible
+scalar homes can share an owner with checked large-array frames. Explicit array
+requests, zero extents and unsupported access/storage shapes remain excluded.
+
 [Formal member identity](formal-member-identity.md) now preserves unnamed fixed
 arguments, first-member duplicate lookup and initializer assignment targets.
 Supported duplicate explicit register requests keep the final source owner and

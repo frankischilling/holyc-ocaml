@@ -64,6 +64,12 @@ val analyze_members :
     phase-surviving accesses, including owned pointer copies, dereferences and
     indexing. Direct accesses score twice and cancel their LEA; explicit address
     formation scores once and remains unbalanced even in [*(&x)]. Uninitialized
-    declarations remain members without granting readable storage. The caller
-    must independently reconstruct and authenticate the complete canonical
-    graph. *)
+    declarations remain members without granting readable storage. Positive,
+    source-authenticated primitive local arrays remain in original member order
+    and candidate pressure even though they cannot receive physical homes.
+    Rank-one literal in-bounds and direct scalar-variable indexing prove
+    distinct zero/interior/dynamic LEA events, retaining scalar index accesses.
+    Empty, formal, pointer, callback, aggregate and explicitly registered
+    arrays, array initializers and other index expressions remain outside this
+    proof. The caller must independently reconstruct and authenticate the
+    complete canonical graph. *)

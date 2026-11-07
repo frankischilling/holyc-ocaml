@@ -125,6 +125,40 @@ let member_shapes () =
     [ (5, 6); (6, 7); (3, 10); (0, 11); (1, 14); (2, 15) ]
     (Allocation.allocate ~reserved:[] escaped)
 
+let local_array_members () =
+  let base = candidates [ 12L; 10L; 8L; 6L; 4L; 2L; 0L ] in
+  let array score lea_balance =
+    List.mapi
+      (fun index candidate ->
+        if index = 6 then
+          {
+            candidate with
+            Allocation.has_dimensions = true;
+            offset = -40000L;
+            score;
+            lea_balance;
+          }
+        else candidate)
+      base
+  in
+  let check label expected candidates =
+    Alcotest.(check (list (pair int int)))
+      label expected
+      (Allocation.allocate ~reserved:[] candidates)
+  in
+  let general = [ (0, 6); (1, 7); (2, 10); (3, 11); (4, 14); (5, 15) ] in
+  let nonpointer = [ (0, 12); (1, 13); (2, 6); (3, 7); (4, 10); (5, 11) ] in
+  check "ordinary unused dimensioned member sorts then trims" general
+    (array 0L 0L);
+  check "unused forced array survives but never receives a home" nonpointer
+    (array (Int64.div Int64.max_int 2L) 0L);
+  check "zero index cancellation retains array in candidate pressure" nonpointer
+    (array 2L 0L);
+  check "interior index address filters array before candidate pressure" general
+    (array 1L 1L);
+  check "forced array LEA still filters before candidate pressure" general
+    (array (Int64.add (Int64.div Int64.max_int 2L) 1L) 1L)
+
 let explicit_requests () =
   let check label requests owners shadowed conflicts =
     let result = Allocation.resolve_explicit requests in
@@ -183,6 +217,8 @@ let () =
         [
           Alcotest.test_case "unstable ties" `Quick ties;
           Alcotest.test_case "ordered explicit owners" `Quick explicit_requests;
+          Alcotest.test_case "local array candidate membership" `Quick
+            local_array_members;
           Alcotest.test_case "member shapes" `Quick member_shapes;
           Alcotest.test_case "register banks and filters" `Quick allocate;
         ] );

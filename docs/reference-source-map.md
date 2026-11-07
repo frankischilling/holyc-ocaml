@@ -2670,3 +2670,16 @@ conflict. `OptPass4.HC:198-215` uses the final offset table;
 `OptPass789A.HC:712-716` loads only final positive-offset owners on entry. See
 [formal members](formal-member-identity.md) for the source rules and the hosted
 physical-home projection.
+
+## Scalar allocation beside primitive local arrays
+
+`Compiler/PrsVar.HC:531-532,590-606` establishes complete array extent and local
+alignment. `PrsExp.HC:772-803,1055-1099` emits array base addresses and scaled
+indices; `153-162` retains address-taking through IC_ADDR.
+`OptPass012.HC:308-375,485-557` supplies the admitted literal-index folds.
+`OptPass3.HC:129-162,193-197,239-245` distinguishes first-containing-range
+address events from exact-start cancellation. Its candidate construction at
+`36-42` and sort/filter/bank sequence at `538-595` preserve local-array pressure
+without assigning dimensioned locals an automatic register. See
+[allocation beside arrays](array-member-registers.md) for admitted shapes and
+separate execution limits.

@@ -2585,3 +2585,15 @@ members and once-per-conflict register diagnostics. Direct frame/binding checks,
 source-owner mutations, exact quotas and retained-image fault recovery accompany
 the IR and native JIT/AOT reports. See [formal members](formal-member-identity.md)
 and `examples/formal-member-identity.hc`.
+
+Local-array allocation tests use independently derived unequal and equal-score
+maps, including forced arrays and zero-score members that must be sorted before
+trimming. The CLI suite checks same-start, interior and dynamic index events,
+address-taking, narrow array stores, scalar/pointer/F64 preservation through
+supported calls, compact probes and recursive large frames. Exact semantic,
+private, active-stack, IR, code and step limits accompany same-image recovery.
+Windows unwind encoding checks validate saved-register offsets and endpoints;
+Windows execution is separately qualified by CI. Source-owner and dimension
+mutations invalidate saved and fresh proofs. Explicit requests, invalid ranges
+and existing storage/index/conversion boundaries retain negative controls.
+See [allocation beside arrays](array-member-registers.md).

@@ -11,6 +11,11 @@ for native observations, execution checks and the separate AOT boundary.
 
 ## Unreleased
 
+- Keep primitive local arrays in whole-function register scoring and pressure
+  while assigning physical homes only to eligible members. Preserve source
+  index-address events, checked array storage and large-frame probes. See
+  [allocation beside arrays](array-member-registers.md).
+
 - Preserve unnamed fixed formal members and first-member lookup for supported
   duplicate names. Keep initializer assignment targets separate from declaration
   and warning-reset owners. Resolve supported duplicate explicit register

@@ -246,6 +246,7 @@ type location_stamp = {
   value_shape : Frame.value_shape;
   declarator_shape : Frame.declarator_shape;
   dimensions : (Frame.dimension_kind * int64) list;
+  source_dimensions_checked : bool;
   name : string;
   element_size : int64;
   alignment : int;
@@ -277,6 +278,8 @@ let location_stamp ~frame location =
               (fun dimension ->
                 (Frame.dimension_kind dimension, Frame.dimension_value dimension))
               (Frame.location_dimensions location);
+          source_dimensions_checked =
+            Frame.location_source_dimensions_checked location;
           name = copy_string (Sema.Symbol.name (Frame.location_symbol location));
           element_size = Frame.location_element_size location;
           alignment = Frame.location_alignment location;
@@ -302,6 +305,7 @@ let equal_location a b =
   && a.value_shape = b.value_shape
   && a.declarator_shape = b.declarator_shape
   && a.dimensions = b.dimensions
+  && a.source_dimensions_checked = b.source_dimensions_checked
   && a.name = b.name
   && a.element_size = b.element_size
   && a.alignment = b.alignment
@@ -2735,7 +2739,7 @@ module Mixed_scalar_source = struct
         require (depth > 0 && not (List.exists (( == ) value) !seen));
         require
           (List.exists (( == ) value) (Typed.function_all_results source)
-          && Typed.result_array_rank value = 0
+          && (Typed.result_array_rank value = 0 || owned)
           && scalar_or_void_call ~owned value);
         seen := value :: !seen;
         let original = Typed.result_source value in
@@ -2941,12 +2945,13 @@ module Mixed_scalar_source = struct
                 (fun index (declarator : Ast.local_declarator) ->
                   require
                     ((owned || declarator.local_pointer_layers = [])
-                    && declarator.local_array_dimensions = []
+                    && (owned || declarator.local_array_dimensions = [])
                     && declarator.local_function_pointer = None);
                   match declarator.local_initializer with
                   | None when owned -> None
                   | None -> raise Unproved
                   | Some initial ->
+                      require (declarator.local_array_dimensions = []);
                       let ast =
                         match initial.local_initializer_value with
                         | Ast.Scalar_initializer ast -> ast
@@ -4276,6 +4281,7 @@ let analyze_owned_members ?runtime ~frame ~body () =
                             then Register_candidate
                             else if
                               stack_selected ~body location
+                              || Frame.location_dimensions location <> []
                               || member.lea_balance <> 0L || member.score <> 0L
                               || Frame.location_register_selection location
                                  = Request.Allocatable
@@ -4351,6 +4357,8 @@ let analyze_with_context ?runtime ~frame ~body () =
       || List.exists
            (fun location ->
              Sema.Type.pointer_depth (Frame.location_checked_type location) > 0
+             || Frame.location_value_shape location = Frame.Array
+             || Frame.location_dimensions location <> []
              || (match
                    Sema.Type.base (Frame.location_checked_type location)
                  with
