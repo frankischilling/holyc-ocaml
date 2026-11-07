@@ -48,6 +48,7 @@ type function_ = {
   source_body : Ast.function_definition;
   source_body_owner : Ast.function_definition;
   source_body_seal : string;
+  source_local_owners : (Ast.local_declaration * Ast.local_declarator list) list;
 }
 
 type t = {
@@ -69,6 +70,39 @@ let function_item_index (value : function_) = value.item_index
 let function_symbol (value : function_) = value.symbol
 let function_compilation_options (value : function_) = value.compilation_options
 
+let local_declaration_owners definition =
+  let rec statement = function
+    | Ast.Local_declaration_statement declaration ->
+        [ (declaration, List.map Fun.id declaration.local_declarators) ]
+    | Block_statement block -> List.concat_map statement block.block_statements
+    | Sequence_statement sequence ->
+        List.concat_map
+          (fun element -> statement element.Ast.sequence_statement)
+          sequence.sequence_elements
+    | If_statement conditional ->
+        statement conditional.if_then_branch
+        @ Option.fold ~none:[]
+            ~some:(fun branch -> statement branch.Ast.else_branch)
+            conditional.if_else_clause
+    | While_statement loop -> statement loop.while_body
+    | Do_while_statement loop -> statement loop.do_body
+    | For_statement loop ->
+        statement loop.for_initializer
+        @ Option.fold ~none:[] ~some:statement loop.for_update
+        @ statement loop.for_body
+    | Lock_statement locked -> statement locked.lock_body
+    | Try_catch_statement tried ->
+        statement tried.try_body @ statement tried.catch_body
+    | Switch_statement switch -> List.concat_map element switch.switch_elements
+    | _ -> []
+  and element = function
+    | Ast.Switch_statement_element source -> statement source
+    | Switch_subswitch_element source ->
+        List.concat_map element source.subswitch_elements
+    | Switch_case_element _ | Switch_default_element _ -> []
+  in
+  Option.fold ~none:[] ~some:statement definition.Ast.body
+
 let function_source_body (value : function_) =
   (* This is an internal immutable syntax snapshot, never deserialized. Retain
      it when the parser receipt is authenticated, not when an allocation query
@@ -77,6 +111,12 @@ let function_source_body (value : function_) =
   if
     value.source_body == value.source_body_owner
     && Marshal.to_string value.source_body [] = value.source_body_seal
+    && List.equal
+         (fun (declaration, declarators) (other, other_declarators) ->
+           declaration == other
+           && List.equal ( == ) declarators other_declarators)
+         value.source_local_owners
+         (local_declaration_owners value.source_body)
   then Some value.source_body
   else None
 
@@ -482,6 +522,7 @@ let create ~table ~declarations ~bodies ?aggregate_references
                      source_body = definition;
                      source_body_owner = definition;
                      source_body_seal = Marshal.to_string definition [];
+                     source_local_owners = local_declaration_owners definition;
                      compilation_options =
                        Frontend.Parser.function_body_compiler_options
                          (List.find (fun (_, body) -> body == definition) bodies

@@ -238,6 +238,11 @@ type location_stamp = {
   request_owner : Request.explicit_register option;
   source_requests : source_requests_stamp option;
   value_shape : Frame.value_shape;
+  declarator_shape : Frame.declarator_shape;
+  dimensions : (Frame.dimension_kind * int64) list;
+  name : string;
+  element_size : int64;
+  alignment : int;
   checked_type : Sema.Type.primitive_form * Sema.Primitive_type.t * int;
   slot : (Frame.frame_slot * int64 * int64) option;
   allocated_size : int64;
@@ -260,6 +265,15 @@ let location_stamp ~frame location =
             | Unspecified | Allocatable | Disabled -> None);
           source_requests = source_requests ~frame location;
           value_shape = Frame.location_value_shape location;
+          declarator_shape = Frame.location_declarator_shape location;
+          dimensions =
+            List.map
+              (fun dimension ->
+                (Frame.dimension_kind dimension, Frame.dimension_value dimension))
+              (Frame.location_dimensions location);
+          name = copy_string (Sema.Symbol.name (Frame.location_symbol location));
+          element_size = Frame.location_element_size location;
+          alignment = Frame.location_alignment location;
           checked_type =
             ( form,
               primitive,
@@ -280,6 +294,11 @@ let equal_location a b =
   && Option.equal ( == ) a.request_owner b.request_owner
   && Option.equal equal_source_requests a.source_requests b.source_requests
   && a.value_shape = b.value_shape
+  && a.declarator_shape = b.declarator_shape
+  && a.dimensions = b.dimensions
+  && a.name = b.name
+  && a.element_size = b.element_size
+  && a.alignment = b.alignment
   && a.checked_type = b.checked_type
   && a.allocated_size = b.allocated_size
   && Option.equal
@@ -2634,9 +2653,18 @@ module Mixed_scalar_source = struct
         ) -> true
     | _ -> false
 
-  let scalar_or_void_call value =
-    let type_ = get (Typed.result_type value) in
+  let owned_scalar type_ =
     scalar type_
+    || Sema.Type.pointer_depth type_ <= 2
+       &&
+       match Sema.Type.base type_ with
+       | Sema.Type.Primitive (_, primitive) ->
+           Option.is_some (Sema.Primitive_type.integer_storage_info primitive)
+       | _ -> false
+
+  let scalar_or_void_call ~owned value =
+    let type_ = get (Typed.result_type value) in
+    (if owned then owned_scalar type_ else scalar type_)
     || Sema.Type.pointer_depth type_ = 0
        && (match Sema.Type.base type_ with
          | Sema.Type.Primitive (_, (Sema.Primitive_type.I0 | U0)) -> true
@@ -2648,7 +2676,7 @@ module Mixed_scalar_source = struct
 
   let direct_resolution call = Typed.direct_source call |> Policy.direct_source
 
-  let reconstruct ?runtime ~frame ~body () =
+  let reconstruct ?runtime ?(owned = false) ~frame ~body () =
     try
       let source = get (Function_body.definition_source body) in
       let declaration = get (Function_body.definition_declaration body) in
@@ -2703,7 +2731,7 @@ module Mixed_scalar_source = struct
         require
           (List.exists (( == ) value) (Typed.function_all_results source)
           && Typed.result_array_rank value = 0
-          && scalar_or_void_call value);
+          && scalar_or_void_call ~owned value);
         seen := value :: !seen;
         let original = Typed.result_source value in
         let ast = get (Source.argument_expression_source original) in
@@ -2758,6 +2786,10 @@ module Mixed_scalar_source = struct
                    [ "+"; "-"; "*"; "/"; "=" ]);
             let left_calls = child binary.binary_left left in
             left_calls @ child binary.binary_right right
+        | Source.Index_expression _, Ast.Index_expression index when owned ->
+            let base, offset = get (Typed.result_index_operands value) in
+            let first = child index.index_base base in
+            first @ child index.index_value offset
         | Unresolved_expression Source.Call_expression, Ast.Call_expression ast
           ->
             let resolved =
@@ -2903,40 +2935,44 @@ module Mixed_scalar_source = struct
               List.mapi
                 (fun index (declarator : Ast.local_declarator) ->
                   require
-                    (declarator.local_pointer_layers = []
+                    ((owned || declarator.local_pointer_layers = [])
                     && declarator.local_array_dimensions = []
                     && declarator.local_function_pointer = None);
-                  let initial = get declarator.local_initializer in
-                  let ast =
-                    match initial.local_initializer_value with
-                    | Ast.Scalar_initializer ast -> ast
-                    | _ -> raise Unproved
-                  in
-                  let root =
-                    take initializers (fun root ->
-                        let local =
-                          Typed.initializer_source root
-                          |> Source.initializer_local
-                        in
-                        Local.local_declaration_index local = !declarations
-                        && Local.local_declarator_index local = index
-                        && Sema.Symbol.origin (Local.local_symbol local)
-                           = Sema.Initializer_source.origin_of_location
-                               declarator.local_name.location
-                        && Local.local_declaration_origin local
-                           = Sema.Initializer_source.origin_of_location
-                               declaration.local_declaration_location
-                        && List.exists
-                             (fun location ->
-                               Option.equal ( == )
-                                 (Frame.location_local_source location)
-                                 (Some local))
-                             (Frame.function_locations frame)
-                        && matches (Typed.initializer_value root) ast)
-                  in
-                  validate (Typed.initializer_value root);
-                  Lower.Initialize root)
+                  match declarator.local_initializer with
+                  | None when owned -> None
+                  | None -> raise Unproved
+                  | Some initial ->
+                      let ast =
+                        match initial.local_initializer_value with
+                        | Ast.Scalar_initializer ast -> ast
+                        | _ -> raise Unproved
+                      in
+                      let root =
+                        take initializers (fun root ->
+                            let local =
+                              Typed.initializer_source root
+                              |> Source.initializer_local
+                            in
+                            Local.local_declaration_index local = !declarations
+                            && Local.local_declarator_index local = index
+                            && Sema.Symbol.origin (Local.local_symbol local)
+                               = Sema.Initializer_source.origin_of_location
+                                   declarator.local_name.location
+                            && Local.local_declaration_origin local
+                               = Sema.Initializer_source.origin_of_location
+                                   declaration.local_declaration_location
+                            && List.exists
+                                 (fun location ->
+                                   Option.equal ( == )
+                                     (Frame.location_local_source location)
+                                     (Some local))
+                                 (Frame.function_locations frame)
+                            && matches (Typed.initializer_value root) ast)
+                      in
+                      validate (Typed.initializer_value root);
+                      Some (Lower.Initialize root))
                 declaration.local_declarators
+              |> List.filter_map Fun.id
             in
             incr declarations;
             Lower.Block lowered
@@ -3865,6 +3901,10 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
                             Frame.frame_slot_displacement
                               (Option.get (Frame.location_frame_slot location));
                           lea_balance = 0L;
+                          pointer_depth = 0;
+                          has_dimensions = false;
+                          name =
+                            Sema.Symbol.name (Frame.location_symbol location);
                         })
                       seed)
                   (List.mapi (fun index member -> (index, member)) members)
@@ -4027,6 +4067,156 @@ let source_owned_requests ~frame ~body (original : location_stamp) =
           | Allocatable_request | Disabled_request -> true
           | Unspecified_request | Explicit_request _ -> false))
 
+(* This proof keeps member selection separate from readable storage. The
+   canonical graph retains every frame load/store and its runtime initialization
+   checks. A register home for an uninitialized local is not an initialized value.
+   Pointer homes contain private descriptor pointers, never language addresses. *)
+let analyze_owned_members ?runtime ~frame ~body () =
+  let locations = Frame.function_locations frame in
+  if
+    (not (supported_options body && safe_register_requests locations))
+    || Int64.logand
+         (Function_body.stored_flags body)
+         (Int64.lognot Function_body.ordinary_calling_flag_mask)
+       <> 0L
+    || not
+         (List.for_all
+            (fun location ->
+              Option.fold ~none:false
+                ~some:(source_owned_requests ~frame ~body)
+                (location_stamp ~frame location))
+            locations)
+  then None
+  else
+    Option.bind
+      (Mixed_scalar_source.reconstruct ?runtime ~owned:true ~frame ~body ())
+      (fun statements ->
+        Option.bind
+          (Exact_register_scores.analyze_members ~frame ~body ~statements)
+          (fun members ->
+            (* Explicit requests bypass OptPass3's balance filtering. Their
+               stack/register coexistence is not represented: reject, never spill
+               or substitute a different requested physical home. *)
+            if
+              List.exists
+                (fun (member : Exact_register_scores.member_score) ->
+                  member.lea_balance <> 0L
+                  &&
+                  match Frame.location_register_selection member.location with
+                  | Request.Explicit _ -> true
+                  | _ -> false)
+                members
+            then None
+            else
+              let explicit =
+                List.filter_map
+                  (fun (member : Exact_register_scores.member_score) ->
+                    match Frame.location_register_selection member.location with
+                    | Request.Explicit register ->
+                        Some
+                          ( Frame.location_symbol member.location,
+                            Request.explicit_register_number register )
+                    | _ -> None)
+                  members
+              in
+              let candidates =
+                List.mapi
+                  (fun index (member : Exact_register_scores.member_score) ->
+                    let location = member.location in
+                    let seed =
+                      match Frame.location_register_selection location with
+                      | Request.Allocatable -> Some (Int64.div Int64.max_int 2L)
+                      | Unspecified when automatic_candidate location -> Some 0L
+                      | _ -> None
+                    in
+                    Option.map
+                      (fun seed ->
+                        {
+                          Scored_register_allocation.member = index;
+                          score = Int64.add seed member.score;
+                          lea_balance = member.lea_balance;
+                          offset =
+                            Frame.frame_slot_displacement
+                              (Option.get (Frame.location_frame_slot location));
+                          pointer_depth =
+                            Sema.Type.pointer_depth
+                              (Frame.location_checked_type location);
+                          has_dimensions =
+                            Frame.location_dimensions location <> [];
+                          name =
+                            Sema.Symbol.name (Frame.location_symbol location);
+                        })
+                      seed)
+                  members
+                |> List.filter_map Fun.id
+              in
+              let registers =
+                explicit
+                @
+                if registers_disabled body then []
+                else
+                  List.map
+                    (fun (index, number) ->
+                      ( Frame.location_symbol (List.nth members index).location,
+                        number ))
+                    (Scored_register_allocation.allocate
+                       ~reserved:(List.map snd explicit) candidates)
+              in
+              let blocks = snapshot body in
+              let code = List.concat_map (fun (_, items, _) -> items) blocks in
+              if
+                not
+                  (List.for_all
+                     (fun item -> Option.is_some (instruction_stamp item))
+                     code)
+              then None
+              else
+                Some
+                  {
+                    frame_ = frame;
+                    parameters_ = List.map Fun.id (signature_parameters frame);
+                    parameter_sources_ =
+                      Option.map (List.map Fun.id) (source_parameters frame);
+                    body_ = body;
+                    definition_ = Function_body.definition_declaration body;
+                    source_ = Function_body.definition_source body;
+                    options_ = Function_body.compiler_options body;
+                    flags_ = Function_body.stored_flags body;
+                    locations_ =
+                      List.map
+                        (fun location ->
+                          Option.get (location_stamp ~frame location))
+                        locations;
+                    blocks_ = blocks;
+                    stamps_ =
+                      List.map
+                        (fun item ->
+                          (item, Option.get (instruction_stamp item)))
+                        code;
+                    selections_ =
+                      List.map
+                        (fun (member : Exact_register_scores.member_score) ->
+                          let location = member.location in
+                          let symbol = Frame.location_symbol location in
+                          ( symbol,
+                            if
+                              List.exists
+                                (fun (original, _) -> original == symbol)
+                                registers
+                            then Register_candidate
+                            else if
+                              stack_selected ~body location
+                              || member.lea_balance <> 0L || member.score <> 0L
+                              || Frame.location_register_selection location
+                                 = Request.Allocatable
+                            then Stack
+                            else Unknown ))
+                        members;
+                    exact_registers_ = Some registers;
+                    exact_source_ = Exact_register_scores.stamp_source body;
+                    runtime_ = runtime;
+                  }))
+
 let analyze_with_context ?runtime ~frame ~body () =
   if
     (not (complete_parameter_coverage ~frame))
@@ -4069,8 +4259,33 @@ let analyze_with_context ?runtime ~frame ~body () =
               ())
       else None
     in
+    let extended =
+      List.exists
+        (fun location ->
+          Sema.Type.pointer_depth (Frame.location_checked_type location) > 0
+          || (match Sema.Type.base (Frame.location_checked_type location) with
+            | Sema.Type.Primitive (_, Sema.Primitive_type.Bool) -> true
+            | _ -> false)
+          || Frame.location_kind location = Frame.Automatic_local
+             && Option.fold ~none:false
+                  ~some:(fun local ->
+                    Option.is_none
+                      (Sema.Local_type_resolution.local_initializer local))
+                  (Frame.location_local_source location))
+        (Frame.function_locations frame)
+      || List.exists
+           (fun (_, items, _) ->
+             List.exists
+               (fun (item : Seq.description) -> item.opcode = O.Ic_addr)
+               items)
+           (snapshot body)
+    in
+    let exact =
+      if extended then analyze_owned_members ?runtime ~frame ~body () else exact
+    in
     match exact with
     | Some proof -> Some proof
+    | None when extended -> None
     | None when mixed ->
         if
           List.for_all
@@ -4147,6 +4362,37 @@ let selection t ~frame ~body ~symbol =
                      left == right && register = other))
                 t.exact_registers_ current.exact_registers_ -> Some expected
     | _ -> None
+
+(* A reservation can be real without a materialized home. Prove its lack of
+   accesses from the original complete source ledger, not absence of hosted
+   loads: unused explicit members still reserve a bank slot before scoring. *)
+let unused_explicit_reservation t ~frame ~body ~symbol =
+  match selection t ~frame ~body ~symbol with
+  | Some Unknown
+    when safe_register_requests (Frame.function_locations frame)
+         && List.for_all (source_owned_requests ~frame ~body) t.locations_ ->
+      Option.bind
+        (List.find_opt (fun original -> original.symbol == symbol) t.locations_)
+        (fun original ->
+          match original.request with
+          | Explicit_request (_, number, _)
+            when List.mem number variable_registers ->
+              Option.bind
+                (Mixed_scalar_source.reconstruct ?runtime:t.runtime_ ~owned:true
+                   ~frame ~body ()) (fun statements ->
+                  Option.bind
+                    (Exact_register_scores.analyze_members ~frame ~body
+                       ~statements) (fun members ->
+                      List.find_map
+                        (fun (member : Exact_register_scores.member_score) ->
+                          if
+                            Frame.location_symbol member.location == symbol
+                            && member.score = 0L && member.lea_balance = 0L
+                          then Some number
+                          else None)
+                        members))
+          | _ -> None)
+  | Some Register_candidate | Some Stack | Some Unknown | None -> None
 
 let physical_register t ~frame ~body ~symbol =
   match selection t ~frame ~body ~symbol with

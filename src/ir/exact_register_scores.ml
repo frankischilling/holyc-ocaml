@@ -55,10 +55,54 @@ let f64_type type_ =
 
 let scalar_type type_ = integer_type type_ || f64_type type_
 
+let owned_type type_ =
+  scalar_type type_
+  || Sema.Type.pointer_depth type_ <= 2
+     &&
+     match Sema.Type.base type_ with
+     | Sema.Type.Primitive (_, primitive) ->
+         Option.is_some (Sema.Primitive_type.integer_storage_info primitive)
+     | _ -> false
+
+let authenticate_type location reference specifier layers =
+  let form, primitive, spelling, origin =
+    match specifier with
+    | Ast.Primitive_type_specifier original ->
+        ( Sema.Type.Public_spelling,
+          original.primitive,
+          original.spelling,
+          Sema.Initializer_source.origin_of_location original.location )
+    | Ast.Internal_type_specifier original ->
+        ( Sema.Type.Internal_storage,
+          original.primitive,
+          original.spelling,
+          Sema.Initializer_source.origin_of_location original.location )
+    | Ast.Named_type_specifier _ -> raise Unproved
+  in
+  let type_ = Frame.location_checked_type location in
+  require
+    (Sema.Type.base type_ = Sema.Type.Primitive (form, primitive)
+    && Sema.Type.pointer_depth type_ = List.length layers
+    && Sema.Type.equal type_ (Sema.Type_reference.resolved_type reference)
+    && Sema.Type_reference.spelling reference = spelling
+    && Sema.Type_reference.spelling_origin reference = origin
+    && Option.equal ( == ) (Some reference)
+         (Frame.location_type_reference location)
+    && List.for_all
+         (fun (index, (layer : Ast.pointer_layer)) ->
+           layer.depth = index + 1 && layer.spelling = "*")
+         (List.mapi (fun index layer -> (index, layer)) layers));
+  require
+    (List.map
+       (fun (layer : Ast.pointer_layer) ->
+         Sema.Initializer_source.origin_of_location layer.location)
+       layers
+    = Sema.Type_reference.pointer_origins reference)
+
 let descriptions block =
   Block_graph.instructions block |> Seq.instructions |> List.map Seq.description
 
-type access_kind = Read | Write
+type access_kind = Read | Write | Address
 
 type access = {
   location : Frame.location;
@@ -396,7 +440,32 @@ let authenticate_body ~frame ~body ~locations source roots =
   require (!remaining = []);
   List.rev !ordered
 
-let source_order ~frame ~body =
+let source_local_declarations body =
+  let rec statement = function
+    | Ast.Local_declaration_statement local -> [ local ]
+    | Block_statement block -> List.concat_map statement block.block_statements
+    | Sequence_statement sequence ->
+        List.concat_map
+          (fun element -> statement element.Ast.sequence_statement)
+          sequence.sequence_elements
+    | If_statement conditional ->
+        statement conditional.if_then_branch
+        @ Option.fold ~none:[]
+            ~some:(fun branch -> statement branch.Ast.else_branch)
+            conditional.if_else_clause
+    | While_statement loop -> statement loop.while_body
+    | Do_while_statement loop -> statement loop.do_body
+    | For_statement loop ->
+        statement loop.for_initializer
+        @ Option.fold ~none:[] ~some:statement loop.for_update
+        @ statement loop.for_body
+    | _ -> []
+  in
+  let source = get (Function_body.definition_source body) in
+  let definition = get (Typed.function_source_body source) in
+  Option.fold ~none:[] ~some:statement definition.body
+
+let source_order ?(owned = false) ~frame ~body () =
   let locations = Frame.function_locations frame in
   require (locations <> [] && List.length locations <= 32);
   require
@@ -405,7 +474,11 @@ let source_order ~frame ~body =
          Frame.location_value_shape location = Frame.Scalar
          && Frame.location_declarator_shape location = Frame.Object
          && Frame.location_dimensions location = []
-         && scalar_type (Frame.location_checked_type location)
+         && (if owned then
+               owned_type (Frame.location_checked_type location)
+               && Sema.Type.pointer_depth (Frame.location_checked_type location)
+                  <= 1
+             else scalar_type (Frame.location_checked_type location))
          && Option.is_some (Frame.location_frame_slot location))
        locations);
   let parameters =
@@ -434,6 +507,11 @@ let source_order ~frame ~body =
         let name = get original.name in
         require
           (Sema.Symbol.name (Frame.location_symbol location) = name.spelling);
+        if owned then (
+          require (original.function_pointer = None);
+          authenticate_type location
+            (Headers.parameter_type_reference parameter)
+            original.type_specifier original.pointer_layers);
         location)
       parameters
   in
@@ -442,6 +520,14 @@ let source_order ~frame ~body =
       (fun location -> Frame.location_kind location = Frame.Automatic_local)
       locations
   in
+  let declarations = if owned then source_local_declarations body else [] in
+  if owned then
+    require
+      (List.fold_left
+         (fun count declaration ->
+           count + List.length declaration.Ast.local_declarators)
+         0 declarations
+      = List.length locals);
   let local_key location =
     let original = get (Frame.location_local_source location) in
     let binding = Frame.location_binding location in
@@ -452,7 +538,23 @@ let source_order ~frame ~body =
       && Binding.binding_local_declarator_index binding = Some declarator
       && Local.local_symbol original == Frame.location_symbol location
       && Local.local_storage original = Local.Automatic
-      && Option.is_some (Local.local_initializer original));
+      && (owned || Option.is_some (Local.local_initializer original)));
+    if owned then (
+      let source = get (List.nth_opt declarations declaration) in
+      let item = get (List.nth_opt source.Ast.local_declarators declarator) in
+      require
+        (source.local_storage = Ast.Automatic_local
+        && item.local_array_dimensions = []
+        && item.local_function_pointer = None
+        && item.local_name.spelling
+           = Sema.Symbol.name (Frame.location_symbol location)
+        && Sema.Initializer_source.origin_of_location item.local_name.location
+           = Sema.Symbol.origin (Frame.location_symbol location)
+        && Option.is_some item.local_initializer
+           = Option.is_some (Local.local_initializer original));
+      authenticate_type location
+        (Local.local_type_reference original)
+        source.local_type_specifier item.local_pointer_layers);
     (declaration, declarator)
   in
   let locals =
@@ -460,6 +562,32 @@ let source_order ~frame ~body =
       (fun left right -> compare (local_key left) (local_key right))
       locals
   in
+  (if owned then
+     let original =
+       List.mapi
+         (fun declaration_index declaration ->
+           List.mapi
+             (fun declarator_index declarator ->
+               (declaration_index, declarator_index, declaration, declarator))
+             declaration.Ast.local_declarators)
+         declarations
+       |> List.concat
+     in
+     require
+       (same_list
+          (fun (declaration_index, declarator_index, declaration, declarator)
+               location ->
+            let local = get (Frame.location_local_source location) in
+            local_key location = (declaration_index, declarator_index)
+            && Local.local_declaration_origin local
+               = Sema.Initializer_source.origin_of_location
+                   declaration.Ast.local_declaration_location
+            && Local.local_declarator_origin local
+               = Sema.Initializer_source.origin_of_location
+                   declarator.Ast.local_declarator_location
+            && requests_match declarator.local_register_qualifiers
+                 (Local.local_register_requests local))
+          original locals));
   let previous = ref None in
   List.iter
     (fun location ->
@@ -492,6 +620,40 @@ let source_order ~frame ~body =
     (members_match (Function_body.parameters body) parameter_locations
     && members_match (Function_body.locals body) locals);
   let ordered = parameter_locations @ locals in
+  if owned then (
+    let cursor = ref 0L in
+    List.iteri
+      (fun index location ->
+        let type_ = Frame.location_checked_type location in
+        let element =
+          if Sema.Type.pointer_depth type_ > 0 then 8
+          else
+            match Sema.Type.base type_ with
+            | Sema.Type.Primitive (_, primitive) ->
+                (Sema.Primitive_type.info primitive).byte_size
+            | _ -> raise Unproved
+        in
+        require (List.mem element [ 1; 2; 4; 8 ]);
+        let offset, bytes, alignment =
+          if index < List.length parameter_locations then
+            (Int64.of_int (16 + (8 * index)), 8, 8)
+          else (
+            cursor :=
+              Int64.logand
+                (Int64.sub !cursor (Int64.of_int element))
+                (Int64.neg (Int64.of_int element));
+            (!cursor, element, element))
+        in
+        let slot = get (Frame.location_frame_slot location) in
+        require
+          (Frame.location_element_size location = Int64.of_int element
+          && Frame.location_allocated_size location = Int64.of_int bytes
+          && Frame.location_alignment location = alignment
+          && Frame.frame_slot_size slot = Int64.of_int bytes
+          && Frame.frame_slot_displacement slot = offset))
+      ordered;
+    require
+      (Frame.function_frame_size frame = Int64.neg (Int64.logand !cursor (-8L))));
   (* Neither the mutable frame list nor a prior witness supplies member order.
      Parameter indexes, original local declaration/declarator indexes, binding
      ordinals, source positions and body-member positions must all agree. *)
@@ -582,7 +744,7 @@ let analyze ~frame ~body =
   try
     require (Function_body.definition_matches_frame body frame);
     let source = get (Function_body.definition_source body) in
-    let locations = source_order ~frame ~body in
+    let locations = source_order ~frame ~body () in
     require
       (Typed.function_calls source = []
       && Typed.function_conditions source = []
@@ -1094,9 +1256,12 @@ let analyze ~frame ~body =
    Each surviving direct frame address contributes score +1, LEA +1 at
    OptPass3.HC:179-199. Its unique direct read (:119-135), unary update
    (:149-163), or assignment/compound update (:223-245) contributes score +1,
-   LEA -1. Thus each ledger record proves score=2 and lea_balance=0. This is
-   not an estimate from hosted loads or temporary liveness. *)
-let analyze_whole ~frame ~body ~statements =
+   LEA -1. A direct access therefore proves score=2 and lea_balance=0.
+   The owned-member extension also retains explicit address formations as
+   score=1 and lea_balance=1. IC_ADDR survives the pre-scoring passes, so even
+   *(&x) cannot use the direct IC_LEA cancellation. These are source-phase
+   events, not estimates from hosted loads or temporary liveness. *)
+let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
   let module Lower = Integer_program_lowering in
   let module Policy = Sema.Function_call_conversion_policy in
   try
@@ -1105,12 +1270,12 @@ let analyze_whole ~frame ~body ~statements =
       && permits_automatic_analysis body
       && source_requests_match ~frame ~body);
     let source = get (Function_body.definition_source body) in
-    let locations = source_order ~frame ~body in
+    let locations = source_order ~owned ~frame ~body () in
     let accesses = ref [] and seen = ref [] and seen_calls = ref [] in
     let initialized = ref [] in
     let scalar_or_void_call value =
       let type_ = get (Typed.result_type value) in
-      scalar_type type_
+      (if owned then owned_type type_ else scalar_type type_)
       || Sema.Type.pointer_depth type_ = 0
          && (match Sema.Type.base type_ with
            | Sema.Type.Primitive (_, (Sema.Primitive_type.I0 | U0)) -> true
@@ -1150,7 +1315,8 @@ let analyze_whole ~frame ~body ~statements =
              locations)
       in
       require
-        (Frame.location_kind location = Frame.Named_parameter
+        (owned
+        || Frame.location_kind location = Frame.Named_parameter
         || List.exists (( == ) location) !initialized);
       (match Frame_address_lowering.prepare ~frame value with
       | Ok (Some _) -> ()
@@ -1192,18 +1358,23 @@ let analyze_whole ~frame ~body ~statements =
           | Bitwise_not | Logical_not ->
               require ((not (floating value)) && not (floating operand));
               read operand
+          | Source.Address_of when owned -> lvalue (depth - 1) Address operand
+          | Source.Dereference when owned -> read operand
           | (Pre_increment | Pre_decrement) when write ->
-              require ((not (floating value)) && not (floating operand));
-              claim operand;
-              member operand Write
+              require
+                ((not (floating value))
+                && (not (floating operand))
+                && Sema.Type.pointer_depth (get (Typed.result_type operand)) = 0
+                );
+              lvalue (depth - 1) Write operand
           | _ -> raise Unproved)
       | Postfix_expression _, Ast.Postfix_expression ast when write ->
           let operand =
             child ast.postfix_operand (get (Typed.result_operand value))
           in
           require ((not (floating value)) && not (floating operand));
-          claim operand;
-          member operand Write
+          require (Sema.Type.pointer_depth (get (Typed.result_type operand)) = 0);
+          lvalue (depth - 1) Write operand
       | Binary_expression binary, Ast.Binary_expression ast ->
           let opcode = binary_opcode ast.binary_operator_spec.spelling in
           require (Source.binary_operator binary = opcode);
@@ -1215,17 +1386,41 @@ let analyze_whole ~frame ~body ~statements =
               (write
               && (opcode = O.Ic_assign
                  || not (floating value || floating left || floating right)));
-            claim left;
-            member left Write;
+            if owned && opcode <> O.Ic_assign then (
+              require
+                (Sema.Type.pointer_depth (get (Typed.result_type left)) = 0);
+              match
+                Source.argument_expression_kind (Typed.result_source right)
+              with
+              | Source.Integer_literal n ->
+                  require
+                    (match opcode with
+                    | O.Ic_add_equ | Ic_sub_equ | Ic_mul_equ ->
+                        n >= 0L && n <= Int64.of_int32 Int32.max_int
+                    | Ic_shl_equ | Ic_shr_equ -> n >= 0L && n < 64L
+                    | _ -> false)
+              | _ -> ());
+            lvalue (depth - 1) Write left;
             expression (depth - 1) ~write:false ~inside_comparison:false right)
           else (
             require
-              ((not (comparison opcode && inside_comparison))
+              (((not owned)
+               || List.for_all
+                    (fun child ->
+                      Sema.Type.pointer_depth (get (Typed.result_type child))
+                      = 0)
+                    [ value; left; right ])
+              && (not (comparison opcode && inside_comparison))
               && ((not (floating value || floating left || floating right))
                  || List.mem opcode [ O.Ic_add; Ic_sub; Ic_mul; Ic_div ]));
             let inside_comparison = inside_comparison || comparison opcode in
             expression (depth - 1) ~write:false ~inside_comparison left;
             expression (depth - 1) ~write:false ~inside_comparison right)
+      | Source.Index_expression _, Ast.Index_expression ast when owned ->
+          let base, index = get (Typed.result_index_operands value) in
+          require (Sema.Type.pointer_depth (get (Typed.result_type base)) = 1);
+          read (child ast.index_base base);
+          read (child ast.index_value index)
       | Unresolved_expression Source.Call_expression, Ast.Call_expression ast ->
           let direct =
             match Typed.result_call_resolution value with
@@ -1266,6 +1461,23 @@ let analyze_whole ~frame ~body ~statements =
                     (child ast argument)
               | Omitted_call_argument -> raise Unproved)
             ast.call_arguments arguments
+      | _ -> raise Unproved
+    and lvalue depth kind value =
+      require (depth > 0);
+      claim value;
+      match Source.argument_expression_kind (Typed.result_source value) with
+      | Source.Bound_identifier_expression _ -> member value kind
+      | Parenthesized_expression _ when owned ->
+          lvalue (depth - 1) kind (get (Typed.result_operand value))
+      | Prefix_expression prefix
+        when owned && Source.prefix_operator prefix = Source.Dereference ->
+          expression (depth - 1) ~write:false ~inside_comparison:false
+            (get (Typed.result_operand value))
+      | Index_expression _ when owned ->
+          let base, index = get (Typed.result_index_operands value) in
+          require (Sema.Type.pointer_depth (get (Typed.result_type base)) = 1);
+          expression (depth - 1) ~write:false ~inside_comparison:false base;
+          expression (depth - 1) ~write:false ~inside_comparison:false index
       | _ -> raise Unproved
     in
     let value ~write root =
@@ -1330,7 +1542,8 @@ let analyze_whole ~frame ~body ~statements =
       && List.length !seen_calls = List.length (Typed.function_calls source)
       && List.for_all
            (fun location ->
-             Frame.location_kind location = Frame.Named_parameter
+             owned
+             || Frame.location_kind location = Frame.Named_parameter
              || List.exists (( == ) location) !initialized)
            locations);
     (* The canonical lowerer retains every original block, including statements
@@ -1384,6 +1597,7 @@ let analyze_whole ~frame ~body ~statements =
           let consumer = sole (users (get address.result).value_id) in
           let kind =
             if consumer.opcode = O.Ic_deref then Read
+            else if owned && consumer.opcode = O.Ic_addr then Address
             else (
               require (write_opcode consumer.opcode);
               Write)
@@ -1408,9 +1622,34 @@ let analyze_whole ~frame ~body ~statements =
       (List.map
          (fun location ->
            ( location,
-             List.length
-               (List.filter
-                  (fun access -> access.location == location)
-                  !accesses) ))
+             List.filter (fun access -> access.location == location) !accesses
+           ))
          locations)
   with Unproved -> None
+
+let analyze_whole ~frame ~body ~statements =
+  Option.map
+    (List.map (fun (location, accesses) -> (location, List.length accesses)))
+    (analyze_accesses ~frame ~body ~statements ())
+
+type member_score = {
+  location : Frame.location;
+  score : int64;
+  lea_balance : int64;
+}
+
+let analyze_members ~frame ~body ~statements =
+  Option.map
+    (List.map (fun (location, accesses) ->
+         let address_count =
+           List.fold_left
+             (fun count access ->
+               if access.kind = Address then count + 1 else count)
+             0 accesses
+         in
+         {
+           location;
+           score = Int64.of_int ((2 * List.length accesses) - address_count);
+           lea_balance = Int64.of_int address_count;
+         }))
+    (analyze_accesses ~owned:true ~frame ~body ~statements ())

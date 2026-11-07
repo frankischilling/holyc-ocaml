@@ -5968,3 +5968,21 @@
  (name test_native_numeric_conversion_authority)
  (modules test_native_numeric_conversion_authority)
  (libraries holyc_lib native_scalar_support alcotest))
+
+(executable
+ (name test_owned_member_register_cli)
+ (modules test_owned_member_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_owned_member_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_owned_member_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))

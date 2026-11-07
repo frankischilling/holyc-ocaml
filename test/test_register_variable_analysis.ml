@@ -3054,7 +3054,6 @@ let remainder_selection () =
             "remainder proof rejects aliases and effects" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "I64 F(I8 x,I64 c){I8 *p=&x;x%=c;return x;}42;";
           "I64 F(I8 reg RAX x,I64 c){x%=c;return x;}42;";
           "I64 F(I8 reg R12 x,I64 reg R12 c){x%=c;return x;}42;";
         ])
@@ -5608,9 +5607,7 @@ let local_control_selection () =
             "unsafe local shape remains unproved" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "I64 F(I64 n,I64 c){I8 x;if(n)x=c;return x;}42;";
           "I64 F(I64 n,I64 c){I8 x=n(I8);if(n)x+=c;return x;}42;";
-          "I64 F(I64 n,I64 c){I8 x=127;I8 *p=&x;if(n)*p+=c;return x;}42;";
           "I64 F(I64 n,I64 c){if(n){I8 x=127;x+=c;return x;}return 0;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -6154,8 +6151,6 @@ let assignment_selection () =
             true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
-          "I64 F(I64 n,I64 value){I8 x;if(n)x=value;return x;}42;";
-          "I64 F(I64 n){I8 x;x=257;if(n)x=257;return x;}42;";
           "I64 F(I8 x,I64 value){if(value)x=value(I8);return x;}42;";
           "I64 F(I64 n,I64 value){if(n){I8 x=0;x=value;return x;}return 0;}42;";
         ])
@@ -6401,10 +6396,7 @@ let dependent_initializer_selection () =
           Alcotest.(check bool)
             "uninitialized dependency is not proved" true
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
-        [
-          "I64 F(){I8 x=x+1;return x;}42;";
-          "I64 F(){I8 x;I8 y=x+1;return y;}42;";
-        ];
+        [ "I64 F(){I8 x=x+1;return x;}42;" ];
       let fn =
         compile ~name:"F" mode "I64 F(){I8 x=127;I8 y=x+1;return y;}42;"
       in
@@ -6490,18 +6482,10 @@ let unsupported_selection () =
         [
           "I64 F(I8 x,I64 c){if(c)x+=2147483648;return x;}42;";
           "I64 F(I8 x,I64 c){if(c)return x+=c;return x;}42;";
-          "I64 F(I8 x,I64 c){I8 *p=&x;if(c)*p+=c;return x;}42;";
           "I64 F(I8 reg R12 x,I64 reg R12 c){if(c)x+=c;return x;}42;";
-          "I64 F(I8 x,Bool c){if(c)x+=c;return x;}42;";
-          "I64 F(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}42;";
           "I64 F(){I8 x=255;return x+=2147483648;}42;";
           "I64 F(I8 x){return x+=2147483648;}42;";
-          "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
-          "I64 F(){I8 x;x<<=1;return x;}42;";
-          "I64 F(){Bool x=1;x<<=1;return x;}42;";
-          "I64 F(I64 c,Bool n){I8 x=c;x+=n;return x;}42;";
           "I64 F(I64 c,I8 n){I8 x=c;x/=2;return x;}42;";
-          "I64 F(Bool c){I8 x=c;return x;}42;";
           "I64 F(I64 c){I8 x=c;x-=2147483648;return x;}42;";
           "I64 F(I64 c){I8 x=c;x+=2147483648;return x;}42;";
           "I64 F(){I8 x=255;x/=2;return x;}42;";
@@ -7199,11 +7183,361 @@ let whole_scored_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let owned_member_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected) ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            match Analysis.analyze ~frame:fn.frame ~body:fn.body with
+            | Some proof -> proof
+            | None -> Alcotest.fail ("missing member proof: " ^ source)
+          in
+          List.iter
+            (fun (name, selection, register) ->
+              let symbol = Frame.location_symbol (location fn.frame name) in
+              Alcotest.(check bool)
+                (source ^ " selection " ^ name)
+                true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some selection);
+              Alcotest.(check (option int))
+                (source ^ " home " ^ name)
+                register
+                (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+                   ~symbol))
+            expected)
+        [
+          ( "I64 F(I8 x,I64 *p){return x+*p;}42;",
+            [
+              ("p", Analysis.Register_candidate, Some 6);
+              ("x", Analysis.Register_candidate, Some 7);
+            ] );
+          ( "I64 F(I8 x){I8 *p=&x;x+=1;return *p;}42;",
+            [
+              ("x", Analysis.Stack, None);
+              ("p", Analysis.Register_candidate, Some 6);
+            ] );
+          ( "I64 F(I8 reg x){I8 *p=&x;x+=1;return *p;}42;",
+            [
+              ("x", Analysis.Stack, None);
+              ("p", Analysis.Register_candidate, Some 6);
+            ] );
+          ("I64 F(I8 x){return *(&x);}42;", [ ("x", Analysis.Stack, None) ]);
+          ( "I64 F(Bool x){x+=1;return x;}42;",
+            [ ("x", Analysis.Register_candidate, Some 6) ] );
+          ( "I64 F(){I8 x;return x;}42;",
+            [ ("x", Analysis.Register_candidate, Some 6) ] );
+          ( "I64 F(){I8 x=1,y;return x;}42;",
+            [
+              ("x", Analysis.Register_candidate, Some 6);
+              ("y", Analysis.Unknown, None);
+            ] );
+          ( "I64 F(){I8 x=1;I8 reg y;return x;}42;",
+            [
+              ("x", Analysis.Register_candidate, Some 7);
+              ("y", Analysis.Register_candidate, Some 6);
+            ] );
+        ];
+      (* Former conservative rejections now have complete member evidence.
+       This proves allocation only; uninitialized cases still fault on execution. *)
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            ("source-owned member selection: " ^ source)
+            true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I64 c){I8 *p=&x;x%=c;return x;}42;";
+          "I64 F(I64 n,I64 c){I8 x;if(n)x=c;return x;}42;";
+          "I64 F(I64 n,I64 c){I8 x=127;I8 *p=&x;if(n)*p+=c;return x;}42;";
+          "I64 F(I64 n,I64 value){I8 x;if(n)x=value;return x;}42;";
+          "I64 F(I64 n){I8 x;x=257;if(n)x=257;return x;}42;";
+          "I64 F(){I8 x;I8 y=x+1;return y;}42;";
+          "I64 F(I8 x,I64 c){I8 *p=&x;if(c)*p+=c;return x;}42;";
+          "I64 F(I8 x,Bool c){if(c)x+=c;return x;}42;";
+          "I64 F(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}42;";
+          "I64 F(){I8 x=1;I8 *p=&x;*p<<=1;return x;}42;";
+          "I64 F(){I8 x;x<<=1;return x;}42;";
+          "I64 F(){Bool x=1;x<<=1;return x;}42;";
+          "I64 F(I64 c,Bool n){I8 x=c;x+=n;return x;}42;";
+          "I64 F(Bool c){I8 x=c;return x;}42;";
+        ];
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            ("no substituted explicit home: " ^ source)
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 reg R12 x){return *(&x);}42;";
+          "I64 F(I8 reg R12 x){I8 *p=&x;return *p;}42;";
+          "I64 F(I64 reg RAX *p){return *p;}42;";
+          "I64 F(I64 reg R12 *p,I64 reg R12 x){return *p+x;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let unused_explicit_reservation () =
+  List.iter
+    (fun mode ->
+      let source = "I64 F(I8 a,I64 reg RDI r){a+=1;return a;}42;" in
+      let fn = compile ~name:"F" mode source in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = Frame.location_symbol (location fn.frame "r") in
+      Alcotest.(check bool)
+        "unused reservation is not readable storage" true
+        (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+        = Some Analysis.Unknown);
+      Alcotest.(check (option int))
+        "unused reservation emits no home" None
+        (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol);
+      Alcotest.(check (option int))
+        "unused reservation retains RDI" (Some 7)
+        (Analysis.unused_explicit_reservation proof ~frame:fn.frame
+           ~body:fn.body ~symbol);
+      Obj.set_field (Obj.repr fn.body) 8 (Obj.repr 0L);
+      Alcotest.(check (option int))
+        "changed options revoke unused reservation" None
+        (Analysis.unused_explicit_reservation proof ~frame:fn.frame
+           ~body:fn.body ~symbol);
+      Alcotest.(check bool)
+        "changed options cannot mint a reservation" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          let symbol = Frame.location_symbol (location fn.frame "r") in
+          Alcotest.(check (option int))
+            ("not an unused reservation: " ^ source)
+            None
+            (Option.bind (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+               (fun proof ->
+                 Analysis.unused_explicit_reservation proof ~frame:fn.frame
+                   ~body:fn.body ~symbol)))
+        [
+          "I64 F(I64 reg RDI r){if(0)r;return 42;}42;";
+          "I64 F(I64 reg RDI r){if(0)r=1;return 42;}42;";
+          "I64 F(I64 reg RDI r){if(0)*(&r);return 42;}42;";
+          "I64 F(I64 reg RAX r){return 42;}42;";
+          "I64 F(I64 reg RDI r,I64 reg RDI s){return 42;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let owned_member_authority () =
+  let module Typed = Semantic_function_call_expression_result in
+  let module Ast = Holyc_lib__Frontend.Ast in
+  let source = "I64 F(I8 a,I64 *p){I64 *q=p;I64 reg spare;return a+*q;}42;" in
+  let original fn =
+    Option.get (Body.definition_source fn.Ir_integer_interpreter.body)
+    |> Typed.function_source_body |> Option.get
+  in
+  let mutations =
+    [
+      ( "omitted uninitialized forced member",
+        fun fn ->
+          let keep = function
+            | [] -> []
+            | items -> List.rev (List.tl (List.rev items))
+          in
+          Obj.set_field
+            (Obj.repr fn.Ir_integer_interpreter.frame)
+            4
+            (Obj.repr (keep (Frame.function_locations fn.frame)));
+          Obj.set_field (Obj.repr fn.body) 6
+            (Obj.repr (keep (Body.locals fn.body)));
+          Obj.set_field (Obj.repr fn.frame) 5 (Obj.repr 8L) );
+      ( "appended original uninitialized declarator",
+        fun fn ->
+          let rec local = function
+            | Ast.Local_declaration_statement declaration -> Some declaration
+            | Block_statement block ->
+                List.find_map local block.block_statements
+            | Sequence_statement sequence ->
+                List.find_map
+                  (fun element -> local element.Ast.sequence_statement)
+                  sequence.sequence_elements
+            | _ -> None
+          in
+          let declaration =
+            Option.bind (original fn).body local |> Option.get
+          in
+          let item =
+            Obj.dup (Obj.repr (List.hd declaration.local_declarators))
+          in
+          Obj.set_field item 5 (Obj.repr None);
+          Obj.set_field (Obj.repr declaration) 3
+            (Obj.repr (declaration.local_declarators @ [ Obj.obj item ])) );
+      ( "removed original uninitialized declarator",
+        fun fn ->
+          let rec find = function
+            | Ast.Local_declaration_statement declaration
+              when List.exists
+                     (fun declarator -> declarator.Ast.local_initializer = None)
+                     declaration.local_declarators -> Some declaration
+            | Block_statement block -> List.find_map find block.block_statements
+            | Sequence_statement sequence ->
+                List.find_map
+                  (fun element -> find element.Ast.sequence_statement)
+                  sequence.sequence_elements
+            | _ -> None
+          in
+          let declaration = Option.bind (original fn).body find |> Option.get in
+          Obj.set_field (Obj.repr declaration) 3
+            (Obj.repr
+               (List.filter
+                  (fun item -> Option.is_some item.Ast.local_initializer)
+                  declaration.local_declarators)) );
+      ( "copied uninitialized declarator",
+        fun fn ->
+          let rec find = function
+            | Ast.Local_declaration_statement declaration
+              when List.exists
+                     (fun declarator -> declarator.Ast.local_initializer = None)
+                     declaration.local_declarators -> Some declaration
+            | Block_statement block -> List.find_map find block.block_statements
+            | Sequence_statement sequence ->
+                List.find_map
+                  (fun element -> find element.Ast.sequence_statement)
+                  sequence.sequence_elements
+            | _ -> None
+          in
+          let declaration = Option.bind (original fn).body find |> Option.get in
+          Obj.set_field (Obj.repr declaration) 3
+            (Obj.repr
+               (List.map
+                  (fun item -> Obj.obj (Obj.dup (Obj.repr item)))
+                  declaration.local_declarators)) );
+      ( "reordered uninitialized declaration",
+        fun fn ->
+          let rec reorder = function
+            | Ast.Block_statement block
+              when List.length block.block_statements > 1 ->
+                Obj.set_field (Obj.repr block) 1
+                  (Obj.repr (List.rev block.block_statements));
+                true
+            | Block_statement block ->
+                List.exists reorder block.block_statements
+            | Sequence_statement sequence
+              when List.length sequence.sequence_elements > 1 ->
+                Obj.set_field (Obj.repr sequence) 1
+                  (Obj.repr (List.rev sequence.sequence_elements));
+                true
+            | Sequence_statement sequence ->
+                List.exists
+                  (fun element -> reorder element.Ast.sequence_statement)
+                  sequence.sequence_elements
+            | _ -> false
+          in
+          Alcotest.(check bool)
+            "reorder mutation changes a statement list" true
+            (Option.fold ~none:false ~some:reorder (original fn).body) );
+      ( "pointer depth",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr
+               (Frame.location_checked_type
+                  (location fn.Ir_integer_interpreter.frame "p")))
+            1 (Obj.repr 0) );
+      ( "pointer provenance",
+        fun fn ->
+          let reference =
+            Option.get
+              (Frame.location_type_reference
+                 (location fn.Ir_integer_interpreter.frame "p"))
+          in
+          Obj.set_field (Obj.repr reference) 2 (Obj.repr []) );
+      ( "source pointer stars",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (List.nth (original fn).parameters 1))
+            2 (Obj.repr []) );
+      ( "source parameter order",
+        fun fn ->
+          let ast = original fn in
+          Obj.set_field (Obj.repr ast) 5 (Obj.repr (List.rev ast.parameters)) );
+      ( "source local shape",
+        fun fn ->
+          let rec local = function
+            | Ast.Local_declaration_statement declaration -> Some declaration
+            | Block_statement block ->
+                List.find_map local block.block_statements
+            | Sequence_statement sequence ->
+                List.find_map
+                  (fun element -> local element.Ast.sequence_statement)
+                  sequence.sequence_elements
+            | _ -> None
+          in
+          let declaration =
+            Option.bind (original fn).body local |> Option.get
+          in
+          Obj.set_field
+            (Obj.repr (List.hd declaration.local_declarators))
+            1 (Obj.repr []) );
+      ( "frame declarator shape",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (location fn.Ir_integer_interpreter.frame "p"))
+            6
+            (Obj.repr Frame.Function_pointer) );
+      ( "frame value shape",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (location fn.Ir_integer_interpreter.frame "p"))
+            8 (Obj.repr Frame.Array) );
+      ( "member order",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr fn.Ir_integer_interpreter.frame)
+            4
+            (Obj.repr (List.rev (Frame.function_locations fn.frame))) );
+      ( "frame extent",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr (location fn.Ir_integer_interpreter.frame "p"))
+            14 (Obj.repr 16L) );
+      ( "original options",
+        fun fn ->
+          Obj.set_field
+            (Obj.repr fn.Ir_integer_interpreter.body)
+            8 (Obj.repr 0L) );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, mutate) ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let symbol = Frame.location_symbol (location fn.frame "q") in
+          mutate fn;
+          Alcotest.(check bool)
+            (label ^ " revokes saved member proof")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+          Alcotest.(check bool)
+            (label ^ " cannot mint a fresh member proof")
+            true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        mutations)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Register variable analysis"
     [
       ( "source",
         [
+          Alcotest.test_case "owned member selection" `Quick
+            owned_member_selection;
+          Alcotest.test_case "owned member authority" `Quick
+            owned_member_authority;
+          Alcotest.test_case "unused explicit reservation" `Quick
+            unused_explicit_reservation;
           Alcotest.test_case "exact scored selection" `Quick scored_selection;
           Alcotest.test_case "whole-function scored selection" `Quick
             whole_scored_selection;

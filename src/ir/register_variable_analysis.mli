@@ -61,33 +61,45 @@ val analyze :
     and decrement conditions retain conservative proofs. Scores do not authorize
     floating arithmetic, conversions or x87 behavior without execution proofs.
 
-    Automatic locals require one original entry-block initializer. Initializer
-    expressions use parameters, literals and locals initialized before each read
-    in the entry block; later assignments and compound operands may read any
-    checked integer frame member. Source-owned arithmetic, bitwise, unary,
-    division/remainder, shift and comparison trees are supported. Compound and
-    unary update results must be discarded in the whole-function proof. Plain
-    assignment results may be consumed for proven register or stack
-    destinations: registers preserve the RHS word; stack results reload the
-    stored width. Unknown-pressure assignment results remain unproved.
-    Literal-only add/subtract/multiply updates remain limited to nonnegative
-    signed-32-bit operands. Each operation retains its original typed operator,
-    ordered operands and source position. Calls require original named
-    definitions, provided fixed arguments and integer or U0 results; callbacks,
-    defaults and variadic calls remain outside this proof.
+    The owned-member exact path additionally admits single-indirection integer
+    pointer members, Bool's signed-I8 storage and declarations without
+    initializers. It authenticates complete original declarator coverage, source
+    type shapes, frame extents and member order independently of initialization.
+    Balanced pointer reads score twice; address formation scores once and
+    retains its LEA balance, including [*(&x)]. Addressed automatic/plain-reg
+    members spill. Pointer survivors count toward the six-member threshold but
+    cannot enter automatic R12/R13 homes. Their selected registers contain
+    private checked descriptor pointers, not language-visible host addresses.
+    Explicit addressed requests remain unproved, as do arrays, callbacks and
+    wider pointer domains.
+
+    Outside that owned-member path, automatic locals require one original
+    entry-block initializer. Initializer expressions use parameters, literals
+    and locals initialized before each read in the entry block; later
+    assignments and compound operands may read any checked integer frame member.
+    Source-owned arithmetic, bitwise, unary, division/remainder, shift and
+    comparison trees are supported. Compound and unary update results must be
+    discarded in the whole-function proof. Plain assignment results may be
+    consumed for proven register or stack destinations: registers preserve the
+    RHS word; stack results reload the stored width. Unknown-pressure assignment
+    results remain unproved. Literal-only add/subtract/multiply updates remain
+    limited to nonnegative signed-32-bit operands. Each operation retains its
+    original typed operator, ordered operands and source position. Calls require
+    original named definitions, provided fixed arguments and integer or U0
+    results; callbacks, defaults and variadic calls remain outside this proof.
 
     Distinct RSI, RDI and R10 through R15 requests are supported. Outside the
     exact subsets, automatic candidates must fit the unreserved variable banks
     unless forced requests have guaranteed capacity and remaining ordinary
     members are I64/U64. Those ordinary pressured members retain [Unknown]
-    selection. Other explicit registers, duplicate requests, address escapes and
-    Boolean frame members remain unproved. Every original signature parameter
-    must have its own named frame location. Unnamed formals are rejected because
-    their original _anon_ members can still reserve or compete for registers,
-    but are not represented by this frame API. Limits are 64 blocks, 512
-    instructions and 32 expression levels. Calls, casts, short-circuit
-    expressions, power and unmatched optimizer rewrites cannot acquire an
-    expression-tree proof.
+    selection. Other explicit registers and duplicate requests remain unproved;
+    address formation and Boolean frame members require the owned-member path.
+    Every original signature parameter must have its own named frame location.
+    Unnamed formals are rejected because their original _anon_ members can still
+    reserve or compete for registers, but are not represented by this frame API.
+    Limits are 64 blocks, 512 instructions and 32 expression levels. Calls,
+    casts, short-circuit expressions, power and unmatched optimizer rewrites
+    cannot acquire an expression-tree proof.
 
     The four warning bits, ECHO, TRACE, KEEP_PRIVATE and NO_REG_VAR may differ
     from default options. Warning/output/symbol-retention options do not change
@@ -119,6 +131,18 @@ val selection :
   selection option
 (** Recheck the original frame, body and instruction identities. Foreign or
     modified inputs return [None], not a reconstructed allocation decision. *)
+
+val unused_explicit_reservation :
+  t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  symbol:Sema.Symbol.t ->
+  int option
+(** Revalidate a supported explicit reservation whose selection is [Unknown].
+    Independently reconstruct the complete original source and prove zero reads,
+    writes and address formations in its member ledger. This reserves the
+    requested bank slot without granting a physical home or readable storage;
+    absence of hosted accesses alone is not evidence. *)
 
 val physical_register :
   t ->

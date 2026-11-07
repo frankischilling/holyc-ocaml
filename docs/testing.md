@@ -2558,3 +2558,18 @@ one-below execution and initializer limits. Authority tests reject foreign
 tables and namespaces, copied expressions and replayed fragment completion.
 
 No TempleOS runtime or emitted-byte capture is included.
+
+Owned-member allocation checks use independent literal QSort/bank maps for seven,
+eight and nine mixed scalar/pointer candidates and nine pointer-only candidates.
+The pure allocator also checks dimension/positive-offset/`argv` predicates and
+filtering before the nonpointer-bank threshold. Source-authority tests mutate
+original pointer stars, parameter/local shape, provenance, order, frame extents
+and options, then reject both saved and freshly requested proofs.
+
+The owned-member CLI matrix checks IR, native programs and native source tasks
+in both outer modes. It covers pointer copies, indexing and rebinding, ordinary
+calls and recursion, retained addresses and `*(&x)`, Bool values beyond zero/one,
+uninitialized reads, explicit request boundaries and independent decoded homes.
+Exact code, IR, frame, call-depth and active-stack limits accompany same-image
+recovery from bounds, initialization and arithmetic faults. See
+[member shapes and address balances](register-variable-analysis.md#owned-member-shapes-and-address-balances).

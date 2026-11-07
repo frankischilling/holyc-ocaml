@@ -3,6 +3,9 @@ type candidate = {
   score : int64;
   offset : int64;
   lea_balance : int64;
+  pointer_depth : int;
+  has_dimensions : bool;
+  name : string;
 }
 
 let sort candidates =
@@ -49,13 +52,13 @@ let allocate ~reserved candidates =
         member.lea_balance = 0L && member.offset <> 0L)
   in
   let used = ref reserved and assigned = ref [] in
-  let assign registers members =
+  let assign registers eligible members =
     let registers =
       ref (List.filter (fun number -> not (List.mem number !used)) registers)
     in
     List.iter
       (fun member ->
-        if not (List.mem_assoc member.member !assigned) then
+        if eligible member && not (List.mem_assoc member.member !assigned) then
           match !registers with
           | [] -> ()
           | number :: rest ->
@@ -64,8 +67,16 @@ let allocate ~reserved candidates =
               assigned := (member.member, number) :: !assigned)
       members
   in
-  (* All authenticated candidates are non-pointer scalars. Explicit
-     reservations do not lower the six-candidate threshold. *)
-  if List.length candidates > 6 then assign [ 12; 13 ] candidates;
-  assign [ 6; 7; 10; 11; 14; 15 ] candidates;
+  (* OptPass3.HC:557-595 counts pointers and dimensioned members in j, but
+     scans past them for R12/R13. Parameter arrays can use the general bank
+     unless their original name is argv. Explicit reservations do not lower j. *)
+  if List.length candidates > 6 then
+    assign [ 12; 13 ]
+      (fun member -> member.pointer_depth = 0 && not member.has_dimensions)
+      candidates;
+  assign [ 6; 7; 10; 11; 14; 15 ]
+    (fun member ->
+      (not member.has_dimensions)
+      || (member.offset > 0L && member.name <> "argv"))
+    candidates;
   List.rev !assigned

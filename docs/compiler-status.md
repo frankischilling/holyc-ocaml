@@ -1126,3 +1126,15 @@ existing eight-register allocator. IR and native execution share original call
 receipts. ECHO, TRACE and KEEP_PRIVATE are allocation-neutral with sealed option
 snapshots. Unsupported rewrites and unclassified option bits remain fail-closed;
 general pointer/member coverage and issue #703 remain open.
+
+
+[Owned member allocation](register-variable-analysis.md#owned-member-shapes-and-address-balances)
+adds source-authenticated primitive pointer shapes, Bool and uninitialized local
+membership. Pointer candidates count toward pressure but automatic R12/R13 homes
+remain nonpointer-only. Address formation keeps its original LEA balance,
+including `*(&x)`, and spills automatic/plain-reg members. Physical pointer homes
+retain checked private descriptors across copies, calls and recursion. Storage
+initialization, bounds and lifetime checks remain independent. Explicit requests
+without a proved supported physical home reject rather than silently using
+stack storage. Unnamed, dimensioned, aggregate and callback member allocation,
+duplicate/fixed register requests and general optimizer coverage remain open.

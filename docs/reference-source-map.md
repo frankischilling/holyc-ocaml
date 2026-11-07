@@ -2636,3 +2636,21 @@ after those decisions. See [register allocation](register-variable-analysis.md)
 for the source-owned whole-function ledger, unsupported rewrites and tests.
 `Lex.HC:257`, `PrsLib.HC:309`, `CMain.HC:296` and `Kernel/KHashB.HC:161` distinguish
 allocation-neutral ECHO/TRACE/KEEP_PRIVATE from NO_REG_VAR's allocation effects.
+
+## Owned member register allocation
+
+`Compiler/OptPass3.HC:29-47,538-595` includes pointer candidates, preserves the
+original sort/trim/filter order, restricts R12/R13 to nondimensioned nonpointers,
+and separately tests dimensions, positive offsets and `argv` for the general
+bank. `PrsExp.HC:153-162,800-802` and `OptPass3.HC:119-163,179-199,223-245,496`
+distinguish retained address formation from direct access cancellation.
+`PrsVar.HC:339-344,525-529` creates members independently of initialization.
+`Compiler/CInit.HC:8` gives Bool signed I8 storage.
+
+The source-owned member ledger and shape-aware allocator preserve those rules
+for fixed primitive scalar and owned-pointer members. Physical pointer homes
+carry private checked descriptors through existing call and reference-service
+save/restore paths. Uninitialized storage remains unreadable; unsupported
+explicit requests never acquire substitute homes. See
+[member shapes and address balances](register-variable-analysis.md#owned-member-shapes-and-address-balances)
+for the admitted domain, phase evidence and remaining boundaries.

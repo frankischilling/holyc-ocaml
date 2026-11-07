@@ -6887,6 +6887,33 @@ let frame_context ?globals ?runtime_calls ?(pointer_arguments = false)
       "execution requires ordinary parameters, automatic scalar locals and \
        exact function-owned persistent statics"
   else if
+    List.exists
+      (fun location ->
+        match Frame.location_register_selection location with
+        | Sema.Register_request.Explicit register ->
+            not
+              (Option.fold ~none:false
+                 ~some:(fun proof ->
+                   Register_variable_analysis.physical_register proof ~frame
+                     ~body:function_
+                     ~symbol:(Frame.location_symbol location)
+                   = Some
+                       (Sema.Register_request.explicit_register_number register)
+                   || Register_variable_analysis.unused_explicit_reservation
+                        proof ~frame ~body:function_
+                        ~symbol:(Frame.location_symbol location)
+                      = Some
+                          (Sema.Register_request.explicit_register_number
+                             register))
+                 register_proof)
+        | Unspecified | Allocatable | Disabled -> false)
+      locations
+  then
+    invalid
+      "explicit register requests require a source-authenticated supported \
+       physical home or unused reservation; addressed, conflicting and \
+       fixed-register members are unsupported"
+  else if
     Option.is_none (checked_return_kind (Function.return_value_type function_))
   then
     invalid

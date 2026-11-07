@@ -11,6 +11,12 @@ for native observations, execution checks and the separate AOT boundary.
 
 ## Unreleased
 
+- Allocate source-authenticated owned pointer members alongside scalar members,
+  keeping pointer pressure separate from R12/R13 eligibility and retaining exact
+  address balances. Include Bool and uninitialized local membership without
+  weakening storage checks. Reject unproved explicit homes instead of silently
+  substituting stack storage. See [member allocation](register-variable-analysis.md#owned-member-shapes-and-address-balances).
+
 - Evaluate supported reference values in zero-byte JIT initializer leaves
   without inventing scalar words or writing neighboring bytes. Keep actual
   execution, once-only receipts, literal charges and arena ownership checks.

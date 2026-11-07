@@ -855,7 +855,10 @@ let fallback_cases =
       42L;
     case "cast keeps two-candidate allocation conservative"
       "I64 F(I64 a,I64 b){return a(I8)+b;}F(20,22);" 42L;
-    case "owned pointer keeps allocation conservative"
+    case
+      ~entries:[ (1, "RDI") ]
+      ~saved:[ "RSI"; "RDI" ]
+      "owned pointer allocates while its address-taken pointee stays stack"
       "I64 F(I64 a,I64 b){I64 *p=&a;return *p+b;}F(20,22);" 42L;
     case "aggregate neighbor keeps allocation conservative"
       "class Pair {I64 value;};I64 F(I64 a,I64 b){Pair p;p.value=a;return \

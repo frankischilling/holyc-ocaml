@@ -647,7 +647,11 @@ let tests =
             List.iter
               (fun mode ->
                 let error = F.first_error (G.run ~mode source) in
-                Alcotest.(check string) "native boundary" "HCRUN0006" error.code;
+                let expected =
+                  if name = "unknown local cycle" then "HCIRVM0012"
+                  else "HCRUN0006"
+                in
+                Alcotest.(check string) "native boundary" expected error.code;
                 Alcotest.(check bool)
                   "original owner" true
                   (List.mem "initializer=N" error.notes))

@@ -48,3 +48,22 @@ val analyze_whole :
     direct assignments/integer updates are admitted. Short circuit, chained
     comparisons, consumed writes, decrement conditions and address escapes fail
     closed. This ledger alone is not an allocation witness. *)
+
+type member_score = {
+  location : Sema.Function_frame_layout.location;
+  score : int64;
+  lea_balance : int64;
+}
+
+val analyze_members :
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  statements:Integer_program_lowering.statement list ->
+  member_score list option
+(** Independently authenticate original primitive member shapes/order and
+    phase-surviving accesses, including owned pointer copies, dereferences and
+    indexing. Direct accesses score twice and cancel their LEA; explicit address
+    formation scores once and remains unbalanced even in [*(&x)]. Uninitialized
+    declarations remain members without granting readable storage. The caller
+    must independently reconstruct and authenticate the complete canonical
+    graph. *)

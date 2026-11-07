@@ -874,10 +874,81 @@ membership, scores or banks. Original option snapshots are still required.
 NO_REG_VAR disables automatic/plain-reg selection and preserves explicit
 reservations. Other unclassified options and unknown bits still reject.
 
-Pointers/address escapes, unnamed formals, duplicate or unsupported explicit
-requests, branch-local initialization, consumed writes, decrement conditions,
-short-circuit expressions, comparison chains, unsupported intrinsics and
-unsupported statement forms remain outside this exact ledger. Existing
+Pointers and address formation are handled by the [owned-member extension](#owned-member-shapes-and-address-balances)
+below, rather than this scalar ledger. Unnamed formals, duplicate or unsupported
+explicit requests, branch-local initialization, consumed writes, decrement
+conditions, short-circuit expressions, comparison chains, unsupported intrinsics
+and unsupported statement forms remain outside this exact ledger. Existing
 conservative proofs remain available without invented scores. Floating and
 numeric execution still require their independent receipts. These are pinned
 source deductions and hosted tests, not new TempleOS captures or closure of #703.
+
+## Owned member shapes and address balances
+
+The member proof also covers fixed named integer-pointer parameters and locals,
+Bool storage, and declarations without initializers. Original parameter and
+local declarations authenticate the primitive spelling, pointer stars, type
+reference, frame shape, requests and member order. The original local declarator
+identities are sealed, and every declarator must match exactly one frame member
+in order, including unused and uninitialized declarations. Membership does not
+depend on an initializer. Unused ordinary members participate in QSort before zero-score
+trimming; a plain `reg` member still receives the forced seed. No allocation
+proof marks an unwritten local initialized. Reads and updates retain the existing
+runtime initialization checks.
+
+Pointer candidates affect the number of surviving members. Above six members,
+`OptPass3.HC:557-582` scans the sorted list for the first two members with neither
+pointer stars nor dimensions and assigns R12/R13. It does not simply take the
+first two records. The general bank follows at `590-595`; its dimension rule
+admits a dimensioned positive-offset parameter unless its original name is
+`argv`. The allocator models that rule, while the authenticated executable domain
+here remains fixed scalar members without dimensions.
+
+The ledger distinguishes direct member access from address formation. A direct
+read or discarded write contributes two points and zero LEA balance. `&x`
+contributes one point and one LEA balance to x. A local pointer retaining that
+address, a call argument, or a constant-dead arm therefore makes automatic or
+plain-`reg` x use stack storage. Reading p for `*p` or `p[i]` is a balanced direct
+read of p; it does not take p's own address.
+
+`*(&x)` is not treated as a C-style identity. `PrsExp.HC:153-162` removes x's
+original dereference when parsing `&`, then emits IC_ADDR. The grouped pointer
+retains that producer through `OptPass012.HC:1186` and `OptPass3.HC:496`. Its
+outer dereference therefore does not see the IC_LEA required by the cancellation
+at `OptPass3.HC:119-135`. The original address event remains unbalanced when
+registers are selected. A later optimizer cannot change that earlier decision.
+For an I8 parameter initialized to 127, incrementing it and returning `*(&x)`
+therefore yields -128 rather than the full-register value 128.
+
+A selected pointer register contains a private pointer to a checked five-word
+reference descriptor. Copies snapshot the descriptor; assignment updates the
+member's reserved descriptor storage. Argument staging, ordinary calls,
+recursion and reference services preserve the physical home. The descriptor's
+object identity, extent, initialization state and activation lifetime remain
+checked. These are not raw language-visible host addresses, and allocation does
+not authorize new pointer casts or provenance.
+
+Bool follows its pinned `RT_I8` / `I8i` storage class. Stack stores narrow and
+loads sign-extend; a selected full-register home can retain values such as 128.
+Neither path normalizes arbitrary nonzero values to one.
+
+Explicit address-taken requests still reject. OptPass3 processes explicit
+requests before its LEA filter, so silently moving such a request to the stack
+would be a different algorithm. An unused supported explicit request can reserve
+its bank slot without emitting a physical home. The IR guard independently
+reconstructs the complete source and proves zero reads, writes and address
+formations before admitting that reservation. No hosted-load omission can stand
+in for this proof. Duplicate explicit requests, reserved/fixed
+registers, unnamed formals, array and aggregate member allocation, callback
+members, pointer arithmetic and consumed writes remain outside this proof.
+Executable pointer members remain one-level integer pointers; taking a pointer
+member's own address (`&p`) does not gain new provenance or lowering support.
+Floating execution continues to require its independent operation receipts.
+
+The [owned-member example](../examples/owned-member-registers.hc) mixes three
+scalar candidates with four pointer candidates. Independent literal maps in the
+tests cover seven, eight and nine mixed members and nine pointer-only members.
+Tests also cover descriptor copies, indexing, rebinding, calls, recursion,
+address-taking, initialization and bounds faults, source/shape mutation, exact
+limits and fault recovery. These are pinned-source deductions and hosted tests,
+not new TempleOS captures or completion of issue #703.

@@ -8,6 +8,9 @@ let candidates scores =
         score;
         offset = Int64.of_int (16 + (8 * member));
         lea_balance = 0L;
+        pointer_depth = 0;
+        has_dimensions = false;
+        name = "m" ^ string_of_int member;
       })
     scores
 
@@ -69,12 +72,66 @@ let allocate () =
     [ (3, 6); (0, 7) ]
     (Allocation.allocate ~reserved:[] filtered)
 
+let member_shapes () =
+  let mixed count pointer_start =
+    candidates (List.init count (fun _ -> 2L))
+    |> List.mapi (fun index candidate ->
+        {
+          candidate with
+          Allocation.pointer_depth = (if index >= pointer_start then 1 else 0);
+        })
+  in
+  List.iter
+    (fun (count, scalar_count, expected) ->
+      Alcotest.(check (list (pair int int)))
+        "mixed original banks" expected
+        (Allocation.allocate ~reserved:[] (mixed count scalar_count)))
+    [
+      (7, 3, [ (0, 12); (1, 13); (4, 6); (5, 7); (6, 10); (3, 11); (2, 14) ]);
+      ( 8,
+        4,
+        [ (1, 12); (0, 13); (5, 6); (4, 7); (7, 10); (6, 11); (3, 14); (2, 15) ]
+      );
+      ( 9,
+        5,
+        [ (4, 12); (1, 13); (6, 6); (5, 7); (8, 10); (7, 11); (0, 14); (3, 15) ]
+      );
+      (9, 0, [ (6, 6); (5, 7); (8, 10); (7, 11); (4, 14); (1, 15) ]);
+    ];
+  let dimensions =
+    candidates [ 8L; 6L; 4L; 2L ]
+    |> List.mapi (fun index candidate ->
+        {
+          candidate with
+          Allocation.has_dimensions = true;
+          offset = (if index = 1 then -8L else candidate.Allocation.offset);
+          name = (if index = 2 then "argv" else candidate.Allocation.name);
+        })
+  in
+  Alcotest.(check (list (pair int int)))
+    "general bank admits positive dimensioned parameters except argv"
+    [ (0, 6); (3, 7) ]
+    (Allocation.allocate ~reserved:[] dimensions);
+  let seven = mixed 7 3 in
+  let escaped =
+    List.mapi
+      (fun index candidate ->
+        if index = 4 then { candidate with Allocation.lea_balance = 1L }
+        else candidate)
+      seven
+  in
+  Alcotest.(check (list (pair int int)))
+    "LEA filtering closes nonpointer bank only after sorting"
+    [ (5, 6); (6, 7); (3, 10); (0, 11); (1, 14); (2, 15) ]
+    (Allocation.allocate ~reserved:[] escaped)
+
 let () =
   Alcotest.run "TempleOS scored register allocation"
     [
       ( "source algorithm",
         [
           Alcotest.test_case "unstable ties" `Quick ties;
+          Alcotest.test_case "member shapes" `Quick member_shapes;
           Alcotest.test_case "register banks and filters" `Quick allocate;
         ] );
     ]

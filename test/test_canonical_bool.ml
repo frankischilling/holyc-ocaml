@@ -67,8 +67,12 @@ let ordinary_cases =
     scalar "Bool arrays use signed byte leaves"
       "Bool q[2];q[0]=0x80;q[1]=0x7f;q[0]+q[1];" (-1L);
     scalar "prepared Bool array leaves" "Bool q[2]={0x80,0x7f};q[0]+q[1];" (-1L);
-    scalar "automatic Bool storage" "I64 F(){Bool q=0x180;return q;}F();"
-      (-128L);
+    (* The initializer and return read score four points: the sole automatic
+       candidate gets RSI. No-reg storage retains Bool's signed I8 width. *)
+    scalar "automatic Bool register storage"
+      "I64 F(){Bool q=0x180;return q;}F();" 384L;
+    scalar "noreg automatic Bool signed-byte storage"
+      "I64 F(){Bool noreg q=0x180;return q;}F();" (-128L);
     scalar "Bool statics persist"
       "Bool F(){static Bool q=0x80;return q++;}F()+F();" (-255L);
     scalar "Bool static arrays"

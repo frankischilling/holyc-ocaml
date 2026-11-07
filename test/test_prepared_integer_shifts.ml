@@ -280,18 +280,20 @@ let ranges_and_boundaries () =
         "masked retained update count" (Some 39L)
         (Option.map (fun w -> w.VM.bits) (VM.final_value shifted));
       List.iter
-        (fun source ->
+        (fun (source, expected_code) ->
           match integer_program_report_outcome (run mode source) with
           | Error (d :: _) ->
               Alcotest.(check string)
-                "unproved preparation keeps its boundary" "HCRUN0006" d.code
+                "unproved preparation keeps its boundary" expected_code d.code
           | _ -> Alcotest.fail "unproved preparation succeeded")
         [
-          retained "I8 x=249;x/=2;return x;";
-          retained "I8 x=-7;x*=3;x/=2;return x;";
-          retained "I8 x=-7;x/=2;x=249;return x;";
-          retained "I8 reg RAX x=-7;x/=2;return x;";
-          "I64 F(I64 x){return x/2;}I64 G=F(-7);G;";
+          (retained "I8 x=249;x/=2;return x;", "HCRUN0006");
+          (retained "I8 x=-7;x*=3;x/=2;return x;", "HCRUN0006");
+          (retained "I8 x=-7;x/=2;x=249;return x;", "HCRUN0006");
+          (* The unsupported explicit home now fails function preflight before
+             the retained shift preparation can classify the operation. *)
+          (retained "I8 reg RAX x=-7;x/=2;return x;", "HCIRVM0011");
+          ("I64 F(I64 x){return x/2;}I64 G=F(-7);G;", "HCRUN0006");
         ])
     modes
 

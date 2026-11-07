@@ -386,9 +386,6 @@ let unsupported_cases =
     ( "consumed unary-update initializers",
       "I64 F(I64 reg R12 x){I64 noreg a=x++;I64 noreg b=++x;I64 noreg \
        c=x--;I64 noreg d=--x;return x+a+b+c+d;}F(7);" );
-    ( "addressable neighbor and pointer member",
-      "I64 F(I64 reg R12 x){I64 noreg y=5;I64 *p=&y;*p+=2;x+=*p;return \
-       x+y;}F(28);" );
   ]
 
 (* Whole-function source/call receipts now prove this entry initializer.
@@ -399,6 +396,14 @@ let call_initializer_case =
     "I64 Child(I64 reg R12 y){return y+1;}I64 F(I64 reg R12 x){I64 noreg \
      saved=Child(x);return x+saved;}F(20);"
     41L
+
+(* x retains its explicit R12 request. p has three balanced direct accesses,
+   score 6, and takes RSI; y remains noreg addressable storage. *)
+let owned_pointer_neighbor_case =
+  case "addressable neighbor and pointer member preserve explicit R12"
+    "I64 F(I64 reg R12 x){I64 noreg y=5;I64 *p=&y;*p+=2;x+=*p;return \
+     x+y;}F(28);"
+    42L
 
 let bounded_rejections mode =
   List.iter
@@ -466,7 +471,7 @@ let function_instructions label name report =
   section_instructions label name
     (report |> member "native" |> member "image" |> member "native_sections")
 
-let assert_placement label register instructions =
+let assert_placement ?(parameter = true) label register instructions =
   let has_move dest source =
     List.exists
       (fun (instruction : Disassembly.instruction) ->
@@ -477,8 +482,21 @@ let assert_placement label register instructions =
            = [ "U64 " ^ dest; "U64 " ^ source ])
       instructions
   in
-  require (has_move register "RAX")
-    (label ^ ": parameter never enters " ^ register);
+  require
+    (if parameter then has_move register "RAX"
+     else
+       List.exists
+         (fun (instruction : Disassembly.instruction) ->
+           instruction.opcode = "MOV"
+           &&
+           match instruction.operands with
+           | [ destination; source ] ->
+               destination.text = "U64 " ^ register
+               && source.size = 64
+               && not (String.contains source.text '[')
+           | _ -> false)
+         instructions)
+    (label ^ ": member never enters " ^ register);
   require
     (List.exists
        (fun (instruction : Disassembly.instruction) ->
@@ -554,12 +572,23 @@ let output label expected report =
   let actual = report |> member "output_hex" |> to_string |> bytes in
   require (actual = expected) (label ^ ": wrong captured bridge output")
 
-let check_bridge_placement label registers report =
+let check_bridge_placement ~owned_reference label registers report =
   let instructions = function_instructions label "F" report in
   List.iter
     (fun register -> assert_placement label register instructions)
     registers;
   let bridge = function_instructions label "Bridge" report in
+  (* This source helper now has independent owned-member evidence: p scores
+     six and enters RSI; n scores two and enters RDI. Caller overlap is legal
+     only because both homes are saved/restored and the caller result survives. *)
+  if owned_reference then (
+    assert_placement ~parameter:false (label ^ " pointer p") "RSI" bridge;
+    assert_placement (label ^ " parameter n") "RDI" bridge);
+  let forbidden =
+    if owned_reference then
+      List.filter (fun r -> r <> "RSI" && r <> "RDI") registers
+    else registers
+  in
   require
     (not
        (List.exists
@@ -568,7 +597,7 @@ let check_bridge_placement label registers report =
             &&
             match instruction.operands with
             | [ destination; source ] ->
-                List.mem source.text (List.map (( ^ ) "U64 ") registers)
+                List.mem source.text (List.map (( ^ ) "U64 ") forbidden)
                 && String.ends_with ~suffix:"[RBP]" destination.text
             | _ -> false)
           bridge))
@@ -609,7 +638,9 @@ let ordinary_bridge_cases mode =
               value label expected report;
               output label expected_output report;
               if target = "host-jit" then
-                check_bridge_placement label registers report)
+                check_bridge_placement
+                  ~owned_reference:(name = "reference entry, address and exit")
+                  label registers report)
             (if not native then [ "ir" ]
              else if addressable_provider name then [ "ir"; "host-jit-task" ]
              else [ "ir"; "host-jit"; "host-jit-task" ]))
@@ -1271,6 +1302,7 @@ let () =
     width_cases @ register_cases @ all_register_cases
     @ [
         call_initializer_case;
+        owned_pointer_neighbor_case;
         case "maintained physical register pair example"
           (read "../examples/physical-register-pair.hc")
           42L;
@@ -1299,6 +1331,14 @@ let () =
                         "R12"
                         (function_instructions case.name name report))
                     [ "F"; "Child" ];
+                if case == owned_pointer_neighbor_case && target = "host-jit"
+                then
+                  List.iter
+                    (fun register ->
+                      assert_placement ~parameter:(register = "R12") case.name
+                        register
+                        (function_instructions case.name "F" report))
+                    [ "R12"; "RSI" ];
                 require
                   (member "final_value" report
                   |> member "bits"
