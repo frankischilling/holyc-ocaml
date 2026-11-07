@@ -18,11 +18,11 @@ compiler/kernel captures. Intact DolDoc oracle evidence remains under #375;
 these standalone byte-output
 features do not establish full compiler parity.
 
-Issue #686 now includes owned integer and class pointer fields in IR. Member
-arrays, function-local types, captured destinations, overlap and expired
-targets use checked field proofs and stored pointer ownership. Native pointer
-fields still need durable allocation identities and storage metadata. Persistent
-aggregate objects and member metadata evaluation also remain under this issue.
+Issue #686 includes owned integer and class pointer fields in IR and the native
+targets. Member arrays, function-local types, captured destinations, overlap and
+expired targets use checked field proofs and stored pointer ownership. Supported
+persistent roots retain allocation identities and metadata. Broader aggregate
+copies, pointer layers and reflection remain under this issue.
 See [pointer fields](aggregate-pointer-fields.md).
 
 Issue #822 connects original class and union member `sizeof` queries to IR and

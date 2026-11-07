@@ -64,7 +64,7 @@ let allocate ~reserved candidates =
               assigned := (member.member, number) :: !assigned)
       members
   in
-  (* All authenticated candidates are non-pointer scalar integers. Explicit
+  (* All authenticated candidates are non-pointer scalars. Explicit
      reservations do not lower the six-candidate threshold. *)
   if List.length candidates > 6 then assign [ 12; 13 ] candidates;
   assign [ 6; 7; 10; 11; 14; 15 ] candidates;

@@ -15364,3 +15364,14 @@ status = "partial"
 issue = 703
 verification = "Complete original AST/typed graph reconstruction authenticates scalar members, entry initialization, fixed named calls, recursion and control flow. Tests cover primitive mutations, explicit slots, sole-forced placement, ordinary F64 noncandidates, options, narrow storage, decoded word moves/saves, selected materialization, subnormal and architectural quiet-NaN transport, quotas and same-image fault recovery."
 evidence_limit = "Capacity and exact explicit/sole-forced placement only; mixed tied or score-pressure placement remains unproved. Ordinary F64 stays stack-based. Globals in mixed bodies, branch-local initialization, defaults, callbacks, variadics, F64 conversions/updates and arbitrary NaN payload or signaling-NaN transport are not qualified. Source-derived and hosted evidence, not new TempleOS runtime captures or completion of issue 703."
+
+[[feature]]
+id = "HC-MIXED-REGISTER-SCORES"
+description = "Source-authenticated straight-line mixed integer/F64 access scores and physical allocation."
+sources = ["Compiler/PrsExp.HC:201-208,292-294,800-802", "Compiler/PrsVar.HC:607-615", "Compiler/OptPass012.HC:376-398,559-614,661-687,866-887", "Compiler/OptPass3.HC:29-47,119-135,187-199,238-245,533-621", "Compiler/OptLib.HC:556-565", "Kernel/QSort.HC:55-83,95-101", "Compiler/BackLib.HC:509-510"]
+implementation = ["src/ir/exact_register_scores.ml", "src/ir/register_variable_analysis.ml", "src/ir/scored_register_allocation.ml"]
+tests = ["test/test_mixed_register_scores_cli.ml", "test/test_mixed_scalar_register_analysis.ml", "test/test_native_f64_register_cli.ml"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-f64.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Pinned-source access conservation, raw floating literal bits and complete mixed source ownership authenticate exact scores. Independent maps test forced F64 ties, initializers, zero-score integer candidates, ordinary F64 exclusion before sorting, reservations, NO_REG_VAR, narrow spills and promoted values, decoded physical homes, quotas and retained-proof invalidation. Floating execution remains separately checked; no new TempleOS runtime capture is claimed."

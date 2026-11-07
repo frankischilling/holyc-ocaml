@@ -27,21 +27,26 @@ val analyze :
     Ordinary F64 members are always [Stack] and do not compete. Plain [reg] F64
     members count as forced candidates even when unused. Explicit requests
     reserve their slot before type filtering and NO_REG_VAR, including unused
-    F64 members. Mixed candidates must fit the source variable banks; canonical
-    hosted instructions are not source optimizer access-survival evidence, so
-    the exact scored pressure proof remains integer-only.
+    F64 members. Outside the exact straight-line subset below, mixed candidates
+    must fit the source variable banks. Canonical hosted instructions alone are
+    not source optimizer access-survival evidence.
 
-    A stricter proof runs first for complete straight-line integer functions:
-    named parameters, initialized locals, discarded writes/updates and one final
-    return. It authenticates every original AST root and typed occurrence
-    against unique canonical IR accesses. Each occurrence scores twice;
-    candidates are ordered by the original member list and TempleOS's unstable
-    QSort2b before zero-score trimming. The exact six-slot threshold, two
-    non-pointer slots, all explicit reservations and plain-reg seeds decide both
-    winners and spills. Used winners are [Register_candidate], used losers are
-    [Stack]. Branches, calls, casts, nested writes and chained comparisons
-    retain the conservative proof below rather than receiving speculative
-    scores.
+    A stricter proof runs first for complete straight-line integer/F64
+    functions: named parameters, initialized locals, discarded writes/integer
+    updates and one final scalar return. F64 trees admit direct reads, literals,
+    parentheses, unary +/-, +, -, *, / and discarded plain assignments without
+    conversions. It authenticates every original AST root and typed occurrence
+    against unique canonical IR accesses, comparing floating payloads by raw
+    bits. Each occurrence scores twice; candidates retain original member order
+    through TempleOS's unstable QSort2b before zero-score trimming. Ordinary F64
+    members are excluded before sorting, while ordinary zero-score integers
+    remain. The exact six-slot threshold, two non-pointer slots, explicit
+    reservations and plain-reg seeds decide both winners and spills. Used
+    winners are [Register_candidate], used losers are [Stack]; unused forced F64
+    candidates also receive their proved winner/spill selection. Branches,
+    calls, casts, nested writes and chained comparisons retain the conservative
+    proof below rather than receiving speculative scores. These scores do not
+    authorize floating arithmetic or x87 behavior without its execution proof.
 
     Automatic locals require one original entry-block initializer. Initializer
     expressions use parameters, literals and locals initialized before each read

@@ -84,7 +84,7 @@ let placement () =
             [ ("x", Analysis.Register_candidate, Some 6) ] );
           ( "I64 F(I8 x,I64 step,F64 ignored){x+=step;return x;}42;",
             [
-              ("x", Analysis.Register_candidate, None);
+              ("x", Analysis.Register_candidate, Some 6);
               ("ignored", Analysis.Stack, None);
             ] );
           ( "I64 F(noreg I8 x,I64 step,F64 ignored){x+=step;return x;}42;",
@@ -105,7 +105,7 @@ let placement () =
             ] );
           ( "I64 F(I64 x,reg F64 unused){return x;}42;",
             [
-              ("x", Analysis.Register_candidate, None);
+              ("x", Analysis.Register_candidate, Some 7);
               ("unused", Analysis.Register_candidate, Some 6);
             ] );
           ( "I64 F(I64 x,reg RSI F64 unused){return x;}42;",
@@ -133,26 +133,59 @@ let capacity () =
             ^ "){return " ^ String.concat "+" names ^ ";}42;"
           in
           let fn = compile mode source in
-          if count <= 8 then
-            let evidence = proof fn in
-            List.iter
-              (fun name ->
-                check fn evidence name Analysis.Register_candidate None)
-              names
-          else
-            Alcotest.(check bool)
-              "mixed pressure cannot invent score winners" true
-              (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+          (* Literal source deductions from pinned QSort2b, not allocator
+             output: all forced members have seed+2 and original source order. *)
+          let expected =
+            match count with
+            | 6 -> [ Some 11; Some 14; Some 15; Some 6; Some 7; Some 10 ]
+            | 7 ->
+                [ Some 10; Some 11; Some 14; Some 7; Some 12; Some 13; Some 6 ]
+            | 8 ->
+                [
+                  Some 11;
+                  Some 10;
+                  Some 15;
+                  Some 14;
+                  Some 13;
+                  Some 12;
+                  Some 7;
+                  Some 6;
+                ]
+            | 9 ->
+                [
+                  Some 14;
+                  Some 11;
+                  None;
+                  Some 15;
+                  Some 10;
+                  Some 13;
+                  Some 12;
+                  Some 7;
+                  Some 6;
+                ]
+            | _ -> assert false
+          in
+          let evidence = proof fn in
+          List.iter2
+            (fun name register ->
+              check fn evidence name
+                (if Option.is_some register then Analysis.Register_candidate
+                 else Analysis.Stack)
+                register)
+            names expected)
         [ 6; 7; 8; 9 ];
       let blocked =
         compile mode
           "F64 F(reg F64 x,reg RSI F64 a,reg RDI F64 b,reg R10 F64 c,reg R11 \
            F64 d,reg R14 F64 e,reg R15 F64 f){return x;}42;"
       in
-      Alcotest.(check bool)
-        "reservations do not open the nonpointer bank" true
-        (Option.is_none
-           (Analysis.analyze ~frame:blocked.frame ~body:blocked.body));
+      let evidence = proof blocked in
+      check blocked evidence "x" Analysis.Stack None;
+      List.iter
+        (fun (name, register) ->
+          check blocked evidence name Analysis.Register_candidate
+            (Some register))
+        [ ("a", 6); ("b", 7); ("c", 10); ("d", 11); ("e", 14); ("f", 15) ];
       let ordinary =
         compile mode
           "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,F64 ignored){return \
@@ -161,9 +194,10 @@ let capacity () =
       let evidence = proof ordinary in
       check ordinary evidence "ignored" Analysis.Stack None;
       List.iter
-        (fun name ->
-          check ordinary evidence name Analysis.Register_candidate None)
-        [ "a"; "b"; "c"; "d"; "e"; "f" ])
+        (fun (name, register) ->
+          check ordinary evidence name Analysis.Register_candidate
+            (Some register))
+        [ ("a", 11); ("b", 14); ("c", 15); ("d", 6); ("e", 7); ("f", 10) ])
 
 let exclusions () =
   modes (fun mode ->

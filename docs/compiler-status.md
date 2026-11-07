@@ -19,8 +19,9 @@ evaluate supported function, callback and data references in live JIT sources
 without copying address bits. Original AOT behavior remains separately gated.
 
 [JIT U0 initializer warnings](void-initializer-warnings.md) now increment their
-original compiler control before expression execution. AOT warning phases remain
-unimplemented; this is not a complete warning-parity claim.
+original compiler control before expression execution. [Bounded AOT direct-call
+warning phases](aot-zero-byte-initializers.md) are also implemented; wider AOT
+warning behavior and complete warning parity remain unfinished.
 
 [Uninitialized scalar U0 locals](automatic-void-declarations.md) retain their
 original zero-byte frames without runtime value storage. Automatic assignments
@@ -480,8 +481,9 @@ Source-authenticated pure expression regions reproduce asymmetric extended-value
 links, selected identity normalization and explicit materialization boundaries.
 The mixed-scalar allocation proof also covers exact explicit F64 GPRs,
 sole-forced placement and capacity-proved narrow integer storage, including
-fixed named calls and control flow. Unsupported constant folding/reassociation,
-conversions and mixed score-pressure placement still reject. Host x87 state is isolated at entry
+fixed named calls and control flow. Straight-line mixed functions also use
+source-proved access scores and the original unstable tie order under pressure.
+Unsupported constant folding/reassociation and conversions still reject. Host x87 state is isolated at entry
 and callback boundaries; builds without that capability reject images requiring
 x87. Issue #703 remains open.
 

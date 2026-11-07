@@ -1364,7 +1364,7 @@ Unit tests cover source positions, spans, token construction, literal decoding, 
 CLI and ownership suites. The explicit `@native-tests` alias executes generated
 machine code and native CLI fixtures. These checks cover the implemented slices
 listed below; their passing counts do not measure whole-compiler compatibility.
-The reference verifier checks 85 individually audited Git blobs, and both corpus
+The reference verifier checks 87 individually audited Git blobs, and both corpus
 phases account for all 528 relevant blobs from the pinned Git tree.
 
 The runtime-frame tests cover once-only array bounds, native downward alignment,

@@ -5927,3 +5927,21 @@
    %{exe:test_native_f64_register_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(executable
+ (name test_mixed_register_scores_cli)
+ (modules test_mixed_register_scores_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_mixed_register_scores_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_mixed_register_scores_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))

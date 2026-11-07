@@ -2598,8 +2598,9 @@ let analyze_local ~frame ~body =
   | _ -> None
 
 (* Canonical mixed-scalar graphs authenticate execution-shaped accesses, not
-   TempleOS optimizer scores. OptPass012 may remove or reorder floating accesses;
-   only the separate capacity proof below may use this evidence. *)
+   TempleOS optimizer scores. The broader grammar here supplies capacity
+   evidence only; Exact_register_scores separately proves access conservation
+   for its strictly bounded straight-line integer/F64 grammar. *)
 module Mixed_scalar_source = struct
   module Typed = Sema.Function_call_expression_result
   module Source = Sema.Function_call_resolution
@@ -3159,9 +3160,7 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
     || (not (safe_register_requests locations))
     || List.length blocks > 64
     || List.length code > 512
-    || mixed
-       && (Option.is_some exact
-          || not (Mixed_scalar_source.authenticate ?runtime ~frame ~body ()))
+    || (mixed && not (Mixed_scalar_source.authenticate ?runtime ~frame ~body ()))
     || List.length targets <> List.length source_calls
     || not (List.for_all allowed code)
   then None
@@ -3773,9 +3772,16 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
                   (fun (index, (location, occurrences)) ->
                     let seed =
                       match Frame.location_register_selection location with
-                      | Request.Unspecified -> Some 0L
+                      (* OptPass3.HC:29-42 excludes ordinary F64 members before
+                         QSort. Including one at score zero would still change
+                         the unstable order of tied integer/plain-reg members.
+                         Ordinary zero-score integers must remain candidates. *)
+                      | Request.Unspecified
+                        when not
+                               (f64_type (Frame.location_checked_type location))
+                        -> Some 0L
                       | Allocatable -> Some (Int64.div Int64.max_int 2L)
-                      | Disabled | Explicit _ -> None
+                      | Unspecified | Disabled | Explicit _ -> None
                     in
                     Option.map
                       (fun seed ->
@@ -3963,20 +3969,7 @@ let analyze_with_context ?runtime ~frame ~body () =
     || not (Exact_register_scores.source_requests_match ~frame ~body)
   then None
   else
-    let exact =
-      if
-        List.for_all
-          (fun location ->
-            Option.fold ~none:false
-              ~some:(source_owned_requests ~frame ~body)
-              (location_stamp ~frame location))
-          (Frame.function_locations frame)
-      then
-        Option.bind (Exact_register_scores.analyze ~frame ~body) (fun scores ->
-            analyze_integer_function ~exact:scores ~frame ~body ())
-      else None
-    in
-    if
+    let mixed =
       List.exists
         (fun location -> f64_type (Frame.location_checked_type location))
         (Frame.function_locations frame)
@@ -3987,7 +3980,8 @@ let analyze_with_context ?runtime ~frame ~body () =
                  Option.fold ~none:false ~some:f64_type item.target_type)
                code)
            (snapshot body)
-    then
+    in
+    let exact =
       if
         List.for_all
           (fun location ->
@@ -3995,18 +3989,30 @@ let analyze_with_context ?runtime ~frame ~body () =
               ~some:(source_owned_requests ~frame ~body)
               (location_stamp ~frame location))
           (Frame.function_locations frame)
-      then analyze_integer_function ?runtime ~mixed:true ~frame ~body ()
+      then
+        Option.bind (Exact_register_scores.analyze ~frame ~body) (fun scores ->
+            analyze_integer_function ~exact:scores ~mixed ~frame ~body ())
       else None
-    else
-      match exact with
-      | Some proof -> Some proof
-      | None -> (
-          match analyze_parameter ~frame ~body with
-          | Some proof -> Some proof
-          | None -> (
-              match analyze_local ~frame ~body with
-              | Some proof -> Some proof
-              | None -> analyze_integer_function ~frame ~body ()))
+    in
+    match exact with
+    | Some proof -> Some proof
+    | None when mixed ->
+        if
+          List.for_all
+            (fun location ->
+              Option.fold ~none:false
+                ~some:(source_owned_requests ~frame ~body)
+                (location_stamp ~frame location))
+            (Frame.function_locations frame)
+        then analyze_integer_function ?runtime ~mixed:true ~frame ~body ()
+        else None
+    | None -> (
+        match analyze_parameter ~frame ~body with
+        | Some proof -> Some proof
+        | None -> (
+            match analyze_local ~frame ~body with
+            | Some proof -> Some proof
+            | None -> analyze_integer_function ~frame ~body ()))
 
 let analyze ~frame ~body = analyze_with_context ~frame ~body ()
 

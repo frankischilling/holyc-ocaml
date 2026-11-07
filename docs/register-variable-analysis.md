@@ -656,7 +656,7 @@ separately in both JIT and AOT modes.
 
 ## Scored straight-line allocation
 
-Straight-line integer functions can now use the original score and allocation
+Straight-line integer and mixed integer/F64 functions can use the original score and allocation
 order instead of the conservative capacity estimate. The supported source has
 named scalar parameters, initialized automatic locals, ordinary integer
 expressions, discarded assignments or updates, and a final return. Calls,
@@ -677,14 +677,15 @@ Extra, missing or shared accesses cannot acquire a score.
 Members start in source declaration order, as appended by
 PrsVar.HC:525-529 and LexLib.HC:146-147. Plain `reg` starts at `I64_MAX/2`;
 ordinary members start at zero. Explicit requests reserve registers even when
-unused. All candidates, including unused zero-score members, pass through the
+unused. Ordinary F64 members are excluded before sorting. All other candidates,
+including unused zero-score integer members, pass through the
 original unstable QSort2b order before zero-score records are removed. Equal
 scores do not use a new name or declaration-order tie breaker. For example,
 two equal candidates `a,b` sort as `b,a`.
 
 After filtering, more than six candidates opens the first free R12/R13 slots.
 The remaining candidates use RSI, RDI, R10, R11, R14 and R15 in that order,
-skipping explicit reservations. All eight selected integer registers have
+skipping explicit reservations. All eight selected general-purpose registers have
 physical placements in the hosted backend. Used
 winners are register variables; used losers are proven stack variables and
 narrow at their declared width. `NO_REG_VAR` disables ordinary and plain-`reg`
@@ -763,8 +764,11 @@ The candidate rules follow OptPass3.HC:29-47 and 533-621:
 
 Capacity proofs preserve narrow integer register values and declared-width
 stack stores in mixed functions. Requested F64 needs an exact physical home;
-capacity alone does not invent one. Mixed tied or score-pressure placement stays
-outside this proof. The exact scored allocator above remains integer-only.
+capacity alone does not invent one. Straight-line mixed functions can instead
+use the exact scored allocator above. It admits homogeneous F64 reads, literals,
+unary plus/minus, basic arithmetic, plain assignments and initialized entry
+locals. Calls, control flow, conversions and floating updates remain outside
+exact scoring; the conservative mixed proof retains its supported cases.
 Unsupported fixed registers and duplicate explicit requests still reject as a
 hosted safety boundary, not because TempleOS forbids their syntax.
 
@@ -787,3 +791,29 @@ R11 F64 values live across a generated call and returns 9.0.
 
 These are pinned-source deductions and hosted tests, not new TempleOS runtime
 captures. They do not complete general floating allocation or issue #703.
+
+### Exact mixed score pressure
+
+Each direct F64 read or assignment target contributes two points, just like an
+integer access. Thus `a=a` contributes four points, a literal initializer adds
+two, and a discarded `a;` adds two. The admitted normalization preserves those
+accesses: identity rewrites remove constants, while same-register assignment
+elision occurs later in BackLib.HC:509-510. Raw floating literal bits, original
+source identity and the canonical graph must all agree before scoring.
+
+Ordinary F64 members never enter QSort2b. Unused ordinary integer candidates do
+enter it before zero-score trimming. This distinction matters because the sort
+is unstable even when the eventual selected candidate set is unchanged.
+
+The [mixed pressure example](../examples/mixed-register-pressure.hc) gives eight
+forced F64 members and one forced I8 member equal scores. The pinned sort orders
+them `f,e,h,g,d,b,a,c,x`, leaving `x` on the stack. Incrementing 127 therefore
+returns -128. Adding the discarded read shown in the example promotes `x` to
+R12 and returns 128. The native tests check the physical moves and saves against
+independently derived maps, including reserved slots, initializers, zero-score
+members, `NO_REG_VAR`, exact quotas and recovery after rejection.
+
+Score evidence does not authorize floating execution by itself. The separate
+F64 operation and expression-link checks still reject unsupported arithmetic
+normalization. These expectations derive from the pinned source, not new
+TempleOS runtime captures.

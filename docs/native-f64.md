@@ -77,7 +77,7 @@ mixed-scalar proof admits supported explicit variable-register requests and
 plain `reg` when its exact placement or stack selection is proved. GPR homes
 carry binary64 words, never extended x87 values. Unproved requests reject rather
 than silently spilling. See [mixed scalar register analysis](register-variable-analysis.md#mixed-scalar-register-analysis)
-for candidate counts, calls, options and pressure limits. The arithmetic scratch
+for candidate counts, calls, options and exact straight-line score pressure. The arithmetic scratch
 word and private register saves count toward the generated frame's stack budget.
 
 On supported compiler builds, entry and host-callback thunks save and restore the

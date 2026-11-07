@@ -415,12 +415,12 @@ let width_cases =
       ("U32", 4294967295L, 4294967296L, 0L);
     ]
 
-let capacity_source n =
+let unsupported_pressure_source n =
   let params = List.init n (fun i -> "F64 reg f" ^ string_of_int i) in
   "I64 F("
-  ^ String.concat "," (params @ [ "I8 x"; "I8 y" ])
-  ^ "){x++;y++;return x+y;}F("
-  ^ String.concat "," (List.init n (fun _ -> "1.5") @ [ "127"; "127" ])
+  ^ String.concat "," (params @ [ "I8 x"; "I64 noreg branch" ])
+  ^ "){if(branch)x++;else x--;return x;}F("
+  ^ String.concat "," (List.init n (fun _ -> "1.5") @ [ "127"; "1" ])
   ^ ");"
 
 let all_explicit =
@@ -501,13 +501,11 @@ let excluded =
     ("F64 update", "F64 F(F64 reg RSI x){x+=1.0;return x;}F(1.5);");
     ("unsupported register", "F64 F(F64 reg RAX x){return x;}F(1.5);");
     ("F64 conversion", "I64 F(F64 reg RSI x){return x;}F(1.5);");
-    (* Capacity selection alone does not identify tied physical F64 homes.
-       These source-valid six/seven/eight candidate cases remain fail-closed
-       until an exact source placement proof is available. *)
-    ("six candidate capacity-only F64 placement", capacity_source 4);
-    ("seven candidate capacity-only F64 placement", capacity_source 5);
-    ("eight candidate capacity-only F64 placement", capacity_source 6);
-    ("unproved pressure", capacity_source 7);
+    (* Straight-line six-through-nine candidate pressure is now covered by
+       exact positive maps in test_mixed_register_scores_cli. Real control
+       flow remains outside that new scoring grammar, and nine forced F64
+       candidates do not fit the separate conservative capacity proof. *)
+    ("unproved branch pressure", unsupported_pressure_source 9);
   ]
 
 let directive_placement mode (case : case) body =

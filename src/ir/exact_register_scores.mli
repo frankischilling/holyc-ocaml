@@ -22,8 +22,12 @@ val analyze :
   frame:Sema.Function_frame_layout.function_layout ->
   body:Function_body.t ->
   (Sema.Function_frame_layout.location * int) list option
-(** Authenticate a complete straight-line integer source and its canonical IR.
+(** Authenticate a complete straight-line integer/F64 source and canonical IR.
     Return original member order and source occurrence counts, including zero
     counts. Each occurrence has a distinct canonical frame address and exactly
-    one read/write consumer. This is score evidence only: callers still check
-    register requests, compiler options and supported value semantics. *)
+    one read/write consumer. Floating expressions admit homogeneous direct
+    reads, literals, parentheses, unary +/-, +, -, *, /, discarded plain
+    assignments, initialized locals and a final scalar return. Conversions,
+    floating updates, nested writes, calls and control flow are not admitted.
+    Float payloads are compared as raw int64 bits. This is score evidence only:
+    callers still check requests, compiler options and value semantics. *)

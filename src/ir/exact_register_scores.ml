@@ -17,8 +17,13 @@ module Request = Sema.Register_request
    :435-484,725-816 folds bitwise/comparison nodes only when both are immediate,
    and :828-895 preserves each direct assignment/update target. Pointer-update,
    chained-comparison, control-flow and call rewrites are deliberately excluded.
-   Source occurrences therefore survive to OptPass3 one for one; hosted loads
-   alone are never used to infer the TempleOS score. *)
+   For homogeneous F64 +, -, *, / and unary +/-, OptLib.HC:161-166,212-215
+   likewise folds only immediates. OptPass012.HC:376-398,559-614,661-687
+   retains every variable subtree while removing or reassociating constants.
+   Direct F64 assignment is unchanged by :866-887; a same-register copy can
+   disappear only after scoring (BackLib.HC:509-510). Source occurrences
+   therefore survive to OptPass3 one for one; hosted loads alone are never
+   used to infer the TempleOS score or floating execution semantics. *)
 
 exception Unproved
 
@@ -40,6 +45,15 @@ let integer_type type_ =
       (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64)) ->
       true
   | _ -> false
+
+let f64_type type_ =
+  Sema.Type.pointer_depth type_ = 0
+  &&
+  match Sema.Type.base type_ with
+  | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> true
+  | _ -> false
+
+let scalar_type type_ = integer_type type_ || f64_type type_
 
 let descriptions block =
   Block_graph.instructions block |> Seq.instructions |> List.map Seq.description
@@ -391,7 +405,7 @@ let source_order ~frame ~body =
          Frame.location_value_shape location = Frame.Scalar
          && Frame.location_declarator_shape location = Frame.Object
          && Frame.location_dimensions location = []
-         && integer_type (Frame.location_checked_type location)
+         && scalar_type (Frame.location_checked_type location)
          && Option.is_some (Frame.location_frame_slot location))
        locations);
   let parameters =
@@ -559,6 +573,7 @@ let equal_instruction (left : Seq.description) (right : Seq.description) =
   match (left.payload, right.payload) with
   | None, None -> true
   | Some (Seq.Integer left), Some (Seq.Integer right) -> left = right
+  | Some (Seq.Float_bits left), Some (Seq.Float_bits right) -> left = right
   | Some (Seq.Block left), Some (Seq.Block right) ->
       Seq.Block_id.equal left right
   | _ -> false
@@ -581,7 +596,11 @@ let analyze ~frame ~body =
     in
     require
       (Typed.return_presence returned = Typed.Matching_value
-      && integer_type (Typed.return_execution_type returned));
+      && scalar_type (Typed.return_execution_type returned)
+      && Typed.return_conversion returned = Typed.No_intrinsic_conversion
+      && f64_type (Typed.return_execution_type returned)
+         = f64_type
+             (get (Typed.result_type (get (Typed.return_value returned)))));
     let roots =
       List.map
         (fun root -> Initializer root)
@@ -608,15 +627,20 @@ let analyze ~frame ~body =
       | Return actual :: _ -> actual == returned
       | _ -> false);
     let seen = ref [] and accesses = ref [] and initialized = ref [] in
+    let floating value = f64_type (get (Typed.result_type value)) in
     let claim value =
       require (not (List.exists (( == ) value) !seen));
       require (List.exists (( == ) value) (Typed.function_all_results source));
       require
-        (Typed.result_class value = Typed.Integer_result
+        ((match Typed.result_class value with
+           | Typed.Integer_result ->
+               integer_type (get (Typed.result_type value))
+           | F64_result -> floating value
+           | Unresolved_actual_class -> false)
         && Typed.result_intrinsic_conversion value
            = Typed.No_intrinsic_conversion
         && Typed.result_array_rank value = 0
-        && integer_type (get (Typed.result_type value)));
+        && scalar_type (get (Typed.result_type value)));
       seen := value :: !seen
     in
     let child expected value =
@@ -658,7 +682,10 @@ let analyze ~frame ~body =
            = Sema.Module_expression_binding.occurrence_name
                (Source.bound_identifier_occurrence bound)
         && Sema.Initializer_source.origin_of_location identifier.location
-           = Typed.result_origin value);
+           = Typed.result_origin value
+        && Sema.Type.equal
+             (get (Typed.result_type value))
+             (Frame.location_checked_type location));
       require
         (Frame.location_kind location = Frame.Named_parameter
         || List.exists (( == ) location) !initialized);
@@ -678,9 +705,16 @@ let analyze ~frame ~body =
         = Typed.result_origin value);
       match Source.argument_expression_kind original with
       | Source.Integer_literal bits -> (
+          require (not (floating value));
           match ast with
           | Ast.Integer_literal literal ->
               require (literal.literal_value = Ast.Integer_value bits)
+          | _ -> raise Unproved)
+      | Float_literal bits -> (
+          require (floating value);
+          match ast with
+          | Ast.Float_literal { literal_value = Ast.Float_value actual; _ } ->
+              require (Int64.bits_of_float actual = bits)
           | _ -> raise Unproved)
       | Bound_identifier_expression _ -> member value Read
       | Parenthesized_expression _ ->
@@ -689,9 +723,11 @@ let analyze ~frame ~body =
             | Ast.Parenthesized_expression grouped -> grouped
             | _ -> raise Unproved
           in
-          expression (depth - 1) ~write:false ~inside_comparison
-            (child grouped.grouped_expression
-               (get (Typed.result_operand value)))
+          let operand =
+            child grouped.grouped_expression (get (Typed.result_operand value))
+          in
+          require (floating value = floating operand);
+          expression (depth - 1) ~write:false ~inside_comparison operand
       | Prefix_expression prefix -> (
           let ast =
             match ast with
@@ -712,6 +748,12 @@ let analyze ~frame ~body =
           let operand =
             child ast.prefix_operand (get (Typed.result_operand value))
           in
+          require
+            (floating value = floating operand
+            && ((not (floating value))
+               || List.mem
+                    (Source.prefix_operator prefix)
+                    [ Source.Unary_plus; Unary_minus ]));
           match Source.prefix_operator prefix with
           | Source.Unary_plus | Unary_minus | Bitwise_not | Logical_not ->
               expression (depth - 1) ~write:false ~inside_comparison operand
@@ -720,6 +762,7 @@ let analyze ~frame ~body =
               member operand Write
           | _ -> raise Unproved)
       | Postfix_expression postfix when write ->
+          require (not (floating value));
           let ast =
             match ast with
             | Ast.Postfix_expression postfix -> postfix
@@ -735,6 +778,7 @@ let analyze ~frame ~body =
           let operand =
             child ast.postfix_operand (get (Typed.result_operand value))
           in
+          require (not (floating operand));
           claim operand;
           member operand Write
       | Binary_expression binary ->
@@ -748,6 +792,12 @@ let analyze ~frame ~body =
           let left, right = get (Typed.result_binary_operands value) in
           let left = child ast.binary_left left
           and right = child ast.binary_right right in
+          require
+            (floating value = floating left
+            && floating value = floating right
+            && ((not (floating value))
+               || List.mem opcode
+                    [ O.Ic_add; Ic_sub; Ic_mul; Ic_div; Ic_assign ]));
           if write_opcode opcode then (
             require write;
             claim left;
@@ -780,6 +830,12 @@ let analyze ~frame ~body =
           ~inside_comparison:false value;
         match root with
         | Initializer initial ->
+            require
+              (Typed.initializer_conversion initial
+               = Typed.No_intrinsic_conversion
+              && scalar_type (Typed.initializer_target_type initial)
+              && f64_type (Typed.initializer_target_type initial)
+                 = floating value);
             let original =
               Typed.initializer_source initial |> Source.initializer_local
             in
