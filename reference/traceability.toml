@@ -15112,3 +15112,15 @@ status = "partial"
 issue = 703
 verification = "Source-derived six-width literal/parameter initializer matrices cover selected and noreg locals, loops and named calls. Adjacent mixed-storage locals and recursive private values have independent expected results. Repeated native execution checks cleanup after a recursion-depth fault."
 evidence_limit = "Two to six total integer frame members, each local initialized exactly once in the entry block from an original literal or parameter source. Other proof bounds remain. General assignments, floating allocation and new TempleOS runtime captures are not claimed."
+
+[[feature]]
+id = "HC-REGISTER-VARIABLE-BANK-CAPACITY"
+description = "Account for all eight variable register requests and unreserved capacity in larger integer frames."
+sources = ["Kernel/KernelA.HH:1802-1805", "Compiler/CInit.HC:244-257", "Compiler/OptPass3.HC:22-48,536-621", "Compiler/OptPass6.HC:32-92", "Compiler/OptPass789A.HC:387-405,698-719"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "test/native/test_native_program_execution.ml", "examples/register-bank-capacity.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Six-width explicit-bank matrices, automatic eight-candidate frames, explicit nonpointer reservations, large noreg frames, unused parameters and unused reg requests, duplicate and uncertain-pressure negatives, recursive caller values and repeated recovery after depth faults."
+evidence_limit = "At most 32 nonescaping integer frame members with enough capacity regardless of score tie order or removed accesses. General pressure-based eviction, other fixed register requests, physical/floating allocation and new TempleOS runtime captures are not claimed."

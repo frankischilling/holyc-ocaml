@@ -5696,7 +5696,8 @@
   ../examples/remainder-register-updates.hc
   ../examples/register-control-flow.hc
   ../examples/register-call-lifetimes.hc
-  ../examples/register-local-lifetimes.hc)
+  ../examples/register-local-lifetimes.hc
+  ../examples/register-bank-capacity.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5710,7 +5711,8 @@
   ../examples/remainder-register-updates.hc
   ../examples/register-control-flow.hc
   ../examples/register-call-lifetimes.hc
-  ../examples/register-local-lifetimes.hc)
+  ../examples/register-local-lifetimes.hc
+  ../examples/register-bank-capacity.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}

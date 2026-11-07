@@ -999,6 +999,11 @@ let register_call_fault_recovery () =
       ( "I64 F(I64 a,I64 n,I64 c,I64 one){I8 x=a;x+=c;if(n){n-=one;return \
          F(x,n,c,one)+x;}return x;}F(127,3,2,1);",
         528L );
+      ( "I64 F(I8 reg RSI x,I64 reg RDI n,I64 reg R10 c,I64 reg R11 one,I64 \
+         reg R12 a,I64 reg R13 b,I64 reg R14 d,I64 reg R15 \
+         e){x+=c;if(n){n-=one;return F(x,n,c,one,a,b,d,e)+x;}return \
+         x;}F(127,3,2,1,0,0,0,0);",
+        -240L );
     ]
   in
   List.iter

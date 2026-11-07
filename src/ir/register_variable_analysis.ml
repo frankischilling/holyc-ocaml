@@ -160,9 +160,15 @@ let matches_blocks expected actual =
       && same_list Seq.Block_id.equal successors other_successors)
     expected actual
 
-(* Explicit register variables are observable through their values only in the
-   bounded, call-free graphs below. Keep conflicting or scratch-register requests
-   outside the proof. *)
+(* KernelA.HH defines REGG_LOCAL_VARS (RSI, RDI, R10, R11, R14, R15)
+   and REGG_LOCAL_NON_PTR_VARS (R12, R13). These are variable registers,
+   distinct from fixed instruction, stack temporary and frame registers. *)
+let general_variable_registers = [ 6; 7; 10; 11; 14; 15 ]
+let nonpointer_variable_registers = [ 12; 13 ]
+
+let variable_registers =
+  general_variable_registers @ nonpointer_variable_registers
+
 let safe_register_requests locations =
   let rec check used = function
     | [] -> true
@@ -170,7 +176,7 @@ let safe_register_requests locations =
         match Frame.location_register_selection location with
         | Request.Explicit register ->
             let number = Request.explicit_register_number register in
-            number >= 12 && number <= 15
+            List.mem number variable_registers
             && (not (List.mem number used))
             && check (number :: used) rest
         | Unspecified | Allocatable | Disabled -> check used rest)
@@ -2356,8 +2362,8 @@ let analyze_local ~frame ~body =
   | _ -> None
 
 (* OptPass3 scores member accesses across the whole function, not per basic
-   block. With at most six nonescaping integer frame members, every used automatic
-   candidate fits REGG_LOCAL_VARS. Keep updates statement-only and dynamically
+   block. Check that all automatic candidates fit the remaining variable banks,
+   without relying on score tie ordering. Keep updates statement-only and dynamically
    sourced so immediate rewrites and compound-expression results cannot change
    the required storage width. Named calls retain their original typed targets;
    OptPass789A saves and restores selected variable registers around each ordinary
@@ -2514,7 +2520,7 @@ let analyze_control_parameters ~frame ~body =
          (Int64.lognot Function_body.ordinary_calling_flag_mask)
        <> 0L
     || List.length locations < 2
-    || List.length locations > 6
+    || List.length locations > 32
     || (not (List.for_all integer_member locations))
     || (not (safe_register_requests locations))
     || List.length blocks > 64
@@ -2581,6 +2587,42 @@ let analyze_control_parameters ~frame ~body =
       | _ -> None
     in
     let addresses = List.filter_map frame_address code in
+    let used location =
+      List.exists (fun (_, original) -> original == location) addresses
+    in
+    let register_capacity_fits =
+      let explicit =
+        List.filter_map
+          (fun location ->
+            match Frame.location_register_selection location with
+            | Request.Explicit register ->
+                Some (Request.explicit_register_number register)
+            | _ -> None)
+          locations
+      in
+      let available registers =
+        List.length
+          (List.filter
+             (fun register -> not (List.mem register explicit))
+             registers)
+      in
+      let candidates =
+        List.fold_left
+          (fun count location ->
+            match Frame.location_register_selection location with
+            | Request.Allocatable -> count + 1
+            | Request.Unspecified when used location -> count + 1
+            | _ -> count)
+          0 locations
+      in
+      let general = available general_variable_registers in
+      (* OptPass3 opens the nonpointer bank only when there are more than six
+         scored candidates, not when explicit requests exhaust the general
+         bank. Require capacity even if optimization removes some accesses. *)
+      candidates <= general
+      || general = 6
+         && candidates <= general + available nonpointer_variable_registers
+    in
     let address id =
       List.find_opt (fun (other, _) -> Seq.Value_id.equal id other) addresses
     in
@@ -2702,7 +2744,8 @@ let analyze_control_parameters ~frame ~body =
     in
     if
       not
-        (List.for_all safe_address addresses
+        (register_capacity_fits
+        && List.for_all safe_address addresses
         && List.for_all initialized_once locations
         && List.for_all safe_instruction code)
     then None
@@ -2728,12 +2771,7 @@ let analyze_control_parameters ~frame ~body =
             List.map
               (fun location ->
                 ( Frame.location_symbol location,
-                  if
-                    not
-                      (List.exists
-                         (fun (_, original) -> original == location)
-                         addresses)
-                  then Unknown
+                  if not (used location) then Unknown
                   else if
                     Frame.location_register_selection location
                     = Request.Disabled

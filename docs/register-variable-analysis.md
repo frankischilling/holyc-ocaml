@@ -82,21 +82,23 @@ apply. This does not close the general allocation work in #703.
 
 ## Parameter values across branches and loops
 
-A separate whole-function proof covers two to six integer parameters across
-branches, `while`, `do`, `for`, early returns and gotos. Compound updates must be
-standalone statements with a parameter read as their operand. Parameters may
+A separate whole-function proof covers two to 32 checked integer frame members
+across branches, `while`, `do`, `for`, early returns and gotos. Compound updates must be
+standalone statements with a direct parameter or local read as their operand.
+Parameters may
 change between updates, including self-updates and mutually updated parameters.
-The proof rejects local variables, escaped addresses, Boolean parameters,
+Locals need the initializer proof described below. The proof rejects escaped
+addresses, Boolean members,
 immediate compound operands, consumed compound results, conflicting register
 requests and non-default compiler options. It admits at most 64 blocks and 512
-instructions. Distinct R12 through R15 requests and `noreg` retain their existing
-meaning.
+instructions. The register-bank checks below account for explicit requests
+and `noreg`.
 
 `OptPass3.HC:223-247,511-621` scores member accesses across the whole function and
 selects nonescaping variables. `CInit.HC:244-257` and
 `KernelA.HH:1804-1805` define six general register-variable slots and two
-non-pointer slots. With at most six parameters and no locals, every used
-automatic candidate fits without depending on score tie ordering.
+non-pointer slots. The proof requires enough unreserved capacity for every
+automatic candidate without depending on score tie ordering.
 `OptPass4.HC:196-219,348-398` replaces the member accesses with register operands;
 `OptPass789A.HC:698-719` converts incoming parameters before keeping their full
 register values. `PrsStmt.HC:150,842-852` clears the no-register flag at ordinary
@@ -146,7 +148,8 @@ physical register allocator.
 ## Local values across control flow and calls
 
 The whole-function proof also covers automatic integer locals initialized in
-its entry block. Parameters and locals together must fit the six-member bound.
+its entry block. Parameters and locals together must pass the register-bank
+capacity check below.
 Each local needs exactly one initializer from its original typed source: an
 integer literal or a direct parameter read. The initializer must be a standalone
 assignment. Later assignments, conditional initializers, computed initializers,
@@ -168,3 +171,37 @@ Tests cover all six narrow widths, literal and parameter initializers, register
 and stack controls, adjacent locals, calls, and repeated execution after a
 recursion-depth fault. General allocation and floating values remain open under
 #703.
+
+## Variable register bank capacity
+
+Explicit requests now cover all eight TempleOS variable registers: RSI, RDI,
+R10, R11, R12, R13, R14 and R15. Distinct requests reserve their slots even when
+the variable is unused. RAX, RBX, RCX, RDX, R8, R9, RBP and RSP remain outside
+this proof, as do duplicate requests. The host backend preserves the selected
+values in private storage; these requests do not bind host machine registers.
+
+The whole-function proof accepts two to 32 scalar frame members, provided every
+automatic candidate fits without a score-dependent eviction. `noreg` members
+consume no register slots. Unused ordinary parameters consume none either, but
+an unused `reg` request still counts because `OptPass3.HC:22-48` gives it a high
+initial score. The original address and escape checks still apply.
+
+The capacity check follows `OptPass3.HC:536-621`, not just the sum of two masks.
+TempleOS opens the R12/R13 non-pointer bank only when more than six automatic
+candidates survive its scan. Explicit requests that occupy the general bank do
+not lower that threshold. The proof therefore requires capacity even if later
+optimization removes some counted accesses. With all six general slots free,
+up to eight automatic integer candidates fit, less any explicit R12/R13
+reservations. Otherwise, automatic candidates must fit the remaining general
+slots. More demanding cases need score and tie-order analysis and remain
+unproved.
+
+`KernelA.HH:1802-1805`, `CInit.HC:244-257`, `OptPass6.HC:32-92` and
+`OptPass789A.HC:387-405,698-719` separate these banks from temporary, fixed and
+frame registers and preserve them across ordinary calls. The
+[register-bank example](../examples/register-bank-capacity.hc) uses all eight
+explicit registers across recursion and returns -240 after narrow argument
+conversion. Hosted tests cover all six narrow widths, division/remainder
+clobbers, calls, the 32-member bound and mixed `noreg` frames. These are
+source-derived expectations, not new TempleOS runtime captures or a completed
+physical register allocator.

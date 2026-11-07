@@ -3702,7 +3702,7 @@ let explicit_register_selection () =
               Printf.sprintf "I64 F(I8 reg %s x,I64 c){x<<=c;return x;}42;" reg;
               Printf.sprintf "I64 F(){I8 reg %s x=127;x<<=1;return x;}42;" reg;
             ])
-        [ "R12"; "R13"; "R14"; "R15" ];
+        [ "RSI"; "RDI"; "R10"; "R11"; "R12"; "R13"; "R14"; "R15" ];
       List.iter
         (fun reg ->
           let fn =
@@ -3717,7 +3717,7 @@ let explicit_register_selection () =
             "explicit unchanged operand proved" true
             (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
             = Some Analysis.Unknown))
-        [ "R12"; "R13"; "R14"; "R15" ];
+        [ "RSI"; "RDI"; "R10"; "R11"; "R12"; "R13"; "R14"; "R15" ];
       List.iter
         (fun source ->
           let fn = compile mode source in
@@ -4722,6 +4722,78 @@ let local_control_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let register_bank_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let x = Frame.location_symbol (location fn.frame "x") in
+          Alcotest.(check bool)
+            "remaining register bank fits" true
+            (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol:x
+            = Some Analysis.Register_candidate))
+        [
+          "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 \
+           g){if(g)x+=a;return x+b+c+d+e+f+g;}42;";
+          "I64 F(I8 x,I64 reg R12 a,I64 b,I64 c,I64 d,I64 e,I64 \
+           f){if(f)x+=a;return x+b+c+d+e+f;}42;";
+          "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h,I64 \
+           i){if(a)x+=a;return x;}42;";
+          "I64 F(I8 x,I64 noreg a,I64 noreg b,I64 noreg c,I64 noreg d,I64 \
+           noreg e,I64 noreg f,I64 noreg g,I64 noreg h,I64 noreg \
+           i){if(a)x+=a;return x+b+c+d+e+f+g+h+i;}42;";
+          "I64 F(I8 reg RSI x,I64 reg RDI a,I64 reg R10 b,I64 reg R11 c,I64 \
+           reg R12 d,I64 reg R13 e,I64 reg R14 f,I64 reg R15 \
+           g){if(g)x+=a;return x+b+c+d+e+f+g;}42;";
+        ];
+      List.iter
+        (fun count ->
+          let parameters =
+            List.init (count - 1) (fun index ->
+                Printf.sprintf "I64 noreg p%d" index)
+          in
+          let source =
+            "I64 F(I8 x,"
+            ^ String.concat "," parameters
+            ^ "){if(p0)x+=p0;return x;}42;"
+          in
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "frame member bound" (count = 32)
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [ 32; 33 ];
+      List.iter
+        (fun register ->
+          let source =
+            Printf.sprintf "I64 F(I8 reg %s x,I64 c){if(c)x+=c;return x;}42;"
+              register
+          in
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "fixed and frame registers remain outside proof" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [ "RAX"; "RCX"; "RDX"; "RBX"; "RSP"; "RBP"; "R8"; "R9" ];
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "unproved register pressure rejected" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
+           h){if(h)x+=a;return x+b+c+d+e+f+g+h;}42;";
+          "I64 F(I8 reg RSI x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 \
+           f){if(f)x+=a;return x+b+c+d+e+f;}42;";
+          "I64 F(I8 x,I64 reg a,I64 reg b,I64 reg c,I64 reg d,I64 reg e,I64 \
+           reg f,I64 reg g,I64 reg h){if(x)x+=x;return x;}42;";
+          "I64 F(I8 reg RSI x,I64 reg RSI a){if(a)x+=a;return x;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_selection () =
   List.iter
     (fun mode ->
@@ -4735,8 +4807,6 @@ let unsupported_selection () =
           "I64 F(I8 x,I64 c){if(c)x+=1;return x;}42;";
           "I64 F(I8 x,I64 c){if(c)return x+=c;return x;}42;";
           "I64 F(I8 x,I64 c){I8 *p=&x;if(c)*p+=c;return x;}42;";
-          "I64 F(I8 x,I64 c,I64 a,I64 b,I64 d,I64 e,I64 f){if(c)x+=c;return \
-           x;}42;";
           "I64 F(I8 reg R12 x,I64 reg R12 c){if(c)x+=c;return x;}42;";
           "I64 F(I8 x,Bool c){if(c)x+=c;return x;}42;";
           "I64 F(I8 x,I64 c){I8 *p=&x;*p<<=c;return x;}42;";
@@ -4949,6 +5019,8 @@ let () =
             direct_call_selection;
           Alcotest.test_case "local control-flow selection" `Quick
             local_control_selection;
+          Alcotest.test_case "register bank capacity" `Quick
+            register_bank_selection;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;
           Alcotest.test_case "original ownership" `Quick ownership;
         ] );

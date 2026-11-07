@@ -3316,8 +3316,65 @@ let () =
         ("U32", 32, false, 4294967295L);
       ]
   in
+  let large_noreg_frame =
+    let parameters = List.init 31 (fun i -> Printf.sprintf "I64 noreg p%d" i) in
+    let returned = List.init 30 (fun i -> Printf.sprintf "p%d" (i + 1)) in
+    "I64 F(I8 x,"
+    ^ String.concat "," parameters
+    ^ "){if(p0)x+=p0;return x+" ^ String.concat "+" returned ^ ";}F(127,2,"
+    ^ String.concat "," (List.init 30 (fun _ -> "1"))
+    ^ ");"
+  in
+  let register_bank_cases =
+    List.concat_map
+      (fun (type_, initial) ->
+        List.concat_map
+          (fun register ->
+            [
+              ( Printf.sprintf
+                  "I64 F(%s reg %s x,I64 c,I64 d){x+=c;x%%=d;return \
+                   x;}F(%Ld,2,0x7FFFFFFFFFFFFFFF);"
+                  type_ register initial,
+                Int64.to_string (Int64.add initial 2L) );
+              ( Printf.sprintf
+                  "I64 G(I64 v){return v;}I64 F(I64 c){%s reg %s \
+                   x=%Ld;G(x);x+=c;return x;}F(2);"
+                  type_ register initial,
+                Int64.to_string (Int64.add initial 2L) );
+            ])
+          [ "RSI"; "RDI"; "R10"; "R11"; "R12"; "R13"; "R14"; "R15" ])
+      [
+        ("I8", 127L);
+        ("U8", 255L);
+        ("I16", 32767L);
+        ("U16", 65535L);
+        ("I32", 2147483647L);
+        ("U32", 4294967295L);
+      ]
+    @ [
+        (read "../examples/register-bank-capacity.hc", "-240");
+        (large_noreg_frame, "159");
+        ( "I64 F(I8 x,I64 reg R12 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 \
+           g){if(g)x+=a;return x+b+c+d+e+f+g;}F(127,2,0,0,0,0,0,1);",
+          "130" );
+        ( "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 \
+           g){if(g)x+=a;return x+b+c+d+e+f+g;}F(127,2,0,0,0,0,0,1);",
+          "130" );
+        ( "I64 F(I8 x,I64 reg R12 a,I64 b,I64 c,I64 d,I64 e,I64 \
+           f){if(f)x+=a;return x+b+c+d+e+f;}F(127,2,0,0,0,0,1);",
+          "130" );
+        ( "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h,I64 \
+           i){if(a)x+=a;return x;}F(127,2,0,0,0,0,0,0,0,0);",
+          "129" );
+        ( "I64 F(I8 x,I64 noreg a,I64 noreg b,I64 noreg c,I64 noreg d,I64 \
+           noreg e,I64 noreg f,I64 noreg g,I64 noreg h,I64 noreg \
+           i){if(a)x+=a;return x+b+c+d+e+f+g+h+i;}F(127,2,1,1,1,1,1,1,1,1);",
+          "137" );
+      ]
+  in
   let cases =
     cases @ control_cases @ call_cases @ local_control_cases
+    @ register_bank_cases
     @ [
         (read "../examples/register-control-flow.hc", "256");
         (read "../examples/register-call-lifetimes.hc", "-240");

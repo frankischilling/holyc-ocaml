@@ -59,7 +59,7 @@ let bounded_register_qualifiers register_qualifiers =
       | Ast.Reg, Some register ->
           List.mem
             (String.uppercase_ascii register.spelling)
-            [ "R12"; "R13"; "R14"; "R15" ])
+            [ "RSI"; "RDI"; "R10"; "R11"; "R12"; "R13"; "R14"; "R15" ])
 
 let validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
     ~max_blocks ~max_global_bytes ~max_literal_bytes =

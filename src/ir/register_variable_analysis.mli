@@ -23,19 +23,20 @@ val analyze :
     receive a supported update using an unchanged parameter and return one
     updated parameter or a sum of two to six updated parameters. Their widths
     and signedness may differ. Two to five updates may also revisit a target,
-    provided every operand parameter remains unchanged. Distinct R12 through R15
-    requests are covered in these call-free shapes. Other explicit registers,
-    conflicting requests, escapes and extra locals remain unproved. A separate
-    whole-function proof covers branches and loops over two to six integer frame
-    members, with statement-only compound updates whose operands are direct
-    member reads. Automatic locals require one original literal or parameter
-    initializer in the entry block; reassignments remain unproved. Original
-    named definitions with provided fixed arguments and integer or U0 results
-    may be called, including recursive calls and the named JIT address-slot
-    path. Callbacks, defaults and variadic calls remain unproved. The proof
-    accepts up to 64 blocks and 512 instructions, no address escapes, no Boolean
-    parameters and only default compiler options. Other control flow remains
-    unproved. The witness itself does not alter execution. *)
+    provided every operand parameter remains unchanged. Distinct RSI, RDI and
+    R10 through R15 requests are covered in these shapes. Other explicit
+    registers, conflicting requests, escapes and extra locals remain unproved. A
+    separate whole-function proof covers branches and loops over two to 32
+    integer frame members when the automatic candidates fit the unreserved
+    variable banks, with statement-only compound updates whose operands are
+    direct member reads. Automatic locals require one original literal or
+    parameter initializer in the entry block; reassignments remain unproved.
+    Original named definitions with provided fixed arguments and integer or U0
+    results may be called, including recursive calls and the named JIT
+    address-slot path. Callbacks, defaults and variadic calls remain unproved.
+    The proof accepts up to 64 blocks and 512 instructions, no address escapes,
+    no Boolean parameters and only default compiler options. Other control flow
+    remains unproved. The witness itself does not alter execution. *)
 
 val selection :
   t ->

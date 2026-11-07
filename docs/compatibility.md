@@ -1042,5 +1042,9 @@ variadic call paths remain outside this proof.
 
 [Automatic local values](register-variable-analysis.md#local-values-across-control-flow-and-calls)
 can also survive bounded loops and named calls. Locals need one original
-literal or parameter initializer in the entry block. The six-member bound
+literal or parameter initializer in the entry block. Register capacity
 counts both parameters and locals; arbitrary local assignments remain unproved.
+
+[Register-bank accounting](register-variable-analysis.md#variable-register-bank-capacity)
+covers distinct RSI, RDI and R10 through R15 requests and larger mixed
+register/stack frames. It rejects uncertain automatic allocation pressure.
