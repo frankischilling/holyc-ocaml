@@ -3549,7 +3549,9 @@ let physical_register t ~frame ~body ~symbol =
       Option.bind
         (List.find_opt (fun original -> original.symbol == symbol) t.locations_)
         (fun original ->
-          let supported number = List.mem number [ 6; 7; 12; 13; 14; 15 ] in
+          let supported number =
+            List.mem number [ 6; 7; 10; 11; 12; 13; 14; 15 ]
+          in
           match t.exact_registers_ with
           | Some registers ->
               List.find_map
@@ -3602,7 +3604,7 @@ let physical_register t ~frame ~body ~symbol =
                     in
                     (* CInit.HC:244-256 builds the map in ascending register order.
                    Explicit requests reserve slots before scoring even when
-                   unused. R10/R11 remain outside the physical query: do not
+                   unused. Preserve the actual source register order: do not
                    skip an unsupported first free register for a later one. *)
                     Option.bind
                       (List.find_opt

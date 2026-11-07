@@ -571,7 +571,7 @@ let decode_callable_frame_bytes unwind =
   try
     let length = String.length unwind in
     require
-      (length >= 8 && length <= 36 && length mod 4 = 0)
+      (length >= 8 && length <= 40 && length mod 4 = 0)
       "unsupported record length";
     require
       (byte unwind 0 = 1 && byte unwind 3 = 0)
@@ -594,7 +594,7 @@ let decode_callable_frame_bytes unwind =
         require (slot + 1 < count) "truncated SAVE_NONVOL";
         let register = byte unwind (5 + (2 * slot)) lsr 4 in
         require
-          (List.mem register [ 6; 7; 12; 13; 14; 15 ]
+          (List.mem register [ 3; 6; 7; 12; 13; 14; 15 ]
           && register < previous_register)
           "unsupported or unordered saved register";
         read_saves (slot + 2) register
@@ -686,6 +686,9 @@ let callable_frame_metadata () =
         2064,
         [ 1; 11; 3; 0; 11; 1; 2; 1; 1; 0x50; 0; 0 ] );
       ("small allocation with RSI save", 32, small_save);
+      ( "small allocation with host RBX save",
+        32,
+        [ 1; 18; 4; 0; 18; 0x34; 3; 0; 11; 0x32; 1; 0x50 ] );
       ("large allocation with RSI save", 272, large_save);
       ("RSI and RDI saves do not double-charge stack", 32, pair);
       ( "unrolled page-probed allocation",
@@ -752,6 +755,8 @@ let callable_frame_metadata () =
       ("reject mismatched code count", changed large_save 2 4);
       ("reject nonzero padding", changed large_save 15 1);
       ("reject unsupported saved register", changed large_save 5 0x84);
+      ("reject private R10 save metadata", changed large_save 5 0xa4);
+      ("reject private R11 save metadata", changed large_save 5 0xb4);
       ("reject duplicate saved register", changed pair 5 0x64);
       ("reject overlapping saved slots", changed pair 6 3);
       ("reject out-of-frame save", changed large_save 6 34);

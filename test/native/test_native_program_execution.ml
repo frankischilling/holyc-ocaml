@@ -1259,15 +1259,15 @@ let physical_native_stack_is_bounded_independently () =
                "root one-below fails before native entry" true (message <> "")
          | Ok _ -> Alcotest.fail "root one-below physical stack budget executed");
       let identity_image = source_image ~mode identity in
-      (* The independent callable byte golden has a 160-byte entry allocation
-         and a 144-byte Identity allocation, including ownership bookkeeping and the RSI/RDI bridge saves.
-         Each return address + PUSH RBP adds 16 bytes. Both host status ABIs
-         therefore require 176 + 160 = 336 bytes for the complete call. *)
+      (* The independent callable byte golden has a 176-byte entry allocation
+         (the RBX context save adds eight bytes before 16-byte alignment) and
+         an unchanged 144-byte Identity allocation. Each return address +
+         PUSH RBP adds 16 bytes: 192 + 160 = 352 for the complete call. *)
       Alcotest.(check int)
-        "Identity entry physical charge matches byte golden" 176
+        "Identity entry physical charge matches byte golden" 192
         (Program.entry_stack_bytes identity_image);
       let exact_identity =
-        execute ~max_active_stack_bytes:336 ~max_steps:100
+        execute ~max_active_stack_bytes:352 ~max_steps:100
           "Identity exact physical stack budget" identity_image
         |> completed "Identity exact physical stack budget"
       in
@@ -1275,7 +1275,7 @@ let physical_native_stack_is_bounded_independently () =
         exact_identity.final_value;
       let expected_call_id, expected_call_span = identity_call_site mode in
       let one_below =
-        execute ~max_active_stack_bytes:335 ~max_steps:100
+        execute ~max_active_stack_bytes:351 ~max_steps:100
           "Identity one-below physical stack budget" identity_image
         |> faulted "Identity one-below physical stack budget"
       in
@@ -1293,7 +1293,7 @@ let physical_native_stack_is_bounded_independently () =
            (fun (span : Span.t) -> (span.start, span.stop))
            one_below.span);
       let reused_identity =
-        execute ~max_active_stack_bytes:336 ~max_steps:100
+        execute ~max_active_stack_bytes:352 ~max_steps:100
           "Identity healthy reuse after physical fault" identity_image
         |> completed "Identity healthy reuse after physical fault"
       in

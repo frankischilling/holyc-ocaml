@@ -75,13 +75,11 @@ val physical_register :
   body:Function_body.t ->
   symbol:Sema.Symbol.t ->
   int option
-(** Return the exact scored winner's RSI, RDI or R12 through R15 placement, or
+(** Return the exact scored winner's RSI, RDI or R10 through R15 placement, or
     an original source-owned member's supported explicit request, only after
-    [selection] revalidates [Register_candidate]. R10/R11 consume their actual
-    allocation positions and retain private full-width homes. Exact spills have
-    no physical register. The original source/IR bijection, member order and
-    complete allocation map are rechecked, not inferred from fallback
-    selections.
+    [selection] revalidates [Register_candidate]. Exact spills have no physical
+    register. The original source/IR bijection, member order and complete
+    allocation map are rechecked, not inferred from fallback selections.
 
     Outside that strict subset, also admit the sole possible automatic
     candidate, or the sole plain [reg] candidate when at most six frame members
@@ -92,10 +90,10 @@ val physical_register :
 
     Explicit requests reserve slots even when unused. Automatic placement uses
     the first unreserved member of RSI, RDI, R10, R11, R14, R15, and returns
-    [None] if that first slot is R10/R11, if capacity is exhausted, or if the
-    candidate upper bound could activate the R12/R13 bank. NO_REG_VAR disables
-    automatic and plain [reg] placement. Stack and unknown selections remain
-    unproved, regardless of their requests.
+    [None] if capacity is exhausted, or if the candidate upper bound could
+    activate the R12/R13 bank. NO_REG_VAR disables automatic and plain [reg]
+    placement. Stack and unknown selections remain unproved, regardless of their
+    requests.
 
     Every original formal must be represented by an authenticated named frame
     member before any physical grant, including an explicit request. Every

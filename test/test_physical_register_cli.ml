@@ -34,7 +34,8 @@ let reports = ref 0
 let placements = ref 0
 let retained_recoveries = ref 0
 let original_registers = [ "R12"; "R13"; "R14"; "R15" ]
-let registers = [ "RSI"; "RDI" ] @ original_registers
+let six_registers = [ "RSI"; "RDI" ] @ original_registers
+let registers = [ "R10"; "R11" ] @ six_registers
 let bridge_checks = ref 0
 let modes = [ "jit"; "aot" ]
 
@@ -153,6 +154,13 @@ let register_cases =
              register)
           39L;
         case
+          (register ^ " unpinned child")
+          (Printf.sprintf
+             "I64 Child(I64 noreg y){return y*3+1;}I64 F(I64 reg %s x){return \
+              x+Child(x+2)+x;}F(7);"
+             register)
+          42L;
+        case
           (register ^ " same-register child")
           (Printf.sprintf
              "I64 Child(I64 reg %s y){y*=3;return y+1;}I64 F(I64 reg %s \
@@ -201,6 +209,8 @@ let register_cases =
           42L;
       ])
     [
+      ("R10", "R11");
+      ("R11", "RSI");
       ("RSI", "RDI");
       ("RDI", "R12");
       ("R12", "R13");
@@ -218,8 +228,18 @@ let six_recursive_source =
    reg R14 c=x+3;I64 reg R15 d=x+4;if(n)return F(x+1,n-1)+x+a+b+c+d;return \
    x+a+b+c+d;}F(1,3);"
 
+let runtime_recursive_source =
+  "I64 F(I64 reg R10 x,I64 reg R11 n){if(n)return F(x+1,n-1)+x+n;return \
+   x+n;}F(1,3);"
+
 let all_register_cases =
   [
+    case "R10 R11 live across recursion" runtime_recursive_source 16L;
+    case "eight live parameters"
+      "I64 F(I64 reg R10 a,I64 reg R11 b,I64 reg RSI c,I64 reg RDI d,I64 reg \
+       R12 e,I64 reg R13 f,I64 reg R14 g,I64 reg R15 h){return \
+       a+b+c+d+e+f+g+h;}F(1,2,3,4,5,6,7,8);"
+      36L;
     case "six live parameters"
       "I64 F(I64 reg RSI a,I64 reg RDI b,I64 reg R12 c,I64 reg R13 d,I64 reg \
        R14 e,I64 reg R15 f){a+=b;b+=c;c+=d;d+=e;e+=f;f+=a;return \
@@ -291,13 +311,26 @@ let pinned_caller registers =
   let sum = String.concat "+" names in
   Printf.sprintf "I64 F(%s){return %s+Bridge(%s)+%s;}" parameters sum sum sum
 
-let bridge_register_sets = [ [ "RSI" ]; [ "RDI" ]; [ "RSI"; "RDI" ]; registers ]
+let bridge_register_sets =
+  [
+    [ "RSI" ];
+    [ "RDI" ];
+    [ "RSI"; "RDI" ];
+    [ "R10" ];
+    [ "R11" ];
+    [ "R10"; "R11" ];
+    six_registers;
+    registers;
+  ]
 
 let bridge_arguments registers =
   match registers with
   | [ _ ] -> ("14", 14L)
   | [ _; _ ] -> ("6,8", 14L)
-  | _ -> ("1,2,3,4,5,6", 21L)
+  | _ ->
+      let values = List.mapi (fun i _ -> i + 1) registers in
+      ( String.concat "," (List.map string_of_int values),
+        Int64.of_int (List.fold_left ( + ) 0 values) )
 
 let bridge_headers = "extern U0 PutChars(U64 ch);extern U0 Print(U8 *fmt,...);"
 
@@ -469,16 +502,37 @@ let assert_placement label register instructions =
       instructions
   in
   let saves = memory_moves ~save:true and restores = memory_moves ~save:false in
-  require (List.length saves = 1) (label ^ ": expected one nonvolatile save");
+  require
+    (List.length saves = 1)
+    (label ^ ": expected one private register save");
   require
     (List.length restores = 1)
-    (label ^ ": expected one nonvolatile restore");
+    (label ^ ": expected one private register restore");
+  let save = List.hd saves and restore = List.hd restores in
+  require
+    (String.sub save.bytes 2 (String.length save.bytes - 2)
+    = String.sub restore.bytes 2 (String.length restore.bytes - 2))
+    (label ^ ": register restore does not use its private save slot");
+  let number =
+    List.assoc register
+      [
+        ("RSI", 6);
+        ("RDI", 7);
+        ("R10", 10);
+        ("R11", 11);
+        ("R12", 12);
+        ("R13", 13);
+        ("R14", 14);
+        ("R15", 15);
+      ]
+  in
   let rex = if register = "RSI" || register = "RDI" then 0x48 else 0x4c in
   List.iter
     (fun (instruction : Disassembly.instruction) ->
       require
         (String.length instruction.bytes >= 3
-        && Char.code instruction.bytes.[0] = rex)
+        && Char.code instruction.bytes.[0] = rex
+        && (Char.code instruction.bytes.[2] lsr 3) land 7 = number land 7)
         (label ^ ": save/restore has the wrong REX.W/R prefix"))
     (saves @ restores);
   incr placements
@@ -609,7 +663,10 @@ let source_bridge_cases mode =
               in
               value label (Int64.mul 3L sum) report;
               output label "" report;
-              if target = "host-jit-task" && registers = [ "RSI"; "RDI" ] then
+              if
+                target = "host-jit-task"
+                && (registers = [ "RSI"; "RDI" ] || registers = [ "R10"; "R11" ])
+              then
                 source_bridge_limits mode label source report (Int64.mul 3L sum))
             (if native then [ "ir"; "host-jit-task" ] else [ "ir" ]))
         source_bridges)
@@ -620,7 +677,7 @@ let source_bridge_faults mode =
     (fun (name, bridge, code) ->
       let source =
         "#exe {" ^ bridge ^ pinned_caller registers
-        ^ "Print(\"before;\");F(1,2,3,4,5,6);Print(\"after;\");}42;"
+        ^ "Print(\"before;\");F(1,2,3,4,5,6,7,8);Print(\"after;\");}42;"
       in
       List.iter
         (fun target ->
@@ -633,22 +690,22 @@ let source_bridge_faults mode =
           output name "before;" report)
         (if native then [ "ir"; "host-jit-task" ] else [ "ir" ]))
     [
-      ( "direct GetOption fault below six pinned registers",
+      ( "direct GetOption fault below eight pinned registers",
         "I64 Bridge(I64 n){GetOption(64);return n;}",
         "HCEVAL0003" );
-      ( "direct SetOption fault below six pinned registers",
+      ( "direct SetOption fault below eight pinned registers",
         "I64 Bridge(I64 n){Option(64,1);return n;}",
         "HCEVAL0003" );
-      ( "addressable GetOption fault below six pinned registers",
+      ( "addressable GetOption fault below eight pinned registers",
         "I64 Bridge(I64 n){U8 (*p)(I64 num);p=&GetOption;p(64);return n;}",
         "HCEVAL0003" );
-      ( "addressable SetOption fault below six pinned registers",
+      ( "addressable SetOption fault below eight pinned registers",
         "I64 Bridge(I64 n){U8 (*p)(I64 num,U8 val);p=&Option;p(64,1);return n;}",
         "HCEVAL0003" );
-      ( "direct formatted source fault below six pinned registers",
+      ( "direct formatted source fault below eight pinned registers",
         "I64 Bridge(I64 n){return StreamExePrint(\"%f\",n);}",
         "HCIRVM0024" );
-      ( "addressable formatted source fault below six pinned registers",
+      ( "addressable formatted source fault below eight pinned registers",
         "I64 Bridge(I64 n){I64 (*p)(U8 *fmt,...);p=&StreamExePrint;return \
          p(\"%f\",n);}",
         "HCIRVM0024" );
@@ -682,7 +739,11 @@ let quota_source registers physical =
     ^ (List.init 8 (fun index -> "q" ^ string_of_int index) |> String.concat "+")
   in
   let arguments =
-    if List.length registers = 4 then "10,11,12,9" else "10,11,12,9,13,14"
+    match List.length registers with
+    | 4 -> "10,11,12,9"
+    | 6 -> "10,11,12,9,13,14"
+    | 8 -> "10,11,12,9,13,14,15,16"
+    | _ -> failwith "unexpected quota register count"
   in
   Printf.sprintf "I64 F(%s){%sreturn %s;}F(%s);" parameters locals result
     arguments
@@ -801,6 +862,36 @@ let compile mode source =
                 diagnostic.code ^ ": " ^ diagnostic.message)
               diagnostics))
 
+(* Decode Windows unwind slots rather than searching arbitrary bytes: extension
+   slots contain offsets, not opcodes. R10/R11 are private-convention saves,
+   never Windows nonvolatile registers, even in their owning functions. *)
+let check_volatile_unwind image =
+  List.iter
+    (fun (_, _, info) ->
+      let byte n = Char.code info.[n] in
+      let slots = byte 2 in
+      let rec walk slot =
+        if slot < slots then (
+          let code = byte (5 + (2 * slot)) in
+          let operation = code land 15 and register = code lsr 4 in
+          if operation = 0 || operation = 4 || operation = 5 then
+            require
+              (register <> 10 && register <> 11)
+              "Windows unwind incorrectly describes volatile R10/R11 as \
+               nonvolatile";
+          let width =
+            match operation with
+            | 1 -> if register = 0 then 2 else 3
+            | 4 | 8 -> 2
+            | 5 | 9 -> 3
+            | _ -> 1
+          in
+          require (slot + width <= slots) "truncated Windows unwind operation";
+          walk (slot + width))
+      in
+      walk 0)
+    (Program.windows_unwind_functions image)
+
 let completed label expected = function
   | Program.Completed execution ->
       require
@@ -814,6 +905,7 @@ let completed label expected = function
 
 let with_retained mode source action =
   let image = compile mode source in
+  check_volatile_unwind image;
   let retained = Runtime.retain image |> checked "retain" in
   Fun.protect
     ~finally:(fun () -> Runtime.release retained |> checked "release")
@@ -867,6 +959,7 @@ let source_bridge_placements () =
                 request
               |> image_checked
             in
+            check_volatile_unwind image;
             let sections =
               Program.native_sections image
               |> Holyc_lib__Asm.Native_sections.to_yojson
@@ -1011,9 +1104,10 @@ let source_bridge_placements () =
 let retained_bridge_recovery mode =
   List.iter
     (fun (name, bridge, expected_output) ->
-      let label = "six-register retained " ^ name in
+      let label = "eight-register retained " ^ name in
       let source =
-        bridge_headers ^ bridge ^ pinned_caller registers ^ "F(1,2,3,4,5,6);"
+        bridge_headers ^ bridge ^ pinned_caller registers
+        ^ "F(1,2,3,4,5,6,7,8);"
       in
       with_retained mode source (fun retained ->
           let run ?(max_steps = 100_000) ?max_output_bytes
@@ -1023,10 +1117,10 @@ let retained_bridge_recovery mode =
           in
           let first = run () in
           let steps =
-            Runtime.outcome first |> checked label |> completed label 63L
+            Runtime.outcome first |> checked label |> completed label 108L
           in
           let expected_output =
-            if expected_output = "number" then "A21;" else expected_output
+            if expected_output = "number" then "A36;" else expected_output
           in
           require
             (Runtime.output_bytes first = expected_output)
@@ -1034,7 +1128,7 @@ let retained_bridge_recovery mode =
           let recover () =
             let report = run ~max_steps:steps () in
             ignore
-              (Runtime.outcome report |> checked label |> completed label 63L);
+              (Runtime.outcome report |> checked label |> completed label 108L);
             require
               (Runtime.output_bytes report = expected_output)
               (label ^ ": recovery output");
@@ -1082,7 +1176,7 @@ let retained_bridge_recovery mode =
           let stack = minimum_stack 0 Runtime.default_active_stack_bytes in
           ignore
             (Runtime.outcome (run ~max_active_stack_bytes:stack ())
-            |> checked label |> completed label 63L);
+            |> checked label |> completed label 108L);
           (match
              Runtime.outcome (run ~max_active_stack_bytes:(stack - 1) ())
              |> checked label
@@ -1123,7 +1217,28 @@ let retained_fault_recovery mode =
           done;
           require (!owned_faults > 0)
             "no checked fault occurred inside register-owning function"))
-    [ (recursive_source, 50L); (six_recursive_source, 90L) ];
+    [
+      (recursive_source, 50L);
+      (six_recursive_source, 90L);
+      (runtime_recursive_source, 16L);
+    ];
+  with_retained mode
+    "I64 Attempts=0;I64 F(I64 reg R10 x,I64 reg R11 y,I64 noreg count){return \
+     (x+y)/(count-1);}Attempts++;F(19,23,Attempts);" (fun retained ->
+      (match execute retained 100_000 with
+      | Program.Fault fault ->
+          require
+            (fault.kind = Program.Division_by_zero
+            && fault.function_name = Some "F")
+            "expected division fault inside R10/R11 owner"
+      | Program.Completed _ -> failwith "R10/R11 division fault missing");
+      ignore
+        (execute retained 100_000
+        |> completed "R10/R11 mapping after division fault" 42L);
+      ignore
+        (execute retained 100_000
+        |> completed "R10/R11 third retained invocation" 21L);
+      incr retained_recoveries);
   with_retained mode
     "I64 Attempts=0;I64 F(I64 reg R12 x,I64 noreg count){I64 reg R13 y=x+1;I64 \
      reg R14 z=x+2;I64 reg R15 w=x+3;return \
@@ -1196,7 +1311,8 @@ let () =
       if native then (
         List.iter (check_placement mode) registers;
         exact_stack_quotas mode original_registers 134L;
-        exact_stack_quotas mode registers 167L;
+        exact_stack_quotas mode six_registers 167L;
+        exact_stack_quotas mode registers 208L;
         bounded_rejections mode;
         retained_fault_recovery mode;
         retained_bridge_recovery mode))

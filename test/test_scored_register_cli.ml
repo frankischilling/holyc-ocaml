@@ -9,7 +9,7 @@ module Disassembly = Asm_disassembler
    with I64_MAX/2. Kernel/QSort.HC:60-87 supplies the unstable tie order. Sorting
    includes zero-score members; only then does OptPass3.HC:538-553 trim them.
    More than six survivors opens R12/R13 before RSI,RDI,R10,R11,R14,R15.
-   R10/R11 consume slots but retain private full-word homes in this backend. *)
+   All eight allocated slots have physical full-word homes in this backend. *)
 let require condition message = if not condition then failwith message
 
 let read path =
@@ -37,7 +37,7 @@ let retained_recoveries = ref 0
 let exclusions = ref 0
 let private_homes = ref 0
 let stack_homes = ref 0
-let supported = [ "RSI"; "RDI"; "R12"; "R13"; "R14"; "R15" ]
+let supported = [ "RSI"; "RDI"; "R10"; "R11"; "R12"; "R13"; "R14"; "R15" ]
 let modes = [ "jit"; "aot" ]
 
 let invoke ?(status = 0) ?(options = []) ~target ~mode label source =
@@ -305,6 +305,8 @@ let assert_mapping label case instructions =
           [
             ("RSI", 6);
             ("RDI", 7);
+            ("R10", 10);
+            ("R11", 11);
             ("R12", 12);
             ("R13", 13);
             ("R14", 14);
@@ -489,15 +491,7 @@ let pressure_case ?(qualifier = "") ?(updates = "+=1") ?incoming ?weights type_
             if List.mem r supported then Some (index, r) else None))
       allocations
   in
-  let private_entries =
-    if type_.bits = 64 then []
-    else
-      List.filter_map
-        (fun (index, register) ->
-          if register = Some "R10" || register = Some "R11" then Some index
-          else None)
-        allocations
-  in
+  let private_entries = [] in
   let stack_entries =
     List.filter_map
       (fun (index, register) ->
@@ -556,8 +550,7 @@ let allocation_cases =
       "plain reg priority outranks more ordinary reads"
       "I64 F(I64 a,I64 reg b){return a+a+a+a+b;}F(10,2);" 42L;
     case
-      ~entries:[ (0, "RSI") ]
-      ~private_entries:[ 2 ]
+      ~entries:[ (0, "RSI"); (2, "R10") ]
       "unused plain reg consumes its allocated general slot"
       "I64 F(I8 reg a,I8 reg unused,I8 b){a+=1;b+=1;return a+b;}F(127,0,127);"
       256L;
@@ -580,7 +573,7 @@ let allocation_cases =
       "initializer counts even for an otherwise unused local"
       "I64 F(){I64 unused=0;I8 a=127;a+=1;return a;}F();" 128L;
     case
-      ~saved:[ "RSI"; "RDI"; "R12"; "R13"; "R14"; "R15" ]
+      ~saved:[ "RSI"; "RDI"; "R10"; "R11"; "R12"; "R13"; "R14"; "R15" ]
       "initialized equal-score locals open the nonpointer bank"
       "I64 F(){I8 a=127;I8 b=127;I8 c=127;I8 d=127;I8 e=127;I8 f=127;I8 \
        g=127;I8 h=127;I8 \
@@ -590,9 +583,15 @@ let allocation_cases =
     case
       ~entries:
         [
-          (8, "R12"); (7, "R13"); (6, "RSI"); (5, "RDI"); (2, "R14"); (1, "R15");
+          (8, "R12");
+          (7, "R13");
+          (6, "RSI");
+          (5, "RDI");
+          (2, "R14");
+          (1, "R15");
+          (4, "R10");
+          (3, "R11");
         ]
-      ~private_entries:[ 4; 3 ]
       ~stack_entries:[ (0, 8) ]
       "unequal scores identify the lowest scoring spill"
       ("I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I8 g,I8 h,I8 \
@@ -605,8 +604,7 @@ let allocation_cases =
       ^ ";}F(127,127,127,127,127,127,127,127,127);")
       5504L;
     case
-      ~entries:[ (3, "RSI"); (0, "R14"); (1, "R15") ]
-      ~private_entries:[ 4; 5 ]
+      ~entries:[ (3, "RSI"); (0, "R14"); (1, "R15"); (4, "R10"); (5, "R11") ]
       ~stack_entries:[ (2, 8) ]
       "six survivors do not open R12 R13 when general slots are reserved"
       "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I64 reg RDI \
@@ -614,16 +612,26 @@ let allocation_cases =
        a+b+c+d+e+f;}F(127,127,127,127,127,127,0);"
       512L;
     case
-      ~entries:[ (4, "R13"); (5, "RSI"); (6, "RDI"); (1, "R14"); (2, "R15") ]
-      ~private_entries:[ 3; 0 ]
+      ~entries:
+        [
+          (4, "R13");
+          (5, "RSI");
+          (6, "RDI");
+          (1, "R14");
+          (2, "R15");
+          (3, "R10");
+          (0, "R11");
+        ]
       "unused explicit R12 reserves the first nonpointer slot"
       "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I8 g,I64 reg R12 \
        r){a+=1;b+=1;c+=1;d+=1;e+=1;f+=1;g+=1;return \
        a+b+c+d+e+f+g;}F(127,127,127,127,127,127,127,0);"
       896L;
     case
-      ~entries:[ (4, "RSI"); (5, "RDI"); (0, "R14"); (1, "R15") ]
-      ~private_entries:[ 6; 3 ]
+      ~entries:
+        [
+          (4, "RSI"); (5, "RDI"); (0, "R14"); (1, "R15"); (6, "R10"); (3, "R11");
+        ]
       ~stack_entries:[ (2, 8) ]
       "unused explicit R12 R13 reservations force a seven-member spill"
       "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I8 g,I64 reg R12 r,I64 reg R13 \
@@ -631,8 +639,7 @@ let allocation_cases =
        a+b+c+d+e+f+g;}F(127,127,127,127,127,127,127,0,0);"
       640L;
     case
-      ~entries:[ (4, "R13"); (5, "RDI"); (0, "R15") ]
-      ~private_entries:[ 6; 3 ]
+      ~entries:[ (4, "R13"); (5, "RDI"); (0, "R15"); (6, "R10"); (3, "R11") ]
       ~stack_entries:[ (1, 8); (2, 8) ]
       "unused reservations in both banks preserve winner order"
       "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I8 g,I64 reg R12 r,I64 reg RSI \
@@ -640,8 +647,10 @@ let allocation_cases =
        a+b*2+c*3+d*4+e*5+f*6+g*7;}F(127,127,127,127,127,127,127,0,0,0);"
       2304L;
     case
-      ~entries:[ (4, "R13"); (5, "RSI"); (3, "RDI"); (2, "R14") ]
-      ~private_entries:[ 0; 1 ]
+      ~entries:
+        [
+          (4, "R13"); (5, "RSI"); (3, "RDI"); (2, "R14"); (0, "R10"); (1, "R11");
+        ]
       "unused plain reg opens and consumes the nonpointer bank"
       "I64 F(I8 a,I8 b,I8 c,I8 d,I8 e,I8 f,I8 reg \
        unused){a+=1;b+=1;c+=1;d+=1;e+=1;f+=1;return \
@@ -724,8 +733,16 @@ let option_cases =
 let example_case =
   case
     ~entries:
-      [ (6, "R12"); (5, "R13"); (8, "RSI"); (7, "RDI"); (0, "R14"); (3, "R15") ]
-    ~private_entries:[ 4; 1 ]
+      [
+        (6, "R12");
+        (5, "R13");
+        (8, "RSI");
+        (7, "RDI");
+        (0, "R14");
+        (3, "R15");
+        (4, "R10");
+        (1, "R11");
+      ]
     ~stack_entries:[ (2, 8) ]
     "maintained scored pressure example"
     (read "../examples/scored-register-pressure.hc")

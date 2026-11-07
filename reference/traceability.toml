@@ -15316,3 +15316,15 @@ status = "partial"
 issue = 703
 verification = "Original body and request receipts, source-to-IR occurrence bijection, zero-score retention, forced priority, exact QSort2b ties, conditional nonpointer bank and pressure winners/spills."
 evidence_limit = "Exact subset excludes control flow, calls, casts, pointers, aggregates, statics and nested writes. R10/R11 remain hosted runtime registers. General allocation and the complete HolyC ABI remain open. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-PHYSICAL-R10-R11"
+description = "Physical R10/R11 variables with separate callable context and budget storage."
+sources = ["Kernel/KernelA.HH:1801-1805", "Compiler/OptPass3.HC:534-611", "Compiler/OptPass4.HC:196-218", "Compiler/OptPass789A.HC:387-405,698-719", "Compiler/CInit.HC:244-256"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_reference_service.ml", "src/backend/x86_64_compiler_options.ml", "src/backend/x86_64_print_format.ml", "src/native_execution_stubs.c"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_nonvolatile_register_encoder.ml", "test/test_native_program.ml", "test/test_physical_register_cli.ml", "test/test_automatic_register_cli.ml", "test/test_scored_register_cli.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/native/test_native_stream_generation.ml", "test/native/test_native_source_slot_addresses.ml"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Source-owned selection, explicit and scored member placement, private invocation saves, bridge preservation, exact budget accounting, literal encodings and host unwind checks."
+evidence_limit = "RBX context and memory budget are hosted adaptations, not TempleOS frame bytes. Legacy execution remains separate. General and floating allocation and complete HolyC ABI remain open. No new TempleOS runtime capture."

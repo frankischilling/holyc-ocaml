@@ -3753,6 +3753,8 @@ let physical_register_selection () =
         [
           ("RSI", 6);
           ("RDI", 7);
+          ("R10", 10);
+          ("R11", 11);
           ("R12", 12);
           ("R13", 13);
           ("R14", 14);
@@ -3773,7 +3775,7 @@ let physical_register_selection () =
             "selection alone grants no physical register" None
             (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
                ~symbol))
-        [ ""; "noreg"; "reg R10"; "reg R11" ];
+        [ ""; "noreg" ];
       let fn = compile mode "I64 F(I8 x,I64 reg R12 c){x<<=c;return x;}42;" in
       let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
       let symbol = location fn.frame "c" |> Frame.location_symbol in
@@ -3785,6 +3787,24 @@ let physical_register_selection () =
         "authenticated used explicit operand keeps requested register" (Some 12)
         (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol))
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let undefined_suffix_register_selection () =
+  List.iter
+    (fun mode ->
+      let fn =
+        compile ~name:"Call" mode
+          "extern I64 F();I64 (*p)()=&F;I64 Indirect(){p();return 0;}I64 \
+           Call(I64 reg R11 x){x+=1;Indirect();return x;}Call(0);"
+      in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      Alcotest.(check (option int))
+        "undefined-slot regression holds a physical source value in R11"
+        (Some 11)
+        (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol))
+    (* Unresolved source addresses are a JIT-only operation. AOT rejects them
+     before native dispatch. *)
+    [ Preprocessor.Jit ]
 
 let automatic_physical_register_selection () =
   let check ?(proved = true) mode label expected source =
@@ -3861,8 +3881,8 @@ let automatic_physical_register_selection () =
             [
               ([], Some 6);
               ([ "RSI" ], Some 7);
-              ([ "RSI"; "RDI" ], None);
-              ([ "RSI"; "RDI"; "R10" ], None);
+              ([ "RSI"; "RDI" ], Some 10);
+              ([ "RSI"; "RDI"; "R10" ], Some 11);
               ([ "RSI"; "RDI"; "R10"; "R11" ], Some 14);
               ([ "RSI"; "RDI"; "R10"; "R11"; "R14" ], Some 15);
               ([ "RSI"; "RDI"; "R10"; "R11"; "R14"; "R15" ], None);
@@ -6856,8 +6876,8 @@ let scored_selection () =
               ("f", Some 13, Analysis.Register_candidate);
               ("i", Some 6, Analysis.Register_candidate);
               ("h", Some 7, Analysis.Register_candidate);
-              ("e", None, Analysis.Register_candidate);
-              ("b", None, Analysis.Register_candidate);
+              ("e", Some 10, Analysis.Register_candidate);
+              ("b", Some 11, Analysis.Register_candidate);
               ("a", Some 14, Analysis.Register_candidate);
               ("d", Some 15, Analysis.Register_candidate);
               ("c", None, Analysis.Stack);
@@ -6904,6 +6924,8 @@ let () =
             physical_register_selection;
           Alcotest.test_case "physical register ownership" `Quick
             physical_register_ownership;
+          Alcotest.test_case "undefined suffix register selection" `Quick
+            undefined_suffix_register_selection;
           Alcotest.test_case "automatic physical register selection" `Quick
             automatic_physical_register_selection;
           Alcotest.test_case "unnamed physical register parameters" `Quick

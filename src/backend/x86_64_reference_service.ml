@@ -70,12 +70,22 @@ let emit_shared ~abi ~emit:out ~slot ~stage =
   out (E.Store_stack (slot 10, E.Rdi));
   out (E.Load_context (E.Rax, 192));
   out (E.Store_stack (slot 7, E.Rax));
+  (* Host services observe executed work. Keep the private source-register
+     saves separate from the context and recompute after possible child work. *)
+  out (E.Load_context (E.Rax, 16));
+  out (E.Callable_load_context (E.Rcx, 280));
+  out (E.Binary (E.Sub, E.Rax, E.Rcx));
+  out (E.Store_context (24, E.Rax));
   out (E.Source_arguments abi);
   out (E.Call_stack (slot 7));
   out (E.Load_stack (E.Rsi, slot 9));
   out (E.Load_stack (E.Rdi, slot 10));
   out (E.Load_stack (E.R11, slot 6));
   out (E.Store_stack (slot 7, E.Rax));
+  out (E.Load_context (E.Rax, 16));
+  out (E.Load_context (E.Rcx, 24));
+  out (E.Binary (E.Sub, E.Rax, E.Rcx));
+  out (E.Callable_store_context (280, E.Rax));
   List.iteri
     (fun index register -> out (E.Load_stack (register, slot index)))
     registers;

@@ -324,7 +324,7 @@ let expected_callable_unwind ?(saves = []) frame =
     "test fixture callable frame is outside the bounded ABI shape";
   require (frame <> 0 || saves = []) "frameless fixture cannot save registers";
   require
-    (List.length saves <= 6
+    (List.length saves <= 7
     && List.map fst saves = List.sort_uniq Int.compare (List.map fst saves))
     "callable fixture saves must use unique ascending registers";
   let allocation_end = if frame = 0 then 4 else 11 + probe_size frame in
@@ -334,7 +334,7 @@ let expected_callable_unwind ?(saves = []) frame =
     List.mapi
       (fun index (register, offset) ->
         require
-          (List.mem register [ 6; 7; 12; 13; 14; 15 ]
+          (List.mem register [ 3; 6; 7; 12; 13; 14; 15 ]
           && offset < 0 && offset >= -frame
           && offset mod 8 = 0)
           "invalid callable register-save fixture";
@@ -863,7 +863,7 @@ let check_nonvolatile_probe_validation ~windows ~frame ~saves ~code ~unwind =
         (Printf.sprintf "unsupported SAVE_NONVOL register %d" register)
         (Bytes.to_string bad_code)
         [| (0, String.length code, Bytes.to_string bad_unwind) |])
-    [ 0; 1; 2; 3; 4; 5; 8; 9; 10; 11 ];
+    [ 0; 1; 2; 4; 5; 8; 9; 10; 11 ];
   metadata_mutation "unsupported SAVE_NONVOL_FAR" (fun bad ->
       Bytes.set bad 5 (Char.chr (byte unwind 5 land 0xf0 lor 5)));
   metadata_mutation "save offset addresses caller frame" (fun bad ->
@@ -910,6 +910,7 @@ let check_nonvolatile_probe_validation ~windows ~frame ~saves ~code ~unwind =
 
 let check_encoded_nonvolatile_frames ~windows =
   let register = function
+    | 3 -> Encoder.Rbx
     | 6 -> Encoder.Rsi
     | 7 -> Encoder.Rdi
     | 12 -> Encoder.R12
@@ -1122,7 +1123,7 @@ let check_encoded_nonvolatile_frames ~windows =
   (* Individual and sparse masks prevent an implicit R12-first/contiguous-bank
      assumption. RSI/R14 and RDI/R15 share ModR/M register bits, so those pairs
      must be distinguished by REX. Alternating slots expose register swaps. *)
-  List.iter (fun reg -> check 64 [ (reg, -24) ]) [ 6; 7; 12; 13; 14; 15 ];
+  List.iter (fun reg -> check 64 [ (reg, -24) ]) [ 3; 6; 7; 12; 13; 14; 15 ];
   List.iter (check 64)
     [
       [ (6, -48); (7, -8) ];
@@ -1132,6 +1133,51 @@ let check_encoded_nonvolatile_frames ~windows =
       [ (7, -32); (12, -8); (14, -48) ];
       [ (12, -48); (15, -8) ];
     ];
+  require
+    (expected_callable_unwind ~saves:((3, -64) :: all_saves) 64
+    = string_of_bytes
+        [
+          0x01;
+          0x3c;
+          0x10;
+          0x00;
+          0x3c;
+          0xf4;
+          0x05;
+          0x00;
+          0x35;
+          0xe4;
+          0x01;
+          0x00;
+          0x2e;
+          0xd4;
+          0x06;
+          0x00;
+          0x27;
+          0xc4;
+          0x02;
+          0x00;
+          0x20;
+          0x74;
+          0x07;
+          0x00;
+          0x19;
+          0x64;
+          0x04;
+          0x00;
+          0x12;
+          0x34;
+          0x00;
+          0x00;
+          0x0b;
+          0x72;
+          0x01;
+          0x50;
+        ])
+    "seven host saves have independent literal Windows unwind endpoints";
+  List.iter
+    (fun frame -> check frame ((3, -64) :: all_saves))
+    [ 64; 144; 65536; 524272 ];
   List.iter
     (fun frame -> check frame all_saves)
     [ 64; 128; 144; 65520; 65536; 65552; 524272 ];
@@ -1200,6 +1246,42 @@ let check_compiled_nonvolatile_unwind ~windows ~mode =
       [ (normal, false); (faulting, true); (normal, false) ]
   done
 
+let check_private_volatile_saves ~windows ~mode =
+  let image =
+    compile_program_source ~mode
+      "I64 F(reg R10 I64 a,reg R11 I64 b){return a+b;}F(20,22);"
+  in
+  let code = Program.code image in
+  let owners = Array.of_list (Program.windows_unwind_functions image) in
+  require (Array.length owners = 2) "private save fixture has two owners";
+  let root, root_end, root_unwind = owners.(0) in
+  require
+    (root = 0 && byte root_unwind 5 = 0x34)
+    "root unwind describes its first host RBX save";
+  let first, last, unwind = owners.(1) in
+  let frame = uint32_le code (last - 6) in
+  require
+    (unwind = expected_callable_unwind frame)
+    "private R10/R11 saves must not appear in Windows unwind metadata";
+  let private_begin = first + byte unwind 1 in
+  List.iteri
+    (fun index modrm ->
+      let save = private_begin + (7 * index) in
+      let restore = last - 9 - 14 + (7 * index) in
+      require
+        (String.sub code save 3 = string_of_bytes [ 0x4c; 0x89; modrm ])
+        "private volatile save follows completed unwind prologue";
+      require
+        (String.sub code restore 3 = string_of_bytes [ 0x4c; 0x8b; modrm ]
+        && String.sub code (save + 3) 4 = String.sub code (restore + 3) 4)
+        "private volatile restore matches its save before frame release")
+    [ 0x95; 0x9d ];
+  let root_restore = root_end - 16 in
+  require
+    (String.sub code root_restore 3 = string_of_bytes [ 0x48; 0x8b; 0x9d ])
+    "root terminal host restore recovers RBX";
+  if windows then probe_windows_program_unwind code owners
+
 let check_compiled_compact_callable ~windows ~mode ~elements ~frame =
   let image =
     compile_program_source ~max_stack_bytes:524280 ~max_code_bytes:1048576 ~mode
@@ -1258,7 +1340,8 @@ let () =
   List.iter
     (fun mode ->
       check_callable_program_unwind ~windows ~mode;
-      check_compiled_nonvolatile_unwind ~windows ~mode)
+      check_compiled_nonvolatile_unwind ~windows ~mode;
+      check_private_volatile_saves ~windows ~mode)
     [ Preprocessor.Jit; Preprocessor.Aot ];
   (* 518 simultaneous values need all 511 permitted spill slots. This also
      exercises the largest Version 1 large-allocation encoding without crossing

@@ -77,7 +77,8 @@ let aux_value = quote_hex_digits + 1
 let packed_original = aux_value + 1
 let saved_rsi = packed_original + 1
 let saved_rdi = saved_rsi + 1
-let fixed_scratch_slots = saved_rdi + 1
+let saved_r10 = saved_rdi + 1
+let fixed_scratch_slots = saved_r10 + 1
 let flag_left = 1L
 let flag_zero = 2L
 let flag_comma = 4L
@@ -1522,15 +1523,17 @@ let emit_internal ?provider ?(reference_guard = fun _ -> ()) emitter (call : t)
       jump Equal (fault 28);
       store current_word E.Rax;
       store current_pointer E.R11;
+      store saved_r10 E.R10;
       store current_offset E.R9;
       (* Provider and unpinned frames may suspend a caller that owns RSI/RDI.
          Dedicated slots keep these values out of the parser scratch state. *)
       store saved_rsi E.Rsi;
       store saved_rdi E.Rdi;
-      (* R10 holds the live remaining instruction allowance. Publish it before
-         the host callback and reload it after any admitted child execution. *)
+      (* Publish executed work before the host callback. A child may reduce
+         allowance[2], so recompute remaining[35] from that updated allowance. *)
       out (E.Load_context (E.Rax, 16));
-      out (E.Binary (E.Sub, E.Rax, E.R10));
+      out (E.Callable_load_context (E.Rcx, 280));
+      out (E.Binary (E.Sub, E.Rax, E.Rcx));
       out (E.Store_context (24, E.Rax));
       load E.Rax draft_length;
       out (E.Store_context (160, E.Rax));
@@ -1541,9 +1544,11 @@ let emit_internal ?provider ?(reference_guard = fun _ -> ()) emitter (call : t)
       store current_kind E.Rax;
       load E.R11 current_pointer;
       load E.R9 current_offset;
-      out (E.Load_context (E.R10, 16));
+      out (E.Load_context (E.Rax, 16));
       out (E.Load_context (E.Rcx, 24));
-      out (E.Binary (E.Sub, E.R10, E.Rcx));
+      out (E.Binary (E.Sub, E.Rax, E.Rcx));
+      out (E.Callable_store_context (280, E.Rax));
+      load E.R10 saved_r10;
       out (E.Load_context (E.Rcx, 0));
       out (E.Test E.Rcx);
       jump Not_equal (fault 29);

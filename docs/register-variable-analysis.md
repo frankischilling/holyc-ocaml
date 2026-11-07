@@ -534,8 +534,8 @@ capture.
 
 An explicitly requested R12, R13, R14 or R15 now holds the variable's value in
 that machine register when the existing source proof classifies the member as
-`Register_candidate`. R10/R11 requests still use the full-width private homes
-described above. RSI/RDI and bounded automatic placement are covered below.
+`Register_candidate`. RSI/RDI, R10/R11 and bounded automatic placement are
+covered below.
 This is not a general register allocator, and issue #703 remains open. The
 [call example](../examples/physical-register-calls.hc) reuses R12 in a nested
 function without changing the caller's value.
@@ -574,10 +574,8 @@ The same source-owned placement proof now covers explicit RSI and RDI requests.
 [The pair example](../examples/physical-register-pair.hc) keeps both values live
 across an unpinned callee and its hosted bookkeeping calls.
 They use typed parameter entry, full-width value operations, per-invocation save
-slots and the shared normal/fault epilogue. R10 and R11 remain private-home
-variables because the hosted runtime uses those registers for its instruction
-allowance and context pointer. General score ordering remains outside this
-physical subset.
+slots and the shared normal/fault epilogue. The R10/R11 extension below moves
+hosted runtime state out of the source variable bank.
 
 System V C calls may overwrite RSI and RDI. Saving only the registers used by
 the immediate source function would be insufficient: a pinned caller can call
@@ -588,13 +586,13 @@ compiler options and formatted-source callbacks, including provider entries.
 Nested callbacks use their own stack scratch slots.
 
 The bridge pair uses two additional eight-byte scratch slots. Reference services
-use 11 slots, compiler options use six, and formatted output uses 46 fixed slots
+use 11 slots, compiler options use seven, and formatted output uses 47 fixed slots
 before variable arguments. Existing result and continuation slots retain their
 meaning. The extra space counts toward private and active stack limits, even
 when a function has no physical RSI/RDI variable. Defaults are unchanged.
 
-Windows unwind records support the six-register set RSI, RDI and R12-R15 in
-numeric order. Admission distinguishes the low-register save/restore prefix
+Windows unwind records support RBX for the callable context and the six source
+registers RSI, RDI and R12-R15 in numeric order. Admission distinguishes the low-register save/restore prefix
 from the extended-register prefix and rejects other registers. Byte operations
 on SIL and DIL require a REX prefix; omitting it would select DH or BH instead.
 The encoder keeps these registers outside its temporary bank.
@@ -620,8 +618,8 @@ moves its sole automatic candidate to RDI.
 The count includes every ordinary or plain-`reg` frame member, even unused
 members and members classified `Unknown`. Explicit requests reserve their
 numbers even when unused. The general bank is RSI, RDI, R10, R11, R14, R15 in
-that order. If its first free register is R10 or R11, placement stays in the
-private home; it does not skip ahead to R14. More than six possible candidates,
+that order, including R10 and R11; it never skips an available register. More
+than six possible candidates,
 competing forced candidates and unresolved ordinary ties receive no automatic
 physical placement. `NO_REG_VAR` disables ordinary and plain-`reg` placement.
 
@@ -686,8 +684,8 @@ two equal candidates `a,b` sort as `b,a`.
 
 After filtering, more than six candidates opens the first free R12/R13 slots.
 The remaining candidates use RSI, RDI, R10, R11, R14 and R15 in that order,
-skipping explicit reservations. R10/R11 occupy their actual positions in this
-calculation but retain full-word private homes in the hosted backend. Used
+skipping explicit reservations. All eight selected integer registers have
+physical placements in the hosted backend. Used
 winners are register variables; used losers are proven stack variables and
 narrow at their declared width. `NO_REG_VAR` disables ordinary and plain-`reg`
 selection while preserving explicit requests.
@@ -705,3 +703,37 @@ Original try/catch disables these automatic proofs because PrsStmt.HC:852 sets
 `CCF_NO_REG_OPT`. Every member's request must also agree with its sealed source;
 a failed exact proof cannot fall back to a different semantic register request.
 These are pinned-source and hosted checks, not new TempleOS runtime captures.
+
+
+## Physical R10 and R11 variables
+
+Source-proved R10/R11 variables now use those machine registers. Their selection
+and typed entry follow the same TempleOS variable map and source ownership
+checks as the other integer registers. Each owning function saves its caller's
+value in a private eight-byte slot, including recursive calls and fault exits.
+The temporary allocator still excludes both registers from callable bodies,
+even when a callee has no selected variables. An unpinned callee therefore cannot
+silently overwrite an ancestor's variable.
+
+Callable execution keeps its context pointer in RBX and its remaining step
+count in context word 35, byte offset 280. Budget checks compare and decrement
+that memory directly, without borrowing a live value register. The extra string
+probe charge uses the same counter. Root entry saves host RBX before capturing
+the context, and restores it after the final context access. Closed execution
+keeps its existing R11 context and R10 counter.
+
+All three generated-to-C bridges preserve R10/R11, including synthetic provider
+entries. They publish executed work before calling C and recompute remaining
+work from the updated allowance afterward. A nested source task or restriction
+can reduce that allowance; restoring an old remaining count would refund work.
+The callback result remains in its separate result slot during this bookkeeping.
+
+RBX is a host nonvolatile register and receives Windows unwind metadata.
+R10/R11 are volatile in the host ABI, so their private source-variable saves are
+outside the unwind-described prologue. Their restores precede the terminal host
+restore sequence. Windows admission rejects R10/R11 as nonvolatile records.
+Save and bridge slots count toward the existing exact frame limits.
+
+This runtime storage layout is a hosted adaptation. TempleOS's source-variable
+mask and preservation rules remain the language authority; these changes do not
+claim byte-identical TempleOS frames or complete floating/register allocation.

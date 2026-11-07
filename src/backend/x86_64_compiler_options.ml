@@ -7,7 +7,7 @@ type t = {
   scratch_stage : int;
 }
 
-let scratch_slots = 6
+let scratch_slots = 7
 
 let emit (emitter : 'label X86_64_print_format.emitter) (call : t) =
   let out = emitter.instruction in
@@ -17,13 +17,15 @@ let emit (emitter : 'label X86_64_print_format.emitter) (call : t) =
   emitter.branch Equal (emitter.fault 30);
   out (E.Store_stack (slot 0, E.Rax));
   out (E.Store_stack (slot 1, E.R11));
+  out (E.Store_stack (slot 6, E.R10));
   out (E.Store_stack (slot 2, E.R9));
   (* The suspended source caller may own these registers even if this function
      has no pinned locals. Save them before host argument setup. *)
   out (E.Store_stack (slot 4, E.Rsi));
   out (E.Store_stack (slot 5, E.Rdi));
   out (E.Load_context (E.Rax, 16));
-  out (E.Binary (E.Sub, E.Rax, E.R10));
+  out (E.Callable_load_context (E.Rcx, 280));
+  out (E.Binary (E.Sub, E.Rax, E.Rcx));
   out (E.Store_context (24, E.Rax));
   out (E.Load_stack (E.Rdx, emitter.slot call.index_stage));
   (match call.value_stage with
@@ -44,9 +46,11 @@ let emit (emitter : 'label X86_64_print_format.emitter) (call : t) =
   out (E.Store_stack (slot 3, E.Rax));
   out (E.Load_stack (E.R11, slot 1));
   out (E.Load_stack (E.R9, slot 2));
-  out (E.Load_context (E.R10, 16));
+  out (E.Load_context (E.Rax, 16));
   out (E.Load_context (E.Rcx, 24));
-  out (E.Binary (E.Sub, E.R10, E.Rcx));
+  out (E.Binary (E.Sub, E.Rax, E.Rcx));
+  out (E.Callable_store_context (280, E.Rax));
+  out (E.Load_stack (E.R10, slot 6));
   out (E.Load_context (E.Rcx, 0));
   out (E.Test E.Rcx);
   emitter.branch Not_equal (emitter.fault 30);

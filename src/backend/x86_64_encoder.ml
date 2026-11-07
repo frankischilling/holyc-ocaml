@@ -2,6 +2,7 @@ module Facts = Generated.Opcode_keywords
 
 type register =
   | Rax
+  | Rbx
   | Rcx
   | Rdx
   | Rsi
@@ -74,6 +75,16 @@ type instruction =
   | Bit of bit * register * register
   | Shift_cl of shift * register
   | Shift_immediate of shift * register * int64
+  | Callable_capture_status of status_abi
+  | Callable_source_arguments of status_abi
+  | Callable_compiler_option_arguments of status_abi
+  | Callable_store_status_kind of int
+  | Callable_store_status_site of int
+  | Callable_load_context of register * int
+  | Callable_store_context of int * register
+  | Callable_store_context_imm of int * int
+  | Callable_test_budget
+  | Callable_dec_budget
   | Capture_status of status_abi
   | Source_arguments of status_abi
   | Compiler_option_arguments of status_abi
@@ -100,11 +111,27 @@ type instruction =
   | Movzx8 of register * register
   | Ret
 
+(* Hosted callable adaptation: RBX carries the runtime context so TempleOS
+   source variables can own R10/R11. Closed expression/program encodings keep
+   their original R11 context and R10 budget unchanged. *)
+let callable_instruction = function
+  | Capture_status abi -> Callable_capture_status abi
+  | Source_arguments abi -> Callable_source_arguments abi
+  | Compiler_option_arguments abi -> Callable_compiler_option_arguments abi
+  | Store_status_kind kind -> Callable_store_status_kind kind
+  | Store_status_site site -> Callable_store_status_site site
+  | Load_context (register, offset) -> Callable_load_context (register, offset)
+  | Store_context (offset, register) -> Callable_store_context (offset, register)
+  | Store_context_imm (offset, value) ->
+      Callable_store_context_imm (offset, value)
+  | instruction -> instruction
+
 let registers = [ Rax; Rcx; Rdx; R8; R9; R10; R11 ]
 
-(* Physical variable registers are encodable but never enter the temporary
-   allocator's bank. Their owners must preserve them across callable frames. *)
-let encodable_registers = registers @ [ Rsi; Rdi; R12; R13; R14; R15 ]
+(* Additional physical registers and the hosted callable context base never
+   enter the temporary bank. Callable allocation separately reserves the bank's
+   R10/R11 for source owners; legacy expression allocation may still use them. *)
+let encodable_registers = registers @ [ Rbx; Rsi; Rdi; R12; R13; R14; R15 ]
 let max_code_bytes = min (16 * 1024 * 1024) Sys.max_string_length
 
 let stack_slot ~offset =
@@ -149,6 +176,7 @@ let call_frame ~bytes =
 
 let register_spelling = function
   | Rax -> "RAX"
+  | Rbx -> "RBX"
   | Rcx -> "RCX"
   | Rdx -> "RDX"
   | Rsi -> "RSI"
@@ -385,24 +413,31 @@ let form = function
   | Binary (Xor, _, _) -> bitwise_xor
   | Shift_cl (shift, _) -> shift_form shift
   | Shift_immediate (shift, _, count) -> immediate_shift_form shift count
-  | Capture_status _ | Source_arguments _ | Compiler_option_arguments _ ->
-      mov_register
+  | Callable_capture_status _
+  | Callable_source_arguments _
+  | Callable_compiler_option_arguments _
+  | Capture_status _
+  | Source_arguments _
+  | Compiler_option_arguments _ -> mov_register
   | Zero_edx -> zero_register32
   | Cqo -> sign_extend_rax
   | Div_rcx -> divide
   | Idiv_rcx -> signed_divide
-  | Cmp_imm8 _ -> compare_immediate_byte
+  | Callable_test_budget | Cmp_imm8 _ -> compare_immediate_byte
   | Jump _ -> jump
   | Jump_equal _ -> jump_equal
   | Jump_not_equal _ -> jump_not_equal
   | Jump_below _ -> jump_below
   | Jump_less _ -> jump_less
   | Jump_overflow _ -> jump_overflow
-  | Store_status_kind _ | Store_status_site _ -> store_immediate
-  | Load_context _ -> mov_load
-  | Store_context _ -> mov_store
-  | Store_context_imm _ -> store_immediate
-  | Dec _ -> decrement
+  | Callable_store_status_kind _
+  | Callable_store_status_site _
+  | Store_status_kind _
+  | Store_status_site _ -> store_immediate
+  | Callable_load_context _ | Load_context _ -> mov_load
+  | Callable_store_context _ | Store_context _ -> mov_store
+  | Callable_store_context_imm _ | Store_context_imm _ -> store_immediate
+  | Callable_dec_budget | Dec _ -> decrement
   | Cmp _ -> compare
   | Test _ -> test
   | Setcc (condition, _) -> condition_form condition
@@ -432,6 +467,19 @@ let valid_reference_offset offset =
   offset = 0 || offset = 8 || offset = 16 || offset = 24 || offset = 32
 
 let validate = function
+  | Callable_store_status_kind kind when kind < 1 || kind > 2 ->
+      invalid_arg "status kind must be 1 or 2"
+  | Callable_store_status_site site when site < 1 || site > 100_000 ->
+      invalid_arg "status site must be between 1 and 100000"
+  | Callable_load_context (_, offset)
+    when not (valid_context_read_offset offset || offset = 280) ->
+      invalid_arg
+        "callable context read offset must be aligned from 0 through 280"
+  | (Callable_store_context (offset, _) | Callable_store_context_imm (offset, _))
+    when not (valid_context_write_offset offset || offset = 280) ->
+      invalid_arg "callable context write offset is outside the sealed context"
+  | Callable_store_context_imm (_, immediate) when not (signed_int32 immediate)
+    -> invalid_arg "callable context immediate must fit signed 32 bits"
   | Lock_binary_indirect (Imul, _, _, _) ->
       invalid_arg "LOCK requires memory ADD, SUB, AND, OR or XOR"
   | Load_indirect (_, _, offset) when not (valid_reference_offset offset) ->
@@ -596,11 +644,13 @@ let plans instruction =
     width <> Frame32 || extension <> Zero_extend
   in
   let store_prefixes width = if width = Frame16 then [ 0x66 ] else [] in
-  let context ~reg ?immediate displacement =
+  let context ?(base = 11) ~reg ?immediate displacement =
     one
-      ~prefixes:[ 0x49 lor ((reg land 8) lsr 1) ]
+      ~prefixes:[ 0x48 lor ((base land 8) lsr 3) lor ((reg land 8) lsr 1) ]
       ~modrm:
-        ((if displacement <= 127 then 0x43 else 0x83) lor ((reg land 7) lsl 3))
+        ((if displacement <= 127 then 0x40 else 0x80)
+        lor (base land 7)
+        lor ((reg land 7) lsl 3))
       ~displacement:
         (signed
            (if displacement <= 127 then 1 else 4)
@@ -741,30 +791,42 @@ let plans instruction =
       register ~reg:selected.slash_value
         ~rm:(register_number destination)
         ?immediate ()
-  | Capture_status abi ->
+  | Capture_status abi | Callable_capture_status abi ->
       register
         ~reg:
           (match abi with
           | Windows_x64 -> 1
           | System_v_x64 -> 7)
-        ~rm:11 ()
-  | Source_arguments abi ->
-      register ~reg:11
+        ~rm:
+          (match instruction with
+          | Callable_capture_status _ -> 3
+          | _ -> 11)
+        ()
+  | Source_arguments abi | Callable_source_arguments abi ->
+      register
+        ~reg:
+          (match instruction with
+          | Callable_source_arguments _ -> 3
+          | _ -> 11)
         ~rm:
           (match abi with
           | Windows_x64 -> 1
           | System_v_x64 -> 7)
         ()
-  | Compiler_option_arguments abi ->
+  | Compiler_option_arguments abi | Callable_compiler_option_arguments abi ->
       (* System V stages the index and operation in RSI/RDX before passing the
-         private R11 context in RDI. Every MOV uses its own shared plan. *)
+         legacy R11 or callable RBX context in RDI. Each MOV has its own plan. *)
       let arguments =
         match abi with
         | Windows_x64 -> []
         | System_v_x64 -> register ~reg:2 ~rm:6 () @ register ~reg:8 ~rm:2 ()
       in
       arguments
-      @ register ~reg:11
+      @ register
+          ~reg:
+            (match instruction with
+            | Callable_compiler_option_arguments _ -> 3
+            | _ -> 11)
           ~rm:
             (match abi with
             | Windows_x64 -> 1
@@ -785,6 +847,21 @@ let plans instruction =
   | Jump_below displacement
   | Jump_less displacement
   | Jump_overflow displacement -> one ~immediate:(signed 4 displacement) ()
+  | Callable_store_status_kind immediate ->
+      context ~base:3 ~reg:0 ~immediate:(signed 4 (Int64.of_int immediate)) 0
+  | Callable_store_status_site immediate ->
+      context ~base:3 ~reg:0 ~immediate:(signed 4 (Int64.of_int immediate)) 8
+  | Callable_load_context (destination, displacement) ->
+      context ~base:3 ~reg:(register_number destination) displacement
+  | Callable_store_context (displacement, source) ->
+      context ~base:3 ~reg:(register_number source) displacement
+  | Callable_store_context_imm (displacement, immediate) ->
+      context ~base:3 ~reg:0
+        ~immediate:(signed 4 (Int64.of_int immediate))
+        displacement
+  | Callable_test_budget ->
+      context ~base:3 ~reg:selected.slash_value ~immediate:(signed 1 0L) 280
+  | Callable_dec_budget -> context ~base:3 ~reg:selected.slash_value 280
   | Store_status_kind immediate ->
       context ~reg:0 ~immediate:(signed 4 (Int64.of_int immediate)) 0
   | Store_status_site immediate ->

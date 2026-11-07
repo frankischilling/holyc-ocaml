@@ -525,6 +525,30 @@ let child_quotas () =
   failure "HCBACK0004"
     (run ~mode:Preprocessor.Aot ~max_literal_bytes:22 catalogs)
 
+let nested_callable_child_budget () =
+  let text =
+    {|#exe {I64 Emit(){I64 n=StreamExePrint("#exe {I64 Child(){I64 n=StreamExePrint(\"40+2;\");return n;}Child;}42;");Print("%d;",n);return n;}Emit;}42;|}
+  in
+  List.iter
+    (fun mode ->
+      let baseline = run ~mode text in
+      value baseline;
+      Alcotest.(check string)
+        "nested child returns before caller output" "42;"
+        (Native.output_bytes baseline);
+      let steps = Native.executed_steps baseline in
+      let exact = run ~mode ~max_steps:steps text in
+      value exact;
+      Alcotest.(check int)
+        "nested child exact accounting" steps
+        (Native.executed_steps exact);
+      let short = run ~mode ~max_steps:(steps - 1) text in
+      failure "HCIRVM0007" short;
+      Alcotest.(check int)
+        "nested child work is never restored on resume" (steps - 1)
+        (Native.executed_steps short))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let suspended_code_and_storage () =
   List.iter
     (fun text ->
@@ -1209,6 +1233,108 @@ let native_source_scope_step_restriction () =
         (Scope.restricted_steps scope))
     !expired
 
+let callable_callback_budget_boundary () =
+  let module Task = Holyc_lib__Driver.Integer_task in
+  let module Source = Holyc_lib__Driver.Integer_source_execution in
+  let module Scope = Holyc_lib__Ir.Native_source_suspension in
+  let module Runtime = Native_program_execution in
+  let run ~max_steps ~withhold =
+    let compile result =
+      match result with
+      | Ok value -> value
+      | Error errors ->
+          Alcotest.fail
+            (String.concat "; "
+               (List.map (fun (e : Image.error) -> e.message) errors))
+    in
+    let layout =
+      Image.create_task_layout_with_literals ~max_global_bytes:64
+        ~max_literal_bytes:1024
+      |> compile
+    in
+    let arena =
+      Runtime.create_task_arena ~max_arena_bytes:65_536 layout |> unwrap
+    in
+    let budget = Runtime.create_budget ~max_steps () |> unwrap in
+    let calls = ref 0 in
+    let faulted = ref false in
+    let session, source, config =
+      inputs
+        {|#exe {I64 Emit(){I64 n=StreamExePrint("payload");return n+1;}Emit;}|}
+    in
+    let execute request =
+      let image =
+        Image.compile_task_command ~max_code_bytes:524_288 ~layout request
+        |> compile
+      in
+      let retained = Runtime.retain_task_fragment arena image |> unwrap in
+      let source_callback scope _ =
+        incr calls;
+        let remaining, _, _, _ = Scope.limits scope |> unwrap in
+        Scope.restrict_steps scope ~remaining:(max 0 (remaining - withhold))
+        |> unwrap;
+        Some 41L
+      in
+      let report =
+        Fun.protect
+          ~finally:(fun () -> Runtime.release retained |> unwrap)
+          (fun () ->
+            Runtime.execute_retained_budget_report ~source_callback budget
+              retained)
+      in
+      match Runtime.outcome report |> unwrap with
+      | Image.Completed result ->
+          Ok
+            (Task.Native_dispatch.Captured
+               (Option.map
+                  (fun (word : Image.word) ->
+                    Task.Native_dispatch.I64 word.bits)
+                  result.final_value))
+      | Image.Fault fault ->
+          Alcotest.(check bool)
+            "restriction faults only at the step boundary" true
+            (fault.kind = Image.Step_limit_exceeded);
+          faulted := true;
+          Error
+            [
+              Diagnostic.make ~code:"HCIRVM0007" ~severity:Diagnostic.Error
+                ~message:"step boundary"
+                ~primary:(Holyc_lib__Driver.Integer_source.source_span source)
+                ();
+            ]
+    in
+    let dispatch : Task.Native_dispatch.t =
+      {
+        execute_initializer = (fun _ -> Alcotest.fail "no initializer expected");
+        execute_command = execute;
+      }
+    in
+    Fun.protect
+      ~finally:(fun () -> Runtime.release_task_arena arena |> unwrap)
+      (fun () ->
+        let report =
+          Source.run ~native_dispatch:dispatch session ~source ~config
+            ~max_steps:100_000
+        in
+        if not !faulted then Source.outcome report |> checked |> ignore;
+        Alcotest.(check int) "callback reached exactly once" 1 !calls;
+        (!faulted, (Runtime.budget_progress budget).executed_steps))
+  in
+  let fault, steps = run ~max_steps:100_000 ~withhold:0 in
+  Alcotest.(check bool) "unrestricted baseline completes" false fault;
+  let exact_fault, exact_steps = run ~max_steps:steps ~withhold:0 in
+  Alcotest.(check bool)
+    "exact callable callback budget completes" false exact_fault;
+  Alcotest.(check int) "exact callback instruction count" steps exact_steps;
+  let short_fault, short_steps = run ~max_steps:steps ~withhold:1 in
+  Alcotest.(check bool)
+    "callback reduction is honored after resume" true short_fault;
+  Alcotest.(check int) "withheld step is not executed" (steps - 1) short_steps;
+  let short_fault, short_steps = run ~max_steps:(steps - 1) ~withhold:0 in
+  Alcotest.(check bool) "one-below initial allowance faults" true short_fault;
+  Alcotest.(check int)
+    "initial and callback limits agree" (steps - 1) short_steps
+
 let checkpoint_quotas () =
   let text =
     {|#exe {Print("before;");StreamPrint("40;");StreamExePrint("class Made {I64 n;};");Print("after;");StreamPrint("42;");}42;|}
@@ -1300,6 +1426,8 @@ let () =
           Alcotest.test_case
             "child defaults, statics, catalogs and nested streams" `Quick
             executable_children;
+          Alcotest.test_case "nested callable children retain step charges"
+            `Quick nested_callable_child_budget;
           Alcotest.test_case "actual child usage joins cumulative quotas" `Quick
             child_quotas;
           Alcotest.test_case
@@ -1317,6 +1445,8 @@ let () =
             capture_authority;
           Alcotest.test_case "native source callback scope and collection"
             `Quick native_source_callbacks;
+          Alcotest.test_case "callable callback exact budget boundary" `Quick
+            callable_callback_budget_boundary;
           Alcotest.test_case "native source scope step restriction authority"
             `Quick native_source_scope_step_restriction;
           Alcotest.test_case "source checkpoints preserve quota faults" `Quick

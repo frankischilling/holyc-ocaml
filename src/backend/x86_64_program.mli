@@ -293,9 +293,11 @@ val machine_instructions : t -> int
 
 val register_peak : t -> int
 (** Peak allocator-visible register pressure. Storage-bearing callable images
-    also reserve R9 for the arena. Callable images reserve R10/R11 for the
-    shared runtime context/budget; dedicated RBP/RSP frame bases are not
-    allocator-visible and are excluded from this metric. *)
+    also reserve R9 for the arena. Callable images exclude R10/R11 from
+    temporary allocation so source owners survive unpinned callees; RBX carries
+    their private context and offset 280 holds the remaining step budget.
+    Dedicated RBP/RSP frame bases are not allocator-visible and are excluded
+    from this metric. *)
 
 val frame_bytes : t -> int
 val block_count : t -> int

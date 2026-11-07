@@ -35,7 +35,7 @@ let reports = ref 0
 let placements = ref 0
 let retained_recoveries = ref 0
 let exclusions = ref 0
-let supported = [ "RSI"; "RDI"; "R12"; "R13"; "R14"; "R15" ]
+let supported = [ "RSI"; "RDI"; "R10"; "R11"; "R12"; "R13"; "R14"; "R15" ]
 let modes = [ "jit"; "aot" ]
 
 let invoke ?(status = 0) ?(options = []) ~target ~mode label source =
@@ -270,7 +270,15 @@ let frame_moves ~save register instructions =
 let assert_bytes label register instructions =
   assert_placement label register instructions;
   let number =
-    List.assoc register [ ("RSI", 6); ("RDI", 7); ("R14", 14); ("R15", 15) ]
+    List.assoc register
+      [
+        ("RSI", 6);
+        ("RDI", 7);
+        ("R10", 10);
+        ("R11", 11);
+        ("R14", 14);
+        ("R15", 15);
+      ]
   in
   let entry =
     Printf.sprintf "%02x89%02x"
@@ -394,6 +402,8 @@ let reservation_sets =
   [
     ("RSI", []);
     ("RDI", [ "RSI" ]);
+    ("R10", [ "RSI"; "RDI" ]);
+    ("R11", [ "RSI"; "RDI"; "R10" ]);
     ("R14", [ "RSI"; "RDI"; "R10"; "R11" ]);
     ("R15", [ "RSI"; "RDI"; "R10"; "R11"; "R14" ]);
   ]
@@ -530,9 +540,9 @@ let negative_cases =
       "#exe {Option(34,1);I64 F(I8 x){x+=3;return \
        x;}Option(34,0);StreamPrint(\"%d;\",F(127));}"
       (-126L);
-    case "unsupported first free R10 is not skipped"
+    case ~register:"R10" "first free R10 is physically selected"
       "I64 F(I64 reg RSI a,I64 reg RDI b,I64 x){return x;}F(0,0,42);" 42L;
-    case "unsupported first free R11 is not skipped"
+    case ~register:"R11" "first free R11 is physically selected"
       "I64 F(I64 reg RSI a,I64 reg RDI b,I64 reg R10 c,I64 x){return \
        x;}F(0,0,0,42);"
       42L;

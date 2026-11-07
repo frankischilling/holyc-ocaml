@@ -143,8 +143,10 @@ numeric value; it does not substitute zero or retain the preceding word.
 
 ## Metering and frame lifetime
 
-Generated code reserves R10 for the remaining instruction budget and R11 for a
-private host context. Before every IR instruction it tests the remaining count,
+Closed execution reserves R10 for the remaining instruction budget and R11 for
+a private host context. Callable execution uses RBX for context and word 35 of
+that context for the remaining count, leaving R10/R11 available for source
+variables. Before every IR instruction it tests the remaining count,
 branches to that instruction's budget-fault site if zero, and otherwise
 decrements the count. This includes jumps, conditional branches, expression
 disposal, stream end and arithmetic instructions that subsequently fault.
@@ -496,18 +498,20 @@ outside this milestone.
 [Physical RSI/RDI variables](register-variable-analysis.md#physical-rsi-and-rdi-variables)
 add unconditional pair preservation at host service bridges, including calls
 through unpinned functions. Their scratch slots count toward stack limits;
-R10/R11 still serve the hosted instruction budget and context.
+[R10/R11 placement](register-variable-analysis.md#physical-r10-and-r11-variables)
+uses private source-register saves while callable runtime state lives in RBX
+and context memory. Closed execution retains its earlier register contract.
 
 [Bounded automatic placement](register-variable-analysis.md#bounded-automatic-placement)
 uses the first free general register for a sole automatic candidate, or a sole
 plain `reg` candidate among at most six possible candidates. Complete original
-parameter membership and explicit reservations are required. R10/R11 slots,
-ambiguous score order and unnamed-formal functions remain unproved. The same
+parameter membership and explicit reservations are required. Ambiguous score
+order and unnamed-formal functions remain unproved. The same
 save slots, bridge preservation and unwind checks apply to these placements.
 
 [Scored straight-line allocation](register-variable-analysis.md#scored-straight-line-allocation)
 replays original occurrence scores, unstable ties and both integer variable
 banks for authenticated scalar functions. Pressure losers use declared-width
-stack storage; R10/R11 winners retain full-word private homes. Original body
+stack storage; all selected integer registers have physical placements. Original body
 and request receipts prevent an unsupported or altered exact proof from gaining
 unsafe authority through the conservative fallback.

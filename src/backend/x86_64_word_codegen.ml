@@ -1236,6 +1236,7 @@ let build_callable_windows_unwind_info ?(register_saves = []) frame_size =
       (fun index (register, offset) ->
         let number =
           match register with
+          | Encoder.Rbx -> 3
           | Encoder.Rsi -> 6
           | Encoder.Rdi -> 7
           | Encoder.R12 -> 12
@@ -2264,9 +2265,15 @@ let allocate_body ?callable_frame ?(shared_values = [])
           fault_blocks :=
             { label = step_fault; kind_value = 3; site_value = site }
             :: !fault_blocks;
-          emit (Encoder.Test Encoder.R10);
+          emit
+            (match mode with
+            | Callable_control _ -> Encoder.Callable_test_budget
+            | _ -> Encoder.Test Encoder.R10);
           emit_branch Equal step_fault;
-          emit (Encoder.Dec Encoder.R10));
+          emit
+            (match mode with
+            | Callable_control _ -> Encoder.Callable_dec_budget
+            | _ -> Encoder.Dec Encoder.R10));
       (match instruction.operation with
       | Load_immediate (result, bits) ->
           let destination =
@@ -3831,9 +3838,15 @@ let allocate_body ?callable_frame ?(shared_values = [])
              before accessing storage. This leaves output work untouched. *)
           emit (Encoder.Mov_imm64 (Encoder.Rax, 1L));
           emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rax));
-          emit (Encoder.Test Encoder.R10);
+          emit
+            (match mode with
+            | Callable_control _ -> Encoder.Callable_test_budget
+            | _ -> Encoder.Test Encoder.R10);
           emit_branch Equal step_fault;
-          emit (Encoder.Dec Encoder.R10);
+          emit
+            (match mode with
+            | Callable_control _ -> Encoder.Callable_dec_budget
+            | _ -> Encoder.Dec Encoder.R10);
           emit_branch Unconditional probe;
           mark complete;
           emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16));
@@ -5884,6 +5897,8 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
     |> Option.map (function
       | 6 -> Encoder.Rsi
       | 7 -> Encoder.Rdi
+      | 10 -> Encoder.R10
+      | 11 -> Encoder.R11
       | 12 -> Encoder.R12
       | 13 -> Encoder.R13
       | 14 -> Encoder.R14
@@ -12642,12 +12657,29 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           ~variadic ~is_entry ~start_label =
         let reference_service_label = fresh_label supply in
         let rbp_bytes = rbp_bytes + prepared.callable_reference_bytes in
+        (* Host unwind records describe only ABI nonvolatiles. R10/R11 saves
+           protect generated callers and must lie outside that prologue and
+           before the terminal host-register restore sequence. *)
+        let private_registers, host_registers =
+          List.partition
+            (fun register -> register = Encoder.R10 || register = Encoder.R11)
+            physical_registers
+        in
+        let host_registers =
+          if is_entry then Encoder.Rbx :: host_registers else host_registers
+        in
         let register_saves =
           List.mapi
             (fun index register -> (register, -(rbp_bytes + (8 * (index + 1)))))
-            physical_registers
+            host_registers
         in
         let rbp_bytes = rbp_bytes + (8 * List.length register_saves) in
+        let private_saves =
+          List.mapi
+            (fun index register -> (register, -(rbp_bytes + (8 * (index + 1)))))
+            private_registers
+        in
+        let rbp_bytes = rbp_bytes + (8 * List.length private_saves) in
         let reference_frame = -(rbp_bytes + 24) in
         let rbp_bytes = rbp_bytes + 24 in
         let home_slots = max 4 prepared.callable_home_slots in
@@ -12803,7 +12835,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               (fun (register, offset) ->
                 Planned_instruction
                   (Encoder.Store_frame (encoder_frame_slot None offset, register)))
-              register_saves
+              (register_saves @ private_saves)
           @ (if local_subroutine_capacity = 0 then []
              else
                [
@@ -12816,7 +12848,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           @ (if is_entry then
                [
                  Planned_instruction (Encoder.Capture_status abi);
-                 Planned_instruction (Encoder.Load_context (Encoder.R10, 16));
+                 Planned_instruction (Encoder.Load_context (Encoder.Rax, 16));
+                 Planned_instruction
+                   (Encoder.Callable_store_context (280, Encoder.Rax));
                ]
              else [])
           @ (if is_entry && has_storage then
@@ -12925,7 +12959,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                [
                  Planned_instruction (Encoder.Load_context (Encoder.Rax, 16));
                  Planned_instruction
-                   (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.R10));
+                   (Encoder.Callable_load_context (Encoder.Rcx, 280));
+                 Planned_instruction
+                   (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.Rcx));
                  Planned_instruction (Encoder.Store_context (24, Encoder.Rax));
                ]
              else [])
@@ -12933,7 +12969,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               (fun (register, offset) ->
                 Planned_instruction
                   (Encoder.Load_frame (register, encoder_frame_slot None offset)))
-              register_saves
+              (private_saves @ register_saves)
           @ (match frame with
             | None -> []
             | Some frame ->
@@ -13327,6 +13363,17 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         @ (Array.to_list functions_allocated
           |> List.concat_map (fun body -> body.body_plan))
       in
+      (* Adapt the complete image, including shared bridges and synthetic
+         providers, before measuring labels. Legacy executors never take this
+         path and retain their original context bytes. *)
+      let plan =
+        List.map
+          (function
+            | Planned_instruction instruction ->
+                Planned_instruction (Encoder.callable_instruction instruction)
+            | item -> item)
+          plan
+      in
       let label_offsets, planned_code_size = plan_label_offsets plan in
       let instructions, code_size, machine_count, sections =
         resolve_plan ~max_code_bytes ~callee_labels:function_labels
@@ -13521,7 +13568,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             [
               Encoder.Push_rbp;
               Encoder.Mov_rbp_rsp;
-              Encoder.Store_context_imm (0, 23);
+              (* This suffix is encoded after the shared plan adaptation. *)
+              Encoder.Callable_store_context_imm (0, 23);
               Encoder.Pop_rbp;
               Encoder.Ret;
             ]

@@ -538,7 +538,7 @@ struct native_callable_unwind {
     unsigned reg;
     unsigned code_offset;
     unsigned stack_offset;
-  } saves[6];
+  } saves[7];
 };
 
 static struct native_callable_unwind native_validate_program_unwind(value unwind)
@@ -607,8 +607,8 @@ static struct native_callable_unwind native_validate_program_unwind(value unwind
       result.allocation_offset = code_offset;
       break;
     case 4: /* UWOP_SAVE_NONVOL */
-      if ((info != 6u && info != 7u && (info < 12u || info > 15u)) ||
-          result.save_count == 6u ||
+      if ((info != 3u && info != 6u && info != 7u && (info < 12u || info > 15u)) ||
+          result.save_count == 7u ||
           saw_allocation || saw_push_rbp ||
           (result.save_count != 0u &&
            info >= result.saves[result.save_count - 1u].reg))
@@ -1644,8 +1644,11 @@ CAMLprim value holyc_native_execute_program_functions(value code, value function
      result bits, remaining semantic-frame bytes, remaining call depth, and
      remaining physical native-stack bytes. The root's exact physical cost is
      charged before entry; generated CALL/return and checked-fault paths restore
-     all three remaining quotas to these values. */
-  uint64_t context[35] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+     all three remaining quotas to these values. Word 35 is the live remaining
+     step allowance, initialized by the callable root. This hosted layout frees
+     TempleOS source-variable registers R10/R11; the legacy closed executor above
+     still uses its six-word context. */
+  uint64_t context[36] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                          (uint64_t)frame_limit, (uint64_t)depth_limit,
                          remaining_stack};
   struct native_reference_state reference_state = {0};
@@ -1769,8 +1772,9 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   /* The tenth word is an immutable private arena pointer installed by the
      platform helper after fresh RW allocation. Generated code may only read it
-     through the sealed R11 context and keeps R9 reserved as the arena base. */
-  uint64_t context[35] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+     through the sealed RBX callable context and keeps R9 reserved as the arena
+     base. Word 35 is the callable root's live remaining step allowance. */
+  uint64_t context[36] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                           (uint64_t)frame_limit, (uint64_t)depth_limit,
                           remaining_stack, 0};
   struct native_reference_state reference_state = {0};
@@ -2869,7 +2873,7 @@ static value native_execute_program_output(value code, value functions,
   }
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
-    uint64_t context[35] = {
+    uint64_t context[36] = {
       0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
       output_address, remaining_output, remaining_work, 0,

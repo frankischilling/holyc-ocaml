@@ -1,5 +1,6 @@
 type register =
   | Rax
+  | Rbx
   | Rcx
   | Rdx
   | Rsi
@@ -12,9 +13,10 @@ type register =
   | R13
   | R14
   | R15
-      (** Encodable registers. RSI, RDI and R12 through R15 are physical
-          variable registers, separate from the temporary allocator bank in
-          [registers]. Callers own their save/restore discipline. *)
+      (** Encodable registers. RBX is the hosted callable context base and is
+          never in [registers]. RSI, RDI and R12 through R15 are also outside
+          that temporary bank. Callable allocation reserves R10/R11 from the
+          bank so source variables may own them. Callers own save/restore. *)
 
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
@@ -147,6 +149,21 @@ type instruction =
       (** Shift the full-width destination by CL. [Shl] is left shift, [Shr]
           logical right shift, and [Sar] arithmetic right shift. The count is
           read from RCX implicitly; the destination may be any public register.
+      *)
+  | Callable_capture_status of status_abi
+  | Callable_source_arguments of status_abi
+  | Callable_compiler_option_arguments of status_abi
+  | Callable_store_status_kind of int
+  | Callable_store_status_site of int
+  | Callable_load_context of register * int
+  | Callable_store_context of int * register
+  | Callable_store_context_imm of int * int
+  | Callable_test_budget
+  | Callable_dec_budget
+      (** Callable context operations use RBX, never R10/R11. Reads and the
+          existing writable fields additionally admit offset 280 (remaining
+          steps). Budget test/decrement use qword memory CMP zero/DEC without
+          clobbering a register. Legacy context operations below are unchanged.
       *)
   | Capture_status of status_abi
       (** Copy the ABI's first pointer argument into private R11. Windows x64
@@ -293,3 +310,6 @@ val stack_allocation_size : int -> int
 (** Exact encoded size of the bounded page probes and fixed RSP allocation for
     an allocation from zero through 524280 bytes. Alignment is checked by the
     frame constructors. The encoded size stays below 255 bytes. *)
+
+val callable_instruction : instruction -> instruction
+(** Adapt only runtime-context operations for hosted callable code. *)

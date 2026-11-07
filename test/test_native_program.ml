@@ -1339,7 +1339,10 @@ let int32_le text offset =
           (Int32.shift_left (byte 3) 24)))
 
 let compiled_callable_frame_and_rel32_bytes () =
-  (* Keep this ABI byte golden independent of automatic variable selection. *)
+  (* Keep this ABI byte golden independent of automatic variable selection.
+     The root owns an 8-byte RBX save at RBP-8. Its previous 160-byte fixed
+     allocation grows to align16(160+8)=176, plus return/RBP words = 192.
+     SAVE_NONVOL ends at byte18 and addresses (176-8)/8=21 from final RSP. *)
   let unit =
     integer_unit "I64 Identity(I64 noreg value){return value;}\nIdentity(42);"
   in
@@ -1350,10 +1353,10 @@ let compiled_callable_frame_and_rel32_bytes () =
   let code = Program.code image in
   Alcotest.(check int) "one named callable" 1 (Program.function_count image);
   Alcotest.(check int)
-    "identity bundle maximum frame" 160
+    "identity bundle maximum frame" 176
     (Program.frame_bytes image);
   Alcotest.(check int)
-    "identity entry physical stack charge" 176
+    "identity entry physical stack charge" 192
     (Program.entry_stack_bytes image);
   match Program.windows_unwind_functions image with
   | [
@@ -1364,10 +1367,10 @@ let compiled_callable_frame_and_rel32_bytes () =
       Alcotest.(check int)
         "identity range covers image tail" (String.length code) function_end;
       Alcotest.(check string)
-        "entry PUSH/MOV/SUB frame bytes" "554889e54881eca0000000"
+        "entry PUSH/MOV/SUB frame bytes" "554889e54881ecb0000000"
         (String.sub code 0 11 |> hex);
       Alcotest.(check string)
-        "entry callable unwind bytes" "010b03000b01140001500000"
+        "entry callable unwind bytes" "01120500123415000b01160001500000"
         (hex entry_unwind);
       Alcotest.(check string)
         "identity PUSH/MOV frame bytes" "554889e5"

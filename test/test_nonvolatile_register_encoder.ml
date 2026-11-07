@@ -396,11 +396,104 @@ let low_byte_registers () =
         ("MOVZX R15,DIL", Movzx8 (R15, Rdi), "4c0fb6ff");
       ])
 
+(* Callable images own RBX, while the legacy program ABI retains R11.
+   These literals independently specify ModR/M base 3, not the mapper output. *)
+let callable_context () =
+  let open E in
+  check_cases
+    [
+      ("RBX immediate", Mov_imm64 (Rbx, 42L), "48bb2a00000000000000");
+      ("RBX from R11", Mov (Rbx, R11), "4c89db");
+      ("R11 from RBX", Mov (R11, Rbx), "4989db");
+      ("Windows capture", Callable_capture_status Windows_x64, "4889cb");
+      ("System V capture", Callable_capture_status System_v_x64, "4889fb");
+      ( "Windows source arguments",
+        Callable_source_arguments Windows_x64,
+        "4889d9" );
+      ( "System V source arguments",
+        Callable_source_arguments System_v_x64,
+        "4889df" );
+      ( "Windows option arguments",
+        Callable_compiler_option_arguments Windows_x64,
+        "4889d9" );
+      ( "System V option arguments",
+        Callable_compiler_option_arguments System_v_x64,
+        "4889d64c89c24889df" );
+      ("status kind", Callable_store_status_kind 2, "48c7430002000000");
+      ("status site", Callable_store_status_site 1, "48c7430801000000");
+      ("context disp8 load", Callable_load_context (R10, 120), "4c8b5378");
+      ("context disp32 load", Callable_load_context (R11, 128), "4c8b9b80000000");
+      ("context store", Callable_store_context (24, R11), "4c895b18");
+      ("last context load", Callable_load_context (Rax, 280), "488b8318010000");
+      ("last context store", Callable_store_context (280, R10), "4c899318010000");
+      ( "last context immediate",
+        Callable_store_context_imm (280, -1),
+        "48c78318010000ffffffff" );
+      ("memory budget compare", Callable_test_budget, "4883bb1801000000");
+      ("memory budget decrement", Callable_dec_budget, "48ff8b18010000");
+    ];
+  List.iter
+    (fun instruction ->
+      Alcotest.(check bool)
+        "invalid callable context rejected" true
+        (try
+           ignore (encode instruction);
+           false
+         with Invalid_argument _ -> true))
+    [
+      Callable_load_context (Rax, 288);
+      Callable_store_context (288, Rax);
+      Callable_store_context_imm (288, 0);
+      Callable_load_context (Rax, 279);
+      Callable_store_context (72, Rax);
+      Callable_store_context_imm (80, 0);
+    ]
+
+let callable_mapping () =
+  let open E in
+  let cases =
+    [
+      (Capture_status Windows_x64, "4989cb", "4889cb");
+      (Capture_status System_v_x64, "4989fb", "4889fb");
+      (Source_arguments Windows_x64, "4c89d9", "4889d9");
+      (Source_arguments System_v_x64, "4c89df", "4889df");
+      (Compiler_option_arguments Windows_x64, "4c89d9", "4889d9");
+      ( Compiler_option_arguments System_v_x64,
+        "4889d64c89c24c89df",
+        "4889d64c89c24889df" );
+      (Store_status_kind 1, "49c7430001000000", "48c7430001000000");
+      (Store_status_site 2, "49c7430802000000", "48c7430802000000");
+      (Load_context (Rax, 24), "498b4318", "488b4318");
+      (Store_context (24, Rax), "49894318", "48894318");
+      (Store_context_imm (24, 0), "49c7431800000000", "48c7431800000000");
+      (Mov (R10, R11), "4d89da", "4d89da");
+      (Test R10, "4d85d2", "4d85d2");
+      (Dec R10, "49ffca", "49ffca");
+    ]
+  in
+  List.iter
+    (fun (instruction, legacy, callable) ->
+      Alcotest.(check string)
+        "legacy bytes unchanged" legacy
+        (hex (encode instruction));
+      let mapped = callable_instruction instruction in
+      Alcotest.(check string)
+        "mapped callable literal" callable
+        (hex (encode mapped));
+      Alcotest.(check bool)
+        "mapping is idempotent" true
+        (callable_instruction mapped = mapped))
+    cases
+
 let () =
   Alcotest.run "nonvolatile-register-encoder"
     [
       ( "encoding",
         [
+          Alcotest.test_case "callable mapping preserves legacy bytes" `Quick
+            callable_mapping;
+          Alcotest.test_case "callable RBX context and memory meter" `Quick
+            callable_context;
           Alcotest.test_case "temporary bank is unchanged" `Quick temporary_bank;
           Alcotest.test_case "moves in both directions" `Quick moves;
           Alcotest.test_case "stack, frame and arena storage" `Quick
