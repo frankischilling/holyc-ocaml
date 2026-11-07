@@ -488,10 +488,12 @@ assignment, initialization, arguments, returns and mixed arithmetic, with
 source-proved extended conversion links and bounded explicit builtins. Explicit
 numeric calls can take arithmetic arguments and feed isolated arithmetic
 consumers, preserving their binary64 or integer materialization boundary.
-Unsupported constant folding, reassociation and conversion identities still
-reject. Host x87 state is isolated at entry and callback boundaries; builds
-without that capability reject images requiring
-x87. Issue #703 remains open.
+A [phase-ordered normalization proof](native-numeric-normalization.md) covers
+six direct I64-return identity/copy forms. It preserves the pinned compiler
+behavior where eliminated operators can return raw F64 bits as I64. Unproved
+constant folding, reassociation and other conversion identities still reject.
+Host x87 state is isolated at entry and callback boundaries; builds without
+that capability reject images requiring x87. Issue #703 remains open.
 
 `holyc run --target=host-jit examples/integer-goto.hc` and the ordinary `ir`
 target return I64 42 through function-local forward/backward gotos and labels.

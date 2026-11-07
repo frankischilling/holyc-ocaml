@@ -21,6 +21,7 @@ type intrinsic_entry = private {
 }
 
 type operation =
+  | Normalized of Ir.Numeric_normalization.t
   | Convert_to_float
   | Negate
   | Add

@@ -2400,6 +2400,22 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             | op -> op
           in
           (match (plan.operation, values, plan.loads) with
+          | X86_64_float_plan.Normalized receipt, [ value ], [ Signed_integer ]
+            ->
+              (* The sealed recipe is the physical event sequence after pinned
+                 identity elimination and return classification, not a host cast
+                 of the canonical IR's pre-normalized result flags. *)
+              List.iter
+                (function
+                  | Ir.Numeric_normalization.Load_signed_integer ->
+                      load value Signed_integer
+                  | Store_binary64 -> emit (Encoder.Fstp64 memory)
+                  | Copy_binary64 -> ()
+                  | Load_binary64 -> emit (Encoder.Fld64 memory)
+                  | Store_integer_truncate -> emit (Encoder.Fisttp64 memory))
+                (Ir.Numeric_normalization.events receipt);
+              emit
+                (Encoder.Load_stack (registers.(Option.get destination), scratch))
           | ( ((X86_64_float_plan.Alias_left | Alias_right) as op),
               [ left; right ],
               _ ) ->

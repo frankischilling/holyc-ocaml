@@ -78,6 +78,32 @@ let invoke ?(status = 0) ?(options = []) ~target ~mode label source =
    captures. Runtime FILD is signed; FISTTP truncates and returns integer
    indefinite for masked invalid operations. Scientific literals below avoid
    Lex.HC's signed-accumulator wrapping across long decimal mantissas. *)
+let normalized_cases =
+  List.concat_map
+    (fun (expression, deleted) ->
+      List.map
+        (fun (argument, raw_bits, integer_bits) ->
+          ( "normalized " ^ expression ^ " " ^ argument,
+            "I64 F(I64 n){return " ^ expression ^ ";}F(" ^ argument ^ ");",
+            "i64",
+            if deleted then raw_bits else integer_bits ))
+        [
+          ("9007199254740993", 0x4340000000000000L, 9007199254740992L);
+          ("-9007199254740993", 0xc340000000000000L, -9007199254740992L);
+          ("-3", 0xc008000000000000L, -3L);
+          ("0x7fffffffffffffff", 0x43e0000000000000L, Int64.min_int);
+          ("0x8000000000000000", 0xc3e0000000000000L, Int64.min_int);
+          ("0", 0L, 0L);
+        ])
+    [
+      ("n*1.0", true);
+      ("n+0.0", true);
+      ("0.0+n", true);
+      ("n-0.0", true);
+      ("n/1.0", false);
+      ("1.0*n", false);
+    ]
+
 let cases =
   [
     ( "runtime left extended",
@@ -261,8 +287,22 @@ let cases =
       0L );
   ]
 
+let cases = cases @ normalized_cases
+
 let excluded =
   [
+    ( "negative zero add is not normalized positive zero",
+      "I64 F(I64 n){return n+(-0.0);}F(9007199254740993);" );
+    ( "negative zero subtract is not normalized positive zero",
+      "I64 F(I64 n){return n-(-0.0);}F(9007199254740993);" );
+    ( "identity in assignment remains unproved",
+      "I64 F(I64 n){I64 a=n*1.0;return a;}F(3);" );
+    ( "identity in nested arithmetic remains unproved",
+      "I64 F(I64 n,F64 y){return (n*1.0)+y;}F(3,2.0);" );
+    ( "unsigned identity source remains unproved",
+      "I64 F(U64 n){return n*1.0;}F(3);" );
+    ( "computed identity source remains unproved",
+      "I64 F(I64 n){return (n+2)*1.0;}F(3);" );
     ( "explicit consumer with arithmetic sibling",
       "_intern 28 F64 C(I64 x);F64 F(I64 n,F64 a,F64 b){return \
        C(n)+(a+b);}F(3,1.0,2.0);" );
@@ -286,14 +326,6 @@ let excluded =
        ((n+1)-1)+(a+b);}F(9007199254740993,-9007199254740992.0,0.0);" );
     ( "bit reinterpretation is not conversion",
       "F64 F(I64 n){return n(F64);}F(3);" );
-    ( "converted right one normalization",
-      "I64 F(I64 n){return n*1.0;}F(9007199254740993);" );
-    ( "converted zero normalization",
-      "I64 F(I64 n){return n+0.0;}F(9007199254740993);" );
-    ( "converted left one barrier",
-      "I64 F(I64 n){return 1.0*n;}F(9007199254740993);" );
-    ( "converted divide one barrier",
-      "I64 F(I64 n){return n/1.0;}F(9007199254740993);" );
     ("explicit wrong source family", "_intern 28 F64 C(I64 x);C(3.75);");
     ("unsupported intrinsic opcode", "_intern 999 F64 C(I64 x);C(3);");
     ("wrong intrinsic result", "_intern 28 I64 C(I64 x);C(3);");
@@ -325,12 +357,24 @@ let compile ?max_ir_instructions ?max_code_bytes mode contents =
   Native_program.compile ?max_ir_instructions ?max_code_bytes session ~config
     ~source
 
+let normalization_capabilities mode =
+  List.iter
+    (fun (source, expected) ->
+      let image = (compile mode source |> checked).value in
+      require (Image.requires_x87 image) "normalized recipe requires x87";
+      require
+        (Image.requires_fisttp image = expected)
+        "normalized physical FISTTP requirement")
+    [
+      ("I64 F(I64 n){return n*1.0;}F(9007199254740993);", false);
+      ("I64 F(I64 n){return n/1.0;}F(9007199254740993);", true);
+      ("I64 F(F64 n){return n;}F(3.75);", true);
+    ]
+
 let retained ?(case = List.hd cases) mode =
   let _, source, _, expected = case in
   let image = (compile mode source |> checked).value in
-  require
-    (Image.requires_x87 image && Image.requires_fisttp image)
-    "conversion capability missing";
+  require (Image.requires_x87 image) "conversion capability missing";
   let float_image =
     (compile mode "F64 F(I64 n){return n;}F(3);" |> checked).value
   in
@@ -346,7 +390,8 @@ let retained ?(case = List.hd cases) mode =
   require
     (Result.is_error (compile ~max_code_bytes:(code - 1) mode source))
     "code one-below admitted";
-  if not (Native_execution.fisttp_supported ()) then (
+  if Image.requires_fisttp image && not (Native_execution.fisttp_supported ())
+  then (
     require
       (Result.is_error (Runtime.retain image))
       "unsupported retained FISTTP admitted";
@@ -415,6 +460,8 @@ let check label action =
 let () =
   List.iter
     (fun mode ->
+      check (mode ^ " normalized capability metadata") (fun () ->
+          normalization_capabilities mode);
       if native && Native_execution.x87_supported () then
         check (mode ^ " retained conversions and quotas") (fun () ->
             retained mode;
@@ -431,7 +478,14 @@ let () =
                    (fun (label, _, _, _) ->
                      label = "explicit materialized arithmetic consumer")
                    cases)
-              mode);
+              mode;
+            List.iter
+              (fun case -> retained ~case mode)
+              (List.filter
+                 (fun (label, _, _, _) ->
+                   label = "normalized n*1.0 9007199254740993"
+                   || label = "normalized n/1.0 9007199254740993")
+                 normalized_cases));
       check (mode ^ " IR exclusion") (fun () ->
           invoke ~status:1 ~target:"ir" ~mode "IR exclusion"
             (let _, s, _, _ = List.hd cases in
@@ -453,7 +507,10 @@ let () =
                 check
                   (mode ^ target ^ label)
                   (fun () ->
-                    let needs_fisttp = kind = "i64" in
+                    let needs_fisttp =
+                      Image.requires_fisttp
+                        (compile mode source |> checked).value
+                    in
                     let unavailable =
                       needs_fisttp && not (Native_execution.fisttp_supported ())
                     in

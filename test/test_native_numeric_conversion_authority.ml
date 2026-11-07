@@ -229,11 +229,192 @@ let consumer_source_invalidation () =
     (Plan.validated_intrinsics plan ~graph = None);
   rejects (Plan.prepare ~source graph)
 
+let normalization_receipts () =
+  let module N = Holyc_lib__Ir.Numeric_normalization in
+  List.iter
+    (fun (expression, deleted) ->
+      let source, graph =
+        fixture ~contents:("I64 F(I64 n){return " ^ expression ^ ";}") ()
+      in
+      let receipts =
+        N.prepare ~runtime:source.runtime ~body:source.body ~frame:source.frame
+          graph
+      in
+      Alcotest.(check int) "one normalized producer" 1 (List.length receipts);
+      let receipt = List.hd receipts in
+      Alcotest.(check bool)
+        "source normalization receipt valid" true (N.valid receipt ~graph);
+      let states = N.states receipt in
+      Alcotest.(check int) "ordered phases" 5 (List.length states);
+      let normalized = List.nth states 2
+      and returned = List.nth states 3
+      and migrated = List.nth states 4 in
+      Alcotest.(check bool)
+        "raw class differs from stack class for deleted identity" true
+        ((normalized.raw_class = if deleted then N.Integer64 else N.Float64)
+        && normalized.stacked_class = N.Float64);
+      Alcotest.(check bool)
+        "return conversion classified after normalization" (not deleted)
+        returned.producer_to_integer;
+      Alcotest.(check bool)
+        "MOV conversion migrates to correct operand" true
+        ((not migrated.input_to_float)
+        && migrated.return_operand_to_float = deleted
+        && migrated.arithmetic_operand_to_float = not deleted);
+      Alcotest.(check bool)
+        "physical truncation only after copy barrier" (not deleted)
+        (List.mem N.Store_integer_truncate (N.events receipt));
+      let code =
+        List.concat_map
+          (fun block ->
+            List.map S.description (S.instructions (G.instructions block)))
+          (G.blocks graph)
+      in
+      let return =
+        List.find (fun (d : S.description) -> d.opcode = O.Ic_return_val) code
+      in
+      let root =
+        List.find
+          (fun (d : S.description) -> d.instruction_id = N.instruction receipt)
+          code
+      in
+      let expected_steps =
+        if deleted then
+          [
+            (return.instruction_id, N.Argument1, N.Load_signed_integer);
+            (return.instruction_id, N.Argument1, N.Store_binary64);
+          ]
+        else
+          let argument =
+            if expression = "1.0*n" then N.Argument2 else N.Argument1
+          in
+          [
+            (root.instruction_id, argument, N.Load_signed_integer);
+            (root.instruction_id, argument, N.Store_binary64);
+            (root.instruction_id, N.Instruction, N.Copy_binary64);
+            (root.instruction_id, N.Result, N.Load_binary64);
+            (root.instruction_id, N.Result, N.Store_integer_truncate);
+          ]
+      in
+      let actual_steps =
+        List.map
+          (fun (step : N.step) -> (step.owner, step.position, step.event))
+          (N.steps receipt)
+      in
+      Alcotest.(check bool)
+        (expression ^ " exact ordered event owners and positions")
+        true
+        (actual_steps = expected_steps);
+      let plan = Plan.prepare ~source graph |> checked in
+      Alcotest.(check bool)
+        "backend consumes shared normalized receipt" true
+        (List.exists
+           (fun (e : Plan.entry) ->
+             match e.operation with
+             | Plan.Normalized _ -> true
+             | _ -> false)
+           (Plan.validated_entries plan ~graph |> Option.get));
+      rejects (Plan.prepare graph))
+    [
+      ("n*1.0", true);
+      ("n+0.0", true);
+      ("0.0+n", true);
+      ("n-0.0", true);
+      ("n/1.0", false);
+      ("1.0*n", false);
+    ]
+
+let normalization_mutations () =
+  let module N = Holyc_lib__Ir.Numeric_normalization in
+  List.iter
+    (fun change ->
+      let source, graph = fixture ~contents:"I64 F(I64 n){return n*1.0;}" () in
+      let receipt =
+        N.prepare ~runtime:source.runtime ~body:source.body ~frame:source.frame
+          graph
+        |> List.hd
+      in
+      let plan = Plan.prepare ~source graph |> checked in
+      let integer_class =
+        List.concat_map
+          (fun block -> S.instructions (G.instructions block))
+          (G.blocks graph)
+        |> List.find_map (fun i ->
+            let d = S.description i in
+            if d.opcode = O.Ic_deref then d.target_type else None)
+      in
+      mutate graph
+        (fun d -> d.S.instruction_id = N.instruction receipt)
+        (fun d ->
+          match change with
+          | 0 -> { d with S.flags = 0L }
+          | 1 -> { d with S.flags = 3L }
+          | 2 -> { d with S.target_type = integer_class }
+          | 3 -> { d with S.operands = List.rev d.operands }
+          | _ -> { d with S.opcode = O.Ic_div });
+      Alcotest.(check bool)
+        "normalized receipt rejects canonical mutation" false
+        (N.valid receipt ~graph);
+      Alcotest.(check bool)
+        "backend normalization invalidates" true
+        (Plan.validated_entries plan ~graph = None))
+    [ 0; 1; 2; 3; 4 ]
+
+let normalization_source_invalidation () =
+  let module N = Holyc_lib__Ir.Numeric_normalization in
+  let contents = "I64 F(I64 n){return n*1.0;}" in
+  List.iter
+    (fun change_frame ->
+      let source, graph = fixture ~contents () in
+      let receipt =
+        N.prepare ~runtime:source.runtime ~body:source.body ~frame:source.frame
+          graph
+        |> List.hd
+      in
+      let plan = Plan.prepare ~source graph |> checked in
+      let foreign, _ = fixture ~contents () in
+      Alcotest.(check int)
+        "foreign runtime cannot prove normalization" 0
+        (N.prepare ~runtime:foreign.runtime ~body:source.body
+           ~frame:source.frame graph
+        |> List.length);
+      (if change_frame then
+         let module Frame = Holyc_lib__Sema.Function_frame_layout in
+         Obj.set_field (Obj.repr source.frame) 1
+           (Obj.repr (Frame.function_header foreign.frame))
+       else
+         let module T = Holyc_lib__Sema.Function_call_expression_result in
+         let module C = Holyc_lib__Sema.Function_call_resolution in
+         let binary =
+           F.definition_source source.body
+           |> Option.get |> T.function_all_results
+           |> List.find_map (fun value ->
+               match C.argument_expression_source (T.result_source value) with
+               | Some (Holyc_lib__Frontend.Ast.Binary_expression b) -> Some b
+               | _ -> None)
+           |> Option.get
+         in
+         Obj.set_field (Obj.repr binary) 3 (Obj.repr binary.binary_left));
+      Alcotest.(check bool)
+        "stale normalization source/header rejected" false
+        (N.valid receipt ~graph);
+      Alcotest.(check bool)
+        "stale backend recipe rejected" true
+        (Plan.validated_entries plan ~graph = None);
+      rejects (Plan.prepare ~source graph))
+    [ false; true ]
+
 let () =
   Alcotest.run "numeric conversion authority"
     [
       ( "source proofs",
         [
+          Alcotest.test_case "normalized source and header invalidation" `Quick
+            normalization_source_invalidation;
+          Alcotest.test_case "normalized phase receipts" `Quick
+            normalization_receipts;
+          Alcotest.test_case "normalized flag class and operand mutation" `Quick
+            normalization_mutations;
           Alcotest.test_case "consumer source and frame invalidation" `Quick
             consumer_source_invalidation;
           Alcotest.test_case "materialized intrinsic consumer" `Quick

@@ -99,9 +99,14 @@ arguments, returns, local initialization, assignment and mixed arithmetic.
 Explicit `ToI64`/`ToF64` operations require the original intrinsic declaration
 and a proved materialization boundary. Arithmetic arguments and isolated
 consumers preserve that boundary rather than linking through CALL_END.
-Conversion events have separate source
-receipts and x87 ownership; they do not authorize arbitrary conversion flags.
+Conversion events have separate source receipts and x87 ownership; they do not
+authorize arbitrary conversion flags.
 Images using FISTTP additionally require runtime SSE3 support.
+
+[Source-normalized identity events](native-numeric-normalization.md) cover a
+bounded direct-I64-return group. Deleted identities and surviving copy barriers
+have different source phase histories and results; generic cast rules cannot
+replace those histories.
 
 ## Current exclusions
 

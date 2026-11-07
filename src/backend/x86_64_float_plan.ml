@@ -28,6 +28,7 @@ type intrinsic_entry = {
 }
 
 type operation =
+  | Normalized of Ir.Numeric_normalization.t
   | Convert_to_float
   | Negate
   | Add
@@ -330,6 +331,18 @@ let prepare ?source ?runtime ?owner graph =
             d.result)
         (S.instructions (G.instructions block)))
     (G.blocks graph);
+  let normalizations =
+    match source with
+    | Some s ->
+        Ir.Numeric_normalization.prepare ~runtime:s.runtime ~body:s.body
+          ~frame:s.frame graph
+    | None -> []
+  in
+  let normalization (d : S.description) =
+    List.find_opt
+      (fun n -> Ir.Numeric_normalization.instruction n = d.instruction_id)
+      normalizations
+  in
   let errors = ref [] in
   let entries = ref I.empty in
   let peak = ref 0 in
@@ -768,6 +781,7 @@ let prepare ?source ?runtime ?owner graph =
                     (Option.is_some (conversion d)
                     || List.mem Signed_integer loads)
                     && List.mem operation [ Copy_left; Copy_right ]
+                    && Option.is_none (normalization d)
                   then
                     fail d
                       "numeric conversion identity requires source \
@@ -782,10 +796,18 @@ let prepare ?source ?runtime ?owner graph =
                     | _ -> operation
                   else operation
                 in
+                let operation, operands, loads =
+                  match normalization d with
+                  | Some receipt ->
+                      ( Normalized receipt,
+                        [ Ir.Numeric_normalization.input receipt ],
+                        [ Signed_integer ] )
+                  | None -> (operation, d.operands, loads)
+                in
                 let depth =
                   match (operation, loads) with
                   | (Copy_left | Copy_right | Alias_left | Alias_right), _ -> 0
-                  | Negate, _ -> 1
+                  | (Negate | Normalized _), _ -> 1
                   | _, [ Bits; _ ] | _, [ _; Bits ] -> 1
                   | _ -> 2
                 in
@@ -795,7 +817,15 @@ let prepare ?source ?runtime ?owner graph =
                       "native F64 arithmetic has no original result identity"
                 | Some result ->
                     let orientation, live_steps =
-                      match (operation, d.operands, loads) with
+                      match (operation, operands, loads) with
+                      | Normalized receipt, [ input ], _ ->
+                          ( Left_first,
+                            [ []; [ input ]; [] ]
+                            @
+                            match Ir.Numeric_normalization.recipe receipt with
+                            | Deleted_float_identity -> []
+                            | Materialized_copy_barrier ->
+                                [ [ result.value_id ]; [] ] )
                       | ( (Copy_left | Copy_right | Alias_left | Alias_right),
                           _,
                           _ ) -> (Bit_copy, [ [] ])
@@ -823,7 +853,7 @@ let prepare ?source ?runtime ?owner graph =
                       {
                         instruction_id = d.instruction_id;
                         result_id = result.value_id;
-                        operands = d.operands;
+                        operands;
                         loads;
                         operation;
                         live_before = [];
@@ -832,7 +862,10 @@ let prepare ?source ?runtime ?owner graph =
                         orientation;
                         live_steps;
                         result_conversion =
-                          Option.map (fun c -> c.conversion) (conversion d);
+                          (match operation with
+                          | Normalized _ -> None
+                          | _ ->
+                              Option.map (fun c -> c.conversion) (conversion d));
                       }
                     in
                     entries := I.add d.instruction_id (d, entry) !entries;
@@ -1234,6 +1267,9 @@ let prepare ?source ?runtime ?owner graph =
               | None, None -> true
               | Some _, None -> true
               | _ -> false)
+            && List.for_all
+                 (fun n -> Ir.Numeric_normalization.valid n ~graph)
+                 normalizations
             && source_regions source graph = regions
             && ((I.is_empty !conversions && not !canonical_consumer)
                || authentic_source ())

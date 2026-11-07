@@ -113,9 +113,11 @@ Integer conversion producers needing identity elimination or literal
 reassociation also reject, rather than acquiring the wrong conversion-event
 position. Scalar suffix bitcasts are not authorized by conversion receipts.
 
-Converted identity expressions such as `n+0.0`, `n*1.0` and `n/1.0` currently
-reject. Some identities disappear in the optimizer and merge conversion flags;
-others introduce a bit-copy materialization barrier. Treating them uniformly as
+A bounded direct-I64-return identity group now has a separate
+[source-normalized event proof](native-numeric-normalization.md). Deleted
+identities such as `n*1.0` return raw binary64 bits in the integer carrier;
+surviving copies such as `n/1.0` materialize before numeric truncation. Other
+converted identity contexts still reject. Treating these cases uniformly as
 floating arithmetic would silently change precision. Float comparisons,
 conversion-bearing aggregate/indirect storage, variadic conversion and other
 unproved normalization forms are outside this subset.

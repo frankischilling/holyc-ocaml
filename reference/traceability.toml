@@ -15386,3 +15386,14 @@ documentation = ["docs/native-f64-conversions.md", "docs/native-f64.md", "docs/r
 status = "partial"
 issue = 703
 verification = "Original canonical source and sealed conversion receipts authenticate runtime and immediate conversion paths, computed integer conversion events, mixed arithmetic links, materialized explicit intrinsics, their arithmetic arguments and isolated consumers, and narrow storage. Canonical consumer dependencies are revalidated even without implicit conversion flags, including original declaration-header identity. Tests distinguish extended cancellation from literal rounding, signed runtime U64 conversion, truncation and invalid integer-indefinite results, original intrinsic identity, mutation rejection, exact quotas and recovery. FISTTP images require runtime SSE3 independently of ordinary x87 support. Unsupported converted identities and explicit intrinsic expression shapes fail closed. Expectations derive from pinned source and hardware instruction semantics, not new TempleOS captures."
+
+[[feature]]
+id = "HC-NUMERIC-NORMALIZATION-PHASES"
+description = "Sealed phase-ordered normalization receipts for direct integer-return identities and copy barriers."
+sources = ["Compiler/PrsStmt.HC:1111-1115", "Compiler/OptLib.HC:124-140", "Compiler/OptPass012.HC:321-432,559-565,588-594,661-667,715-721,1268", "Compiler/OptPass3.HC:55-58,80-86,119-128,249-256", "Compiler/OptPass4.HC:69-91,415-434", "Compiler/OptPass5.HC:53-76", "Compiler/OptPass789A.HC:81-86,779-782", "Compiler/BackFB.HC:490-510"]
+implementation = ["src/ir/numeric_normalization.ml", "src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_native_f64_conversions_cli.ml", "test/test_native_numeric_conversion_authority.ml"]
+documentation = ["docs/native-numeric-normalization.md", "docs/native-f64-conversions.md", "docs/native-f64.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Canonical source, graph and original header receipts authenticate exact single-use runtime I64 frame loads and direct I64 return roots. Records distinguish raw class, transient and normalized class2, stacked class, phase-specific conversion flags, eliminated nodes and ordered event owners/positions. Four deleted positive-zero/one identities transport binary64 bits through I64; two surviving copy barriers materialize then truncate. Tests cover negative/zero controls, source/header/graph mutations, exact event sequences, instruction-derived CPU requirements, quotas and retained-image recovery. Other contexts remain unproved. Results are independently crosschecked source deductions, not new TempleOS captures."
