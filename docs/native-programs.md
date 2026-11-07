@@ -440,3 +440,9 @@ General allocation remains open under #703.
 now preserves full integer values in parameters and initialized locals when the
 right-hand side is a direct member read or literal. Stack destinations still
 narrow. Computed assignments and general register allocation remain unproved.
+
+[Requested variables under pressure](register-variable-analysis.md#requested-variables-under-register-pressure)
+retain plain `reg` and explicit integer values when ordinary I64/U64 members
+exceed the bank. The plain requests must have guaranteed capacity; ordinary
+members keep unknown selection. Pressure involving ordinary narrow members
+still requires the general allocator.

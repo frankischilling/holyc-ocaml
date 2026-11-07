@@ -5700,7 +5700,8 @@
   ../examples/register-bank-capacity.hc
   ../examples/register-option-snapshots.hc
   ../examples/register-loop-updates.hc
-  ../examples/register-reassignment.hc)
+  ../examples/register-reassignment.hc
+  ../examples/register-pressure.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}
@@ -5718,7 +5719,8 @@
   ../examples/register-bank-capacity.hc
   ../examples/register-option-snapshots.hc
   ../examples/register-loop-updates.hc
-  ../examples/register-reassignment.hc)
+  ../examples/register-reassignment.hc
+  ../examples/register-pressure.hc)
  (action
   (run
    %{exe:test_register_variable_execution_cli.exe}

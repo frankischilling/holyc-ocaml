@@ -15160,3 +15160,15 @@ status = "partial"
 issue = 703
 verification = "Six widths, four destination qualifiers, register and stack narrow sources, wide literals, loops, named calls and repeated same-value assignments. Original entry initialization remains required."
 evidence_limit = "Only direct member and literal right-hand sides with discarded assignment results, enough register capacity and no address escapes. Computed assignments and general allocation remain open; no new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-FORCED-PRESSURE"
+description = "Preserve plain and explicit integer register requests when ordinary wide members exceed register capacity."
+sources = ["Compiler/OptPass3.HC:22-48,516-621"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-pressure.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six narrow widths, plain and explicit requests, stack controls, parameters, initialized locals, named calls and up to twenty ordinary competitors. Uncertain narrow members and overbooked plain requests are rejected."
+evidence_limit = "Ordinary pressured members must be 64-bit and retain unknown selection. Does not claim general score ordering, physical allocation or a new TempleOS capture."

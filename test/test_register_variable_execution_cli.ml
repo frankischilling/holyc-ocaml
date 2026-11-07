@@ -321,13 +321,59 @@ let assignment_cases =
       ("U32", 32, false);
     ]
 
+let forced_pressure_cases =
+  List.concat_map
+    (fun (type_, high, wrapped) ->
+      List.concat_map
+        (fun qualifier ->
+          let value =
+            if qualifier = "noreg" then wrapped else Int64.succ high
+          in
+          List.concat_map
+            (fun count ->
+              let names = List.init count (fun n -> "p" ^ string_of_int n) in
+              let params =
+                String.concat "," (List.map (fun n -> "I64 " ^ n) names)
+              in
+              let sum = String.concat "+" names in
+              let args = String.concat "," (List.map (fun _ -> "1") names) in
+              let expected =
+                Int64.to_string (Int64.add value (Int64.of_int count))
+              in
+              [
+                ( Printf.sprintf
+                    "I64 F(%s %s x,%s){if(p0)x+=1;return x+%s;}F(%Ld,%s);" type_
+                    qualifier params sum high args,
+                  expected );
+                ( Printf.sprintf
+                    "I64 F(%s){%s %s x=%Ld;if(p0)x+=1;return x+%s;}F(%s);"
+                    params type_ qualifier high sum args,
+                  expected );
+                ( Printf.sprintf
+                    "I64 G(I64 n){return n;}I64 F(%s %s \
+                     x,%s){G(p0);x+=1;return x+%s;}F(%Ld,%s);"
+                    type_ qualifier params sum high args,
+                  expected );
+              ])
+            [ 9; 12; 20 ])
+        [ "reg"; "reg RSI"; "reg R12"; "noreg" ])
+    [
+      ("I8", 127L, -128L);
+      ("U8", 255L, 0L);
+      ("I16", 32767L, -32768L);
+      ("U16", 65535L, 0L);
+      ("I32", 2147483647L, -2147483648L);
+      ("U32", 4294967295L, 0L);
+    ]
+
 let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
   let cases =
-    assignment_cases @ loop_update_cases
+    forced_pressure_cases @ assignment_cases @ loop_update_cases
     @ [
         (read "../examples/register-loop-updates.hc", "256");
         (read "../examples/register-reassignment.hc", "256");
+        (read "../examples/register-pressure.hc", "256");
         ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
         ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
            c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",

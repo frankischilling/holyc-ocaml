@@ -311,3 +311,32 @@ address occurrence, so a later assignment of the same literal cannot stand in
 for the initializer. Uninitialized locals, conditional initialization,
 computed right-hand sides, address escapes and consumed assignment results
 remain outside this proof. Capacity and calling restrictions are unchanged.
+
+## Requested variables under register pressure
+
+A plain `reg` request starts with score `I64_MAX/2` in
+`OptPass3.HC:35-43`. Ordinary accesses add small scores, so none can outrank
+that request in the bounded functions accepted here. Explicit requests reserve
+their register before scoring. The allocator opens R12/R13 only when more than
+six eligible candidates remain (`OptPass3.HC:536-610`).
+
+The whole-function proof can therefore retain plain `reg` and explicit integer
+values even when ordinary members exceed available registers. Plain requests
+must fit the remaining general bank, or there must be more than six plain
+requests and enough total capacity including R12/R13. The latter condition
+ensures that the nonpointer bank opens even if optimization removes ordinary
+accesses. Duplicate requests and reserved temporary registers remain rejected.
+
+Ordinary members under this pressure remain `Unknown`, not falsely selected or
+classified as stack variables. They must be I64/U64, whose value width is the
+same in either storage choice. An ordinary narrow member still prevents this
+proof. `noreg` members retain their declared-width storage, and NO_REG_VAR keeps
+its existing behavior.
+
+[The pressure example](../examples/register-pressure.hc) compares a plain `reg`
+I8 and a `noreg` I8 while eight other parameters compete for registers. The
+selected value reaches 128 from 127; the stack value wraps to -128. Tests cover
+six narrow widths, plain and explicit requests, initialized locals, named calls
+and up to twenty competing parameters. Expectations come from pinned source;
+these tests are not new TempleOS captures. This does not implement general
+score ordering, physical register placement or floating-point allocation.

@@ -2623,7 +2623,7 @@ let analyze_control_parameters ~frame ~body =
     let used location =
       List.exists (fun (_, original) -> original == location) addresses
     in
-    let register_capacity_fits =
+    let register_capacity_fits, forced_capacity_fits =
       let explicit =
         List.filter_map
           (fun location ->
@@ -2652,9 +2652,34 @@ let analyze_control_parameters ~frame ~body =
       (* OptPass3 opens the nonpointer bank only when there are more than six
          scored candidates, not when explicit requests exhaust the general
          bank. Require capacity even if optimization removes some accesses. *)
-      registers_disabled body || candidates <= general
-      || general = 6
-         && candidates <= general + available nonpointer_variable_registers
+      let nonpointer = available nonpointer_variable_registers in
+      let forced =
+        List.fold_left
+          (fun count location ->
+            if Frame.location_register_selection location = Request.Allocatable
+            then count + 1
+            else count)
+          0 locations
+      in
+      ( registers_disabled body || candidates <= general
+        || (general = 6 && candidates <= general + nonpointer),
+        forced <= general || (forced > 6 && forced <= general + nonpointer) )
+    in
+    (* REG_ALLOC starts at I64_MAX/2 in OptPass3, so these bounded functions
+       cannot score an ordinary member ahead of a plain reg member. When the
+       ordinary members overflow the bank, retain their unknown selection:
+       only 64-bit ordinary values are independent of that choice. *)
+    let pressure_safe =
+      forced_capacity_fits
+      && List.for_all
+           (fun location ->
+             Frame.location_register_selection location <> Request.Unspecified
+             || (not (used location))
+             ||
+             match Sema.Type.base (Frame.location_checked_type location) with
+             | Sema.Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+             | _ -> false)
+           locations
     in
     let address id =
       List.find_opt (fun (other, _) -> Seq.Value_id.equal id other) addresses
@@ -2907,7 +2932,7 @@ let analyze_control_parameters ~frame ~body =
     in
     if
       not
-        (register_capacity_fits
+        ((register_capacity_fits || pressure_safe)
         && List.for_all safe_address addresses
         && List.for_all initialized_once locations
         && List.for_all safe_instruction code)
@@ -2936,6 +2961,11 @@ let analyze_control_parameters ~frame ~body =
                 ( Frame.location_symbol location,
                   if not (used location) then Unknown
                   else if stack_selected ~body location then Stack
+                  else if
+                    (not register_capacity_fits)
+                    && Frame.location_register_selection location
+                       = Request.Unspecified
+                  then Unknown
                   else Register_candidate ))
               locations;
         }

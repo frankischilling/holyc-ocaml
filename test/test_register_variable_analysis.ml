@@ -4785,7 +4785,7 @@ let register_bank_selection () =
         [
           "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
            h){if(h)x+=a;return x+b+c+d+e+f+g+h;}42;";
-          "I64 F(I8 reg RSI x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 \
+          "I64 F(I8 reg RSI x,I8 a,I64 b,I64 c,I64 d,I64 e,I64 \
            f){if(f)x+=a;return x+b+c+d+e+f;}42;";
           "I64 F(I8 x,I64 reg a,I64 reg b,I64 reg c,I64 reg d,I64 reg e,I64 \
            reg f,I64 reg g,I64 reg h){if(x)x+=x;return x;}42;";
@@ -4918,6 +4918,91 @@ let loop_update_ownership () =
       Alcotest.(check bool)
         "unary loop payload cannot acquire a proof" true
         (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let forced_pressure_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun qualifier ->
+          let fn =
+            compile ~name:"F" mode
+              (Printf.sprintf
+                 "I64 F(I8 %s x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
+                  h){if(a)x+=1;return x+a+b+c+d+e+f+g+h;}42;"
+                 qualifier)
+          in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          List.iter
+            (fun (name, expected) ->
+              let symbol = location fn.frame name |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "pressure preserves proven and unknown selections" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some expected))
+            [
+              ( "x",
+                if qualifier = "noreg" then Analysis.Stack
+                else Analysis.Register_candidate );
+              ( "a",
+                if qualifier = "noreg" then Analysis.Register_candidate
+                else Analysis.Unknown );
+              ( "h",
+                if qualifier = "noreg" then Analysis.Register_candidate
+                else Analysis.Unknown );
+            ])
+        [ "reg"; "reg RSI"; "reg R12"; "noreg" ];
+      List.iter
+        (fun (forced, reserved, expected) ->
+          let requests =
+            List.init forced (fun n -> Printf.sprintf "I8 reg x%d" n)
+          in
+          let explicit =
+            List.mapi
+              (fun n register -> Printf.sprintf "I64 reg %s r%d" register n)
+              reserved
+          in
+          let ordinary = List.init 9 (fun n -> Printf.sprintf "I64 p%d" n) in
+          let source =
+            "I64 F("
+            ^ String.concat "," (requests @ explicit @ ordinary)
+            ^ "){if(p0)x0+=1;return x0+p0+p1+p2+p3+p4+p5+p6+p7+p8;}42;"
+          in
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "forced requests respect reserved banks" expected
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          (6, [], true);
+          (7, [], true);
+          (8, [], true);
+          (9, [], false);
+          (5, [ "RSI" ], true);
+          (6, [ "RSI" ], false);
+          (7, [ "RSI" ], true);
+          (8, [ "RSI" ], false);
+          (7, [ "R12" ], true);
+          (8, [ "R12" ], false);
+          (6, [ "R12"; "R13" ], true);
+          (7, [ "R12"; "R13" ], false);
+        ];
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "uncertain narrow pressure remains unproved" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
+           h){if(a)x+=1;return x+a+b+c+d+e+f+g+h;}42;";
+          "I64 F(I8 reg x,I8 y,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
+           h){if(a)x+=1;return x+y+a+b+c+d+e+f+g+h;}42;";
+          "I64 F(I8 reg x,I64 reg a,I64 reg b,I64 reg c,I64 reg d,I64 reg \
+           e,I64 reg f,I64 reg g,I64 reg h){if(a)x+=1;return \
+           x+a+b+c+d+e+f+g+h;}42;";
+        ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let assignment_selection () =
@@ -5209,6 +5294,8 @@ let () =
             loop_update_selection;
           Alcotest.test_case "loop update ownership" `Quick
             loop_update_ownership;
+          Alcotest.test_case "forced register pressure" `Quick
+            forced_pressure_selection;
           Alcotest.test_case "parameter and local reassignment" `Quick
             assignment_selection;
           Alcotest.test_case "unsupported shapes" `Quick unsupported_selection;
