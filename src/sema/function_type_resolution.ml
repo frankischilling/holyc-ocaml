@@ -83,6 +83,7 @@ type function_declaration = {
   function_variadic_bindings_ : variadic_bindings option;
   function_completed_header_ : Frontend.Parser.completed_function_header option;
   mutable function_header_reused_ : bool;
+  function_source_parameters_ : Frontend.Ast.function_parameter list option;
 }
 
 type resolved_function = function_declaration
@@ -109,6 +110,7 @@ let function_parameter_bindings function_ =
 
 let function_variadic_bindings function_ = function_.function_variadic_bindings_
 let function_completed_header function_ = function_.function_completed_header_
+let function_source_parameters function_ = function_.function_source_parameters_
 let signature_opening_origin signature = signature.signature_opening_origin_
 let signature_parameters signature = signature.signature_parameters_
 let signature_variadic_origin signature = signature.signature_variadic_origin_
@@ -503,8 +505,8 @@ let validate_variadic_bindings signature bindings =
   | None, Some _ | Some _, None ->
       Error "semantic variadic bindings do not match the signature"
 
-let make_function_record completed_header ~symbol ~scope ~item_index
-    ~return_type ~signature ~parameter_bindings ~variadic_bindings =
+let make_function_record completed_header source_parameters ~symbol ~scope
+    ~item_index ~return_type ~signature ~parameter_bindings ~variadic_bindings =
   if Option.is_some signature.signature_provisional_call_ then
     Error
       "provisional call evidence cannot authorize an ordinary function record"
@@ -514,6 +516,19 @@ let make_function_record completed_header ~symbol ~scope ~item_index
     Error "semantic function type requires a function scope"
   else if item_index < 0 then
     Error "semantic function type item index cannot be negative"
+  else if
+    not
+      (Option.fold ~none:true
+         ~some:(fun sources ->
+           List.length sources = List.length signature.signature_parameters_
+           && List.for_all2
+                (fun source parameter ->
+                  Option.equal ( == ) (Some source) (parameter_source parameter))
+                sources signature.signature_parameters_)
+         source_parameters)
+  then
+    Error
+      "semantic function signature substituted its original parameter children"
   else
     match validate_parameter_bindings signature parameter_bindings with
     | Error _ as error -> error
@@ -533,17 +548,27 @@ let make_function_record completed_header ~symbol ~scope ~item_index
                 function_variadic_bindings_ = variadic_bindings;
                 function_completed_header_ = completed_header;
                 function_header_reused_ = false;
+                function_source_parameters_ =
+                  Option.map (List.map Fun.id) source_parameters;
               })
 
 let make_function ~symbol ~scope ~item_index ~return_type ~signature
     ~parameter_bindings ~variadic_bindings =
-  make_function_record None ~symbol ~scope ~item_index ~return_type ~signature
-    ~parameter_bindings ~variadic_bindings
+  make_function_record None None ~symbol ~scope ~item_index ~return_type
+    ~signature ~parameter_bindings ~variadic_bindings
 
-let make_function_with_completed_header completed_header ~symbol ~scope
+let make_function_with_source_parameters source_parameters ~symbol ~scope
     ~item_index ~return_type ~signature ~parameter_bindings ~variadic_bindings =
-  make_function_record (Some completed_header) ~symbol ~scope ~item_index
+  make_function_record None (Some source_parameters) ~symbol ~scope ~item_index
     ~return_type ~signature ~parameter_bindings ~variadic_bindings
+
+let make_function_with_completed_header
+    (completed_header : Frontend.Parser.completed_function_header) ~symbol
+    ~scope ~item_index ~return_type ~signature ~parameter_bindings
+    ~variadic_bindings =
+  make_function_record (Some completed_header)
+    (Some completed_header.parameters) ~symbol ~scope ~item_index ~return_type
+    ~signature ~parameter_bindings ~variadic_bindings
 
 let same_scope left right =
   Symbol.Scope_id.equal
@@ -804,6 +829,14 @@ let validate_retained_header ~retained_item_index_offset ~table ~parent retained
       (same_completed_header retained.function_completed_header_
          function_.function_completed_header_)
   then Error "semantic retained function type has different source evidence"
+  else if
+    not
+      (Option.equal (List.equal ( == )) retained.function_source_parameters_
+         function_.function_source_parameters_)
+  then
+    Error
+      "semantic retained function type has different original parameter \
+       children"
   else if retained.function_symbol_ != function_.function_symbol_ then
     Error "semantic retained function type has the wrong function symbol"
   else if retained.function_scope_ != function_.function_scope_ then
@@ -1241,6 +1274,7 @@ let make_provisional_function_with_selection
       function_variadic_bindings_ = None;
       function_completed_header_ = None;
       function_header_reused_ = false;
+      function_source_parameters_ = None;
     }
 
 let make_provisional_function ~table ~namespace ~shape ~scope ~return_type

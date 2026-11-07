@@ -688,7 +688,10 @@ let function_fact_with_types event ~return_type ~signature =
       | Ok variadic_bindings ->
           let make =
             match event.function_completed_header with
-            | None -> Sema.Function_type_resolution.make_function
+            | None ->
+                Sema.Function_type_resolution
+                .make_function_with_source_parameters
+                  event.function_ast.function_parameters
             | Some header ->
                 Sema.Function_type_resolution
                 .make_function_with_completed_header header

@@ -1339,8 +1339,9 @@ let int32_le text offset =
           (Int32.shift_left (byte 3) 24)))
 
 let compiled_callable_frame_and_rel32_bytes () =
+  (* Keep this ABI byte golden independent of automatic variable selection. *)
   let unit =
-    integer_unit "I64 Identity(I64 value){return value;}\nIdentity(42);"
+    integer_unit "I64 Identity(I64 noreg value){return value;}\nIdentity(42);"
   in
   let image =
     compile_callable ~status_abi:Program.System_v_x64 unit

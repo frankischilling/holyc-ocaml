@@ -407,3 +407,10 @@ outside this milestone.
 add unconditional pair preservation at host service bridges, including calls
 through unpinned functions. Their scratch slots count toward stack limits;
 R10/R11 still serve the hosted instruction budget and context.
+
+[Bounded automatic placement](register-variable-analysis.md#bounded-automatic-placement)
+uses the first free general register for a sole automatic candidate, or a sole
+plain `reg` candidate among at most six possible candidates. Complete original
+parameter membership and explicit reservations are required. R10/R11 slots,
+ambiguous score order and unnamed-formal functions remain unproved. The same
+save slots, bridge preservation and unwind checks apply to these placements.

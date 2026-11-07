@@ -30,7 +30,10 @@ val analyze :
     have guaranteed capacity and remaining ordinary members are I64/U64. Those
     ordinary pressured members retain [Unknown] selection. Other explicit
     registers, duplicate requests, address escapes and Boolean frame members
-    remain unproved. Limits are 64 blocks, 512 instructions and 32 expression
+    remain unproved. Every original signature parameter must have its own named
+    frame location. Unnamed formals are rejected because their original _anon_
+    members can still reserve or compete for registers, but are not represented
+    by this frame API. Limits are 64 blocks, 512 instructions and 32 expression
     levels. Calls, casts, short-circuit expressions, power and unmatched
     optimizer rewrites cannot acquire an expression-tree proof.
 
@@ -56,10 +59,24 @@ val physical_register :
   symbol:Sema.Symbol.t ->
   int option
 (** Return an original source-owned member's explicit RSI, RDI or R12 through
-    R15 request only after [selection] revalidates [Register_candidate].
-    Automatic and plain [reg] candidates, stack or unknown selections, and other
-    registers return [None]. Register numbers, canonical spellings and source
-    origins are sealed independently of the shared semantic request record;
-    changing those inputs invalidates the witness. This query authorizes only
-    this bounded physical placement, not a general register allocation decision.
-*)
+    R15 request only after [selection] revalidates [Register_candidate]. Also
+    admit the sole possible automatic candidate, or the sole plain [reg]
+    candidate when at most six frame members could be automatic candidates.
+    Count every unspecified and plain [reg] member, including unused and unknown
+    members. The sole forced candidate's original I64_MAX/2 priority proves it
+    precedes ordinary bounded scores; no score or sort-tie order is guessed.
+
+    Explicit requests reserve slots even when unused. Automatic placement uses
+    the first unreserved member of RSI, RDI, R10, R11, R14, R15, and returns
+    [None] if that first slot is R10/R11, if capacity is exhausted, or if the
+    candidate upper bound could activate the R12/R13 bank. NO_REG_VAR disables
+    automatic and plain [reg] placement. Stack and unknown selections remain
+    unproved, regardless of their requests.
+
+    Every original formal must be represented by an authenticated named frame
+    member before any physical grant, including an explicit request. Every
+    member contributing to these facts must retain semantic ownership and its
+    original request identities. Request contents, source origins, frame types
+    and instruction data are sealed by independent primitive snapshots; changes
+    invalidate the witness. This query authorizes only this bounded physical
+    placement, not a general register allocation decision. *)

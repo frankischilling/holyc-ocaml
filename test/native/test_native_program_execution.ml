@@ -1204,7 +1204,10 @@ let physical_native_stack_is_bounded_independently () =
   Alcotest.(check int)
     "physical stack opt-in ceiling" 524288 Runtime.hard_max_active_stack_bytes;
   let root_only = "42;" in
-  let identity = "I64 Identity(I64 value){return value;}\nIdentity(42);" in
+  (* Match the stack-only Identity ABI byte golden. *)
+  let identity =
+    "I64 Identity(I64 noreg value){return value;}\nIdentity(42);"
+  in
   let recursive = "I64 Recur(){return Recur();}\nRecur();" in
   let healthy = "I64 Add(I64 a,I64 b){return a+b;}\nAdd(20,22);" in
   let identity_call_site mode =

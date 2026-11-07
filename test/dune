@@ -5780,3 +5780,23 @@
    %{exe:test_physical_register_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(executable
+ (name test_automatic_register_cli)
+ (modules test_automatic_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/automatic-register-placement.hc)
+ (action
+  (run %{exe:test_automatic_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/automatic-register-placement.hc)
+ (action
+  (run
+   %{exe:test_automatic_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))

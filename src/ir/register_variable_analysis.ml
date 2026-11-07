@@ -119,6 +119,113 @@ let request_stamp = function
           Request.explicit_register_number register,
           origin_stamp (Request.explicit_register_origin register) )
 
+(* Source requests have identities even when their effective selection is the
+   immediate [Allocatable] or [Disabled] constructor. Seal those owners and
+   primitive contents separately; retaining the mutable semantic objects alone
+   would let a changed reservation or forced request rewrite its own witness. *)
+type source_request_stamp = {
+  owner : Request.t;
+  kind : Request.kind;
+  position : Request.position;
+  spelling : string;
+  origin : origin_stamp;
+  explicit_owner : Request.explicit_register option;
+  selection : request_stamp option;
+}
+
+type source_owner =
+  | Parameter_owner of Sema.Function_type_resolution.parameter
+  | Local_owner of Sema.Local_type_resolution.local
+
+type source_requests_stamp = {
+  owner : source_owner;
+  requests : source_request_stamp list;
+}
+
+let source_request_stamp owner =
+  {
+    owner;
+    kind = Request.kind owner;
+    position = Request.position owner;
+    spelling = copy_string (Request.spelling owner);
+    origin = origin_stamp (Request.origin owner);
+    explicit_owner = Request.explicit_register owner;
+    (* Do not call [Request.effective]: malformed shared requests must revoke a
+       witness, not raise its assertion for [Disable, Some _]. *)
+    selection =
+      (match (Request.kind owner, Request.explicit_register owner) with
+      | Request.Allocate, None -> Some Allocatable_request
+      | Disable, None -> Some Disabled_request
+      | Allocate, Some register ->
+          Some (request_stamp (Request.Explicit register))
+      | Disable, Some _ -> None);
+  }
+
+let source_requests ~frame location =
+  let module Headers = Sema.Function_type_resolution in
+  let module Bindings = Sema.Function_binding_index in
+  let module Locals = Sema.Local_type_resolution in
+  let symbol = Frame.location_symbol location in
+  let binding = Frame.location_binding location in
+  if Bindings.binding_symbol binding != symbol then None
+  else
+    match Frame.location_kind location with
+    | Frame.Named_parameter ->
+        Option.bind (Bindings.binding_parameter_index binding) (fun index ->
+            let header = Frame.function_header frame in
+            if
+              not
+                (List.exists
+                   (fun parameter ->
+                     Headers.parameter_binding_index parameter = index
+                     && Headers.parameter_binding_symbol parameter == symbol)
+                   (Headers.function_parameter_bindings header))
+            then None
+            else
+              header |> Headers.function_signature
+              |> Headers.signature_parameters
+              |> List.find_opt (fun parameter ->
+                  Headers.parameter_index parameter = index
+                  && Option.is_some (Headers.parameter_source parameter))
+              |> Option.map (fun parameter ->
+                  {
+                    owner = Parameter_owner parameter;
+                    requests =
+                      List.map source_request_stamp
+                        (Headers.parameter_register_requests parameter);
+                  }))
+    | Automatic_local ->
+        Option.bind (Frame.location_local_source location) (fun local ->
+            if
+              Locals.local_symbol local != symbol
+              || Bindings.binding_local_declaration_index binding
+                 <> Some (Locals.local_declaration_index local)
+              || Bindings.binding_local_declarator_index binding
+                 <> Some (Locals.local_declarator_index local)
+            then None
+            else
+              Some
+                {
+                  owner = Local_owner local;
+                  requests =
+                    List.map source_request_stamp
+                      (Locals.local_register_requests local);
+                })
+    | Variadic_argc | Variadic_argv | Static_local -> None
+
+let equal_source_requests a b =
+  (match (a.owner, b.owner) with
+    | Parameter_owner left, Parameter_owner right -> left == right
+    | Local_owner left, Local_owner right -> left == right
+    | _ -> false)
+  && List.equal
+       (fun (a : source_request_stamp) (b : source_request_stamp) ->
+         a.owner == b.owner && a.kind = b.kind && a.position = b.position
+         && a.spelling = b.spelling && a.origin = b.origin
+         && Option.equal ( == ) a.explicit_owner b.explicit_owner
+         && a.selection = b.selection)
+       a.requests b.requests
+
 type location_stamp = {
   location : Frame.location;
   symbol : Sema.Symbol.t;
@@ -126,13 +233,14 @@ type location_stamp = {
   kind : Frame.location_kind;
   request : request_stamp;
   request_owner : Request.explicit_register option;
+  source_requests : source_requests_stamp option;
   value_shape : Frame.value_shape;
   checked_type : Sema.Type.primitive_form * Sema.Primitive_type.t * int;
   slot : (Frame.frame_slot * int64 * int64) option;
   allocated_size : int64;
 }
 
-let location_stamp location =
+let location_stamp ~frame location =
   match Sema.Type.base (Frame.location_checked_type location) with
   | Sema.Type.Aggregate _ -> None
   | Sema.Type.Primitive (form, primitive) ->
@@ -147,6 +255,7 @@ let location_stamp location =
             (match Frame.location_register_selection location with
             | Request.Explicit register -> Some register
             | Unspecified | Allocatable | Disabled -> None);
+          source_requests = source_requests ~frame location;
           value_shape = Frame.location_value_shape location;
           checked_type =
             ( form,
@@ -166,6 +275,7 @@ let equal_location a b =
   a.location == b.location && a.symbol == b.symbol && a.binding == b.binding
   && a.kind = b.kind && a.request = b.request
   && Option.equal ( == ) a.request_owner b.request_owner
+  && Option.equal equal_source_requests a.source_requests b.source_requests
   && a.value_shape = b.value_shape
   && a.checked_type = b.checked_type
   && a.allocated_size = b.allocated_size
@@ -174,8 +284,19 @@ let equal_location a b =
          slot == other_slot && offset = other_offset && size = other_size)
        a.slot b.slot
 
+let signature_parameters frame =
+  Frame.function_header frame
+  |> Sema.Function_type_resolution.function_signature
+  |> Sema.Function_type_resolution.signature_parameters
+
+let source_parameters frame =
+  Frame.function_header frame
+  |> Sema.Function_type_resolution.function_source_parameters
+
 type t = {
   frame_ : Frame.function_layout;
+  parameters_ : Sema.Function_type_resolution.parameter list;
+  parameter_sources_ : Frontend.Ast.function_parameter list option;
   body_ : Function_body.t;
   definition_ : Sema.Function_resolution.resolved_declaration option;
   source_ : Sema.Function_call_expression_result.resolved_function option;
@@ -1185,6 +1306,9 @@ let analyze_parameter ~frame ~body =
         Some
           {
             frame_ = frame;
+            parameters_ = List.map Fun.id (signature_parameters frame);
+            parameter_sources_ =
+              Option.map (List.map Fun.id) (source_parameters frame);
             body_ = body;
             definition_ = Function_body.definition_declaration body;
             source_ = Function_body.definition_source body;
@@ -1192,7 +1316,7 @@ let analyze_parameter ~frame ~body =
             flags_ = Function_body.stored_flags body;
             locations_ =
               List.map
-                (fun location -> Option.get (location_stamp location))
+                (fun location -> Option.get (location_stamp ~frame location))
                 locations;
             blocks_ = blocks;
             stamps_ =
@@ -2420,13 +2544,18 @@ let analyze_local ~frame ~body =
         Some
           {
             frame_ = frame;
+            parameters_ = List.map Fun.id (signature_parameters frame);
+            parameter_sources_ =
+              Option.map (List.map Fun.id) (source_parameters frame);
             body_ = body;
             definition_ = Function_body.definition_declaration body;
             source_ = Function_body.definition_source body;
             options_ = Function_body.compiler_options body;
             flags_ = Function_body.stored_flags body;
             locations_ =
-              List.map (fun item -> Option.get (location_stamp item)) locations;
+              List.map
+                (fun item -> Option.get (location_stamp ~frame item))
+                locations;
             blocks_ = blocks;
             stamps_ =
               List.map
@@ -3134,6 +3263,9 @@ let analyze_integer_function ~frame ~body =
       Some
         {
           frame_ = frame;
+          parameters_ = List.map Fun.id (signature_parameters frame);
+          parameter_sources_ =
+            Option.map (List.map Fun.id) (source_parameters frame);
           body_ = body;
           definition_ = Function_body.definition_declaration body;
           source_ = Function_body.definition_source body;
@@ -3141,7 +3273,7 @@ let analyze_integer_function ~frame ~body =
           flags_ = Function_body.stored_flags body;
           locations_ =
             List.map
-              (fun location -> Option.get (location_stamp location))
+              (fun location -> Option.get (location_stamp ~frame location))
               locations;
           blocks_ = blocks;
           stamps_ =
@@ -3163,17 +3295,72 @@ let analyze_integer_function ~frame ~body =
               locations;
         }
 
+let complete_parameter_coverage ~frame =
+  let module Headers = Sema.Function_type_resolution in
+  let parameters = signature_parameters frame in
+  let named_locations =
+    List.filter
+      (fun location -> Frame.location_kind location = Frame.Named_parameter)
+      (Frame.function_locations frame)
+  in
+  (* PrsVar.HC:341-344,525-529 creates _anon_ members for unnamed formals.
+     They still compete and reserve registers in OptPass3, but this frame API
+     deliberately has no invented binding for them. Reject incomplete coverage
+     before selection as well as placement; do not invent anonymous members. *)
+  List.length parameters = List.length named_locations
+  && List.for_all
+       (fun (index, parameter) ->
+         Headers.parameter_index parameter = index
+         && Option.fold ~none:false
+              ~some:(fun (source : Frontend.Ast.function_parameter) ->
+                Option.is_some source.name
+                && Headers.parameter_name parameter
+                   = Option.map
+                       (fun (name : Frontend.Ast.identifier) -> name.spelling)
+                       source.name)
+              (Headers.parameter_source parameter))
+       (List.mapi (fun index parameter -> (index, parameter)) parameters)
+  (* Legacy isolated compilation and source-task compilation retain the same
+     independent whole-list evidence, without inventing a parser receipt for
+     the legacy path. Missing or omitted original children reject. *)
+  && Option.fold ~none:false
+       ~some:(fun sources ->
+         same_list
+           (fun (source : Frontend.Ast.function_parameter) parameter ->
+             Option.equal ( == ) (Some source)
+               (Headers.parameter_source parameter))
+           sources parameters)
+       (source_parameters frame)
+  && List.for_all
+       (fun parameter ->
+         List.length
+           (List.filter
+              (fun location ->
+                match source_requests ~frame location with
+                | Some { owner = Parameter_owner original; _ } ->
+                    original == parameter
+                | _ -> false)
+              named_locations)
+         = 1)
+       parameters
+
 let analyze ~frame ~body =
-  match analyze_parameter ~frame ~body with
-  | Some proof -> Some proof
-  | None -> (
-      match analyze_local ~frame ~body with
-      | Some proof -> Some proof
-      | None -> analyze_integer_function ~frame ~body)
+  if not (complete_parameter_coverage ~frame) then None
+  else
+    match analyze_parameter ~frame ~body with
+    | Some proof -> Some proof
+    | None -> (
+        match analyze_local ~frame ~body with
+        | Some proof -> Some proof
+        | None -> analyze_integer_function ~frame ~body)
 
 let selection t ~frame ~body ~symbol =
   if
     t.frame_ != frame || t.body_ != body
+    || (not (same_list ( == ) t.parameters_ (signature_parameters frame)))
+    || (not
+          (Option.equal (same_list ( == )) t.parameter_sources_
+             (source_parameters frame)))
     || (not (Function_body.definition_matches_frame body frame))
     || (not
           (Option.equal ( == ) t.definition_
@@ -3186,7 +3373,7 @@ let selection t ~frame ~body ~symbol =
           (same_list
              (fun original location ->
                Option.fold ~none:false ~some:(equal_location original)
-                 (location_stamp location))
+                 (location_stamp ~frame location))
              t.locations_
              (Frame.function_locations frame)))
     || (not (matches_blocks t.blocks_ (snapshot body)))
@@ -3209,66 +3396,107 @@ let selection t ~frame ~body ~symbol =
       -> Some expected
     | _ -> None
 
+let source_owned_requests t ~frame ~body (original : location_stamp) =
+  let members =
+    match original.kind with
+    | Frame.Named_parameter -> Function_body.parameters body
+    | Automatic_local -> Function_body.locals body
+    | Variadic_argc | Variadic_argv | Static_local -> []
+  in
+  Option.is_some t.source_
+  && Option.fold ~none:false
+       ~some:(fun definition ->
+         Sema.Function_resolution.resolved_declaration_site definition
+         |> Sema.Function_resolution.declaration_site_function
+         |> ( == ) (Frame.function_header frame))
+       t.definition_
+  && List.exists
+       (fun member -> Function_body.member_symbol member == original.symbol)
+       members
+  &&
+  match original.source_requests with
+  | None -> false
+  | Some source -> (
+      (* Every exclusion and reservation matters: authenticate all requests,
+         not only the member whose physical register the caller requested. *)
+      List.for_all
+        (fun (request : source_request_stamp) ->
+          (match request.origin with
+            | Source_origin _ -> true
+            | _ -> false)
+          && request.spelling = Request.kind_name request.kind
+          && Option.is_some request.selection)
+        source.requests
+      &&
+      match List.rev source.requests with
+      | [] -> original.request = Unspecified_request
+      | request :: _ -> (
+          request.selection = Some original.request
+          && Option.equal ( == ) request.explicit_owner original.request_owner
+          &&
+          match original.request with
+          | Explicit_request (spelling, number, Source_origin _) ->
+              Request.canonical_u64_register_number spelling = Some number
+          | Allocatable_request | Disabled_request -> true
+          | Unspecified_request | Explicit_request _ -> false))
+
 let physical_register t ~frame ~body ~symbol =
   match selection t ~frame ~body ~symbol with
-  | Some Register_candidate ->
-      List.find_map
+  | Some Register_candidate
+    when List.for_all (source_owned_requests t ~frame ~body) t.locations_ ->
+      Option.bind
+        (List.find_opt (fun original -> original.symbol == symbol) t.locations_)
         (fun original ->
-          if original.symbol != symbol then None
-          else
-            let members =
-              match original.kind with
-              | Frame.Named_parameter -> Function_body.parameters body
-              | Automatic_local -> Function_body.locals body
-              | Variadic_argc | Variadic_argv | Static_local -> []
-            in
-            let source_owned =
-              let module Headers = Sema.Function_type_resolution in
-              let module Bindings = Sema.Function_binding_index in
-              let module Locals = Sema.Local_type_resolution in
-              let source_request =
-                match original.kind with
-                | Frame.Named_parameter ->
-                    Option.bind
-                      (Bindings.binding_parameter_index original.binding)
-                      (fun index ->
-                        Frame.function_header frame
-                        |> Headers.function_signature
-                        |> Headers.signature_parameters
-                        |> List.find_opt (fun parameter ->
-                            Headers.parameter_index parameter = index
-                            && Option.is_some
-                                 (Headers.parameter_source parameter))
-                        |> Option.map Headers.parameter_register_selection)
-                | Automatic_local ->
-                    Option.bind (Frame.location_local_source original.location)
-                      (fun local ->
-                        if Locals.local_symbol local == symbol then
-                          Some
-                            (Request.effective
-                               (Locals.local_register_requests local))
-                        else None)
-                | Variadic_argc | Variadic_argv | Static_local -> None
+          let supported number = List.mem number [ 6; 7; 12; 13; 14; 15 ] in
+          match original.request with
+          | Explicit_request (_, number, _) when supported number -> Some number
+          | (Unspecified_request | Allocatable_request)
+            when not (registers_disabled body) ->
+              (* OptPass3.HC:22-48 counts every unspecified integer member and
+                 every REG_ALLOC, including unused members. Unknown selection
+                 is not evidence of absence: specialized proofs intentionally
+                 leave operands Unknown, and pressure proofs do likewise.
+
+                 With at most six possible candidates, the R12/R13 bank cannot
+                 open (557-582). A sole candidate, or sole REG_ALLOC whose
+                 I64_MAX/2 seed dominates these bounded ordinary scores, is
+                 therefore first. Do not predict QSort's order for any tie. *)
+              let candidates =
+                List.filter
+                  (fun location ->
+                    location.request = Unspecified_request
+                    || location.request = Allocatable_request)
+                  t.locations_
               in
-              Option.is_some t.definition_
-              && Option.is_some t.source_
-              && Bindings.binding_symbol original.binding == symbol
-              && List.exists
-                   (fun member -> Function_body.member_symbol member == symbol)
-                   members
-              &&
-              match (original.request_owner, source_request) with
-              | Some expected, Some (Request.Explicit actual) ->
-                  expected == actual
-                  && request_stamp (Request.Explicit actual) = original.request
-              | _ -> false
-            in
-            match original.request with
-            | Explicit_request (spelling, number, Source_origin _)
-              when source_owned
-                   && List.mem number [ 6; 7; 12; 13; 14; 15 ]
-                   && Request.canonical_u64_register_number spelling
-                      = Some number -> Some number
-            | _ -> None)
-        t.locations_
-  | Some Stack | Some Unknown | None -> None
+              let forced =
+                List.filter
+                  (fun location -> location.request = Allocatable_request)
+                  candidates
+              in
+              if
+                List.length candidates > 6
+                || not
+                     (List.length candidates = 1
+                     || original.request = Allocatable_request
+                        && List.length forced = 1)
+              then None
+              else
+                let reserved =
+                  List.filter_map
+                    (fun location ->
+                      match location.request with
+                      | Explicit_request (_, number, _) -> Some number
+                      | _ -> None)
+                    t.locations_
+                in
+                (* CInit.HC:244-256 builds the map in ascending register order.
+                   Explicit requests reserve slots before scoring even when
+                   unused. R10/R11 remain outside the physical query: do not
+                   skip an unsupported first free register for a later one. *)
+                Option.bind
+                  (List.find_opt
+                     (fun number -> not (List.mem number reserved))
+                     general_variable_registers)
+                  (fun number -> if supported number then Some number else None)
+          | _ -> None)
+  | Some Register_candidate | Some Stack | Some Unknown | None -> None

@@ -563,17 +563,207 @@ let u0_control_recursion_and_final_latch () =
 
 let byte unwind index = Char.code unwind.[index]
 
+let decode_callable_frame_bytes unwind =
+  let exception Malformed of string in
+  let require condition message =
+    if not condition then raise (Malformed message)
+  in
+  try
+    let length = String.length unwind in
+    require
+      (length >= 8 && length <= 36 && length mod 4 = 0)
+      "unsupported record length";
+    require
+      (byte unwind 0 = 1 && byte unwind 3 = 0)
+      "expected version 1 without handlers or a frame register";
+    let count = byte unwind 2 in
+    require
+      (count >= 1 && length = 4 + (2 * (count + (count mod 2))))
+      "code count differs from padded record length";
+    for index = 4 + (2 * count) to length - 1 do
+      require (byte unwind index = 0) "nonzero unwind padding"
+    done;
+    let scaled_word index =
+      8 * (byte unwind index lor (byte unwind (index + 1) lsl 8))
+    in
+    (* Decode the Windows format independently of the emitter. SAVE_NONVOL
+       takes two slots and describes storage inside the allocation, not an
+       additional push. Metadata lists saves in reverse instruction order. *)
+    let rec read_saves slot previous_register saves =
+      if slot < count && byte unwind (5 + (2 * slot)) land 0xf = 4 then (
+        require (slot + 1 < count) "truncated SAVE_NONVOL";
+        let register = byte unwind (5 + (2 * slot)) lsr 4 in
+        require
+          (List.mem register [ 6; 7; 12; 13; 14; 15 ]
+          && register < previous_register)
+          "unsupported or unordered saved register";
+        read_saves (slot + 2) register
+          ((byte unwind (4 + (2 * slot)), scaled_word (6 + (2 * slot))) :: saves))
+      else (slot, saves)
+    in
+    let slot, saves = read_saves 0 16 [] in
+    let frame, allocation_end, push_slot =
+      if slot + 1 = count then (0, 4, slot)
+      else (
+        require (slot + 1 < count) "missing allocation or RBP push";
+        let operation = byte unwind (5 + (2 * slot)) in
+        let frame, allocation_slots =
+          match operation land 0xf with
+          | 2 -> (((operation lsr 4) + 1) * 8, 1)
+          | 1 ->
+              require
+                (operation = 1 && slot + 2 < count)
+                "malformed scaled ALLOC_LARGE";
+              let frame = scaled_word (6 + (2 * slot)) in
+              require (frame > 128) "noncanonical large allocation";
+              (frame, 2)
+          | _ -> raise (Malformed "unsupported allocation opcode")
+        in
+        require
+          (frame > 0 && frame <= 524272 && frame mod 16 = 0)
+          "invalid callable allocation size";
+        (* Unrolled page probes are eight bytes each. Above 65528 bytes the
+           compact loop is 27 bytes, with an eight-byte partial-page tail. *)
+        let probes =
+          if frame < 4096 then 0
+          else if frame <= 65528 then 8 * ((frame + 4095) / 4096)
+          else 27 + if frame mod 4096 = 0 then 0 else 8
+        in
+        let allocation_end = byte unwind (4 + (2 * slot)) in
+        require (allocation_end = 11 + probes) "invalid allocation endpoint";
+        (frame, allocation_end, slot + allocation_slots))
+    in
+    require
+      (push_slot + 1 = count
+      && byte unwind (4 + (2 * push_slot)) = 1
+      && byte unwind (5 + (2 * push_slot)) = 0x50)
+      "missing final PUSH_NONVOL RBP";
+    require (frame <> 0 || saves = []) "frameless register-save record";
+    require
+      (byte unwind 1 = allocation_end + (7 * List.length saves))
+      "prologue length does not cover exactly the allocation and saves";
+    List.iteri
+      (fun index (endpoint, offset) ->
+        require
+          (endpoint = allocation_end + (7 * (index + 1)))
+          "unordered register-save endpoint";
+        require (offset < frame) "register save lies outside the allocation")
+      saves;
+    require
+      (List.length (List.sort_uniq Int.compare (List.map snd saves))
+      = List.length saves)
+      "overlapping register-save slots";
+    Ok frame
+  with Malformed message -> Error message
+
 let callable_frame_bytes label unwind =
-  let length = String.length unwind in
-  if length <> 8 && length <> 12 then
-    Alcotest.failf "%s: unexpected callable unwind length %d" label length;
-  let count = byte unwind 2 in
-  if count = 1 && byte unwind 4 = 1 && byte unwind 5 lsr 4 = 5 then 0
-  else if count = 2 && byte unwind 4 = 11 && byte unwind 5 land 0xf = 2 then
-    ((byte unwind 5 lsr 4) + 1) * 8
-  else if count = 3 && byte unwind 4 = 11 && byte unwind 5 land 0xf = 1 then
-    byte unwind 6 lor (byte unwind 7 lsl 8) * 8
-  else Alcotest.failf "%s: malformed callable unwind metadata" label
+  match decode_callable_frame_bytes unwind with
+  | Ok frame -> frame
+  | Error message ->
+      Alcotest.failf "%s: malformed callable unwind metadata: %s" label message
+
+let callable_frame_metadata () =
+  let bytes values =
+    String.init (List.length values) (fun index ->
+        Char.chr (List.nth values index))
+  in
+  let small_save = [ 1; 18; 4; 0; 18; 0x64; 3; 0; 11; 0x32; 1; 0x50 ] in
+  let large_save =
+    [ 1; 18; 5; 0; 18; 0x64; 33; 0; 11; 1; 34; 0; 1; 0x50; 0; 0 ]
+  in
+  let pair =
+    [ 1; 25; 6; 0; 25; 0x74; 2; 0; 18; 0x64; 3; 0; 11; 0x32; 1; 0x50 ]
+  in
+  List.iter
+    (fun (label, expected, values) ->
+      Alcotest.(check int)
+        label expected
+        (callable_frame_bytes label (bytes values)))
+    [
+      ("frameless callable push", 0, [ 1; 4; 1; 0; 1; 0x50; 0; 0 ]);
+      ("small callable allocation", 128, [ 1; 11; 2; 0; 11; 0xf2; 1; 0x50 ]);
+      ( "large allocation scales both bytes",
+        2064,
+        [ 1; 11; 3; 0; 11; 1; 2; 1; 1; 0x50; 0; 0 ] );
+      ("small allocation with RSI save", 32, small_save);
+      ("large allocation with RSI save", 272, large_save);
+      ("RSI and RDI saves do not double-charge stack", 32, pair);
+      ( "unrolled page-probed allocation",
+        4096,
+        [ 1; 19; 3; 0; 19; 1; 0; 2; 1; 0x50; 0; 0 ] );
+      ( "compact page-probed allocation",
+        65536,
+        [ 1; 38; 3; 0; 38; 1; 0; 32; 1; 0x50; 0; 0 ] );
+      ( "maximum frame and all six register saves",
+        524272,
+        [
+          1;
+          88;
+          15;
+          0;
+          88;
+          0xf4;
+          0xfb;
+          0xff;
+          81;
+          0xe4;
+          0xf7;
+          0xff;
+          74;
+          0xd4;
+          0xfc;
+          0xff;
+          67;
+          0xc4;
+          0xf8;
+          0xff;
+          60;
+          0x74;
+          0xfd;
+          0xff;
+          53;
+          0x64;
+          0xfa;
+          0xff;
+          46;
+          1;
+          0xfe;
+          0xff;
+          1;
+          0x50;
+          0;
+          0;
+        ] );
+    ];
+  let changed values index value =
+    let value_bytes = Bytes.of_string (bytes values) in
+    Bytes.set value_bytes index (Char.chr value);
+    Bytes.to_string value_bytes
+  in
+  List.iter
+    (fun (label, unwind) ->
+      Alcotest.(check bool)
+        label true
+        (Result.is_error (decode_callable_frame_bytes unwind)))
+    [
+      ("reject truncated header", "\001\004");
+      ("reject handler flags", changed large_save 0 9);
+      ("reject frame-register form", changed large_save 3 5);
+      ("reject mismatched code count", changed large_save 2 4);
+      ("reject nonzero padding", changed large_save 15 1);
+      ("reject unsupported saved register", changed large_save 5 0x84);
+      ("reject duplicate saved register", changed pair 5 0x64);
+      ("reject overlapping saved slots", changed pair 6 3);
+      ("reject out-of-frame save", changed large_save 6 34);
+      ("reject changed save endpoint", changed large_save 4 17);
+      ("reject changed allocation endpoint", changed large_save 8 10);
+      ("reject changed prologue length", changed large_save 1 19);
+      ("reject non-scaled large allocation", changed large_save 9 0x11);
+      ("reject noncanonical large allocation", changed large_save 10 16);
+      ("reject misaligned callable frame", changed large_save 10 33);
+      ("reject wrong pushed register", changed large_save 13 0x60);
+      ("reject absent RBP push", bytes [ 1; 18; 2; 0; 18; 0x64; 3; 0 ]);
+    ]
 
 let named_physical_costs image =
   match Program.windows_unwind_functions image with
@@ -3535,5 +3725,7 @@ let () =
               Alcotest.test_case
                 "scalar budgets faults unwind and recover against public VM"
                 `Quick budgets_faults_and_recovery;
+              Alcotest.test_case "save-bearing callable stack metadata" `Quick
+                callable_frame_metadata;
             ] );
         ]

@@ -3773,7 +3773,7 @@ let physical_register_selection () =
             "selection alone grants no physical register" None
             (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
                ~symbol))
-        [ ""; "reg"; "noreg"; "reg R10"; "reg R11" ];
+        [ ""; "noreg"; "reg R10"; "reg R11" ];
       let fn = compile mode "I64 F(I8 x,I64 reg R12 c){x<<=c;return x;}42;" in
       let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
       let symbol = location fn.frame "c" |> Frame.location_symbol in
@@ -3784,6 +3784,644 @@ let physical_register_selection () =
       Alcotest.(check (option int))
         "unknown explicit request grants no physical register" None
         (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let automatic_physical_register_selection () =
+  let check ?(proved = true) mode label expected source =
+    let fn = compile mode source in
+    let symbol = location fn.frame "x" |> Frame.location_symbol in
+    let proof = Analysis.analyze ~frame:fn.frame ~body:fn.body in
+    if proved then
+      Alcotest.(check bool)
+        (label ^ " has a selection witness")
+        true (Option.is_some proof);
+    Alcotest.(check (option int))
+      label expected
+      (Option.bind proof (fun proof ->
+           Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+             ~symbol))
+  in
+  let reservations registers =
+    List.mapi
+      (fun index register -> Printf.sprintf "I64 reg %s r%d" register index)
+      registers
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun type_ ->
+          List.iter
+            (fun qualifier ->
+              List.iter
+                (fun source ->
+                  check mode "sole automatic integer member" (Some 6) source)
+                [
+                  Printf.sprintf "I64 F(%s %s x){x+=1;return x;}42;" type_
+                    qualifier;
+                  Printf.sprintf "I64 F(){%s %s x=1;x+=1;return x;}42;" type_
+                    qualifier;
+                  Printf.sprintf
+                    "I64 F(%s %s x,I64 noreg c){if(c)x+=1;return x;}42;" type_
+                    qualifier;
+                  Printf.sprintf
+                    "I64 F(I64 noreg c){%s %s x=1;if(c)x+=1;return x;}42;" type_
+                    qualifier;
+                ])
+            [ ""; "reg" ];
+          List.iter
+            (fun source ->
+              check mode "sole forced member outranks ordinary uses" (Some 6)
+                source)
+            [
+              Printf.sprintf "I64 F(%s reg x,I64 c){if(c)x+=1;return x;}42;"
+                type_;
+              Printf.sprintf "I64 F(I64 c){%s reg x=1;if(c)x+=1;return x;}42;"
+                type_;
+            ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ];
+      List.iter
+        (fun qualifier ->
+          List.iter
+            (fun (registers, expected) ->
+              let parameters = reservations registers in
+              check
+                ~proved:(List.length registers < 6)
+                mode "unused explicit parameters reserve the first general slot"
+                expected
+                (Printf.sprintf "I64 F(%s){x+=1;return x;}42;"
+                   (String.concat ","
+                      (("I8 " ^ qualifier ^ " x") :: parameters)));
+              check
+                ~proved:(List.length registers < 6)
+                mode "unused explicit locals reserve the first general slot"
+                expected
+                (Printf.sprintf "I64 F(){%s I8 %s x=1;x+=1;return x;}42;"
+                   (String.concat "" (List.map (fun p -> p ^ "=0;") parameters))
+                   qualifier))
+            [
+              ([], Some 6);
+              ([ "RSI" ], Some 7);
+              ([ "RSI"; "RDI" ], None);
+              ([ "RSI"; "RDI"; "R10" ], None);
+              ([ "RSI"; "RDI"; "R10"; "R11" ], Some 14);
+              ([ "RSI"; "RDI"; "R10"; "R11"; "R14" ], Some 15);
+              ([ "RSI"; "RDI"; "R10"; "R11"; "R14"; "R15" ], None);
+              ([ "R12"; "R13" ], Some 6);
+              ([ "RDI"; "R10"; "R11"; "R14"; "R15" ], Some 6);
+            ])
+        [ ""; "reg" ];
+      List.iter
+        (fun (label, expected, source) -> check mode label expected source)
+        [
+          ( "unknown ordinary operand still competes",
+            None,
+            "I64 F(I8 x,I64 c){x<<=c;return x;}42;" );
+          ( "sole forced member precedes unknown ordinary operand",
+            Some 6,
+            "I64 F(I8 reg x,I64 c){x<<=c;return x;}42;" );
+          ( "unknown explicit operand still reserves RSI",
+            Some 7,
+            "I64 F(I8 x,I64 reg RSI c){x<<=c;return x;}42;" );
+          ( "unknown disabled operand does not compete",
+            Some 6,
+            "I64 F(I8 x,I64 noreg c){x<<=c;return x;}42;" );
+          ( "unknown forced operand still competes with forced target",
+            None,
+            "I64 F(I8 reg x,I64 reg c){x<<=c;return x;}42;" );
+          ( "unused ordinary parameter still counts conservatively",
+            None,
+            "I64 F(I8 x,I64 unused){x+=1;return x;}42;" );
+          ( "unused plain reg still competes with forced target",
+            None,
+            "I64 F(I8 reg x,I64 reg unused){x+=1;return x;}42;" );
+          ( "unused plain reg prevents ordinary first-place proof",
+            None,
+            "I64 F(I8 x,I64 reg unused){x+=1;return x;}42;" );
+          ( "ordinary scores are not guessed",
+            None,
+            "I64 F(I8 x,I64 c){x+=1;x+=1;x+=1;return x+c;}42;" );
+          ( "forced score ties are not guessed",
+            None,
+            "I64 F(I8 reg x,I64 reg c){x+=1;x+=1;return x+c;}42;" );
+          ( "disabled target stays on the stack",
+            None,
+            "I64 F(I8 noreg x){x+=1;return x;}42;" );
+          ( "unused target remains unknown",
+            None,
+            "I64 F(I8 reg x){return 1;}42;" );
+        ];
+      List.iter
+        (fun count ->
+          let ordinary =
+            List.init count (fun index -> Printf.sprintf "I64 p%d" index)
+          in
+          List.iter
+            (fun used ->
+              let rhs =
+                if used then
+                  "x+"
+                  ^ String.concat "+"
+                      (List.init count (fun index -> Printf.sprintf "p%d" index))
+                else "x"
+              in
+              check mode "all ordinary candidates bound nonpointer activation"
+                (if count = 5 then Some 6 else None)
+                (Printf.sprintf "I64 F(%s){x+=1;return %s;}42;"
+                   (String.concat "," ("I8 reg x" :: ordinary))
+                   rhs))
+            [ false; true ])
+        [ 5; 6; 8 ];
+      let pressured =
+        compile mode
+          "I64 F(I8 reg x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 reg RSI r0,I64 reg \
+           RDI r1,I64 reg R10 r2,I64 reg R11 r3){x+=1;return x+a+b+c+d+e;}42;"
+      in
+      let pressure_proof =
+        Option.get
+          (Analysis.analyze ~frame:pressured.frame ~body:pressured.body)
+      in
+      let x = location pressured.frame "x" |> Frame.location_symbol in
+      Alcotest.(check (option int))
+        "sole forced candidate uses first free slot under bounded pressure"
+        (Some 14)
+        (Analysis.physical_register pressure_proof ~frame:pressured.frame
+           ~body:pressured.body ~symbol:x);
+      List.iter
+        (fun name ->
+          let symbol = location pressured.frame name |> Frame.location_symbol in
+          Alcotest.(check bool)
+            "ordinary pressured operand remains unknown" true
+            (Analysis.selection pressure_proof ~frame:pressured.frame
+               ~body:pressured.body ~symbol
+            = Some Analysis.Unknown);
+          Alcotest.(check (option int))
+            "unknown pressured operand acquires no physical placement" None
+            (Analysis.physical_register pressure_proof ~frame:pressured.frame
+               ~body:pressured.body ~symbol))
+        [ "a"; "b"; "c"; "d"; "e" ];
+      let fn = compile mode "I64 F(I8 reg x,I64 c){x<<=c;return x;}42;" in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "c" |> Frame.location_symbol in
+      Alcotest.(check (option int))
+        "unknown candidate cannot acquire a physical register" None
+        (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let physical_register_unnamed_parameters () =
+  let module Headers = Semantic_function_type_resolution in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun qualifier ->
+          List.iter
+            (fun unnamed ->
+              List.iter
+                (fun source ->
+                  let fn =
+                    try Some (compile mode source)
+                    with
+                    | Failure message
+                    when String.ends_with
+                           ~suffix:
+                             "HCIR0027: function body members do not belong to \
+                              its definition header and frame"
+                           message
+                    ->
+                      None
+                  in
+                  Alcotest.(check bool)
+                    "unnamed formal cannot be omitted from selection or \
+                     placement"
+                    true
+                    (Option.fold ~none:true
+                       ~some:(fun
+                           (fn : Ir_integer_interpreter.function_definition) ->
+                         Option.is_none
+                           (Analysis.analyze ~frame:fn.frame ~body:fn.body))
+                       fn))
+                [
+                  Printf.sprintf "I64 F(I8 %s x,%s){x+=1;return x;}42;"
+                    qualifier unnamed;
+                  Printf.sprintf "I64 F(%s,I8 %s x){x+=1;return x;}42;" unnamed
+                    qualifier;
+                  Printf.sprintf "I64 F(%s){I8 %s x=1;x+=1;return x;}42;"
+                    unnamed qualifier;
+                ])
+            [ "I64"; "I64 reg"; "I64 reg RSI"; "I64 reg R12"; "I64 noreg" ])
+        [ ""; "reg"; "reg RSI"; "reg R12" ];
+      let pressured =
+        compile mode
+          "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 reg,I64 reg,I64 \
+           reg){x+=1;return x+a+b+c+d+e;}42;"
+      in
+      Alcotest.(check bool)
+        "unnamed forced competitors cannot acquire a false capacity witness"
+        true
+        (Option.is_none
+           (Analysis.analyze ~frame:pressured.frame ~body:pressured.body));
+      let omitted = compile mode "I64 F(I8 x,I64 reg RSI){x+=1;return x;}42;" in
+      let signature =
+        Frame.function_header omitted.frame |> Headers.function_signature
+      in
+      let parameters = Headers.signature_parameters signature in
+      let original_sources =
+        Headers.function_source_parameters (Frame.function_header omitted.frame)
+        |> Option.get
+      in
+      Alcotest.(check int)
+        "producer retains both original formal children" 2
+        (List.length original_sources);
+      Obj.set_field (Obj.repr signature) 2 (Obj.repr [ List.hd parameters ]);
+      Alcotest.(check int)
+        "source receipt is independent of semantic omission" 2
+        (List.length
+           (Headers.function_source_parameters
+              (Frame.function_header omitted.frame)
+           |> Option.get));
+      Alcotest.(check bool)
+        "dropping the semantic unnamed formal cannot hide its original source"
+        true
+        (Option.is_none
+           (Analysis.analyze ~frame:omitted.frame ~body:omitted.body));
+      let reordered =
+        compile mode "I64 F(I8 reg x,I64 c){x<<=c;return x;}42;"
+      in
+      let proof =
+        Option.get
+          (Analysis.analyze ~frame:reordered.frame ~body:reordered.body)
+      in
+      let symbol = location reordered.frame "x" |> Frame.location_symbol in
+      let signature =
+        Frame.function_header reordered.frame |> Headers.function_signature
+      in
+      let parameters = Headers.signature_parameters signature in
+      Obj.set_field (Obj.repr signature) 2 (Obj.repr (List.rev parameters));
+      Alcotest.(check (option int))
+        "changed original formal order revokes physical authority" None
+        (Analysis.physical_register proof ~frame:reordered.frame
+           ~body:reordered.body ~symbol);
+      Alcotest.(check bool)
+        "changed formal order cannot acquire a fresh source witness" true
+        (Option.is_none
+           (Analysis.analyze ~frame:reordered.frame ~body:reordered.body));
+      let altered = compile mode "I64 F(I8 reg x,I64 c){x<<=c;return x;}42;" in
+      let proof =
+        Option.get (Analysis.analyze ~frame:altered.frame ~body:altered.body)
+      in
+      let symbol = location altered.frame "x" |> Frame.location_symbol in
+      Alcotest.(check (option int))
+        "complete receipt initially authorizes placement" (Some 6)
+        (Analysis.physical_register proof ~frame:altered.frame
+           ~body:altered.body ~symbol);
+      let sources =
+        Headers.function_source_parameters (Frame.function_header altered.frame)
+        |> Option.get
+      in
+      Obj.set_field (Obj.repr sources) 1 (Obj.repr []);
+      Alcotest.(check (option int))
+        "in-place original receipt change revokes saved physical authority" None
+        (Analysis.physical_register proof ~frame:altered.frame
+           ~body:altered.body ~symbol);
+      Alcotest.(check bool)
+        "changed original receipt cannot acquire a fresh witness" true
+        (Option.is_none
+           (Analysis.analyze ~frame:altered.frame ~body:altered.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let physical_register_parameter_source_constructors () =
+  let module Headers = Semantic_function_type_resolution in
+  List.iter
+    (fun mode ->
+      let source = "I64 F(I8 reg x,I64 c){x<<=c;return x;}42;" in
+      let fn = compile mode source and foreign = compile mode source in
+      let header = Frame.function_header fn.frame in
+      let make constructor =
+        constructor
+          ~symbol:(Headers.function_symbol header)
+          ~scope:(Headers.function_scope header)
+          ~item_index:(Headers.function_original_item_index header)
+          ~return_type:(Headers.function_return_type header)
+          ~signature:(Headers.function_signature header)
+          ~parameter_bindings:(Headers.function_parameter_bindings header)
+          ~variadic_bindings:(Headers.function_variadic_bindings header)
+      in
+      let originals = Headers.function_source_parameters header |> Option.get in
+      Alcotest.(check bool)
+        "source-aware constructor accepts exact children" true
+        (Result.is_ok
+           (make (Headers.make_function_with_source_parameters originals)));
+      List.iter
+        (fun (label, sources) ->
+          Alcotest.(check bool)
+            label true
+            (Result.is_error
+               (make (Headers.make_function_with_source_parameters sources))))
+        [
+          ( "source-aware constructor rejects missing child",
+            [ List.hd originals ] );
+          ( "source-aware constructor rejects reordered children",
+            List.rev originals );
+          ( "source-aware constructor rejects foreign equal source children",
+            Headers.function_source_parameters
+              (Frame.function_header foreign.frame)
+            |> Option.get );
+          ( "source-aware constructor rejects duplicated child",
+            [ List.hd originals; List.hd originals ] );
+        ];
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      let metadata = make Headers.make_function |> Result.get_ok in
+      (* Deliberately substitute the metadata-only constructor's record without
+         resolving or admitting it as the original source header. A frame using
+         this forged header must not recover source authority from shared fields. *)
+      Obj.set_field (Obj.repr fn.frame) 1 (Obj.repr metadata);
+      Alcotest.(check bool)
+        "metadata-only constructor retains no source receipt" true
+        (Option.is_none
+           (Headers.function_source_parameters (Frame.function_header fn.frame)));
+      Alcotest.(check (option int))
+        "metadata-only header revokes saved authority" None
+        (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol);
+      Alcotest.(check bool)
+        "metadata-only header cannot acquire fresh authority" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let automatic_physical_register_options () =
+  let compile_option mode source =
+    let session = Session.create () in
+    let source =
+      Session.add_source session ~path:"register-options.hc" ~contents:source
+    in
+    let config =
+      Preprocessor.Config.create ~compilation_mode:mode () |> Result.get_ok
+    in
+    let report = compile_integer_program_report session ~config ~source in
+    let units =
+      match integer_program_compilation_result report with
+      | Ok result -> (
+          match result.value with
+          | Isolated program -> [ program ]
+          | Stateful _ -> integer_program_compilation_units report)
+      | Error diagnostics ->
+          failwith
+            (String.concat "; "
+               (List.map
+                  (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
+                  diagnostics))
+    in
+    units
+    |> List.concat_map integer_program_functions
+    |> List.find (fun (fn : Ir_integer_interpreter.function_definition) ->
+        Symbol.name (Body.symbol fn.body) = "F")
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (qualifier, expected) ->
+          List.iter
+            (fun body ->
+              let fn =
+                compile_option mode ("#exe {Option(34,1);}" ^ body ^ "42;")
+              in
+              Alcotest.(check bool)
+                "source enabled NoReg" true
+                (Compiler_option.is_enabled
+                   ~mask:(Body.compiler_options fn.body)
+                   Compiler_option.No_reg_var);
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let symbol = location fn.frame "x" |> Frame.location_symbol in
+              Alcotest.(check (option int))
+                "NoReg disables automatic and forced but preserves explicit"
+                expected
+                (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+                   ~symbol))
+            [
+              Printf.sprintf "I64 F(I8 %s x){x+=1;return x;}" qualifier;
+              Printf.sprintf "I64 F(){I8 %s x=1;x+=1;return x;}" qualifier;
+            ])
+        [ ("", None); ("reg", None); ("reg RSI", Some 6) ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let automatic_physical_register_ownership () =
+  let module Request = Semantic_register_request in
+  let module Headers = Semantic_function_type_resolution in
+  let module Locals = Semantic_local_type_resolution in
+  let source = "I64 F(I8 reg x,I64 c){x<<=c;return x;}42;" in
+  let requests frame location =
+    match Frame.location_kind location with
+    | Frame.Named_parameter ->
+        let index =
+          Frame.location_binding location
+          |> Semantic_function_binding_index.binding_parameter_index
+          |> Option.get
+        in
+        let parameter =
+          Frame.function_header frame
+          |> Headers.function_signature |> Headers.signature_parameters
+          |> List.find (fun parameter ->
+              Headers.parameter_index parameter = index)
+        in
+        (Obj.repr parameter, 3, Headers.parameter_register_requests parameter)
+    | Automatic_local ->
+        let local = Frame.location_local_source location |> Option.get in
+        (Obj.repr local, 8, Locals.local_register_requests local)
+    | _ -> failwith "expected source-owned integer member"
+  in
+  List.iter
+    (fun mode ->
+      let fn = compile mode source and foreign = compile mode source in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      Alcotest.(check (option int))
+        "automatic mapping has original authority" (Some 6)
+        (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol);
+      Alcotest.(check (option int))
+        "automatic mapping rejects foreign frame" None
+        (Analysis.physical_register proof ~frame:foreign.frame ~body:fn.body
+           ~symbol);
+      Alcotest.(check (option int))
+        "automatic mapping rejects foreign body" None
+        (Analysis.physical_register proof ~frame:fn.frame ~body:foreign.body
+           ~symbol);
+      List.iter
+        (fun source ->
+          List.iter
+            (fun (label, mutate) ->
+              let fn = compile mode source in
+              let original = location fn.frame "x" in
+              let symbol = Frame.location_symbol original in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              Alcotest.(check (option int))
+                (label ^ " begins selected")
+                (Some 6)
+                (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+                   ~symbol);
+              let owner, field, original_requests =
+                requests fn.frame original
+              in
+              mutate owner field original_requests;
+              Alcotest.(check (option int))
+                (label ^ " invalidates authority")
+                None
+                (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+                   ~symbol))
+            [
+              ( "equal reconstructed plain reg owner",
+                fun owner field original_requests ->
+                  let copies : Request.t list =
+                    List.map
+                      (fun request -> Obj.obj (Obj.dup (Obj.repr request)))
+                      original_requests
+                  in
+                  Obj.set_field owner field (Obj.repr copies) );
+              ( "changed plain reg kind",
+                fun _ _ original_requests ->
+                  Obj.set_field
+                    (Obj.repr (List.hd original_requests))
+                    0 (Obj.repr Request.Disable) );
+              ( "changed plain reg position",
+                fun _ _ original_requests ->
+                  Obj.set_field
+                    (Obj.repr (List.hd original_requests))
+                    1
+                    (Obj.repr Request.Before_type) );
+              ( "changed plain reg origin",
+                fun _ _ original_requests ->
+                  Obj.set_field
+                    (Obj.repr (List.hd original_requests))
+                    3
+                    (Obj.repr (Symbol.Synthesized "changed reg owner")) );
+              ( "changed plain reg spelling contents",
+                fun _ _ original_requests ->
+                  let spelling = Request.spelling (List.hd original_requests) in
+                  Bytes.set (Bytes.unsafe_of_string spelling) 0 'x' );
+            ])
+        [ source; "I64 F(I64 c){I8 reg x=1;x+=c;return x;}42;" ];
+      List.iter
+        (fun (name, replacement) ->
+          let fn = compile mode "I64 F(I8 x,I64 c){x<<=c;return x;}42;" in
+          let symbol = location fn.frame "x" |> Frame.location_symbol in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          Obj.set_field
+            (Obj.repr (location fn.frame name))
+            12 (Obj.repr replacement);
+          Alcotest.(check (option int))
+            "forged request rejects old witness" None
+            (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+               ~symbol);
+          let reproved =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          Alcotest.(check (option int))
+            "forged reservation, forced priority or exclusion has no source \
+             authority"
+            None
+            (Analysis.physical_register reproved ~frame:fn.frame ~body:fn.body
+               ~symbol))
+        [
+          ("c", Request.Disabled);
+          ("x", Request.Allocatable);
+          ( "c",
+            let donor = compile mode "I64 F(I8 reg RSI x){return x;}42;" in
+            Frame.location_register_selection (location donor.frame "x") );
+        ];
+      let explicit =
+        compile mode "I64 F(I8 reg R12 x,I64 c){x<<=c;return x;}42;"
+      in
+      let explicit_location = location explicit.frame "x" in
+      let explicit_symbol = Frame.location_symbol explicit_location in
+      let explicit_proof =
+        Option.get (Analysis.analyze ~frame:explicit.frame ~body:explicit.body)
+      in
+      let _, _, explicit_requests = requests explicit.frame explicit_location in
+      Obj.set_field
+        (Obj.repr (List.hd explicit_requests))
+        0 (Obj.repr Request.Disable);
+      Alcotest.(check bool)
+        "malformed selected explicit request invalidates selection without \
+         raising"
+        true
+        (Option.is_none
+           (Analysis.selection explicit_proof ~frame:explicit.frame
+              ~body:explicit.body ~symbol:explicit_symbol));
+      Alcotest.(check (option int))
+        "malformed selected explicit request rejects placement without raising"
+        None
+        (Analysis.physical_register explicit_proof ~frame:explicit.frame
+           ~body:explicit.body ~symbol:explicit_symbol);
+      Alcotest.(check (option int))
+        "malformed semantic request cannot gain authority through reanalysis"
+        None
+        (Option.bind
+           (Analysis.analyze ~frame:explicit.frame ~body:explicit.body)
+           (fun proof ->
+             Analysis.physical_register proof ~frame:explicit.frame
+               ~body:explicit.body ~symbol:explicit_symbol));
+      List.iter
+        (fun (label, mutate) ->
+          let fn =
+            compile mode "I64 F(I8 x,I64 reg RSI c){x<<=c;return x;}42;"
+          in
+          let symbol = location fn.frame "x" |> Frame.location_symbol in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          Alcotest.(check (option int))
+            "unknown explicit operand reserves RSI" (Some 7)
+            (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+               ~symbol);
+          mutate fn;
+          Alcotest.(check (option int))
+            label None
+            (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+               ~symbol))
+        [
+          ( "malformed unknown reservation rejects without raising",
+            fun (fn : Ir_integer_interpreter.function_definition) ->
+              let _, _, original_requests =
+                requests fn.frame (location fn.frame "c")
+              in
+              Obj.set_field
+                (Obj.repr (List.hd original_requests))
+                0 (Obj.repr Request.Disable) );
+          ( "changed unknown reservation invalidates placement",
+            fun (fn : Ir_integer_interpreter.function_definition) ->
+              match
+                Frame.location_register_selection (location fn.frame "c")
+              with
+              | Request.Explicit register ->
+                  Obj.set_field (Obj.repr register) 0 (Obj.repr "RDI");
+                  Obj.set_field (Obj.repr register) 1 (Obj.repr 7)
+              | _ -> assert false );
+          ( "changed unknown member ownership invalidates placement",
+            fun fn ->
+              Obj.set_field
+                (Obj.repr (location fn.frame "c"))
+                2
+                (Obj.repr (Frame.location_symbol (location foreign.frame "c")))
+          );
+          ( "changed frame displacement invalidates placement",
+            fun fn ->
+              let slot =
+                Frame.location_frame_slot (location fn.frame "c") |> Option.get
+              in
+              Obj.set_field (Obj.repr slot) 0 (Obj.repr 999L) );
+          ( "changed original body invalidates placement",
+            fun fn ->
+              let instruction =
+                Body.body fn.body |> Graph.blocks |> List.hd
+                |> Graph.instructions |> Seq.instructions |> List.hd
+                |> Seq.description
+              in
+              Obj.set_field (Obj.repr instruction) 6 (Obj.repr 1L) );
+        ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let physical_register_ownership () =
@@ -5808,6 +6446,16 @@ let () =
             physical_register_selection;
           Alcotest.test_case "physical register ownership" `Quick
             physical_register_ownership;
+          Alcotest.test_case "automatic physical register selection" `Quick
+            automatic_physical_register_selection;
+          Alcotest.test_case "unnamed physical register parameters" `Quick
+            physical_register_unnamed_parameters;
+          Alcotest.test_case "physical parameter source constructors" `Quick
+            physical_register_parameter_source_constructors;
+          Alcotest.test_case "automatic physical register options" `Quick
+            automatic_physical_register_options;
+          Alcotest.test_case "automatic physical register ownership" `Quick
+            automatic_physical_register_ownership;
           Alcotest.test_case "parameter-initialized local selection" `Quick
             local_parameter_selection;
           Alcotest.test_case "dynamic parameter local selection" `Quick

@@ -527,10 +527,9 @@ runtime capture.
 
 An explicitly requested R12, R13, R14 or R15 now holds the variable's value in
 that machine register when the existing source proof classifies the member as
-`Register_candidate`. Ordinary automatic selection and R10/R11 requests
-still use the full-width private homes described above. RSI/RDI placement is
-described in the following section. This is not a general
-register allocator, and issue #703 remains open. The
+`Register_candidate`. R10/R11 requests still use the full-width private homes
+described above. RSI/RDI and bounded automatic placement are covered below.
+This is not a general register allocator, and issue #703 remains open. The
 [call example](../examples/physical-register-calls.hc) reuses R12 in a nested
 function without changing the caller's value.
 
@@ -570,8 +569,8 @@ across an unpinned callee and its hosted bookkeeping calls.
 They use typed parameter entry, full-width value operations, per-invocation save
 slots and the shared normal/fault epilogue. R10 and R11 remain private-home
 variables because the hosted runtime uses those registers for its instruction
-allowance and context pointer. Automatic placement and score ordering are still
-outside this physical subset.
+allowance and context pointer. General score ordering remains outside this
+physical subset.
 
 System V C calls may overwrite RSI and RDI. Saving only the registers used by
 the immediate source function would be insufficient: a pinned caller can call
@@ -598,3 +597,52 @@ selected registers around functions (OptPass789A.HC:387-394,698-716). Its assemb
 requires REX for these low-byte registers (Asm.HC:475-476,586-593). The bridge
 saves adapt those source lifetimes to the host ABI; they are not a claim of
 byte-identical TempleOS function prologues or new TempleOS runtime captures.
+
+
+## Bounded automatic placement
+
+A sole automatic integer candidate can now use the first free general variable
+register. A sole plain `reg` candidate can also take that position when there
+are at most six possible automatic candidates. The existing source-owned
+selection proof must first classify the target as `Register_candidate`.
+The [automatic placement example](../examples/automatic-register-placement.hc)
+keeps an RSI value live across a child whose unused explicit RSI reservation
+moves its sole automatic candidate to RDI.
+
+The count includes every ordinary or plain-`reg` frame member, even unused
+members and members classified `Unknown`. Explicit requests reserve their
+numbers even when unused. The general bank is RSI, RDI, R10, R11, R14, R15 in
+that order. If its first free register is R10 or R11, placement stays in the
+private home; it does not skip ahead to R14. More than six possible candidates,
+competing forced candidates and unresolved ordinary ties receive no automatic
+physical placement. `NO_REG_VAR` disables ordinary and plain-`reg` placement.
+
+TempleOS's OptPass3.HC:22-48 reserves explicit requests and gives plain `reg`
+members an initial score of `I64_MAX/2`. Its bounded score increments cannot
+reverse that forced priority. OptPass3.HC:538-546 sorts and filters candidates,
+557-584 enables R12/R13 only above six surviving candidates, and 586-611 assigns
+the first free general register. CInit.HC:244-256 constructs the ascending map.
+OptLib.HC:562-565 compares scores without a tie breaker, and
+Kernel/QSort.HC:55-83,95-101 can swap equal scores. This implementation therefore
+does not invent an ordering for multiple ordinary candidates.
+
+The witness authenticates every source request used for counting, exclusions
+or reservations, including its original owner, spelling, origin and explicit
+register. Malformed or changed requests revoke the proof. Every original formal
+parameter must also have an authenticated named frame member. Functions with
+unnamed formals remain outside the proof: PrsVar.HC:341-344,525-529 creates
+anonymous TempleOS members that still participate in register allocation, while
+the hosted frame model omits them. Silently ignoring those reservations would
+assign the wrong register.
+
+These placements reuse typed parameter entry, per-invocation saves, host bridge
+preservation and Windows unwind validation. They do not remove private frame
+homes or complete the score-based allocator. Evidence remains pinned TempleOS
+source and hosted regression tests, not a new TempleOS runtime capture.
+
+The automatic-placement suite checks all eight integer widths, plain and forced
+candidates, unused reservations, pressure exclusions, recursive calls, host
+bridges and recovery after faults in the same retained image. It decodes the
+emitted register moves and saves as well as comparing IR and native results.
+Option-byte checks use the JIT directive task; public option execution is tested
+separately in both JIT and AOT modes.

@@ -96,6 +96,21 @@ val make_function :
   variadic_bindings:variadic_bindings option ->
   (function_declaration, string) result
 
+val make_function_with_source_parameters :
+  Frontend.Ast.function_parameter list ->
+  symbol:Symbol.t ->
+  scope:Symbol_table.scope ->
+  item_index:int ->
+  return_type:Type_reference.t ->
+  signature:signature ->
+  parameter_bindings:parameter_binding list ->
+  variadic_bindings:variadic_bindings option ->
+  (function_declaration, string) result
+(** Preserve the original whole parameter list when resolving a source AST
+    without a live completed-header receipt. The signature must contain those
+    exact original children. List membership/order is copied independently of
+    the signature; this does not fabricate parser completion authority. *)
+
 val make_function_with_completed_header :
   Frontend.Parser.completed_function_header ->
   symbol:Symbol.t ->
@@ -206,6 +221,11 @@ val function_variadic_bindings : resolved_function -> variadic_bindings option
 
 val function_completed_header :
   resolved_function -> Frontend.Parser.completed_function_header option
+
+val function_source_parameters :
+  resolved_function -> Frontend.Ast.function_parameter list option
+(** Original parameter children retained by a source-aware producer, including
+    unnamed formals. Metadata-only and provisional records have no receipt. *)
 
 val signature_opening_origin : signature -> Symbol.origin
 val signature_parameters : signature -> parameter list

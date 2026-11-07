@@ -15292,3 +15292,15 @@ status = "partial"
 issue = 703
 verification = "Six-register request and encoding coverage, save/restore metadata, host-bridge lifetimes and charged scratch storage."
 evidence_limit = "Only authenticated explicit RSI/RDI/R12-R15 integer variables are physically placed. R10/R11 runtime roles, automatic score-based mapping, floating allocation and complete HolyC ABI remain open. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-BOUNDED-AUTOMATIC"
+description = "First-free physical placement for a sole automatic or sole forced integer candidate."
+sources = ["Compiler/OptPass3.HC:22-48,538-611", "Compiler/CInit.HC:244-256", "Compiler/OptLib.HC:562-565", "Kernel/QSort.HC:55-83,95-101", "Compiler/PrsVar.HC:341-344,525-529"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/sema/function_type_resolution.ml", "src/driver/function_type_resolution.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_automatic_register_cli.ml", "examples/automatic-register-placement.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Authenticated complete named membership, conservative six-candidate bound, forced priority, explicit reservations, unsupported-first-register rejection and native lifetime regressions."
+evidence_limit = "No arbitrary score or tie ordering, conditional R12/R13 assignment, R10/R11 physical placement or unnamed-formal proof. No new TempleOS runtime capture."
