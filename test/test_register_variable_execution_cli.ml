@@ -321,6 +321,62 @@ let assignment_cases =
       ("U32", 32, false);
     ]
 
+let computed_assignment_cases =
+  List.concat_map
+    (fun (type_, bits, signed) ->
+      let normalize value =
+        let shift = 64 - bits in
+        let value = Int64.shift_left value shift in
+        if signed then Int64.shift_right value shift
+        else Int64.shift_right_logical value shift
+      in
+      let high =
+        Int64.pred (Int64.shift_left 1L (if signed then bits - 1 else bits))
+      in
+      List.concat_map
+        (fun qualifier ->
+          let store value =
+            if qualifier = "noreg" then normalize value else value
+          in
+          List.concat_map
+            (fun (expression, value) ->
+              let expected = Int64.to_string (store value) in
+              [
+                ( Printf.sprintf
+                    "I64 F(%s %s x,I64 a,I64 b){if(b)x=%s;return x;}F(0,%Ld,3);"
+                    type_ qualifier expression high,
+                  expected );
+                ( Printf.sprintf
+                    "I64 F(I64 a,I64 b){%s %s x=0;while(b){x=%s;b=0;}return \
+                     x;}F(%Ld,3);"
+                    type_ qualifier expression high,
+                  expected );
+                ( Printf.sprintf
+                    "I64 G(I64 n){return n;}I64 F(%s %s x,I64 a,I64 \
+                     b){G(a);x=%s;G(x);return x;}F(0,%Ld,3);"
+                    type_ qualifier expression high,
+                  expected );
+              ])
+            [
+              ("a+b", Int64.add high 3L);
+              ("b-a", Int64.sub 3L high);
+              ("a*b", Int64.mul high 3L);
+              ("(a+b)&a", Int64.logand (Int64.add high 3L) high);
+              ("a|(b*a)", Int64.logor high (Int64.mul 3L high));
+              ( "(a+b)^(a-b)",
+                Int64.logxor (Int64.add high 3L) (Int64.sub high 3L) );
+              ("(a+1)*(b-1)", Int64.mul (Int64.succ high) 2L);
+            ])
+        [ ""; "reg"; "noreg"; "reg R12" ])
+    [
+      ("I8", 8, true);
+      ("U8", 8, false);
+      ("I16", 16, true);
+      ("U16", 16, false);
+      ("I32", 32, true);
+      ("U32", 32, false);
+    ]
+
 let forced_pressure_cases =
   List.concat_map
     (fun (type_, high, wrapped) ->
@@ -369,11 +425,13 @@ let forced_pressure_cases =
 let () =
   let targets = if native then [ "host-jit"; "host-jit-task" ] else [ "ir" ] in
   let cases =
-    forced_pressure_cases @ assignment_cases @ loop_update_cases
+    computed_assignment_cases @ forced_pressure_cases @ assignment_cases
+    @ loop_update_cases
     @ [
         (read "../examples/register-loop-updates.hc", "256");
         (read "../examples/register-reassignment.hc", "256");
         (read "../examples/register-pressure.hc", "256");
+        (read "../examples/register-computed-assignment.hc", "256");
         ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
         ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
            c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",

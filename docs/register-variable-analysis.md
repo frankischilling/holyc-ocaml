@@ -309,8 +309,8 @@ Assignments retain the original typed operator, operand bindings and source
 position checks. Local initialization also requires the original declaration's
 address occurrence, so a later assignment of the same literal cannot stand in
 for the initializer. Uninitialized locals, conditional initialization,
-computed right-hand sides, address escapes and consumed assignment results
-remain outside this proof. Capacity and calling restrictions are unchanged.
+address escapes and consumed assignment results remain outside this proof.
+Computed right-hand sides are covered below. Capacity and calling restrictions are unchanged.
 
 ## Requested variables under register pressure
 
@@ -340,3 +340,27 @@ six narrow widths, plain and explicit requests, initialized locals, named calls
 and up to twenty competing parameters. Expectations come from pinned source;
 these tests are not new TempleOS captures. This does not implement general
 score ordering, physical register placement or floating-point allocation.
+
+## Computed integer assignments
+
+A discarded assignment may now use a tree of integer addition, subtraction,
+multiplication and bitwise AND/OR/XOR. Leaves must be direct frame-member reads
+or integer literals. Nested expressions retain their full integer result when
+the destination is selected; stack destinations still narrow on store. For
+example, assigning `value+1` with `value=256` to a selected I8 retains 257.
+[The computed-assignment example](../examples/register-computed-assignment.hc)
+compares nested arithmetic in selected and stack locals.
+
+`OptPass4.HC:351-405` selects the destination independently of the right-hand
+expression. `BackC.HC:159-171` and `BackLib.HC:445-520` move that expression's
+full register result into a selected destination. The proof checks every
+accepted expression node against the original typed operator, source span and
+ordered operands. Changing an operand or adding a payload cannot acquire a new
+proof. Existing whole-function, capacity, initialization and escape checks
+still apply; expression matching is limited to 32 levels.
+
+Tests cover six narrow widths, four qualifiers, nested arithmetic/bitwise
+expressions, branches, loops, locals and values retained across named calls.
+Expectations are source-derived, not a new TempleOS capture. Division, shifts,
+casts, calls within the right-hand expression and consumed assignment results
+remain outside this extension.

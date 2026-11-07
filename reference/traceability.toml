@@ -15172,3 +15172,15 @@ status = "partial"
 issue = 703
 verification = "Six narrow widths, plain and explicit requests, stack controls, parameters, initialized locals, named calls and up to twenty ordinary competitors. Uncertain narrow members and overbooked plain requests are rejected."
 evidence_limit = "Ordinary pressured members must be 64-bit and retain unknown selection. Does not claim general score ordering, physical allocation or a new TempleOS capture."
+
+[[feature]]
+id = "HC-REGISTER-COMPUTED-ASSIGNMENT"
+description = "Preserve selected integer destinations through source-owned arithmetic and bitwise assignment trees."
+sources = ["Compiler/OptPass4.HC:351-405", "Compiler/BackC.HC:159-171", "Compiler/BackLib.HC:445-520"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-computed-assignment.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six narrow widths and four qualifiers across nested arithmetic and bitwise assignments, parameters, locals, branches, loops and named calls. Operand substitution and payload injection cannot acquire a fresh proof."
+evidence_limit = "Bounded discarded assignments with direct member/literal leaves and source-owned arithmetic/bitwise nodes. Excludes calls, casts, division and shifts within the right-hand tree; no new TempleOS capture."

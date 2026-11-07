@@ -439,10 +439,15 @@ General allocation remains open under #703.
 [Reassignment to selected variables](register-variable-analysis.md#reassignment-to-selected-variables)
 now preserves full integer values in parameters and initialized locals when the
 right-hand side is a direct member read or literal. Stack destinations still
-narrow. Computed assignments and general register allocation remain unproved.
+narrow. General register allocation remains unproved.
 
 [Requested variables under pressure](register-variable-analysis.md#requested-variables-under-register-pressure)
 retain plain `reg` and explicit integer values when ordinary I64/U64 members
 exceed the bank. The plain requests must have guaranteed capacity; ordinary
 members keep unknown selection. Pressure involving ordinary narrow members
 still requires the general allocator.
+
+[Computed integer assignments](register-variable-analysis.md#computed-integer-assignments)
+now preserve full selected values for source-owned addition, subtraction,
+multiplication and bitwise trees. Stack stores still narrow; calls, casts,
+division and shifts inside those trees remain outside the proof.
