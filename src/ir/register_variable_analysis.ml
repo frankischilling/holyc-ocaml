@@ -10,6 +10,7 @@ type snapshot = Seq.Block_id.t * Seq.description list * Seq.Block_id.t list
 type payload_stamp =
   | No_payload
   | Integer of int64
+  | Float_bits of int64
   | Block of int
   | Symbol of Sema.Symbol.t
 
@@ -31,6 +32,7 @@ let equal_stamp a b =
     | Symbol left, Symbol right -> left == right
     | No_payload, No_payload -> true
     | Integer left, Integer right -> left = right
+    | Float_bits left, Float_bits right -> left = right
     | Block left, Block right -> left = right
     | _ -> false)
   && a.flags = b.flags && a.span = b.span
@@ -49,6 +51,7 @@ let instruction_stamp (item : Seq.description) =
     match item.payload with
     | None -> Some No_payload
     | Some (Seq.Integer value) -> Some (Integer value)
+    | Some (Seq.Float_bits bits) -> Some (Float_bits bits)
     | Some (Seq.Block block) -> Some (Block (Seq.Block_id.to_int block))
     | Some (Seq.Symbol symbol) -> Some (Symbol symbol)
     | _ -> None
@@ -308,6 +311,7 @@ type t = {
   selections_ : (Sema.Symbol.t * selection) list;
   exact_registers_ : (Sema.Symbol.t * int) list option;
   exact_source_ : Exact_register_scores.source_stamp option;
+  runtime_ : Runtime_call_context.t option;
 }
 
 let descriptions block =
@@ -385,11 +389,26 @@ let supported_options body =
   && Option.fold ~none:false ~some:(Int64.equal actual)
        (Function_body.definition_compiler_options body)
 
+let f64_type type_ =
+  Sema.Type.pointer_depth type_ = 0
+  &&
+  match Sema.Type.base type_ with
+  | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> true
+  | _ -> false
+
+let automatic_candidate location =
+  match Frame.location_register_selection location with
+  | Request.Allocatable -> true
+  | Unspecified -> not (f64_type (Frame.location_checked_type location))
+  | Disabled | Explicit _ -> false
+
 let stack_selected ~body location =
   match Frame.location_register_selection location with
   | Request.Disabled -> true
   | Request.Explicit _ -> false
-  | Request.Unspecified | Request.Allocatable -> registers_disabled body
+  | Request.Unspecified ->
+      f64_type (Frame.location_checked_type location) || registers_disabled body
+  | Request.Allocatable -> registers_disabled body
 
 let analyze_parameter ~frame ~body =
   let locations = Frame.function_locations frame in
@@ -1328,6 +1347,7 @@ let analyze_parameter ~frame ~body =
             selections_ = selections;
             exact_registers_ = None;
             exact_source_ = None;
+            runtime_ = None;
           }
 
 let analyze_local ~frame ~body =
@@ -2567,6 +2587,7 @@ let analyze_local ~frame ~body =
                 code;
             exact_registers_ = None;
             exact_source_ = None;
+            runtime_ = None;
             selections_ =
               [
                 ( Frame.location_symbol location,
@@ -2575,6 +2596,392 @@ let analyze_local ~frame ~body =
               ];
           }
   | _ -> None
+
+(* Canonical mixed-scalar graphs authenticate execution-shaped accesses, not
+   TempleOS optimizer scores. OptPass012 may remove or reorder floating accesses;
+   only the separate capacity proof below may use this evidence. *)
+module Mixed_scalar_source = struct
+  module Typed = Sema.Function_call_expression_result
+  module Source = Sema.Function_call_resolution
+  module Policy = Sema.Function_call_conversion_policy
+  module Target = Sema.Function_call_target_classification
+  module Ast = Frontend.Ast
+  module Headers = Sema.Function_type_resolution
+  module Local = Sema.Local_type_resolution
+  module Lower = Integer_program_lowering
+
+  exception Unproved
+
+  let require value = if not value then raise Unproved
+
+  let get = function
+    | Some value -> value
+    | None -> raise Unproved
+
+  let scalar type_ =
+    Sema.Type.pointer_depth type_ = 0
+    &&
+    match Sema.Type.base type_ with
+    | Sema.Type.Primitive
+        ( _,
+          (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64 | F64)
+        ) -> true
+    | _ -> false
+
+  let direct_resolution call = Typed.direct_source call |> Policy.direct_source
+
+  let authenticate ?runtime ~frame ~body () =
+    try
+      let source = get (Function_body.definition_source body) in
+      let definition = get (Typed.function_source_body source) in
+      require
+        (definition.variadic = None
+        && definition.empty_parameter_entries = []
+        && definition.name.spelling
+           = Sema.Symbol.name (Function_body.symbol body)
+        && Some definition.location.span = Function_body.span body
+        && Typed.function_selectors source = []
+        && Typed.function_switch_cases source = []
+        && Typed.function_implicit_outputs source = []
+        && Typed.function_outer_callback_calls source = []
+        && List.length (Typed.function_all_results source) <= 512);
+      let calls =
+        List.map
+          (function
+            | Typed.Direct_call_result call -> call
+            | _ -> raise Unproved)
+          (Typed.function_calls source)
+      in
+      let targets =
+        match runtime with
+        | Some runtime ->
+            get (Runtime_call_context.function_call_targets runtime ~body)
+        | None ->
+            require (calls = []);
+            []
+      in
+      require
+        (List.length targets = List.length calls
+        && List.for_all
+             (fun call ->
+               List.length
+                 (List.filter
+                    (fun target -> Target.source target == call)
+                    targets)
+               = 1)
+             calls);
+      let seen = ref [] and seen_calls = ref [] in
+      let rec expression depth value =
+        require (depth > 0 && not (List.exists (( == ) value) !seen));
+        require
+          (List.exists (( == ) value) (Typed.function_all_results source)
+          && Typed.result_intrinsic_conversion value
+             = Typed.No_intrinsic_conversion
+          && Typed.result_array_rank value = 0
+          && scalar (get (Typed.result_type value)));
+        seen := value :: !seen;
+        let original = Typed.result_source value in
+        let ast = get (Source.argument_expression_source original) in
+        require
+          (Typed.result_origin value
+          = Sema.Initializer_source.origin_of_location
+              (Ast.expression_location ast));
+        let child expected value =
+          require
+            (Option.equal ( == ) (Some expected)
+               (Source.argument_expression_source (Typed.result_source value)));
+          expression (depth - 1) value
+        in
+        let floating = f64_type (get (Typed.result_type value)) in
+        match (Source.argument_expression_kind original, ast) with
+        | Source.Integer_literal _, Ast.Integer_literal _ ->
+            require (not floating);
+            []
+        | Float_literal _, Ast.Float_literal _ ->
+            require floating;
+            []
+        | Bound_identifier_expression _, Ast.Identifier_expression _ -> (
+            match Frame_address_lowering.prepare ~frame value with
+            | Ok (Some _) -> []
+            | _ -> raise Unproved)
+        | Parenthesized_expression _, Ast.Parenthesized_expression group ->
+            child group.grouped_expression (get (Typed.result_operand value))
+        | Prefix_expression _, Ast.Prefix_expression prefix ->
+            require
+              ((not floating)
+              || List.mem prefix.prefix_operator_kind
+                   [ Ast.Unary_plus; Unary_minus ]);
+            child prefix.prefix_operand (get (Typed.result_operand value))
+        | Postfix_expression _, Ast.Postfix_expression postfix ->
+            require (not floating);
+            child postfix.postfix_operand (get (Typed.result_operand value))
+        | Binary_expression _, Ast.Binary_expression binary ->
+            let left, right = get (Typed.result_binary_operands value) in
+            let left_float = f64_type (get (Typed.result_type left))
+            and right_float = f64_type (get (Typed.result_type right)) in
+            require (floating = left_float && floating = right_float);
+            require
+              ((not floating)
+              || List.mem binary.binary_operator_spec.spelling
+                   [ "+"; "-"; "*"; "/"; "=" ]);
+            let left_calls = child binary.binary_left left in
+            left_calls @ child binary.binary_right right
+        | Unresolved_expression Source.Call_expression, Ast.Call_expression ast
+          ->
+            let resolved =
+              match Typed.result_call_resolution value with
+              | Some (Source.Direct_call direct) -> direct
+              | _ -> raise Unproved
+            in
+            let call =
+              match
+                List.filter
+                  (fun call -> direct_resolution call == resolved)
+                  calls
+              with
+              | [ call ] -> call
+              | _ -> raise Unproved
+            in
+            require (not (List.exists (( == ) call) !seen_calls));
+            seen_calls := call :: !seen_calls;
+            require
+              (Typed.direct_variadic_results call = []
+              && Option.is_none
+                   (Headers.function_variadic_bindings
+                      (Source.direct_active_header resolved)));
+            let arguments =
+              List.map
+                (fun fixed ->
+                  match Typed.fixed_path fixed with
+                  | Typed.Provided_result value -> value
+                  | Declared_default_result _ -> raise Unproved)
+                (Typed.direct_fixed_results call)
+            in
+            require (List.length arguments = List.length ast.call_arguments);
+            let nested =
+              List.map2
+                (fun original argument ->
+                  match original.Ast.call_argument_value with
+                  | Ast.Provided_call_argument expected ->
+                      child expected argument
+                  | Omitted_call_argument -> raise Unproved)
+                ast.call_arguments arguments
+              |> List.concat
+            in
+            (Source.direct_source resolved, original) :: nested
+        | _ -> raise Unproved
+      in
+      let validate value =
+        let pairs = expression 32 value in
+        let pairs =
+          List.sort
+            (fun (a, _) (b, _) ->
+              Int.compare (Source.call_index a) (Source.call_index b))
+            pairs
+        in
+        require
+          (Result.is_ok
+             (Source.validate_source_expression
+                ~source:
+                  (get
+                     (Source.argument_expression_source
+                        (Typed.result_source value)))
+                ~expression:(Typed.result_source value)
+                ~calls:(List.map fst pairs) ~call_expressions:pairs ()))
+      in
+      let initializers = ref (Typed.function_initializers source)
+      and expressions = ref (Typed.function_expression_statements source)
+      and conditions = ref (Typed.function_conditions source)
+      and returns = ref (Typed.function_returns source) in
+      let take remaining matches =
+        let found =
+          match List.filter matches !remaining with
+          | [ found ] -> found
+          | _ -> raise Unproved
+        in
+        remaining := List.filter (fun other -> other != found) !remaining;
+        found
+      in
+      let matches value ast =
+        Option.equal ( == )
+          (Source.argument_expression_source (Typed.result_source value))
+          (Some ast)
+      in
+      let condition role ast =
+        let root =
+          take conditions (fun root ->
+              Source.condition_role (Typed.condition_source root) = role
+              && matches (Typed.condition_value root) ast)
+        in
+        let value = Typed.condition_value root in
+        require (not (f64_type (get (Typed.result_type value))));
+        validate value;
+        value
+      in
+      let declarations = ref 0 and statement_budget = ref 1024 in
+      let rec statement depth node =
+        decr statement_budget;
+        require (depth > 0 && !statement_budget >= 0);
+        match node with
+        | Ast.Empty_statement empty ->
+            Lower.Empty
+              (Ast.statement_location (Ast.Empty_statement empty)).span
+        | Block_statement block ->
+            Lower.Block
+              (List.map (statement (depth - 1)) block.block_statements)
+        | Sequence_statement sequence ->
+            require (sequence.sequence_leading_commas = []);
+            Lower.Block
+              (List.map
+                 (fun element ->
+                   require (element.Ast.sequence_following_commas = []);
+                   statement (depth - 1) element.sequence_statement)
+                 sequence.sequence_elements)
+        | Expression_statement ast ->
+            let root =
+              take expressions (fun root ->
+                  matches
+                    (Typed.expression_statement_value root)
+                    ast.expression_statement_expression)
+            in
+            let value = Typed.expression_statement_value root in
+            validate value;
+            Lower.Expression value
+        | Return_statement ast ->
+            let root =
+              take returns (fun root ->
+                  (match (Typed.return_value root, ast.return_value) with
+                    | Some value, Some original -> matches value original
+                    | None, None -> true
+                    | _ -> false)
+                  && Source.return_origin (Typed.return_source root)
+                     = Sema.Initializer_source.origin_of_location
+                         ast.return_location)
+            in
+            require
+              (Typed.return_conversion root = Typed.No_intrinsic_conversion);
+            (match Typed.return_value root with
+            | Some value ->
+                require (Typed.return_presence root = Typed.Matching_value);
+                validate value
+            | None ->
+                require (Typed.return_presence root = Typed.Matching_no_value));
+            Lower.Return root
+        | Local_declaration_statement declaration ->
+            require (declaration.local_storage = Ast.Automatic_local);
+            let lowered =
+              List.mapi
+                (fun index (declarator : Ast.local_declarator) ->
+                  require
+                    (declarator.local_pointer_layers = []
+                    && declarator.local_array_dimensions = []
+                    && declarator.local_function_pointer = None);
+                  let initial = get declarator.local_initializer in
+                  let ast =
+                    match initial.local_initializer_value with
+                    | Ast.Scalar_initializer ast -> ast
+                    | _ -> raise Unproved
+                  in
+                  let root =
+                    take initializers (fun root ->
+                        let local =
+                          Typed.initializer_source root
+                          |> Source.initializer_local
+                        in
+                        Local.local_declaration_index local = !declarations
+                        && Local.local_declarator_index local = index
+                        && Sema.Symbol.origin (Local.local_symbol local)
+                           = Sema.Initializer_source.origin_of_location
+                               declarator.local_name.location
+                        && Local.local_declaration_origin local
+                           = Sema.Initializer_source.origin_of_location
+                               declaration.local_declaration_location
+                        && List.exists
+                             (fun location ->
+                               Option.equal ( == )
+                                 (Frame.location_local_source location)
+                                 (Some local))
+                             (Frame.function_locations frame)
+                        && matches (Typed.initializer_value root) ast)
+                  in
+                  require
+                    (Typed.initializer_conversion root
+                    = Typed.No_intrinsic_conversion);
+                  validate (Typed.initializer_value root);
+                  Lower.Initialize root)
+                declaration.local_declarators
+            in
+            incr declarations;
+            Lower.Block lowered
+        | If_statement ast ->
+            let value = condition Source.If_condition ast.if_condition in
+            let yes = statement (depth - 1) ast.if_then_branch in
+            let no =
+              Option.map
+                (fun clause -> statement (depth - 1) clause.Ast.else_branch)
+                ast.if_else_clause
+            in
+            Lower.If (value, yes, no)
+        | While_statement ast ->
+            let value = condition Source.While_condition ast.while_condition in
+            let body = statement (depth - 1) ast.while_body in
+            Lower.While (value, body)
+        | Do_while_statement ast ->
+            let body = statement (depth - 1) ast.do_body in
+            let value =
+              condition Source.Do_while_condition ast.do_while_condition
+            in
+            Lower.Do_while (body, value)
+        | For_statement ast ->
+            let initial = statement (depth - 1) ast.for_initializer in
+            let value = condition Source.For_condition ast.for_condition in
+            let update = Option.map (statement (depth - 1)) ast.for_update in
+            let body = statement (depth - 1) ast.for_body in
+            Lower.For (initial, value, update, body)
+        | Break_statement ast -> Lower.Break ast.break_location.span
+        | _ -> raise Unproved
+      in
+      let statements =
+        List.map (statement 32) (Option.to_list definition.body)
+      in
+      require
+        (!initializers = [] && !expressions = [] && !conditions = []
+       && !returns = []
+        && List.length !seen = List.length (Typed.function_all_results source)
+        && List.length !seen_calls = List.length calls);
+      let canonical =
+        match
+          Lower.lower ~frame ~function_calls:targets
+            ~span:definition.location.span statements
+        with
+        | Ok graph -> X87_stack.graph graph
+        | Error _ -> raise Unproved
+      in
+      let actual = Function_body.body body in
+      require
+        (Seq.Block_id.equal
+           (Block_graph.block_id (Block_graph.entry canonical))
+           (Block_graph.block_id (Block_graph.entry actual)));
+      require
+        (same_list
+           (fun expected actual ->
+             Seq.Block_id.equal
+               (Block_graph.block_id expected)
+               (Block_graph.block_id actual)
+             && same_list Seq.Block_id.equal
+                  (Block_graph.successors expected)
+                  (Block_graph.successors actual)
+             && same_list
+                  (fun expected actual ->
+                    equal_stamp
+                      (get (instruction_stamp expected))
+                      (get (instruction_stamp actual)))
+                  (descriptions expected) (descriptions actual))
+           (Block_graph.blocks canonical)
+           (Block_graph.blocks actual));
+      true
+    with Unproved -> false
+end
 
 (* OptPass3 scores member accesses across the whole function, not per basic
    block. Check that all automatic candidates fit the remaining variable banks,
@@ -2586,17 +2993,20 @@ let analyze_local ~frame ~body =
    activation. IC_CALL_INDIRECT2 is admitted only for a named definition's JIT
    address slot, not for a callback. Locals require a single source-owned initializer in the entry block, with
    local dependencies initialized before each read. *)
-let analyze_integer_function ?exact ~frame ~body () =
+let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
   let locations = Frame.function_locations frame in
   let integer_member location =
     (Frame.location_kind location = Frame.Named_parameter
     || Frame.location_kind location = Frame.Automatic_local)
     && Frame.location_value_shape location = Frame.Scalar
+    && Frame.location_declarator_shape location = Frame.Object
+    && Frame.location_dimensions location = []
     && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
     && (match Sema.Type.base (Frame.location_checked_type location) with
       | Sema.Type.Primitive
           (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64))
         -> true
+      | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> mixed
       | _ -> false)
     && Option.is_some (Frame.location_frame_slot location)
   in
@@ -2669,6 +3079,7 @@ let analyze_integer_function ?exact ~frame ~body () =
             ( _,
               (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64)
             ) -> true
+        | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> mixed
         | _ -> false)
       item.target_type
   in
@@ -2731,6 +3142,7 @@ let analyze_integer_function ?exact ~frame ~body () =
        | Ic_return_val
        | Ic_jmp
        | Ic_ret -> true
+       | Ic_imm_f64 -> mixed
        | _ -> false)
   in
   if
@@ -2747,6 +3159,9 @@ let analyze_integer_function ?exact ~frame ~body () =
     || (not (safe_register_requests locations))
     || List.length blocks > 64
     || List.length code > 512
+    || mixed
+       && (Option.is_some exact
+          || not (Mixed_scalar_source.authenticate ?runtime ~frame ~body ()))
     || List.length targets <> List.length source_calls
     || not (List.for_all allowed code)
   then None
@@ -2829,7 +3244,8 @@ let analyze_integer_function ?exact ~frame ~body () =
           (fun count location ->
             match Frame.location_register_selection location with
             | Request.Allocatable -> count + 1
-            | Request.Unspecified when used location -> count + 1
+            | Request.Unspecified
+              when used location && automatic_candidate location -> count + 1
             | _ -> count)
           0 locations
       in
@@ -2855,7 +3271,7 @@ let analyze_integer_function ?exact ~frame ~body () =
        ordinary members overflow the bank, retain their unknown selection:
        only 64-bit ordinary values are independent of that choice. *)
     let pressure_safe =
-      forced_capacity_fits
+      (not mixed) && forced_capacity_fits
       && List.for_all
            (fun location ->
              Frame.location_register_selection location <> Request.Unspecified
@@ -2928,6 +3344,13 @@ let analyze_integer_function ?exact ~frame ~body () =
                   _;
                 } ) ->
               actual = if normalize_shift then Int64.logand bits 63L else bits
+          | ( Calls.Float_literal bits,
+              Some
+                {
+                  opcode = O.Ic_imm_f64;
+                  payload = Some (Seq.Float_bits actual);
+                  _;
+                } ) -> mixed && actual = bits
           | _ -> false)
     in
     let rec matches_expression_operand ?(allowed_load = fun _ _ -> true) depth
@@ -3027,6 +3450,68 @@ let analyze_integer_function ?exact ~frame ~body () =
             | Some inner, [ input ] ->
                 matches_expression_operand ~allowed_load (depth - 1) inner input
             | _ -> false)
+        | Some (Frontend.Ast.Call_expression call), _, Some expression
+          when mixed ->
+            expression.opcode = O.Ic_call_end
+            && expression.span = Some call.call_location.span
+            && Option.equal Sema.Type.equal (Typed.result_type value)
+                 expression.target_type
+            && (match
+                  (Typed.result_call_resolution value, expression.payload)
+                with
+              | Some (Calls.Direct_call direct), Some (Seq.Symbol symbol) ->
+                  Calls.direct_target_symbol direct == symbol
+              | _ -> false)
+            && Option.fold ~none:false
+                 ~some:(fun runtime ->
+                   let call =
+                     List.find_map
+                       (fun (start : Seq.description) ->
+                         if start.opcode <> O.Ic_call_start then None
+                         else
+                           Option.bind
+                             (Runtime_call_context.find_start runtime
+                                ~owner:(Runtime_call_context.Function body)
+                                start.instruction_id) (fun call ->
+                               if
+                                 Seq.Instruction_id.equal
+                                   (Runtime_call_context.last call)
+                                   expression.instruction_id
+                               then Some call
+                               else None))
+                       code
+                   in
+                   Option.fold ~none:false
+                     ~some:(fun call ->
+                       let first =
+                         Seq.Instruction_id.to_int
+                           (Runtime_call_context.first call)
+                       and last =
+                         Seq.Instruction_id.to_int
+                           (Runtime_call_context.last call)
+                       in
+                       (* Canonical call ownership does not bypass initializer
+                      ordering: check every transitive original argument read. *)
+                       List.for_all
+                         (fun (item : Seq.description) ->
+                           let id =
+                             Seq.Instruction_id.to_int item.instruction_id
+                           in
+                           if
+                             id < first || id > last
+                             || item.opcode <> O.Ic_deref
+                           then true
+                           else
+                             Option.fold ~none:false
+                               ~some:(fun result ->
+                                 Option.fold ~none:false
+                                   ~some:(fun (_, location) ->
+                                     allowed_load result.Seq.value_id location)
+                                   (load result.Seq.value_id))
+                               item.result)
+                         code)
+                     call)
+                 runtime
         | _ -> false
     in
     let original_initializer_location (item : Seq.description) =
@@ -3346,7 +3831,16 @@ let analyze_integer_function ?exact ~frame ~body () =
             List.map
               (fun location ->
                 ( Frame.location_symbol location,
-                  if not (used location) then Unknown
+                  if mixed && stack_selected ~body location then Stack
+                  else if
+                    (not (used location))
+                    && not
+                         (mixed
+                         &&
+                         match Frame.location_register_selection location with
+                         | Request.Allocatable | Explicit _ -> true
+                         | Unspecified | Disabled -> false)
+                  then Unknown
                   else if stack_selected ~body location then Stack
                   else if Option.is_some exact_registers then
                     if
@@ -3364,6 +3858,7 @@ let analyze_integer_function ?exact ~frame ~body () =
                   else Register_candidate ))
               locations;
           exact_registers_ = exact_registers;
+          runtime_ = runtime;
           exact_source_ =
             Option.bind exact (fun _ -> Exact_register_scores.stamp_source body);
         }
@@ -3461,7 +3956,7 @@ let source_owned_requests ~frame ~body (original : location_stamp) =
           | Allocatable_request | Disabled_request -> true
           | Unspecified_request | Explicit_request _ -> false))
 
-let analyze ~frame ~body =
+let analyze_with_context ?runtime ~frame ~body () =
   if
     (not (complete_parameter_coverage ~frame))
     || (not (Exact_register_scores.permits_automatic_analysis body))
@@ -3481,15 +3976,42 @@ let analyze ~frame ~body =
             analyze_integer_function ~exact:scores ~frame ~body ())
       else None
     in
-    match exact with
-    | Some proof -> Some proof
-    | None -> (
-        match analyze_parameter ~frame ~body with
-        | Some proof -> Some proof
-        | None -> (
-            match analyze_local ~frame ~body with
-            | Some proof -> Some proof
-            | None -> analyze_integer_function ~frame ~body ()))
+    if
+      List.exists
+        (fun location -> f64_type (Frame.location_checked_type location))
+        (Frame.function_locations frame)
+      || List.exists
+           (fun (_, code, _) ->
+             List.exists
+               (fun (item : Seq.description) ->
+                 Option.fold ~none:false ~some:f64_type item.target_type)
+               code)
+           (snapshot body)
+    then
+      if
+        List.for_all
+          (fun location ->
+            Option.fold ~none:false
+              ~some:(source_owned_requests ~frame ~body)
+              (location_stamp ~frame location))
+          (Frame.function_locations frame)
+      then analyze_integer_function ?runtime ~mixed:true ~frame ~body ()
+      else None
+    else
+      match exact with
+      | Some proof -> Some proof
+      | None -> (
+          match analyze_parameter ~frame ~body with
+          | Some proof -> Some proof
+          | None -> (
+              match analyze_local ~frame ~body with
+              | Some proof -> Some proof
+              | None -> analyze_integer_function ~frame ~body ()))
+
+let analyze ~frame ~body = analyze_with_context ~frame ~body ()
+
+let analyze_with_runtime ~runtime ~frame ~body =
+  analyze_with_context ~runtime ~frame ~body ()
 
 let selection t ~frame ~body ~symbol =
   if
@@ -3533,7 +4055,10 @@ let selection t ~frame ~body ~symbol =
           if original == symbol then Some selection else None)
         selections
     in
-    match (find t.selections_, analyze ~frame ~body) with
+    match
+      ( find t.selections_,
+        analyze_with_context ?runtime:t.runtime_ ~frame ~body () )
+    with
     | Some expected, Some current
       when find current.selections_ = Some expected
            && Option.equal
@@ -3577,8 +4102,12 @@ let physical_register t ~frame ~body ~symbol =
                   let candidates =
                     List.filter
                       (fun location ->
-                        location.request = Unspecified_request
-                        || location.request = Allocatable_request)
+                        location.request = Allocatable_request
+                        || location.request = Unspecified_request
+                           &&
+                           match location.checked_type with
+                           | _, Sema.Primitive_type.F64, 0 -> false
+                           | _ -> true)
                       t.locations_
                   in
                   let forced =

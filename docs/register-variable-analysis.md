@@ -737,3 +737,53 @@ Save and bridge slots count toward the existing exact frame limits.
 This runtime storage layout is a hosted adaptation. TempleOS's source-variable
 mask and preservation rules remain the language authority; these changes do not
 claim byte-identical TempleOS frames or complete floating/register allocation.
+
+
+## Mixed scalar register analysis
+
+A separate source proof covers mixed integer/F64 functions. It reconstructs the
+original initialized entry locals, assignments, returns, fixed named calls and
+supported if/while/do/for statements, then compares every instruction, block and
+edge with the checked graph. Calls need the original runtime context and exact
+selected declarations. Fresh graph copies and stale source, operands, options or
+call metadata cannot acquire a placement proof. Self-initializing call arguments
+such as `F64 y=G(y)` remain rejected.
+
+The candidate rules follow OptPass3.HC:29-47 and 533-621:
+
+- Ordinary F64 members are noncandidates. They do not consume automatic capacity
+  or open the seventh-candidate R12/R13 bank.
+- Plain `reg F64` is a forced candidate with the original large score seed. It
+  still depends on source options and a proved placement; it is not a promise to
+  use an arbitrary free register.
+- Supported explicit requests reserve RSI, RDI or R10-R15, including unused F64
+  members. Reservations remain effective under `NO_REG_VAR`.
+- `noreg` and disabled ordinary/plain-reg allocation use stack storage only when
+  the complete mixed proof authenticates that result.
+
+Capacity proofs preserve narrow integer register values and declared-width
+stack stores in mixed functions. Requested F64 needs an exact physical home;
+capacity alone does not invent one. Mixed tied or score-pressure placement stays
+outside this proof. The exact scored allocator above remains integer-only.
+Unsupported fixed registers and duplicate explicit requests still reject as a
+hosted safety boundary, not because TempleOS forbids their syntax.
+
+F64 physical homes contain raw binary64 words. Entry, local stores, calls and
+returns use ordinary word moves. A selected F64 store materializes to binary64:
+with runtime a=2^53 and b=1, storing a+b in a register variable before subtracting
+a returns positive zero. A proved linked `(a+b)-a` still returns 1.0. Link
+selection uses the original MOV producers from OptPass3, before OptPass4 redirects
+them to physical registers.
+
+Fixed named calls and recursion preserve these homes through the existing
+private saves and shared epilogues, including R10/R11. Defaults, callbacks,
+variadics, global leaves in the mixed proof and branch-local initialization remain
+excluded. An ordinary integer helper can own global state while a mixed caller
+uses its checked return value. Floating updates and conversions retain their
+separate native admission limits.
+
+The [mixed-register example](../examples/native-f64-registers.hc) keeps R10 and
+R11 F64 values live across a generated call and returns 9.0.
+
+These are pinned-source deductions and hosted tests, not new TempleOS runtime
+captures. They do not complete general floating allocation or issue #703.

@@ -478,8 +478,10 @@ the distinction between stored bytes, returned bits and no-value completion.
 locals, direct calls and returns, plus x87 unary minus and basic arithmetic.
 Source-authenticated pure expression regions reproduce asymmetric extended-value
 links, selected identity normalization and explicit materialization boundaries.
-Unsupported constant folding/reassociation, conversions, requested F64 GPRs and
-unproved mixed narrow storage still reject. Host x87 state is isolated at entry
+The mixed-scalar allocation proof also covers exact explicit F64 GPRs,
+sole-forced placement and capacity-proved narrow integer storage, including
+fixed named calls and control flow. Unsupported constant folding/reassociation,
+conversions and mixed score-pressure placement still reject. Host x87 state is isolated at entry
 and callback boundaries; builds without that capability reject images requiring
 x87. Issue #703 remains open.
 

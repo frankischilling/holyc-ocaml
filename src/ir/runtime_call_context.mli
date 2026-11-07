@@ -150,6 +150,17 @@ val matches_graph : t -> owner:owner -> Block_graph.t -> bool
     instruction record. Equal text, copied graphs and another context do not
     establish storage ownership. *)
 
+val function_call_targets :
+  t ->
+  body:Function_body.t ->
+  Sema.Function_call_target_classification.t list option
+(** Return the original ordinary direct-call classifications only for the exact
+    sealed function graph and its captured typed source owner. Every receipt
+    must match one original typed call and its selected declaration. Callback,
+    output and intrinsic scopes are excluded. Consumers must independently
+    authenticate source expressions and re-lower complete call/control regions;
+    this accessor alone does not prove register allocation or primitive data. *)
+
 val exception_regions : t -> owner:owner -> Exception_regions.t option
 (** Return the original sealed handler context only after complete graph and
     source validation. A foreign body or changed marker has no exception scope.

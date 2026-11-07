@@ -192,7 +192,7 @@ let excluded =
     ("default", "F64 F(F64 x=1.0){return x;}42;");
     ( "callback invocation",
       "F64 Id(F64 x){return x;}F64 (*f)(F64 x)=&Id;f(1.0);" );
-    ("requested register", "F64 F(){reg F64 x=1.0;return x;}42;");
+    ("unsupported fixed register", "F64 F(){F64 reg RAX x=1.0;return x;}42;");
     ("unreachable comparison", "I64 Bad(F64 x){return x<1.0;}42;");
     ("float format", "extern U0 Print(U8 *fmt,...);Print(\"%f\",1.0);");
     ("shift", "F64 F(F64 x){return x<<1;}F(1.0);");

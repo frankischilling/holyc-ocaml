@@ -15339,7 +15339,7 @@ documentation = ["docs/native-f64.md", "docs/compiler-status.md"]
 status = "partial"
 issue = 703
 verification = "Hosted cases cover exact F64 bits, source/task results, arithmetic orientation and identity copies, signed zero, infinities, NaNs, loops, recursion, quotas, hostile host FP state and actual OCaml callback cleanup."
-evidence_limit = "No new TempleOS runtime capture. Unproved extended links, conversions, nonbasic operations, requested F64 GPRs and mixed narrow storage without allocation proof reject. Persistent, indirect, default and callback-invocation F64 remain outside this subset. Unsupported host compilers reject x87 images; this entry does not claim complete Windows qualification or completion of issue 703."
+evidence_limit = "No new TempleOS runtime capture. Unproved extended links, conversions and nonbasic operations reject. Requested F64 GPRs and mixed narrow storage require the separate mixed-scalar allocation proof. Persistent, indirect, default and callback-invocation F64 remain outside this subset. Unsupported host compilers reject x87 images; this entry does not claim complete Windows qualification or completion of issue 703."
 
 [[feature]]
 id = "HC-NATIVE-LINKED-F64"
@@ -15352,3 +15352,15 @@ status = "partial"
 issue = 703
 verification = "Exact original function/runtime/frame ownership and bounded disjoint subtree re-lowering authenticate MOV-class frame leaves, ordered producers and normalized aliases. Frozen graph snapshots and source revalidation invalidate stale plans. Hosted tests distinguish asymmetric rounding, unary/store/copy boundaries, normalized siblings, pressure, exact quotas and same-image fault recovery."
 evidence_limit = "Source-derived expectations, not a new TempleOS runtime capture. Constant folding and literal reassociation without normalization evidence, call-result/global-containing regions, conversions and general floating allocation remain outside the proof. Raw graph APIs cannot grant linked precision. Does not complete issue 703 or establish full HolyC ABI parity."
+
+[[feature]]
+id = "HC-NATIVE-F64-REGISTERS"
+description = "Authenticated mixed integer/F64 capacity and explicit variable-register placement."
+sources = ["Compiler/PrsVar.HC:449-516", "Compiler/OptPass3.HC:29-47,119-135,165-204,533-621", "Compiler/CInit.HC:244-257", "Compiler/OptPass4.HC:196-219,348-398", "Compiler/BackLib.HC:445-535", "Compiler/BackC.HC:159-171", "Compiler/BackFA.HC:339-518", "Compiler/OptPass789A.HC:387-405,698-719,779-785,1026-1032"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/ir/runtime_call_context.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_mixed_scalar_register_analysis.ml", "test/test_native_f64_register_cli.ml"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-f64.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Complete original AST/typed graph reconstruction authenticates scalar members, entry initialization, fixed named calls, recursion and control flow. Tests cover primitive mutations, explicit slots, sole-forced placement, ordinary F64 noncandidates, options, narrow storage, decoded word moves/saves, selected materialization, subnormal and architectural quiet-NaN transport, quotas and same-image fault recovery."
+evidence_limit = "Capacity and exact explicit/sole-forced placement only; mixed tied or score-pressure placement remains unproved. Ordinary F64 stays stack-based. Globals in mixed bodies, branch-local initialization, defaults, callbacks, variadics, F64 conversions/updates and arbitrary NaN payload or signaling-NaN transport are not qualified. Source-derived and hosted evidence, not new TempleOS runtime captures or completion of issue 703."

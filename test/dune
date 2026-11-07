@@ -5904,3 +5904,26 @@
    %{exe:test_native_linked_f64_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(test
+ (name test_mixed_scalar_register_analysis)
+ (modules test_mixed_scalar_register_analysis)
+ (libraries holyc_lib alcotest))
+
+(executable
+ (name test_native_f64_register_cli)
+ (modules test_native_f64_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_native_f64_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_native_f64_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))

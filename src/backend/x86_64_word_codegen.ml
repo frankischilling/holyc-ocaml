@@ -6044,7 +6044,10 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
   let variadic_bindings =
     Headers.function_variadic_bindings (Frame.function_header frame)
   in
-  let register_proof = Ir.Register_variable_analysis.analyze ~frame ~body in
+  let register_proof =
+    Ir.Register_variable_analysis.analyze_with_runtime
+      ~runtime:source.source_runtime_calls ~frame ~body
+  in
   let has_float_storage_or_code =
     List.exists
       (fun location ->
@@ -6112,6 +6115,33 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           (Ir.Register_variable_analysis.selection proof ~frame ~body
              ~symbol:(Frame.location_symbol location)))
       register_proof
+  in
+  let register_request_ok location word =
+    let request = Frame.location_register_selection location in
+    match request with
+    | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
+        if word = F64 && Option.is_some (physical_register location) then
+          reject ?span "HCBACK0003"
+            "ordinary F64 storage cannot acquire an automatic GPR home";
+        true
+    | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _ -> (
+        if word <> F64 then proved_register_request location
+        else
+          let selection =
+            Option.bind register_proof (fun proof ->
+                Ir.Register_variable_analysis.selection proof ~frame ~body
+                  ~symbol:(Frame.location_symbol location))
+          in
+          match selection with
+          | Some Ir.Register_variable_analysis.Register_candidate ->
+              (* A selected F64 home contains a binary64 word. Its original
+                 source MOV still participates in pass-3 x87 link selection,
+                 before pass 4 replaces the home with a physical GPR. *)
+              Option.is_some (physical_register location)
+          | Some Stack ->
+              (* NO_REG_VAR suppresses plain reg, but not explicit requests. *)
+              request = Sema.Register_request.Allocatable
+          | Some Unknown | None -> false)
   in
   let proved_stack location =
     (* Authenticated stack selection enables direct assignment reloads and
@@ -6230,21 +6260,11 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         else scalar
       in
       require_mixed_storage_proof location scalar;
-      (match (scalar.word_type, Frame.location_register_selection location) with
-      | ( F64,
-          (Sema.Register_request.Allocatable | Sema.Register_request.Explicit _)
-        ) ->
-          reject ?span "HCBACK0002"
-            "native requested F64 GPR allocation requires an original \
-             allocation proof"
-      | _ -> ());
-      let register_ok =
-        match Frame.location_register_selection location with
-        | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
-            true
-        | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _
-          -> scalar.word_type <> F64 && proved_register_request location
-      in
+      let register_ok = register_request_ok location scalar.word_type in
+      if scalar.word_type = F64 && not register_ok then
+        reject ?span "HCBACK0002"
+          "native requested F64 GPR allocation requires an exact authenticated \
+           placement";
       if
         Frame.location_kind location <> Frame.Named_parameter
         || (not register_ok)
@@ -6500,21 +6520,11 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         else 1
       in
       require_mixed_storage_proof location scalar;
-      (match (scalar.word_type, Frame.location_register_selection location) with
-      | ( F64,
-          (Sema.Register_request.Allocatable | Sema.Register_request.Explicit _)
-        ) ->
-          reject ?span "HCBACK0002"
-            "native requested F64 GPR allocation requires an original \
-             allocation proof"
-      | _ -> ());
-      let register_ok =
-        match Frame.location_register_selection location with
-        | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
-            true
-        | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _
-          -> scalar.word_type <> F64 && proved_register_request location
-      in
+      let register_ok = register_request_ok location scalar.word_type in
+      if scalar.word_type = F64 && not register_ok then
+        reject ?span "HCBACK0002"
+          "native requested F64 GPR allocation requires an exact authenticated \
+           placement";
       if
         Frame.location_kind location <> Frame.Automatic_local
         || (not register_ok)

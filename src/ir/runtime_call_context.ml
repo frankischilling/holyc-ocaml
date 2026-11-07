@@ -159,6 +159,7 @@ type graph_context = {
 type t = {
   records_ : Records.t;
   typed_top_level : Typed.top_level_t;
+  function_source_owners : (Function_body.t * Typed.resolved_function) list;
   dimension_dependencies_ :
     Sema.Compiler_record.runtime_dimension_proposal list;
   offset_dependencies_ : Sema.Compiler_record.aggregate_offset list;
@@ -379,6 +380,64 @@ let matches_graph context ~owner graph =
     | Entry -> X87_stack.graph context.entry == graph
     | Function body -> Function_body.body body == graph)
   && source_producers_match context
+
+let function_call_targets context ~body =
+  let owner = Function body in
+  if not (matches_graph context ~owner (Function_body.body body)) then None
+  else
+    match
+      ( find_graph context owner,
+        Function_body.definition_source body,
+        List.find_opt
+          (fun (original, _) -> original == body)
+          context.function_source_owners )
+    with
+    | Some graph, Some source, Some (_, original_source)
+      when source == original_source
+           && Typed.function_source_body_valid source
+           && Instructions.is_empty graph.callback_calls
+           && Instructions.is_empty graph.intrinsic_starts ->
+        let expected =
+          Typed.function_calls source
+          |> List.filter_map (function
+            | Typed.Direct_call_result call -> Some call
+            | _ -> None)
+        in
+        let targets =
+          Instructions.bindings graph.calls
+          |> List.map (fun (_, (call : call)) ->
+              match call.description.source with
+              | Function_call target
+                when Sema.Function_call_target_classification.declaration target
+                     == call.declaration_
+                     && List.exists
+                          (fun original ->
+                            original
+                            == Sema.Function_call_target_classification.source
+                                 target)
+                          expected -> Some target
+              | _ -> None)
+        in
+        if
+          List.length targets <> List.length expected
+          || List.exists Option.is_none targets
+        then None
+        else
+          let targets = List.map Option.get targets in
+          if
+            List.for_all
+              (fun original ->
+                List.length
+                  (List.filter
+                     (fun target ->
+                       Sema.Function_call_target_classification.source target
+                       == original)
+                     targets)
+                = 1)
+              expected
+          then Some targets
+          else None
+    | _ -> None
 
 let exception_regions context ~owner =
   if source_producers_match context then
@@ -3601,6 +3660,14 @@ let create_with_exceptions ?entry_exceptions ?(function_exceptions = [])
       {
         records_ = records;
         typed_top_level = top_level;
+        function_source_owners =
+          List.filter_map
+            (fun (body, _) ->
+              Typed.functions function_sources
+              |> List.find_opt (fun source ->
+                  Typed.function_symbol source == Function_body.symbol body)
+              |> Option.map (fun source -> (body, source)))
+            functions;
         dimension_dependencies_ =
           Dimension_requirements.top_level top_level
           @ Dimension_requirements.functions function_sources;

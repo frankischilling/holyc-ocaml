@@ -5,11 +5,31 @@ val analyze :
   frame:Sema.Function_frame_layout.function_layout ->
   body:Function_body.t ->
   t option
-(** Analyze integer register selection using the original definition, frame,
+(** Analyze scalar register selection using the original definition, frame,
     typed occurrences and completed-body compiler options. Specialized proofs
     cover direct returns of supported literal compound updates and prefix or
     postfix updates. The whole-function proof covers one to 32 integer frame
     members across straight-line code, branches, loops and original named calls.
+
+    Mixed integer/F64 functions require complete canonical re-lowering of the
+    original source body: named parameters, entry-initialized locals,
+    expressions, returns, branches and loops. Every source root, typed child,
+    instruction, bit payload and control edge must agree. Floating copies,
+    assignment, unary minus and +, -, *, / are admitted; floating conversions,
+    updates, pointers and unsupported source forms remain outside this mixed
+    proof. Named calls through [analyze_with_runtime] additionally require
+    original exact-owner target classifications, fixed provided arguments,
+    definition targets and no conversions. Their complete call sequences and
+    control flow are independently re-lowered and primitive-compared, never
+    trusted from graph identity alone. Arithmetic and x87 links still require
+    their separate execution proof.
+
+    Ordinary F64 members are always [Stack] and do not compete. Plain [reg] F64
+    members count as forced candidates even when unused. Explicit requests
+    reserve their slot before type filtering and NO_REG_VAR, including unused
+    F64 members. Mixed candidates must fit the source variable banks; canonical
+    hosted instructions are not source optimizer access-survival evidence, so
+    the exact scored pressure proof remains integer-only.
 
     A stricter proof runs first for complete straight-line integer functions:
     named parameters, initialized locals, discarded writes/updates and one final
@@ -60,6 +80,16 @@ val analyze :
     original AST qualifier. The witness does not itself change execution or
     claim physical register placement. *)
 
+val analyze_with_runtime :
+  runtime:Runtime_call_context.t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  t option
+(** As [analyze], with original call target receipts for independently
+    re-lowered mixed functions containing named calls. The context is retained
+    and revalidated on every query. A foreign or changed context cannot grant
+    mixed-call allocation evidence. *)
+
 val selection :
   t ->
   frame:Sema.Function_frame_layout.function_layout ->
@@ -84,9 +114,10 @@ val physical_register :
     Outside that strict subset, also admit the sole possible automatic
     candidate, or the sole plain [reg] candidate when at most six frame members
     could be automatic candidates. Count every unspecified and plain [reg]
-    member, including unused and unknown members. The sole forced candidate's
-    original I64_MAX/2 priority proves it precedes ordinary bounded scores; no
-    score or sort-tie order is guessed.
+    integer member and every plain [reg] scalar member, including unused and
+    unknown members. Ordinary F64 members are excluded. The sole forced
+    candidate's original I64_MAX/2 priority proves it precedes ordinary bounded
+    scores; no score or sort-tie order is guessed.
 
     Explicit requests reserve slots even when unused. Automatic placement uses
     the first unreserved member of RSI, RDI, R10, R11, R14, R15, and returns
