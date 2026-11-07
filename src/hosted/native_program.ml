@@ -194,9 +194,11 @@ let internal_prototype (prototype : Ast.function_prototype) =
   | [ parameter ] ->
       plain parameter
       && (public_primitive I64 prototype.return_type
-          && (public_primitive U8 parameter.type_specifier
-              && List.length parameter.pointer_layers <= 1
+          && (scalar F64 parameter
+             || public_primitive U8 parameter.type_specifier
+                && List.length parameter.pointer_layers <= 1
              || scalar I64 parameter)
+         || (public_primitive F64 prototype.return_type && scalar I64 parameter)
          || (public_primitive U64 prototype.return_type && scalar U64 parameter)
          || (public_primitive U8 prototype.return_type
             || public_primitive Bool prototype.return_type)

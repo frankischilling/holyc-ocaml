@@ -5945,3 +5945,26 @@
    %{exe:test_mixed_register_scores_cli.exe}
    %{exe:../bin/holyc.exe}
    --native)))
+
+(executable
+ (name test_native_f64_conversions_cli)
+ (modules test_native_f64_conversions_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_native_f64_conversions_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_native_f64_conversions_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(test
+ (name test_native_numeric_conversion_authority)
+ (modules test_native_numeric_conversion_authority)
+ (libraries holyc_lib native_scalar_support alcotest))

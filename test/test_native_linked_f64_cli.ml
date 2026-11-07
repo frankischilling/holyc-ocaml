@@ -224,10 +224,8 @@ let excluded =
     ("constant division identity", expression "((a+b)+(1.0/1.0))-a");
     ("constant multiplication identity", expression "((a+b)+(1.0*1.0))-a");
     ("linked comparison", function_source "return (a+b)<a;");
-    ("linked conversion", "I64 F(F64 a,F64 b){return (a+b)-a;}F(" ^ large ^ ");");
     ("linked remainder", expression "(a+b)%a");
     ("linked update", function_source "a+=(a+b);return a;");
-    ("unreachable linked conversion", "I64 Bad(F64 a,F64 b){return (a+b)-a;}42;");
   ]
 
 let config mode =

@@ -387,3 +387,6 @@ val native_sections : t -> Asm.Native_sections.t
 (** The address-independent hosted object used for native label resolution.
     Inspecting or linking this object conveys no executable or storage
     authority. *)
+
+val requires_fisttp : t -> bool
+(** Whether the sealed image contains SSE3 FISTTP instructions. *)

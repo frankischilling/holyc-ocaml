@@ -9,6 +9,14 @@ val x87_supported : unit -> bool
 
 val x87_unavailable_message : string
 
+val fisttp_supported : unit -> bool
+(** Whether the runtime CPU supports the SSE3 FISTTP instruction on a supported
+    native platform. Independent of [x87_supported]; pure floating-point images
+    do not require this feature. Unknown host/compiler combinations return
+    false. *)
+
+val fisttp_unavailable_message : string
+
 type execution_outcome =
   | Returned of int64
   | Fault of Backend.X86_64_expression.arithmetic_fault

@@ -483,8 +483,12 @@ The mixed-scalar allocation proof also covers exact explicit F64 GPRs,
 sole-forced placement and capacity-proved narrow integer storage, including
 fixed named calls and control flow. Straight-line mixed functions also use
 source-proved access scores and the original unstable tie order under pressure.
-Unsupported constant folding/reassociation and conversions still reject. Host x87 state is isolated at entry
-and callback boundaries; builds without that capability reject images requiring
+[Numeric conversions](native-f64-conversions.md) now cover checked scalar
+assignment, initialization, arguments, returns and mixed arithmetic, with
+source-proved extended conversion links and bounded explicit builtins.
+Unsupported constant folding, reassociation and conversion identities still
+reject. Host x87 state is isolated at entry and callback boundaries; builds
+without that capability reject images requiring
 x87. Issue #703 remains open.
 
 `holyc run --target=host-jit examples/integer-goto.hc` and the ordinary `ir`

@@ -3405,7 +3405,44 @@ let plan ?frame ?globals ~allow_calls root =
                                       Visit
                                         {
                                           result = right;
-                                          conversion = Keep_result;
+                                          conversion =
+                                            (if opcode <> Opcode.Ic_assign then
+                                               Keep_result
+                                             else
+                                               (* OptPass012.HC:866-872 converts the RHS
+                                                  before storing, never the lvalue bits. *)
+                                               match
+                                                 ( Semantic_result.result_type
+                                                     left,
+                                                   Semantic_result.result_type
+                                                     right )
+                                               with
+                                               | Some left_type, Some right_type
+                                                 when Type.pointer_depth
+                                                        left_type
+                                                      = 0
+                                                      && Type.pointer_depth
+                                                           right_type
+                                                         = 0 -> (
+                                                   match
+                                                     ( checked_f64_type left,
+                                                       checked_frame_integer
+                                                         left,
+                                                       checked_f64_type right,
+                                                       checked_frame_integer
+                                                         right )
+                                                   with
+                                                   | ( Ok (Checked_type _),
+                                                       _,
+                                                       _,
+                                                       Ok (Checked_type _) ) ->
+                                                       Result_to_f64
+                                                   | ( _,
+                                                       Ok (Checked_type _),
+                                                       Ok (Checked_type _),
+                                                       _ ) -> Result_to_int
+                                                   | _ -> Keep_result)
+                                               | _ -> Keep_result);
                                         };
                                       Finish_binary
                                         {

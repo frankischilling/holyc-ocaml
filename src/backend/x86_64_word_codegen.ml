@@ -13,6 +13,7 @@ module Reference_service = X86_64_reference_service
 module Option_codegen = X86_64_compiler_options
 module Runtime = Ir.Runtime_call_context
 module Intrinsic = Ir.Integer_intrinsic
+module Numeric = Ir.Numeric_intrinsic
 module Lock = Ir.Lock_semantics
 module Lock_validation = Ir.Lock_validation
 module Defaults = Driver.Native_parameter_defaults
@@ -247,8 +248,8 @@ let checked_word ?(allow_public = false) description type_ =
 
 type value = {
   value_id : Sequence.Value_id.t;
-  declared_type : Type.t;
-  computation_type : Type.t;
+  mutable declared_type : Type.t;
+  mutable computation_type : Type.t;
   mutable last_use : int;
   mutable code_owner_offset : int option;
   mutable reference_descriptor_offset : int option;
@@ -455,6 +456,7 @@ type operation =
   | Internal_bit of Intrinsic.bit * value * value * scalar_value * int
   | Internal_swap of value * scalar_value * value * scalar_value * int
   | Internal_integer of Intrinsic.unary * value * int
+  | Internal_numeric of X86_64_float_plan.intrinsic_entry * value * int
   | Internal_binary of Intrinsic.binary * value * value * int
   | Call_cleanup
   | Call_end of int * value
@@ -482,6 +484,7 @@ type prepared_instruction = {
   span : Common.Span.t option;
   site : int option;
   push_stage : (value * int * int option * int option) option;
+  numeric_conversion : (X86_64_float_plan.conversion * value * bool) option;
 }
 
 let prepare_lock ~lock_validation (description : Sequence.description) operation
@@ -921,6 +924,7 @@ let preflight ~count instructions =
           span = description.span;
           site = None;
           push_stage = None;
+          numeric_conversion = None;
         }
         :: !prepared)
     instructions;
@@ -2371,14 +2375,22 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             | X86_64_float_plan.Zero ->
                 emit (Encoder.Fld_constant Encoder.Fzero)
             | One -> emit (Encoder.Fld_constant Encoder.Fone)
-            | Bits ->
+            | (Bits | Signed_integer) as loading ->
                 emit (Encoder.Store_stack (scratch, registers.(source value)));
-                emit (Encoder.Fld64 memory)
+                emit
+                  (if loading = Signed_integer then Encoder.Fild64 memory
+                   else Encoder.Fld64 memory)
           in
           let materialize () =
             Option.iter
               (fun destination ->
-                emit (Encoder.Fstp64 memory);
+                emit
+                  (match plan.result_conversion with
+                  | Some X86_64_float_plan.To_integer -> Encoder.Fisttp64 memory
+                  | Some To_float ->
+                      reject ?span:instruction.span "HCBACK0003"
+                        "invalid floating result conversion"
+                  | None -> Encoder.Fstp64 memory);
                 emit (Encoder.Load_stack (registers.(destination), scratch)))
               destination
           in
@@ -2446,6 +2458,36 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
                       emit (Encoder.Fbinary_pop (binary, st1)))
               | [] -> (
                   match (ll, rl) with
+                  | X86_64_float_plan.Signed_integer, _ -> (
+                      load left ll;
+                      match rl with
+                      | Bits ->
+                          emit
+                            (Encoder.Store_stack
+                               (scratch, registers.(source right)));
+                          emit (Encoder.Fbinary64 (binary, memory))
+                      | _ ->
+                          load right rl;
+                          emit
+                            (Encoder.Fbinary_pop
+                               ( binary,
+                                 Encoder.x87_register ~index:1 |> Result.get_ok
+                               )))
+                  | _, X86_64_float_plan.Signed_integer -> (
+                      load right rl;
+                      match ll with
+                      | Bits ->
+                          emit
+                            (Encoder.Store_stack
+                               (scratch, registers.(source left)));
+                          emit (Encoder.Fbinary64 (reverse binary, memory))
+                      | _ ->
+                          load left ll;
+                          emit
+                            (Encoder.Fbinary_pop
+                               ( reverse binary,
+                                 Encoder.x87_register ~index:1 |> Result.get_ok
+                               )))
                   | _, X86_64_float_plan.Bits ->
                       load left ll;
                       emit
@@ -3721,6 +3763,22 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
             assign position (if old_result then r8 else computed_index) result)
       | Call_start | Call_cleanup -> release_through position
+      | Internal_numeric (plan, input, stage) -> (
+          if !extended_owner <> [] then
+            reject ?span:instruction.span "HCBACK0003"
+              "numeric intrinsic crosses an unproved extended owner";
+          require_numeric_owner input;
+          let inputs, _ = ensure_inputs instruction.span [ input ] in
+          let slot = staged_stack_slot instruction.span stage in
+          let memory = Encoder.X87_stack slot in
+          emit (Encoder.Store_stack (slot, registers.(List.hd inputs)));
+          match plan.intrinsic_conversion with
+          | Numeric.To_float ->
+              emit (Encoder.Fild64 memory);
+              emit (Encoder.Fstp64 memory)
+          | To_integer ->
+              emit (Encoder.Fld64 memory);
+              emit (Encoder.Fisttp64 memory))
       | Internal_integer (operation, input, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span input rax;
@@ -4853,6 +4911,26 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
           publish_owner result (fun target -> load_owner target input)
       | _ -> ());
       Option.iter
+        (fun (conversion, value, retain) ->
+          if !extended_owner <> [] then
+            reject ?span:instruction.span "HCBACK0003"
+              "numeric conversion crosses an extended floating owner";
+          let inputs, _ = ensure_inputs instruction.span [ value ] in
+          let register = registers.(List.hd inputs) in
+          let scratch = fixed_stack_slot instruction.span float_scratch_index in
+          let memory = Encoder.X87_stack scratch in
+          emit (Encoder.Store_stack (scratch, register));
+          (match conversion with
+          | X86_64_float_plan.To_float ->
+              emit (Encoder.Fild64 memory);
+              if not retain then emit (Encoder.Fstp64 memory)
+          | To_integer ->
+              emit (Encoder.Fld64 memory);
+              emit (Encoder.Fisttp64 memory));
+          if retain then extended_owner := [ value.value_id ]
+          else emit (Encoder.Load_stack (register, scratch)))
+        instruction.numeric_conversion;
+      Option.iter
         (fun (value, stage, owner_stage, reference_stage) ->
           if Option.is_none owner_stage then require_numeric_owner value;
           let inputs, _ = ensure_inputs instruction.span [ value ] in
@@ -5071,6 +5149,7 @@ type program_image = {
   function_slot_bindings : (int * int) list;
   has_output : bool;
   requires_x87 : bool;
+  requires_fisttp : bool;
   sites : program_site list;
 }
 
@@ -5550,6 +5629,7 @@ let preflight_program graph =
                 span = description.span;
                 site = Some site;
                 push_stage = None;
+                numeric_conversion = None;
               }
               :: !prepared_rev;
             incr global_position)
@@ -6820,7 +6900,10 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
     ~empty_frame_roots ~variadic ~expected_return ~source_item_index ~is_entry
     ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let float_plan =
-    match X86_64_float_plan.prepare ?source:float_source graph with
+    match
+      X86_64_float_plan.prepare ?source:float_source ~runtime:runtime_calls
+        ~owner:runtime_owner graph
+    with
     | Ok plan -> plan
     | Error errors ->
         let error = List.hd errors in
@@ -6835,6 +6918,28 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
           Instruction_map.empty entries
     | None ->
         reject "HCBACK0003" "native F64 source plan changed before emission"
+  in
+  let numeric_conversions =
+    match X86_64_float_plan.validated_conversions float_plan ~graph with
+    | Some entries ->
+        List.fold_left
+          (fun map entry ->
+            Instruction_map.add entry.X86_64_float_plan.conversion_instruction
+              entry map)
+          Instruction_map.empty entries
+    | None ->
+        reject "HCBACK0003" "numeric conversion proof changed before emission"
+  in
+  let numeric_intrinsics =
+    match X86_64_float_plan.validated_intrinsics float_plan ~graph with
+    | Some entries ->
+        List.fold_left
+          (fun map entry ->
+            Instruction_map.add entry.X86_64_float_plan.intrinsic_instruction
+              entry map)
+          Instruction_map.empty entries
+    | None ->
+        reject "HCBACK0003" "numeric intrinsic proof changed before emission"
   in
   let float_entry description =
     Instruction_map.find_opt description.Sequence.instruction_id float_entries
@@ -7173,6 +7278,17 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
                 Int64.logand (Lock.clear_flag raw.flags) (Int64.lognot 0x2000L);
             }
           else clear_lock raw
+        in
+        let conversion =
+          Instruction_map.find_opt raw.instruction_id numeric_conversions
+        in
+        let description =
+          if Option.is_some conversion then
+            {
+              description with
+              flags = Int64.logand description.flags (Int64.lognot 3L);
+            }
+          else description
         in
         Option.iter
           (fun result ->
@@ -7692,7 +7808,10 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
                 unsupported description
                   "native task exception state requires native exception \
                    unwinding";
-              if not (Intrinsic.supports (Runtime.intrinsic_opcode intrinsic))
+              if
+                not
+                  (Numeric.runtime_supports
+                     (Runtime.intrinsic_opcode intrinsic))
               then
                 unsupported description
                   "native internal operation is outside the checked subset";
@@ -7701,7 +7820,7 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
                    (Runtime.intrinsic_return_type intrinsic)
                with
               | (Callable_word_return _ | Callable_void_return)
-                when Intrinsic.result_matches
+                when Numeric.runtime_result_matches
                        (Runtime.intrinsic_opcode intrinsic)
                        (Runtime.intrinsic_return_type intrinsic) -> ()
               | _ ->
@@ -8288,7 +8407,7 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
               in
               calls := scope :: !calls;
               (Call_start, None)
-          | opcode when Intrinsic.supports opcode -> (
+          | opcode when Numeric.runtime_supports opcode -> (
               match
                 ( !intrinsics,
                   Runtime.find_intrinsic_instruction runtime_calls
@@ -8358,7 +8477,10 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
                           ignore
                             (checked_reference description input.declared_type))
                         else checked_copy description target input.declared_type;
-                        if not (Intrinsic.argument_matches opcode ~index target)
+                        if
+                          not
+                            (Numeric.runtime_argument_matches opcode ~index
+                               target)
                         then
                           malformed description
                             "internal operation changed its declared parameter";
@@ -8372,6 +8494,19 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
                         Intrinsic.binary opcode,
                         inputs )
                     with
+                    | opcode, _, _, [ input ] when Numeric.supports opcode ->
+                        let plan =
+                          match
+                            Instruction_map.find_opt description.instruction_id
+                              numeric_intrinsics
+                          with
+                          | Some plan when plan.intrinsic_input = input.value_id
+                            -> plan
+                          | _ ->
+                              malformed description
+                                "numeric intrinsic has no sealed emission event"
+                        in
+                        Internal_numeric (plan, input, scope.intrinsic_stage)
                     | opcode, _, _, [ left; right ]
                       when Option.is_some (Intrinsic.swap_size opcode) ->
                         let _, left_scalar =
@@ -10728,7 +10863,11 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
                   (Load_immediate (value, bits), None)
               | _ ->
                   malformed description "invalid native F64 literal transport")
-          | _ when Option.is_some (float_entry raw) -> (
+          | _
+            when Option.fold ~none:false
+                   ~some:(fun e ->
+                     e.X86_64_float_plan.operation <> Convert_to_float)
+                   (float_entry raw) -> (
               if description.flags <> 0L then
                 malformed description
                   "native F64 operation has unsupported flags";
@@ -10788,6 +10927,41 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
             unsupported description
               "native owned code values cannot escape local callback storage"
         | _ -> ());
+        let numeric_conversion =
+          Option.bind conversion (fun receipt ->
+              let value =
+                match Value_map.find_opt receipt.conversion_result !values with
+                | Some value -> value
+                | None ->
+                    malformed raw "conversion lost its original scalar producer"
+              in
+              if
+                Option.is_some value.code_owner_offset
+                || Option.is_some value.reference_descriptor_offset
+              then
+                malformed raw
+                  "numeric conversion cannot change owned pointer values";
+              let effective =
+                X86_64_float_plan.conversion_type receipt.conversion
+              in
+              value.declared_type <- effective;
+              value.computation_type <- effective;
+              let entry = float_entry raw in
+              if
+                receipt.deferred
+                || Option.fold ~none:false
+                     ~some:(fun e ->
+                       e.X86_64_float_plan.operation <> Convert_to_float)
+                     entry
+              then None
+              else
+                Some
+                  ( receipt.conversion,
+                    value,
+                    Option.fold ~none:false
+                      ~some:(fun e -> e.X86_64_float_plan.live_after <> [])
+                      entry ))
+        in
         let push_stage =
           if not pushes then None
           else
@@ -11363,7 +11537,14 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
           }
           :: !sites_rev;
         prepared_rev :=
-          { operation; locked; span = raw.span; site = Some site; push_stage }
+          {
+            operation;
+            locked;
+            span = raw.span;
+            site = Some site;
+            push_stage;
+            numeric_conversion;
+          }
           :: !prepared_rev)
       descriptions;
     if !calls <> [] then
@@ -12355,6 +12536,7 @@ let compile_program ?status_abi ?(max_stack_bytes = default_stack_bytes)
                         function_count = 0;
                         callable = false;
                         requires_x87 = false;
+                        requires_fisttp = false;
                         private_function_count = 0;
                         entry_stack_bytes = 8 + !frame_size;
                         global_bytes = 0;
@@ -13024,6 +13206,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             (fun block ->
               List.exists
                 (fun instruction ->
+                  Option.is_some instruction.numeric_conversion
+                  ||
                   match instruction.operation with
                   | Apply_float _ -> true
                   | _ -> false)
@@ -13999,11 +14183,19 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           in
           Ok
             {
+              requires_fisttp =
+                List.exists
+                  (function
+                    | Encoder.Fisttp64 _ -> true
+                    | _ -> false)
+                  instructions;
               requires_x87 =
                 List.exists
                   (function
                     | Encoder.Fld64 _
                     | Fstp64 _
+                    | Fild64 _
+                    | Fisttp64 _
                     | Fbinary64 _
                     | Fbinary_st0 _
                     | Fbinary_sti _
@@ -14172,3 +14364,6 @@ let program_function_slot_bindings (compiled : program_image) =
 let expression_sections (compiled : expression_image) = compiled.sections
 let program_sections (compiled : program_image) = compiled.sections
 let program_requires_x87 (compiled : program_image) = compiled.requires_x87
+
+let program_requires_fisttp (compiled : program_image) =
+  compiled.requires_fisttp

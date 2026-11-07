@@ -15,14 +15,15 @@ val analyze :
     original source body: named parameters, entry-initialized locals,
     expressions, returns, branches and loops. Every source root, typed child,
     instruction, bit payload and control edge must agree. Floating copies,
-    assignment, unary minus and +, -, *, / are admitted; floating conversions,
+    assignment, unary minus and +, -, *, / are admitted. Scalar numeric
+    conversions are reconstructed with their exact producer flags; floating
     updates, pointers and unsupported source forms remain outside this mixed
     proof. Named calls through [analyze_with_runtime] additionally require
     original exact-owner target classifications, fixed provided arguments,
-    definition targets and no conversions. Their complete call sequences and
-    control flow are independently re-lowered and primitive-compared, never
-    trusted from graph identity alone. Arithmetic and x87 links still require
-    their separate execution proof.
+    definition targets and canonical provided-argument conversions. Their
+    complete call sequences and control flow are independently re-lowered and
+    primitive-compared, never trusted from graph identity alone. Arithmetic and
+    x87 links still require their separate execution proof.
 
     Ordinary F64 members are always [Stack] and do not compete. Plain [reg] F64
     members count as forced candidates even when unused. Explicit requests
@@ -138,3 +139,12 @@ val physical_register :
     and instruction data are sealed by independent primitive snapshots; changes
     invalidate the witness. This query authorizes only this bounded physical
     placement, not a general register allocation decision. *)
+
+val authenticates_mixed_scalar_source :
+  runtime:Runtime_call_context.t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  bool
+(** Reconstruct the bounded scalar source body and compare all original graph
+    records, including conversion flags, ordered operands and result classes.
+    This authenticates source shape, not optimizer scores or x87 links. *)

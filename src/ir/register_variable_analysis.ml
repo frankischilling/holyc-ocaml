@@ -2676,8 +2676,6 @@ module Mixed_scalar_source = struct
         require (depth > 0 && not (List.exists (( == ) value) !seen));
         require
           (List.exists (( == ) value) (Typed.function_all_results source)
-          && Typed.result_intrinsic_conversion value
-             = Typed.No_intrinsic_conversion
           && Typed.result_array_rank value = 0
           && scalar (get (Typed.result_type value)));
         seen := value :: !seen;
@@ -2720,7 +2718,14 @@ module Mixed_scalar_source = struct
             let left, right = get (Typed.result_binary_operands value) in
             let left_float = f64_type (get (Typed.result_type left))
             and right_float = f64_type (get (Typed.result_type right)) in
-            require (floating = left_float && floating = right_float);
+            require
+              ((floating = left_float && floating = right_float)
+              || floating
+                 && (left_float || right_float)
+                 && List.mem binary.binary_operator_spec.spelling
+                      [ "+"; "-"; "*"; "/" ]
+              || binary.binary_operator_spec.spelling = "="
+                 && floating = left_float);
             require
               ((not floating)
               || List.mem binary.binary_operator_spec.spelling
@@ -2859,8 +2864,6 @@ module Mixed_scalar_source = struct
                      = Sema.Initializer_source.origin_of_location
                          ast.return_location)
             in
-            require
-              (Typed.return_conversion root = Typed.No_intrinsic_conversion);
             (match Typed.return_value root with
             | Some value ->
                 require (Typed.return_presence root = Typed.Matching_value);
@@ -2905,9 +2908,6 @@ module Mixed_scalar_source = struct
                              (Frame.function_locations frame)
                         && matches (Typed.initializer_value root) ast)
                   in
-                  require
-                    (Typed.initializer_conversion root
-                    = Typed.No_intrinsic_conversion);
                   validate (Typed.initializer_value root);
                   Lower.Initialize root)
                 declaration.local_declarators
@@ -2983,6 +2983,9 @@ module Mixed_scalar_source = struct
       true
     with Unproved -> false
 end
+
+let authenticates_mixed_scalar_source ~runtime ~frame ~body =
+  Mixed_scalar_source.authenticate ~runtime ~frame ~body ()
 
 (* OptPass3 scores member accesses across the whole function, not per basic
    block. Check that all automatic candidates fit the remaining variable banks,
@@ -3097,7 +3100,11 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
   in
   let allowed (item : Seq.description) =
     (if item.opcode = O.Ic_end_exp then item.flags = 0x200L
-     else item.flags = 0L || (item.flags = 0x2000L && scalar_result item))
+     else
+       let flags =
+         if mixed then Int64.logand item.flags (Int64.lognot 3L) else item.flags
+       in
+       flags = 0L || (flags = 0x2000L && scalar_result item))
     && (if direct_call item.opcode then
           (match item.payload with
             | Some (Seq.Symbol symbol) -> List.exists (( == ) symbol) targets

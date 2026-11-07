@@ -38,6 +38,14 @@
 #endif
 
 #if HOLYC_NATIVE_PLATFORM != 0
+#if defined(_MSC_VER)
+#include <intrin.h>
+#elif defined(__GNUC__) || defined(__clang__)
+#include <cpuid.h>
+#endif
+#endif
+
+#if HOLYC_NATIVE_PLATFORM != 0
 #include "native_fpu_boundary.h"
 #include "native_reference_shadow.h"
 #endif
@@ -50,6 +58,28 @@ CAMLprim value holyc_native_x87_supported(value unit)
 {
   (void)unit;
   return Val_bool(HOLYC_NATIVE_X87_SUPPORTED);
+}
+
+/* FISTTP is an SSE3 CPU feature even though it operates on the x87 stack.
+   Keep this separate from the build's audited x87 boundary capability: pure
+   x87 arithmetic remains usable on x86-64 processors without SSE3. */
+CAMLprim value holyc_native_fisttp_supported(value unit)
+{
+  (void)unit;
+#if HOLYC_NATIVE_PLATFORM != 0 && defined(_MSC_VER)
+  int registers[4];
+  __cpuid(registers, 0);
+  if (registers[0] < 1) return Val_false;
+  __cpuid(registers, 1);
+  return Val_bool(((unsigned int)registers[2] & 1u) != 0);
+#elif HOLYC_NATIVE_PLATFORM != 0 && \
+    (defined(__GNUC__) || defined(__clang__))
+  unsigned int eax, ebx, ecx, edx;
+  if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx)) return Val_false;
+  return Val_bool((ecx & 1u) != 0);
+#else
+  return Val_false;
+#endif
 }
 
 /* A custom finalizer can run while OCaml promotes a global root and holds its

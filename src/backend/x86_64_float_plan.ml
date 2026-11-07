@@ -2,16 +2,33 @@
    OptLib.HC:535-554 and OptPass3.HC:165-228 select links from actual producers;
    BackFA.HC:339-518 selects operand orientation and materializes unlinked
    operations; BackFB.HC:488-594 handles bit-preserving identities. Source-authenticated pure regions prove normalized links; raw graphs
-   retain isolated admission. Implicit conversions remain unsupported. *)
+   retain isolated admission. Numeric conversions require canonical scalar source
+   and ordered conversion events; explicit intrinsics require sealed declarations. *)
 module S = Ir.Instruction_sequence
 module G = Ir.Block_graph
 module O = Ir.Opcode
 module V = Map.Make (S.Value_id)
 module I = Map.Make (S.Instruction_id)
 
-type load = Bits | Zero | One
+type load = Bits | Zero | One | Signed_integer
+type conversion = To_float | To_integer
+
+type conversion_entry = {
+  conversion_instruction : S.Instruction_id.t;
+  conversion_result : S.Value_id.t;
+  conversion : conversion;
+  deferred : bool;
+}
+
+type intrinsic_entry = {
+  intrinsic_instruction : S.Instruction_id.t;
+  intrinsic_input : S.Value_id.t;
+  intrinsic_result : S.Value_id.t;
+  intrinsic_conversion : Ir.Numeric_intrinsic.conversion;
+}
 
 type operation =
+  | Convert_to_float
   | Negate
   | Add
   | Subtract
@@ -35,6 +52,7 @@ type entry = {
   peak_depth : int;
   orientation : orientation;
   live_steps : S.Value_id.t list list;
+  result_conversion : conversion option;
 }
 
 type error = { message : string; span : Common.Span.t option }
@@ -43,6 +61,8 @@ type t = {
   graph : G.t;
   entries : (S.description * entry) I.t;
   peak : int;
+  conversions : conversion_entry I.t;
+  intrinsics : intrinsic_entry I.t;
   valid : unit -> bool;
 }
 
@@ -52,6 +72,25 @@ let is_f64 type_ =
   match Sema.Type.base type_ with
   | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> true
   | _ -> false
+
+let integer_type type_ =
+  Sema.Type.pointer_depth type_ = 0
+  &&
+  match Sema.Type.base type_ with
+  | Sema.Type.Primitive
+      (_, (Sema.Primitive_type.I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64)) ->
+      true
+  | _ -> false
+
+let conversion_type = function
+  | To_float ->
+      Sema.Type.make_primitive ~form:Internal_storage ~primitive:F64
+        ~pointer_depth:0
+      |> Result.get_ok
+  | To_integer ->
+      Sema.Type.make_primitive ~form:Internal_storage ~primitive:I64
+        ~pointer_depth:0
+      |> Result.get_ok
 
 let arithmetic = function
   | O.Ic_unary_minus -> Some Negate
@@ -109,11 +148,10 @@ let source_regions source graph =
                 let result =
                   if
                     !budget < 0 || depth > 256
-                    || Typed.result_intrinsic_conversion value
-                       <> Typed.No_intrinsic_conversion
                     || Typed.result_array_rank value <> 0
                     || not
-                         (Option.fold ~none:false ~some:is_f64
+                         (Option.fold ~none:false
+                            ~some:(fun t -> is_f64 t || integer_type t)
                             (Typed.result_type value))
                   then false
                   else
@@ -122,7 +160,7 @@ let source_regions source graph =
                       Source.argument_expression_kind
                         (Typed.result_source value)
                     with
-                    | Source.Float_literal _ -> true
+                    | Source.Float_literal _ | Source.Integer_literal _ -> true
                     | Bound_identifier_expression _ -> (
                         match
                           Ir.Frame_address_lowering.prepare ~frame value
@@ -226,9 +264,10 @@ let source_regions source graph =
                                           let actual = block.(index + offset) in
                                           expected = actual
                                           || offset = length - 1
-                                             && actual.flags
-                                                = Int64.logor expected.flags
-                                                    0x2000L
+                                             && Int64.logand actual.flags
+                                                  (Int64.lognot 0x2003L)
+                                                = Int64.logand expected.flags
+                                                    (Int64.lognot 0x2003L)
                                              && {
                                                   actual with
                                                   flags = expected.flags;
@@ -255,7 +294,29 @@ let source_regions source graph =
   | _ -> ());
   !covered
 
-let prepare ?source graph =
+let prepare ?source ?runtime ?owner graph =
+  let runtime_context =
+    match (runtime, owner, source) with
+    | Some runtime, Some owner, _ -> Some (runtime, owner)
+    | _, _, Some s -> Some (s.runtime, Ir.Runtime_call_context.Function s.body)
+    | _ -> None
+  in
+  let runtime_valid () =
+    Option.fold ~none:false
+      ~some:(fun (runtime, owner) ->
+        Ir.Runtime_call_context.matches_graph runtime ~owner graph)
+      runtime_context
+  in
+  let authentic_source () =
+    match source with
+    | Some s ->
+        Ir.Runtime_call_context.matches_graph s.runtime
+          ~owner:(Ir.Runtime_call_context.Function s.body) graph
+        && Ir.Register_variable_analysis.authenticates_mixed_scalar_source
+             ~runtime:s.runtime ~frame:s.frame ~body:s.body
+    | None -> false
+  in
+  let authenticated = authentic_source () in
   let regions = source_regions source graph in
   let definitions = ref V.empty in
   List.iter
@@ -276,33 +337,295 @@ let prepare ?source graph =
     errors := { message; span = d.span } :: !errors
   in
   let producer id = V.find_opt id !definitions in
+  let users id =
+    List.concat_map
+      (fun block ->
+        List.filter_map
+          (fun instruction ->
+            let d = S.description instruction in
+            if List.mem id d.operands then Some d else None)
+          (S.instructions (G.instructions block)))
+      (G.blocks graph)
+  in
+  let rec integer_constant depth id =
+    depth > 0
+    &&
+    match producer id with
+    | Some
+        {
+          opcode = O.Ic_imm_i64;
+          payload = Some (S.Integer _);
+          target_type = Some t;
+          _;
+        } -> integer_type t
+    | Some d
+      when Option.fold ~none:false ~some:integer_type d.target_type
+           && List.mem d.opcode
+                [
+                  O.Ic_unary_minus;
+                  Ic_com;
+                  Ic_not;
+                  Ic_add;
+                  Ic_sub;
+                  Ic_mul;
+                  Ic_div;
+                  Ic_mod;
+                  Ic_and;
+                  Ic_or;
+                  Ic_xor;
+                  Ic_shl;
+                  Ic_shr;
+                  Ic_shl_const;
+                  Ic_shr_const;
+                ] ->
+        d.operands <> []
+        && List.for_all (integer_constant (depth - 1)) d.operands
+    | _ -> false
+  in
+  let intrinsics = ref I.empty in
+  List.iter
+    (fun block ->
+      List.iter
+        (fun instruction ->
+          let d = S.description instruction in
+          match Ir.Numeric_intrinsic.conversion d.opcode with
+          | None -> ()
+          | Some direction -> (
+              let receipt =
+                Option.bind runtime_context (fun (runtime, owner) ->
+                    if runtime_valid () then
+                      Ir.Runtime_call_context.find_intrinsic_instruction runtime
+                        ~owner d.instruction_id
+                    else None)
+              in
+              match receipt with
+              | Some receipt -> (
+                  let module R = Ir.Runtime_call_context in
+                  match R.intrinsic_arguments receipt with
+                  | [ argument ] ->
+                      let input = R.argument_value argument in
+                      let result = R.intrinsic_result_value receipt in
+                      let source_type = R.argument_source_type argument in
+                      let family =
+                        match direction with
+                        | Ir.Numeric_intrinsic.To_float ->
+                            integer_type source_type
+                        | To_integer -> is_f64 source_type
+                      in
+                      let simple_input =
+                        match (producer input, direction) with
+                        | Some p, Ir.Numeric_intrinsic.To_integer ->
+                            List.mem p.opcode
+                              [
+                                O.Ic_deref;
+                                Ic_imm_f64;
+                                Ic_call_end;
+                                Ic_unary_minus;
+                              ]
+                            && Int64.logand p.flags 3L = 0L
+                        | Some p, To_float -> Int64.logand p.flags 3L = 0L
+                        | _ -> false
+                      in
+                      let boundary =
+                        List.for_all
+                          (fun (consumer : S.description) ->
+                            List.mem consumer.opcode
+                              [ O.Ic_assign; Ic_return_val; Ic_end_exp ])
+                          (users result)
+                      in
+                      let result_producer = producer result in
+                      if
+                        (not family) || (not simple_input) || (not boundary)
+                        || not
+                             (Option.fold ~none:false
+                                ~some:(fun (p : S.description) ->
+                                  Int64.logand p.flags 3L = 0L)
+                                result_producer)
+                      then
+                        fail d
+                          "numeric intrinsic requires an original materialized \
+                           scalar boundary"
+                      else
+                        intrinsics :=
+                          I.add d.instruction_id
+                            {
+                              intrinsic_instruction = d.instruction_id;
+                              intrinsic_input = input;
+                              intrinsic_result = result;
+                              intrinsic_conversion = direction;
+                            }
+                            !intrinsics
+                  | _ ->
+                      fail d "numeric intrinsic lost its exact unary argument")
+              | None ->
+                  fail d
+                    "numeric intrinsic lacks its sealed original declaration"))
+        (S.instructions (G.instructions block)))
+    (G.blocks graph);
+  let conversions = ref I.empty in
+  V.iter
+    (fun id (d : S.description) ->
+      let bits = Int64.logand d.flags 3L in
+      if bits <> 0L then
+        let direction = if bits = 1L then To_float else To_integer in
+        if
+          (not authenticated) || bits = 3L
+          || not
+               (Option.fold ~none:false
+                  ~some:(if direction = To_float then integer_type else is_f64)
+                  d.target_type)
+        then
+          fail d "numeric conversion has no exact original scalar source proof"
+        else
+          let deferred =
+            match users id with
+            | [ consumer ]
+              when d.opcode = O.Ic_deref && direction = To_float
+                   && Int64.logand d.flags 0x2000L = 0L
+                   && Option.is_some (arithmetic consumer.opcode)
+                   && Option.fold ~none:false ~some:is_f64 consumer.target_type
+              -> true
+            | _ -> false
+          in
+          conversions :=
+            I.add d.instruction_id
+              {
+                conversion_instruction = d.instruction_id;
+                conversion_result = id;
+                conversion = direction;
+                deferred;
+              }
+              !conversions)
+    !definitions;
+  let conversion d = I.find_opt d.S.instruction_id !conversions in
+  let deferred id =
+    Option.fold ~none:false
+      ~some:(fun d ->
+        Option.fold ~none:false ~some:(fun c -> c.deferred) (conversion d))
+      (producer id)
+  in
   let float_value id =
     Option.fold ~none:false
       ~some:(fun (d : S.description) ->
-        Option.fold ~none:false ~some:is_f64 d.target_type)
+        match conversion d with
+        | Some c -> c.conversion = To_float
+        | None -> Option.fold ~none:false ~some:is_f64 d.target_type)
       (producer id)
+  in
+  let rec integer_constant_bits depth id =
+    if depth <= 0 then None
+    else
+      match producer id with
+      | Some { opcode = O.Ic_imm_i64; payload = Some (S.Integer bits); _ } ->
+          Some bits
+      | Some d -> (
+          let child = integer_constant_bits (depth - 1) in
+          match (d.opcode, d.operands) with
+          | O.Ic_unary_minus, [ input ] -> Option.map Int64.neg (child input)
+          | ((O.Ic_add | Ic_sub | Ic_mul) as opcode), [ left; right ] ->
+              Option.bind (child left) (fun left ->
+                  Option.map
+                    (fun right ->
+                      (match opcode with
+                      | O.Ic_add -> Int64.add
+                      | Ic_sub -> Int64.sub
+                      | _ -> Int64.mul)
+                        left right)
+                    (child right))
+          | _ -> None)
+      | None -> None
   in
   let literal id =
     match producer id with
     | Some { opcode = O.Ic_imm_f64; payload = Some (S.Float_bits bits); _ } ->
         Some bits
+    | Some d
+      when Option.fold ~none:false
+             ~some:(fun c -> c.conversion = To_float)
+             (conversion d) ->
+        Option.map
+          (fun bits -> Int64.bits_of_float (Int64.to_float bits))
+          (integer_constant_bits 256 id)
     | _ -> None
   in
+  let rec unproved_integer_normalization depth id =
+    if depth <= 0 then true
+    else
+      match producer id with
+      | Some d when Option.fold ~none:false ~some:integer_type d.target_type ->
+          let immediate = integer_constant_bits 256 in
+          let literal_child id =
+            match producer id with
+            | Some child when Option.is_some (arithmetic child.opcode) ->
+                List.exists
+                  (fun id -> Option.is_some (immediate id))
+                  child.operands
+            | _ -> false
+          in
+          let here =
+            match (d.opcode, d.operands) with
+            | O.Ic_add, [ l; r ] ->
+                immediate l = Some 0L
+                || immediate r = Some 0L
+                || (Option.is_some (immediate l) && literal_child r)
+                || (Option.is_some (immediate r) && literal_child l)
+            | Ic_sub, [ l; r ] ->
+                immediate r = Some 0L
+                || (Option.is_some (immediate r) && literal_child l)
+            | Ic_mul, [ l; r ] ->
+                List.exists
+                  (fun x -> List.mem (immediate x) [ Some 0L; Some 1L ])
+                  [ l; r ]
+                || (Option.is_some (immediate r) && literal_child l)
+            | Ic_div, [ _; r ] -> immediate r = Some 1L
+            | _ -> false
+          in
+          here
+          || List.exists (unproved_integer_normalization (depth - 1)) d.operands
+      | _ -> false
+  in
+  I.iter
+    (fun _ receipt ->
+      if
+        receipt.conversion = To_float
+        && (not (integer_constant 256 receipt.conversion_result))
+        && unproved_integer_normalization 256 receipt.conversion_result
+      then
+        Option.iter
+          (fun d ->
+            fail d
+              "integer conversion producer requires source normalization \
+               evidence")
+          (producer receipt.conversion_result);
+      if
+        receipt.conversion = To_float
+        && integer_constant 256 receipt.conversion_result
+        && Option.is_none (integer_constant_bits 256 receipt.conversion_result)
+      then
+        Option.iter
+          (fun d ->
+            fail d
+              "integer constant conversion requires source normalization \
+               evidence")
+          (producer receipt.conversion_result))
+    !conversions;
   let literal_load d id =
-    match literal id with
-    | Some bits when Int64.logand bits 0x7fffffffffffffffL = 0L -> Zero
-    | Some 0x3ff0000000000000L -> One
-    | Some
-        ( 0x400921fb54442d18L
-        | 0x400a934f0979a371L
-        | 0x3ff71547652b82feL
-        | 0x3fd34413509f79ffL
-        | 0x3fe62e42fefa39efL ) ->
-        fail d
-          "native F64 arithmetic builtin constants require original \
-           compiler-option evidence";
-        Bits
-    | _ -> Bits
+    if deferred id then Signed_integer
+    else
+      match literal id with
+      | Some bits when Int64.logand bits 0x7fffffffffffffffL = 0L -> Zero
+      | Some 0x3ff0000000000000L -> One
+      | Some
+          ( 0x400921fb54442d18L
+          | 0x400a934f0979a371L
+          | 0x3ff71547652b82feL
+          | 0x3fd34413509f79ffL
+          | 0x3fe62e42fefa39efL ) ->
+          fail d
+            "native F64 arithmetic builtin constants require original \
+             compiler-option evidence";
+          Bits
+      | _ -> Bits
   in
   List.iter
     (fun block ->
@@ -329,12 +652,14 @@ let prepare ?source graph =
          producer. A forged or merely depth-balanced suppression cannot admit
          an extended value. PUSH and END_EXP are transport flags only. *)
             let allowed_flags =
-              if d.opcode = O.Ic_end_exp then 0x200L else 0x2000L
+              if d.opcode = O.Ic_end_exp then 0x200L
+              else if Option.is_some (conversion d) then 0x2003L
+              else 0x2000L
             in
             if Int64.logand d.flags (Int64.lognot allowed_flags) <> 0L then
               fail d
                 "native F64 conversions and unproved x87 links are unsupported";
-            match arithmetic d.opcode with
+            match if target_float then arithmetic d.opcode else None with
             | Some operation -> (
                 if
                   (not target_float)
@@ -355,6 +680,17 @@ let prepare ?source graph =
                   | (Multiply | Divide), [ _; r ]
                     when literal r = Some 0x3ff0000000000000L -> Copy_left
                   | _ -> operation
+                in
+                let operation =
+                  if
+                    (Option.is_some (conversion d)
+                    || List.mem Signed_integer loads)
+                    && List.mem operation [ Copy_left; Copy_right ]
+                  then
+                    fail d
+                      "numeric conversion identity requires source \
+                       normalization evidence";
+                  operation
                 in
                 let operation =
                   if I.mem d.instruction_id regions then
@@ -384,7 +720,8 @@ let prepare ?source graph =
                       | Negate, [ input ], _ ->
                           ( Left_first,
                             [ []; [ input ]; [ result.value_id ]; [] ] )
-                      | _, [ _; right ], [ Bits; (Zero | One) ] ->
+                      | _, [ _; right ], [ Bits; (Zero | One | Signed_integer) ]
+                        ->
                           ( Right_first,
                             [ []; [ right ]; [ result.value_id ]; [] ] )
                       | _, [ left; _ ], [ _; Bits ] ->
@@ -412,12 +749,17 @@ let prepare ?source graph =
                         peak_depth = depth;
                         orientation;
                         live_steps;
+                        result_conversion =
+                          Option.map (fun c -> c.conversion) (conversion d);
                       }
                     in
                     entries := I.add d.instruction_id (d, entry) !entries;
                     peak := max !peak depth)
             | None -> (
                 match d.opcode with
+                | (O.Ic_to_i64 | Ic_to_f64)
+                  when I.mem d.instruction_id !intrinsics -> ()
+                | O.Ic_imm_i64
                 | O.Ic_imm_f64
                 | Ic_deref
                 | Ic_assign
@@ -435,6 +777,45 @@ let prepare ?source graph =
                      ^ " is outside the native scalar F64 transport subset"))))
         (S.instructions (G.instructions block)))
     (G.blocks graph);
+  (* A non-MOV integer producer keeps RES_TO_F64 at CN_RES. Its conversion
+     is itself an extended-value producer, unlike an immediate folded in
+     OptPass012/OptLib before the floating event pass. *)
+  I.iter
+    (fun id receipt ->
+      if receipt.conversion = To_float && not receipt.deferred then
+        match producer receipt.conversion_result with
+        | Some d when not (integer_constant 256 receipt.conversion_result) ->
+            if not (I.mem id regions) then (
+              if
+                List.exists
+                  (fun (consumer : S.description) ->
+                    Option.is_some (arithmetic consumer.opcode)
+                    && Option.fold ~none:false ~some:is_f64 consumer.target_type)
+                  (users receipt.conversion_result)
+              then
+                fail d
+                  "numeric conversion producer lacks a canonical arithmetic \
+                   region")
+            else
+              entries :=
+                I.add id
+                  ( d,
+                    {
+                      instruction_id = id;
+                      result_id = receipt.conversion_result;
+                      operands = [ receipt.conversion_result ];
+                      loads = [ Signed_integer ];
+                      operation = Convert_to_float;
+                      live_before = [];
+                      live_after = [];
+                      peak_depth = 1;
+                      orientation = Left_first;
+                      live_steps = [ []; [ receipt.conversion_result ]; [] ];
+                      result_conversion = None;
+                    } )
+                  !entries
+        | _ -> ())
+    !conversions;
   (* Only an authenticated source region can normalize producers or select
      asymmetric OptLib links. Raw graphs retain the isolated-only contract. *)
   let uses = ref V.empty in
@@ -474,13 +855,20 @@ let prepare ?source graph =
   let normal_literal id = literal (normal id) in
   let fpop id =
     match entry_of (normal id) with
-    | Some (_, { operation = Add | Subtract | Multiply | Divide; _ }) -> true
+    | Some
+        ( _,
+          {
+            operation = Add | Subtract | Multiply | Divide | Convert_to_float;
+            result_conversion = None;
+            _;
+          } ) -> true
     | _ -> false
   in
   let mov_or_imm id =
     match producer (normal id) with
     | Some d when I.mem d.instruction_id regions ->
-        d.opcode = O.Ic_imm_f64 || d.opcode = O.Ic_deref
+        (d.opcode = O.Ic_imm_f64 || d.opcode = O.Ic_deref)
+        && Option.is_none (conversion d)
     | _ -> false
   in
   let retained = ref V.empty in
@@ -505,7 +893,8 @@ let prepare ?source graph =
   I.iter
     (fun _ ((d : S.description), entry) ->
       let adjacent =
-        List.exists (fun id -> Option.is_some (entry_of id)) entry.operands
+        entry.operation <> Convert_to_float
+        && List.exists (fun id -> Option.is_some (entry_of id)) entry.operands
       in
       (if adjacent then
          let region = I.find_opt d.instruction_id regions in
@@ -526,8 +915,18 @@ let prepare ?source graph =
       | (Add | Subtract | Multiply | Divide), [ left; right ]
         when I.mem d.instruction_id regions ->
           let selected =
-            if mov_or_imm right && fpop left then Some left
-            else if fpop right then Some right
+            if deferred left || deferred right then None
+            else if mov_or_imm right && fpop left then Some left
+            else if
+              fpop right
+              && not
+                   (Option.fold ~none:false
+                      ~some:(fun p ->
+                        Option.fold ~none:false
+                          ~some:(fun c -> c.conversion = To_float)
+                          (conversion p))
+                      (producer left))
+            then Some right
             else None
           in
           Option.iter
@@ -709,7 +1108,13 @@ let prepare ?source graph =
         in
         ((S.Block_id.to_int (G.block_id (G.entry graph)), blocks), !opaque)
       in
-      let original = if I.is_empty !entries then None else Some (snapshot ()) in
+      let original =
+        if
+          I.is_empty !entries && I.is_empty !conversions
+          && I.is_empty !intrinsics
+        then None
+        else Some (snapshot ())
+      in
       let source_owner =
         Option.bind source (fun s -> Ir.Function_body.definition_source s.body)
       in
@@ -734,8 +1139,18 @@ let prepare ?source graph =
               | Some _, None -> true
               | _ -> false)
             && source_regions source graph = regions
+            && (I.is_empty !conversions || authentic_source ())
+            && (I.is_empty !intrinsics || runtime_valid ())
       in
-      Ok { graph; entries = !entries; peak = !peak; valid }
+      Ok
+        {
+          graph;
+          entries = !entries;
+          conversions = !conversions;
+          intrinsics = !intrinsics;
+          peak = !peak;
+          valid;
+        }
   | errors -> Error errors
 
 let find plan ~graph description =
@@ -750,3 +1165,11 @@ let peak_depth plan = plan.peak
 let validated_entries plan ~graph =
   if graph != plan.graph || not (plan.valid ()) then None
   else Some (I.bindings plan.entries |> List.map (fun (_, (_, entry)) -> entry))
+
+let validated_conversions plan ~graph =
+  if graph != plan.graph || not (plan.valid ()) then None
+  else Some (I.bindings plan.conversions |> List.map snd)
+
+let validated_intrinsics plan ~graph =
+  if graph != plan.graph || not (plan.valid ()) then None
+  else Some (I.bindings plan.intrinsics |> List.map snd)

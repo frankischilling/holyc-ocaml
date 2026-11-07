@@ -500,7 +500,6 @@ let excluded =
       "F64 F(F64 x){F64 reg R11 y=x;I64 reg R11 n=1;return y;}F(1.5);" );
     ("F64 update", "F64 F(F64 reg RSI x){x+=1.0;return x;}F(1.5);");
     ("unsupported register", "F64 F(F64 reg RAX x){return x;}F(1.5);");
-    ("F64 conversion", "I64 F(F64 reg RSI x){return x;}F(1.5);");
     (* Straight-line six-through-nine candidate pressure is now covered by
        exact positive maps in test_mixed_register_scores_cli. Real control
        flow remains outside that new scoring grammar, and nine forced F64

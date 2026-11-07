@@ -783,8 +783,10 @@ Fixed named calls and recursion preserve these homes through the existing
 private saves and shared epilogues, including R10/R11. Defaults, callbacks,
 variadics, global leaves in the mixed proof and branch-local initialization remain
 excluded. An ordinary integer helper can own global state while a mixed caller
-uses its checked return value. Floating updates and conversions retain their
-separate native admission limits.
+uses its checked return value. [Numeric conversions](native-f64-conversions.md)
+can use this canonical mixed proof for conservative placement. Conversion-bearing
+roots remain outside exact scoring. Floating updates retain their separate native
+admission limits.
 
 The [mixed-register example](../examples/native-f64-registers.hc) keeps R10 and
 R11 F64 values live across a generated call and returns 9.0.

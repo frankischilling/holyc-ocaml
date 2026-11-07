@@ -61,6 +61,14 @@ type x87_constant =
   | Floge_2
 
 type instruction =
+  | Fild64 of x87_memory
+      (** Push a signed I64 memory value converted to x87 floating point. The
+          pinned FILD m64 encoding interprets the input as signed, regardless of
+          the assembler operand type name. *)
+  | Fisttp64 of x87_memory
+      (** Truncate ST0 toward zero to signed I64 memory, then pop. This does not
+          use the rounding mode in the x87 control word. Callers own the
+          conversion domain and floating environment. *)
   | Fld64 of x87_memory
   | Fstp64 of x87_memory
   | Fbinary64 of x87_binary * x87_memory
@@ -69,13 +77,14 @@ type instruction =
   | Fbinary_pop of x87_binary * x87_register
   | Fchs
   | Fld_constant of x87_constant
-      (** x87 arithmetic only, never raw F64 bit transport. Memory operands use
-          aligned checked RBP/RSP slots. [Fbinary_st0] writes ST0 using STi;
-          [Fbinary_sti] writes STi using ST0; [Fbinary_pop] writes STi then pops
-          ST0. Subtraction/division use destination op source; reverse forms use
-          source op destination. Callers own stack depth, balanced pops and
-          floating environment. Constant selection belongs to source lowering
-          (BackLib.HC:423-442), including OPTf_NO_BUILTIN_CONST. *)
+      (** x87 arithmetic and numeric conversion, never raw F64 bit transport.
+          Memory operands use aligned checked RBP/RSP slots. [Fbinary_st0]
+          writes ST0 using STi; [Fbinary_sti] writes STi using ST0;
+          [Fbinary_pop] writes STi then pops ST0. Subtraction/division use
+          destination op source; reverse forms use source op destination.
+          Callers own stack depth, balanced pops and floating environment.
+          Constant selection belongs to source lowering (BackLib.HC:423-442),
+          including OPTf_NO_BUILTIN_CONST. *)
   | Mov_imm64 of register * int64
   | Mov of register * register
   | Load_stack of register * stack_slot

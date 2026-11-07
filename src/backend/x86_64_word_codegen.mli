@@ -227,3 +227,5 @@ val program_sections : program_image -> Asm.Native_sections.t
 
 val program_requires_x87 : program_image -> bool
 (** True when the original sealed emission contains x87 instructions. *)
+
+val program_requires_fisttp : program_image -> bool

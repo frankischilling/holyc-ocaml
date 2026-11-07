@@ -44,6 +44,8 @@ type x87_constant =
   | Floge_2
 
 type instruction =
+  | Fild64 of x87_memory
+  | Fisttp64 of x87_memory
   | Fld64 of x87_memory
   | Fstp64 of x87_memory
   | Fbinary64 of x87_binary * x87_memory
@@ -346,9 +348,11 @@ let set_above = source_form "SETA" 986
 let set_below_equal = source_form "SETBE" 985
 let return = source_form "RET" 961
 
-(* OpCodes.DD:1166-1253; BackFA.HC:480-512 selects reversed memory
+(* OpCodes.DD:1158-1253; BackFA.HC:480-512 selects reversed memory
    subtraction/division when operand loading swaps, or pop forms after loading
    a second built-in constant. Keep all three register orientations explicit. *)
+let fild64 = source_form "FILD" 1161
+let fisttp64 = source_form "FISTTP" 1165
 let fld64 = source_form "FLD" 1168
 let fstp64 = source_form "FSTP" 1172
 let fchs = source_form "FCHS" 1189
@@ -424,6 +428,8 @@ let narrow_store_form = function
   | Frame32 -> mov_store32
 
 let form = function
+  | Fild64 _ -> fild64
+  | Fisttp64 _ -> fisttp64
   | Fld64 _ -> fld64
   | Fstp64 _ -> fstp64
   | Fbinary64 (operation, _) ->
@@ -545,6 +551,8 @@ let valid_reference_offset offset =
   offset = 0 || offset = 8 || offset = 16 || offset = 24 || offset = 32
 
 let validate = function
+  | Fild64 (X87_frame slot)
+  | Fisttp64 (X87_frame slot)
   | Fld64 (X87_frame slot)
   | Fstp64 (X87_frame slot)
   | Fbinary64 (_, X87_frame slot)
@@ -741,7 +749,11 @@ let plans instruction =
       ?immediate ()
   in
   match instruction with
-  | Fld64 operand | Fstp64 operand | Fbinary64 (_, operand) ->
+  | Fild64 operand
+  | Fisttp64 operand
+  | Fld64 operand
+  | Fstp64 operand
+  | Fbinary64 (_, operand) ->
       let base, offset =
         match operand with
         | X87_frame slot -> (5, slot.frame_offset)

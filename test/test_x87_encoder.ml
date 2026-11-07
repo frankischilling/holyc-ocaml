@@ -30,7 +30,7 @@ let check_cases cases =
     "one byte too small" true
     (Result.is_error (E.encode_all ~max_code_bytes:(limit - 1) instructions))
 
-(* Literal oracle: pinned OpCodes.DD:1166-1253, Asm.HC:530-566 (disp32
+(* Literal oracle: pinned OpCodes.DD:1158-1253, Asm.HC:530-566 (disp32
    ModR/M), Asm.HC:580 onward (+I stack index). BackFA.HC:480-512 chooses
    reverse memory forms after swapping operands and pop forms for two built-in
    constants. Expectations do not read generated opcode facts. *)
@@ -40,6 +40,10 @@ let memory () =
   let s = X87_stack (stack_slot ~offset:24 |> checked) in
   check_cases
     [
+      ("FILD frame", Fild64 f, "dfadf8ffffff");
+      ("FISTTP frame", Fisttp64 f, "dd8df8ffffff");
+      ("FILD stack", Fild64 s, "dfac2418000000");
+      ("FISTTP stack", Fisttp64 s, "dd8c2418000000");
       ("FLD frame", Fld64 f, "dd85f8ffffff");
       ("FSTP frame", Fstp64 f, "dd9df8ffffff");
       ("FLD stack", Fld64 s, "dd842418000000");
@@ -120,9 +124,27 @@ let bounds () =
       Alcotest.(check bool)
         "unaligned x87 batch rejected" true
         (Result.is_error (encode_all ~max_code_bytes:100 [ instruction ])))
-    [ Fld64 unaligned; Fstp64 unaligned; Fbinary64 (Fsubr, unaligned) ];
+    [
+      Fild64 unaligned;
+      Fisttp64 unaligned;
+      Fld64 unaligned;
+      Fstp64 unaligned;
+      Fbinary64 (Fsubr, unaligned);
+    ];
   check_cases
     [
+      ( "FILD minimum frame",
+        Fild64 (X87_frame (frame_slot ~offset:(-0x80000000) |> checked)),
+        "dfad00000080" );
+      ( "FISTTP maximum frame",
+        Fisttp64 (X87_frame (frame_slot ~offset:0x7ffffff8 |> checked)),
+        "dd8df8ffff7f" );
+      ( "FILD zero stack",
+        Fild64 (X87_stack (stack_slot ~offset:0 |> checked)),
+        "dfac2400000000" );
+      ( "FISTTP maximum stack",
+        Fisttp64 (X87_stack (stack_slot ~offset:524272 |> checked)),
+        "dd8c24f0ff0700" );
       ( "minimum frame",
         Fld64 (X87_frame (frame_slot ~offset:(-0x80000000) |> checked)),
         "dd8500000080" );

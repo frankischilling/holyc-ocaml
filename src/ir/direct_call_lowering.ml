@@ -255,16 +255,16 @@ let intrinsic_shape opcode ~header ~arguments ~variadic_count_type
   Int64.equal variadic_count 0L
   && Option.is_none variadic_count_type
   && variadic_arguments = []
-  && Integer_intrinsic.result_matches opcode result_type
+  && Numeric_intrinsic.runtime_result_matches opcode result_type
   && Option.fold ~none:false
        ~some:(fun count -> List.length parameters = count)
-       (Integer_intrinsic.arity opcode)
+       (Numeric_intrinsic.runtime_arity opcode)
   && List.length arguments = List.length parameters
   && List.for_all2
        (fun (index, parameter) argument ->
          Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
-         && Integer_intrinsic.argument_matches opcode ~index
+         && Numeric_intrinsic.runtime_argument_matches opcode ~index
               (parameter_type parameter)
          &&
          match argument with
@@ -668,7 +668,7 @@ let lower ?frame ?globals ?lower_call ?optimize_shifts ?optimize_division
                     arguments )
                 with
                 | Records.Internal_operation, Some opcode, arguments
-                  when Integer_intrinsic.supports opcode
+                  when Numeric_intrinsic.runtime_supports opcode
                        && intrinsic_shape opcode
                             ~header:(Resolution.direct_active_header direct)
                             ~arguments ~variadic_count_type ~variadic_count
@@ -732,7 +732,7 @@ let lower_top_level ?frame ?globals ?lower_call ?optimize_shifts
                     arguments )
                 with
                 | Records.Internal_operation, Some opcode, arguments
-                  when Integer_intrinsic.supports opcode
+                  when Numeric_intrinsic.runtime_supports opcode
                        && intrinsic_shape opcode
                             ~header:(Result.top_level_direct_header typed)
                             ~arguments ~variadic_count_type ~variadic_count

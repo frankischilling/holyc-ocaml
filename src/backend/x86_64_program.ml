@@ -1101,3 +1101,4 @@ let function_slot_bindings compiled =
   Codegen.program_function_slot_bindings compiled.image
 
 let native_sections compiled = Codegen.program_sections compiled.image
+let requires_fisttp compiled = Codegen.program_requires_fisttp compiled.image

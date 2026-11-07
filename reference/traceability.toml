@@ -15375,3 +15375,14 @@ documentation = ["docs/register-variable-analysis.md", "docs/native-f64.md", "do
 status = "partial"
 issue = 703
 verification = "Pinned-source access conservation, raw floating literal bits and complete mixed source ownership authenticate exact scores. Independent maps test forced F64 ties, initializers, zero-score integer candidates, ordinary F64 exclusion before sorting, reservations, NO_REG_VAR, narrow spills and promoted values, decoded physical homes, quotas and retained-proof invalidation. Floating execution remains separately checked; no new TempleOS runtime capture is claimed."
+
+[[feature]]
+id = "HC-NATIVE-NUMERIC-CONVERSIONS"
+description = "Source-authenticated scalar numeric conversion events and bounded explicit conversion intrinsics."
+sources = ["Compiler/OptLib.HC:124-140,535-554", "Compiler/OptPass012.HC:79-96,866-872,958-1052", "Compiler/OptPass3.HC:108-113,249-256", "Compiler/OptPass5.HC:30-76", "Compiler/OptPass789A.HC:66-94,779-782,1045-1063", "Compiler/BackFA.HC:6-59,123-166", "Compiler/BackB.HC:277-287", "Compiler/BackFB.HC:488-515", "Compiler/PrsExp.HC:479-484"]
+implementation = ["src/ir/numeric_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/register_variable_analysis.ml", "src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml", "src/native_execution_stubs.c", "src/runtime/native_execution.ml", "src/runtime/native_program_execution.ml"]
+tests = ["test/test_native_f64_conversions_cli.ml", "test/test_native_numeric_conversion_authority.ml", "test/test_x87_encoder.ml"]
+documentation = ["docs/native-f64-conversions.md", "docs/native-f64.md", "docs/register-variable-analysis.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Original canonical source and sealed conversion receipts authenticate runtime and immediate conversion paths, computed integer conversion events, mixed arithmetic links, materialized explicit intrinsics and narrow storage. Tests distinguish extended cancellation from literal rounding, signed runtime U64 conversion, truncation and invalid integer-indefinite results, original intrinsic identity, mutation rejection, exact quotas and recovery. FISTTP images require runtime SSE3 independently of ordinary x87 support. Unsupported converted identities and explicit intrinsic expression shapes fail closed. Expectations derive from pinned source and hardware instruction semantics, not new TempleOS captures."

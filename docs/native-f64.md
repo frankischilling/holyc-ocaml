@@ -92,10 +92,19 @@ images containing x87 instructions reject before native mapping or execution on
 those builds. Capability follows emitted instructions, not just the final return
 type, so an integer-returning function cannot hide unsupported floating work.
 
+## Numeric conversions
+
+[Scalar numeric conversions](native-f64-conversions.md) cover checked fixed
+arguments, returns, local initialization, assignment and mixed arithmetic.
+Explicit `ToI64`/`ToF64` operations require the original intrinsic declaration
+and a proved materialization boundary. Conversion events have separate source
+receipts and x87 ownership; they do not authorize arbitrary conversion flags.
+Images using FISTTP additionally require runtime SSE3 support.
+
 ## Current exclusions
 
-Implicit and explicit numeric conversions, comparisons, remainder, power,
-shifts, compound updates, increment/decrement, floating intrinsics, variadic F64
+Unproved conversion normalization, comparisons, remainder, power, shifts,
+compound updates, increment/decrement, other floating intrinsics, variadic F64
 arguments, `%f`, F64 pointers, arrays, aggregate fields, globals, statics,
 parameter defaults and callback invocation signatures remain unsupported. Mixed
 functions containing F64 also reject narrow integer frame members unless their

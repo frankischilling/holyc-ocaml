@@ -181,7 +181,6 @@ let excluded =
   [
     ( "unproved literal reassociation",
       "F64 F(F64 a){return (a+0.5)+0.5;}F(1.0);" );
-    ("conversion", "F64 F(I64 x){return x;}F(1);");
     ("comparison", "I64 F(F64 a,F64 b){return a<b;}F(1.0,2.0);");
     ("remainder", "F64 F(F64 a,F64 b){return a%b;}F(1.0,2.0);");
     ("compound update", "F64 F(F64 x){x+=1.0;return x;}F(1.0);");

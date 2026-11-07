@@ -76,6 +76,10 @@ let placement () =
         [
           ( "F64 F(reg R10 F64 x){return x;}42;",
             [ ("x", Analysis.Register_candidate, Some 10) ] );
+          ( "F64 F(reg R10 F64 x,I64 y){return x+y;}42;",
+            [ ("x", Analysis.Register_candidate, Some 10) ] );
+          ( "I64 F(reg R10 F64 x){return x;}42;",
+            [ ("x", Analysis.Register_candidate, Some 10) ] );
           ( "F64 F(F64 reg R12 x){return x;}42;",
             [ ("x", Analysis.Register_candidate, Some 12) ] );
           ("F64 F(F64 x){return x;}42;", [ ("x", Analysis.Stack, None) ]);
@@ -223,8 +227,6 @@ let exclusions () =
           "F64 F(reg RAX F64 x){return x;}42;";
           "F64 F(reg R10 F64 x){x+=1.5;return x;}42;";
           "F64 F(reg R10 F64 x){x++;return x;}42;";
-          "F64 F(reg R10 F64 x,I64 y){return x+y;}42;";
-          "I64 F(reg R10 F64 x){return x;}42;";
           "F64 F(reg R10 F64 x,F64){return x;}42;";
           "F64 F(reg R10 F64 x){F64 y;return x;}42;";
         ])

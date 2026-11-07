@@ -909,7 +909,8 @@ let intrinsic_opcode_of_source source =
           if value < 0L || value > Int64.of_int Int.max_int then None
           else
             match Generated.Intermediate_codes.of_code (Int64.to_int value) with
-            | Some opcode when Integer_intrinsic.supports opcode -> Some opcode
+            | Some opcode when Numeric_intrinsic.runtime_supports opcode ->
+                Some opcode
             | Some _ | None -> None)
   | Some _ | None -> None
 
@@ -1425,15 +1426,15 @@ let approved_provider shape =
 let approved_intrinsic shape opcode =
   Option.fold ~none:false
     ~some:(fun count -> List.length shape.fixed = count)
-    (Integer_intrinsic.arity opcode)
+    (Numeric_intrinsic.runtime_arity opcode)
   && Records.call_access shape.selected_record = Records.Internal_operation
   && Records.is_internal shape.selected_record
-  && Integer_intrinsic.result_matches opcode shape.result_type
+  && Numeric_intrinsic.runtime_result_matches opcode shape.result_type
   && List.for_all
        (fun (index, (parameter, argument)) ->
          Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
-         && Integer_intrinsic.argument_matches opcode ~index
+         && Numeric_intrinsic.runtime_argument_matches opcode ~index
               (parameter_type parameter)
          &&
          match argument with
@@ -2318,7 +2319,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                    slots";
                 pending.phase <- Cleaned (call, item.instruction_id)
             | opcode, pending :: _
-              when Integer_intrinsic.supports opcode
+              when Numeric_intrinsic.runtime_supports opcode
                    && pending.intrinsic_opcode = Some opcode ->
                 require ?span
                   (pending.phase = Collecting && item.result = None
@@ -2329,7 +2330,9 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                        item.target_type)
                   "checked internal operation has an invalid instruction shape";
                 let expected = List.rev pending.expected in
-                let count = Option.get (Integer_intrinsic.arity opcode) in
+                let count =
+                  Option.get (Numeric_intrinsic.runtime_arity opcode)
+                in
                 require ?span
                   (List.length expected = count
                   && List.length item.operands = count)
@@ -2421,7 +2424,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                 let arguments_ = pending.pushes in
                 require ?span
                   (List.length arguments_
-                  = Option.get (Integer_intrinsic.arity opcode_))
+                  = Option.get (Numeric_intrinsic.runtime_arity opcode_))
                   "intrinsic call has no complete sealed arguments";
                 let intrinsic =
                   {
@@ -2539,7 +2542,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                 [] ) ->
                 fail ?span
                   "runtime call instruction has no checked enclosing scope"
-            | opcode, _ when Integer_intrinsic.supports opcode ->
+            | opcode, _ when Numeric_intrinsic.runtime_supports opcode ->
                 fail ?span
                   "intrinsic instruction has no matching checked intrinsic \
                    scope"
