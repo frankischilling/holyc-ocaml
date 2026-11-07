@@ -4,7 +4,7 @@ TempleOS can keep a narrow integer variable in a register without narrowing the 
 
 Selection depends on more than the declared type. The original `Compiler/OptPass3.HC` scores frame members and assigns a limited set of registers; escape and register pressure can prevent selection. The captures include a larger pressure case where the signed result is -2. The retained option experiment returns 254 despite enabling `OPTf_NO_REG_VAR` before the function header. The following `#exe` clears it during body-closing lookahead, before allocation. The compiler now uses that completed-body snapshot rather than the header's linkage options.
 
-For parameters, the analysis covers a straight-line function with two to six scalar integer parameters, one compound shift, addition, subtraction, multiplication, division, remainder or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return. It ties the result to the original typed source, frame and instruction graph and rejects changes to that evidence. Explicit `noreg` is classified as stack storage. Address escapes, extra statements, control flow and larger graphs remain unproved. Within the supported shapes, distinct requests from the variable-register banks described below are covered. Fixed registers and conflicting requests remain unproved; this models their observable value behavior rather than binding host machine registers.
+For parameters, the analysis covers a straight-line function with two to six scalar integer parameters, one compound shift, addition, subtraction, multiplication, division, remainder or bitwise update on an 8-, 16- or 32-bit parameter, and a direct return. It ties the result to the original typed source, frame and instruction graph and rejects changes to that evidence. Explicit `noreg` is classified as stack storage. Address escapes, extra statements, control flow and larger graphs remain unproved. Within the supported shapes, distinct requests from the variable-register banks described below are covered. Fixed registers and conflicting requests remain unproved; this models their observable value behavior. Explicit R12-R15 requests also have the physical placement described below.
 
 The updated variable and operand may appear in any parameter position. For this bounded class, the interpreter and native backends preserve the full register value through the update and return. Arguments are first converted to their declared narrow type, as in the entry-conversion captures. Explicit `noreg` continues to use narrow memory storage. The native entry path normalizes the incoming value before preserving its full-width register value.
 
@@ -522,3 +522,41 @@ remains open; accepting its assignment into this proof would hide it. Consumed
 compound updates, casts and nested assignment operands remain outside this
 extension. The evidence is pinned source and hosted tests, not a new TempleOS
 runtime capture.
+
+## Physical R12-R15 variables
+
+An explicitly requested R12, R13, R14 or R15 now holds the variable's value in
+that machine register when the existing source proof classifies the member as
+`Register_candidate`. Ordinary automatic selection and other register requests
+still use the full-width private homes described above. This is not a general
+register allocator, and issue #703 remains open. The
+[call example](../examples/physical-register-calls.hc) reuses R12 in a nested
+function without changing the caller's value.
+
+Placement requires the original definition, frame member, symbol and register
+request. The witness snapshots the requested register number, spelling and
+source origin independently, so changing a shared request record cannot change
+a saved proof's authority. Escaped variables, locked updates, conflicting
+requests and unproved source shapes cannot acquire physical placement.
+
+The native callable saves each used register before parameter conversion or
+body execution. Parameters are loaded from their incoming stack slots using
+their declared width and signedness, including full-width I64/U64 arguments.
+Local initializers write the register directly. Reads, assignments and supported
+updates then use full-width register copies. Initialization flags remain in
+private memory; source-frame addresses never expose a stale register home.
+
+Each invocation has separate eight-byte save slots. Normal returns and reported
+faults share an epilogue that restores the caller's registers. The temporary
+allocator's seven-register bank is unchanged. Save slots count toward private
+and active stack limits. Existing private homes are retained for layout and
+accounting, so this milestone does not reduce frame sizes.
+
+TempleOS's OptPass3.HC:534-611 assigns variable registers, OptPass4.HC:196-218
+redirects frame accesses, and OptPass789A.HC:387-405,698-719 preserves registers
+and converts incoming parameters. The hosted adapter uses fixed frame save
+slots rather than copying TempleOS's push sequence. On Windows, each save has a
+`UWOP_SAVE_NONVOL` entry. Admission checks the register, slot, completed save
+instruction and matching restore; the allocation endpoint remains distinct
+from the end of the full prologue. This is pinned-source and hosted-platform
+evidence, not a new TempleOS runtime capture or a complete HolyC ABI.

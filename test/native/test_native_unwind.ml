@@ -318,38 +318,48 @@ let check_frame_code label frame_bytes code =
     (byte code (length - 1) = 0xc3)
     (label ^ ": frameful image does not end in RET")
 
-let expected_callable_unwind frame =
+let expected_callable_unwind ?(saves = []) frame =
   require
     (frame >= 0 && frame <= 524272 && frame mod 16 = 0)
     "test fixture callable frame is outside the bounded ABI shape";
-  if frame = 0 then string_of_bytes [ 1; 4; 1; 0; 1; 0x50; 0; 0 ]
-  else
-    let endpoint = 11 + probe_size frame in
-    require (endpoint <= 255) "callable allocation endpoint exceeds one byte";
-    if frame <= 128 then
-      string_of_bytes
+  require (frame <> 0 || saves = []) "frameless fixture cannot save registers";
+  let allocation_end = if frame = 0 then 4 else 11 + probe_size frame in
+  let prologue_end = allocation_end + (7 * List.length saves) in
+  require (prologue_end <= 255) "callable prologue endpoint exceeds one byte";
+  let save_codes =
+    List.mapi
+      (fun index (register, offset) ->
+        require
+          (register >= 12 && register <= 15 && offset < 0 && offset >= -frame
+          && offset mod 8 = 0)
+          "invalid callable register-save fixture";
+        let scaled = (frame + offset) / 8 in
         [
-          1; endpoint; 2; 0; endpoint; (((frame / 8) - 1) lsl 4) lor 2; 1; 0x50;
-        ]
-    else
-      let scaled = frame / 8 in
-      string_of_bytes
-        [
-          1;
-          endpoint;
-          3;
-          0;
-          endpoint;
-          1;
+          allocation_end + (7 * (index + 1));
+          (register lsl 4) lor 4;
           scaled land 0xff;
           (scaled lsr 8) land 0xff;
-          1;
-          0x50;
-          0;
-          0;
-        ]
+        ])
+      saves
+    |> List.rev |> List.concat
+  in
+  let allocation_codes =
+    if frame = 0 then []
+    else if frame <= 128 then
+      [ allocation_end; (((frame / 8) - 1) lsl 4) lor 2 ]
+    else
+      let scaled = frame / 8 in
+      [ allocation_end; 1; scaled land 0xff; (scaled lsr 8) land 0xff ]
+  in
+  let codes = save_codes @ allocation_codes @ [ 1; 0x50 ] in
+  let count = List.length codes / 2 in
+  string_of_bytes
+    ([ 1; prologue_end; count; 0 ]
+    @ codes
+    @ if count mod 2 = 0 then [] else [ 0; 0 ])
 
-let check_callable_frame_code label frame code (first, last, unwind) =
+let check_callable_frame_code ?(saves = []) label frame code
+    (first, last, unwind) =
   require
     (first >= 0 && last <= String.length code && last - first >= 6)
     (label ^ ": callable owner range");
@@ -357,7 +367,7 @@ let check_callable_frame_code label frame code (first, last, unwind) =
     (String.sub code first 4 = string_of_bytes [ 0x55; 0x48; 0x89; 0xe5 ])
     (label ^ ": callable PUSH RBP; MOV RBP,RSP");
   require
-    (unwind = expected_callable_unwind frame)
+    (unwind = expected_callable_unwind ~saves frame)
     (label ^ ": exact callable Version 1 unwind bytes");
   check_probe_code label frame code (first + 4);
   if frame <> 0 then (
@@ -373,7 +383,20 @@ let check_callable_frame_code label frame code (first, last, unwind) =
       (label ^ ": callable frame deallocation"));
   require
     (String.sub code (last - 2) 2 = string_of_bytes [ 0x5d; 0xc3 ])
-    (label ^ ": callable POP RBP; RET")
+    (label ^ ": callable POP RBP; RET");
+  let allocation_end = first + if frame = 0 then 4 else 11 + probe_size frame in
+  let restore_begin = last - 9 - (7 * List.length saves) in
+  List.iteri
+    (fun index (register, offset) ->
+      let modrm = 0x85 lor ((register - 8) lsl 3) in
+      let instruction opcode =
+        string_of_bytes ([ 0x4c; opcode; modrm ] @ int32_bytes offset)
+      in
+      require
+        (String.sub code (allocation_end + (7 * index)) 7 = instruction 0x89
+        && String.sub code (restore_begin + (7 * index)) 7 = instruction 0x8b)
+        (label ^ ": matching ascending nonvolatile save and restore"))
+    saves
 
 let check_unwind_copy label expected image =
   let first = Image.windows_unwind_info image in
@@ -735,6 +758,258 @@ let check_encoded_boundary_frames ~windows =
           ~entry_stack_bytes:(frame + 16) ~owner_index:0 ~probe_offset:4 ~frame)
     [ 65520; 65536; 65552; 524272 ]
 
+let check_nonvolatile_probe_validation ~windows ~frame ~saves ~code ~unwind =
+  let owners = [| (0, String.length code, unwind) |] in
+  let retain code owners =
+    retain_probe
+      (code, owners, (if windows then 1 else 2), frame + 16, (0, 0, 0, ""))
+  in
+  release_probe (retain code owners);
+  let rejected label code owners =
+    match retain code owners with
+    | handle ->
+        release_probe handle;
+        failwith (label ^ ": corrupt nonvolatile save admitted")
+    | exception Invalid_argument _ -> ()
+  in
+  let code_mutation label offset value =
+    let bad = Bytes.of_string code in
+    Bytes.set bad offset (Char.chr value);
+    rejected label (Bytes.to_string bad) owners
+  in
+  let metadata_mutation label change =
+    let bad = Bytes.of_string unwind in
+    change bad;
+    rejected label code [| (0, String.length code, Bytes.to_string bad) |]
+  in
+  let count = List.length saves in
+  let allocation_end = 11 + probe_size frame in
+  let restore_begin = String.length code - 9 - (7 * count) in
+  code_mutation "missing nonvolatile store" allocation_end 0x90;
+  code_mutation "wrong nonvolatile store opcode" (allocation_end + 1) 0x8b;
+  code_mutation "wrong nonvolatile store register" (allocation_end + 2)
+    (byte code (allocation_end + 2) lxor 8);
+  code_mutation "unaligned nonvolatile store slot" (allocation_end + 3)
+    (byte code (allocation_end + 3) lxor 1);
+  code_mutation "missing nonvolatile restore" restore_begin 0x90;
+  code_mutation "wrong nonvolatile restore opcode" (restore_begin + 1) 0x89;
+  code_mutation "wrong nonvolatile restore register" (restore_begin + 2)
+    (byte code (restore_begin + 2) lxor 8);
+  code_mutation "wrong nonvolatile restore slot" (restore_begin + 3)
+    (byte code (restore_begin + 3) lxor 8);
+  metadata_mutation "full prologue excludes register saves" (fun bad ->
+      Bytes.set bad 1 (Char.chr allocation_end));
+  metadata_mutation "allocation endpoint includes register saves" (fun bad ->
+      Bytes.set bad (4 + (4 * count)) (Bytes.get bad 1));
+  metadata_mutation "save endpoint precedes completed store" (fun bad ->
+      Bytes.set bad 4 (Char.chr (byte unwind 4 - 1)));
+  metadata_mutation "save endpoint follows completed store" (fun bad ->
+      Bytes.set bad 4 (Char.chr (byte unwind 4 + 1)));
+  metadata_mutation "SAVE_NONVOL describes a volatile register" (fun bad ->
+      Bytes.set bad 5 '\x04');
+  metadata_mutation "unsupported SAVE_NONVOL_FAR" (fun bad ->
+      Bytes.set bad 5 (Char.chr (byte unwind 5 land 0xf0 lor 5)));
+  metadata_mutation "save offset addresses caller frame" (fun bad ->
+      let outside = frame / 8 in
+      Bytes.set bad 6 (Char.chr (outside land 0xff));
+      Bytes.set bad 7 (Char.chr ((outside lsr 8) land 0xff)));
+  if count > 1 then (
+    metadata_mutation "save metadata is not reverse instruction order"
+      (fun bad ->
+        Bytes.blit_string unwind 4 bad 8 4;
+        Bytes.blit_string unwind 8 bad 4 4);
+    metadata_mutation "duplicate nonvolatile register" (fun bad ->
+        Bytes.set bad 5 (Bytes.get bad 9));
+    (* Keep both the machine instructions and metadata mutually consistent:
+       the second save must still not overwrite the first register's slot. *)
+    let duplicate_code = Bytes.of_string code in
+    Bytes.blit_string code (allocation_end + 3) duplicate_code
+      (allocation_end + 10) 4;
+    Bytes.blit_string code (restore_begin + 3) duplicate_code
+      (restore_begin + 10) 4;
+    let duplicate_unwind = Bytes.of_string unwind in
+    let first_slot = 6 + (4 * (count - 1)) in
+    Bytes.blit_string unwind first_slot duplicate_unwind (first_slot - 4) 2;
+    rejected "duplicate nonvolatile save slot"
+      (Bytes.to_string duplicate_code)
+      [| (0, String.length code, Bytes.to_string duplicate_unwind) |]);
+  if byte unwind 2 mod 2 <> 0 then
+    metadata_mutation "nonzero nonvolatile unwind padding" (fun bad ->
+        Bytes.set bad (Bytes.length bad - 1) '\x01')
+
+let check_encoded_nonvolatile_frames ~windows =
+  let register = function
+    | 12 -> Encoder.R12
+    | 13 -> Encoder.R13
+    | 14 -> Encoder.R14
+    | 15 -> Encoder.R15
+    | _ -> invalid_arg "nonvolatile fixture register"
+  in
+  let capture =
+    Encoder.Capture_status
+      (if windows then Encoder.Windows_x64 else Encoder.System_v_x64)
+  in
+  let check frame saves =
+    let stack = Encoder.call_frame ~bytes:frame |> require_ok Fun.id in
+    let encode = List.map Encoder.encode in
+    let access (reg, offset) =
+      (register reg, Encoder.frame_slot ~offset |> require_ok Fun.id)
+    in
+    let save_instructions =
+      List.map
+        (fun saved ->
+          let reg, slot = access saved in
+          Encoder.Store_frame (slot, reg))
+        saves
+    in
+    let restores =
+      List.map
+        (fun saved ->
+          let reg, slot = access saved in
+          Encoder.Load_frame (reg, slot))
+        saves
+    in
+    let clobbers =
+      List.map
+        (fun (reg, _) -> Encoder.Mov_imm64 (register reg, Int64.of_int (-reg)))
+        saves
+    in
+    let code =
+      encode
+        ([
+           Encoder.Push_rbp; Encoder.Mov_rbp_rsp; Encoder.Alloc_call_frame stack;
+         ]
+        @ save_instructions @ [ capture ] @ clobbers
+        @ [ Encoder.Mov_imm64 (Encoder.Rax, 42L) ]
+        @ restores
+        @ [ Encoder.Free_call_frame stack; Encoder.Pop_rbp; Encoder.Ret ])
+      |> String.concat ""
+    in
+    let unwind = expected_callable_unwind ~saves frame in
+    let owner = (0, String.length code, unwind) in
+    let label =
+      Printf.sprintf "encoded %d-byte callable / %d nonvolatile saves" frame
+        (List.length saves)
+    in
+    check_callable_frame_code ~saves label frame code owner;
+    if windows then probe_windows_program_unwind code [| owner |];
+    check_nonvolatile_probe_validation ~windows ~frame ~saves ~code ~unwind
+  in
+  require
+    (expected_callable_unwind
+       ~saves:[ (12, -32); (13, -8); (14, -48); (15, -16) ]
+       64
+    = string_of_bytes
+        [
+          1;
+          39;
+          10;
+          0;
+          39;
+          0xf4;
+          6;
+          0;
+          32;
+          0xe4;
+          2;
+          0;
+          25;
+          0xd4;
+          7;
+          0;
+          18;
+          0xc4;
+          4;
+          0;
+          11;
+          0x72;
+          1;
+          0x50;
+        ])
+    "four-register unwind literal uses reverse endpoints and final-RSP slots";
+  require
+    (expected_callable_unwind
+       ~saves:[ (12, -32); (13, -8); (14, -48); (15, -16) ]
+       524272
+    = string_of_bytes
+        [
+          1;
+          74;
+          11;
+          0;
+          74;
+          0xf4;
+          0xfc;
+          0xff;
+          67;
+          0xe4;
+          0xf8;
+          0xff;
+          60;
+          0xd4;
+          0xfd;
+          0xff;
+          53;
+          0xc4;
+          0xfa;
+          0xff;
+          46;
+          1;
+          0xfe;
+          0xff;
+          1;
+          0x50;
+          0;
+          0;
+        ])
+    "maximum-frame save slots retain both scaled bytes and unwind padding";
+  (* Individual and sparse masks prevent an implicit R12-first/contiguous-bank
+     assumption. Alternating offsets expose accidental register/slot swaps. *)
+  List.iter (fun reg -> check 64 [ (reg, -24) ]) [ 12; 13; 14; 15 ];
+  check 64 [ (12, -48); (15, -8) ];
+  List.iter
+    (fun frame -> check frame [ (12, -32); (13, -8); (14, -48); (15, -16) ])
+    [ 64; 128; 144; 65520; 65536; 65552; 524272 ]
+
+let check_compiled_nonvolatile_unwind ~windows ~mode =
+  let image =
+    compile_program_source ~mode
+      "I64 G(reg R12 I64 a,reg R13 I64 b,reg R14 I64 c,reg R15 I64 \
+       d){a+=10;b+=20;c+=30;d+=40;return a+b+c+d;}\n\
+       I64 F(reg R12 I64 a,reg R13 I64 b,reg R14 I64 c,reg R15 I64 \
+       d){G(1,2,3,4);return a+b+c+d;}F(10,11,12,9);"
+  in
+  let code = Program.code image in
+  let owners = Array.of_list (Program.windows_unwind_functions image) in
+  require (Array.length owners = 3) "nonvolatile fixture needs three owners";
+  Array.iteri
+    (fun index ((first, last, unwind) as owner) ->
+      if index <> 0 then (
+        let label =
+          Printf.sprintf "%s physical-register owner %d" (mode_name mode) index
+        in
+        let frame = uint32_le code (last - 6) in
+        let allocation_end = first + 11 + probe_size frame in
+        let saves =
+          List.init 4 (fun save ->
+              let offset =
+                uint32_le code (allocation_end + (7 * save) + 3)
+                |> Int32.of_int |> Int32.to_int
+              in
+              (12 + save, offset))
+        in
+        require
+          (byte unwind 1 = allocation_end - first + 28)
+          (label ^ ": full prologue must include all four register saves");
+        check_callable_frame_code ~saves label frame code owner))
+    owners;
+  if windows then probe_windows_program_unwind code owners;
+  match Native_program_execution.execute ~max_steps:4096 image with
+  | Ok (Program.Completed { final_value = Some word; _ }) ->
+      require (word.bits = 42L)
+        "nested call failed to preserve physical registers"
+  | _ -> failwith "physical-register unwind fixture did not execute"
+
 let check_compiled_compact_callable ~windows ~mode ~elements ~frame =
   let image =
     compile_program_source ~max_stack_bytes:524280 ~max_code_bytes:1048576 ~mode
@@ -767,6 +1042,7 @@ let () =
            x86-64"
   in
   check_encoded_boundary_frames ~windows;
+  check_encoded_nonvolatile_frames ~windows;
   List.iter
     (fun mode ->
       check_source_image ~windows ~mode ~literals:7 ~expected_frame:0;
@@ -790,7 +1066,9 @@ let () =
         ~live:1030 8200)
     [ Program.Windows_x64; Program.System_v_x64 ];
   List.iter
-    (fun mode -> check_callable_program_unwind ~windows ~mode)
+    (fun mode ->
+      check_callable_program_unwind ~windows ~mode;
+      check_compiled_nonvolatile_unwind ~windows ~mode)
     [ Preprocessor.Jit; Preprocessor.Aot ];
   (* 518 simultaneous values need all 511 permitted spill slots. This also
      exercises the largest Version 1 large-allocation encoding without crossing

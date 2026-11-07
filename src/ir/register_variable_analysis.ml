@@ -76,12 +76,56 @@ let instruction_stamp (item : Seq.description) =
           })
         payload)
 
+type span_stamp = int * int * int
+
+type origin_stamp =
+  | Pinned_origin of string * int
+  | Source_origin of
+      span_stamp * span_stamp list * span_stamp option * span_stamp option
+  | Synthesized_origin of string
+
+type request_stamp =
+  | Unspecified_request
+  | Allocatable_request
+  | Disabled_request
+  | Explicit_request of string * int * origin_stamp
+
+let copy_string value = Bytes.to_string (Bytes.of_string value)
+
+let span_stamp (span : Common.Span.t) =
+  (Common.Source_id.to_int span.source, span.start, span.stop)
+
+let origin_stamp = function
+  | Sema.Symbol.Pinned_source { path; line } ->
+      Pinned_origin (copy_string path, line)
+  | Source_location source ->
+      Source_origin
+        ( span_stamp source.span,
+          List.map span_stamp source.source_segments,
+          Option.map span_stamp source.generated_from,
+          Option.map span_stamp source.defined_at )
+  | Synthesized description -> Synthesized_origin (copy_string description)
+
+(* Do not retain the explicit-register record as the request snapshot. It is
+   shared by the frame and its semantic source, so an in-place change would
+   otherwise rewrite both the request and the witness's expected value. *)
+let request_stamp = function
+  | Request.Unspecified -> Unspecified_request
+  | Allocatable -> Allocatable_request
+  | Disabled -> Disabled_request
+  | Explicit register ->
+      Explicit_request
+        ( copy_string (Request.explicit_register_spelling register),
+          Request.explicit_register_number register,
+          origin_stamp (Request.explicit_register_origin register) )
+
 type location_stamp = {
   location : Frame.location;
   symbol : Sema.Symbol.t;
   binding : Sema.Function_binding_index.binding;
   kind : Frame.location_kind;
-  request : Request.selection;
+  request : request_stamp;
+  request_owner : Request.explicit_register option;
   value_shape : Frame.value_shape;
   checked_type : Sema.Type.primitive_form * Sema.Primitive_type.t * int;
   slot : (Frame.frame_slot * int64 * int64) option;
@@ -98,7 +142,11 @@ let location_stamp location =
           symbol = Frame.location_symbol location;
           binding = Frame.location_binding location;
           kind = Frame.location_kind location;
-          request = Frame.location_register_selection location;
+          request = request_stamp (Frame.location_register_selection location);
+          request_owner =
+            (match Frame.location_register_selection location with
+            | Request.Explicit register -> Some register
+            | Unspecified | Allocatable | Disabled -> None);
           value_shape = Frame.location_value_shape location;
           checked_type =
             ( form,
@@ -117,6 +165,7 @@ let location_stamp location =
 let equal_location a b =
   a.location == b.location && a.symbol == b.symbol && a.binding == b.binding
   && a.kind = b.kind && a.request = b.request
+  && Option.equal ( == ) a.request_owner b.request_owner
   && a.value_shape = b.value_shape
   && a.checked_type = b.checked_type
   && a.allocated_size = b.allocated_size
@@ -177,6 +226,9 @@ let safe_register_requests locations =
         | Request.Explicit register ->
             let number = Request.explicit_register_number register in
             List.mem number variable_registers
+            && Request.canonical_u64_register_number
+                 (Request.explicit_register_spelling register)
+               = Some number
             && (not (List.mem number used))
             && check (number :: used) rest
         | Unspecified | Allocatable | Disabled -> check used rest)
@@ -3156,3 +3208,66 @@ let selection t ~frame ~body ~symbol =
     | Some expected, Some current when find current.selections_ = Some expected
       -> Some expected
     | _ -> None
+
+let physical_register t ~frame ~body ~symbol =
+  match selection t ~frame ~body ~symbol with
+  | Some Register_candidate ->
+      List.find_map
+        (fun original ->
+          if original.symbol != symbol then None
+          else
+            let members =
+              match original.kind with
+              | Frame.Named_parameter -> Function_body.parameters body
+              | Automatic_local -> Function_body.locals body
+              | Variadic_argc | Variadic_argv | Static_local -> []
+            in
+            let source_owned =
+              let module Headers = Sema.Function_type_resolution in
+              let module Bindings = Sema.Function_binding_index in
+              let module Locals = Sema.Local_type_resolution in
+              let source_request =
+                match original.kind with
+                | Frame.Named_parameter ->
+                    Option.bind
+                      (Bindings.binding_parameter_index original.binding)
+                      (fun index ->
+                        Frame.function_header frame
+                        |> Headers.function_signature
+                        |> Headers.signature_parameters
+                        |> List.find_opt (fun parameter ->
+                            Headers.parameter_index parameter = index
+                            && Option.is_some
+                                 (Headers.parameter_source parameter))
+                        |> Option.map Headers.parameter_register_selection)
+                | Automatic_local ->
+                    Option.bind (Frame.location_local_source original.location)
+                      (fun local ->
+                        if Locals.local_symbol local == symbol then
+                          Some
+                            (Request.effective
+                               (Locals.local_register_requests local))
+                        else None)
+                | Variadic_argc | Variadic_argv | Static_local -> None
+              in
+              Option.is_some t.definition_
+              && Option.is_some t.source_
+              && Bindings.binding_symbol original.binding == symbol
+              && List.exists
+                   (fun member -> Function_body.member_symbol member == symbol)
+                   members
+              &&
+              match (original.request_owner, source_request) with
+              | Some expected, Some (Request.Explicit actual) ->
+                  expected == actual
+                  && request_stamp (Request.Explicit actual) = original.request
+              | _ -> false
+            in
+            match original.request with
+            | Explicit_request (spelling, number, Source_origin _)
+              when source_owned && number >= 12 && number <= 15
+                   && Request.canonical_u64_register_number spelling
+                      = Some number -> Some number
+            | _ -> None)
+        t.locations_
+  | Some Stack | Some Unknown | None -> None

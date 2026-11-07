@@ -140,10 +140,11 @@ static int nonvolatile_registers_preserved(const CONTEXT *context)
       && context->R15 == UINT64_C(0x88889999aaaabbbb);
 }
 
-static const char *unwind_at(void *code_mapping,
+static const char *unwind_at_clobbered(void *code_mapping,
                             PRUNTIME_FUNCTION function_entry, size_t offset,
                             DWORD64 rsp, DWORD64 rbp, DWORD64 rax,
-                            DWORD64 entry_rsp, DWORD64 return_rip)
+                            DWORD64 entry_rsp, DWORD64 return_rip,
+                            unsigned clobbered)
 {
   CONTEXT context;
   KNONVOLATILE_CONTEXT_POINTERS pointers;
@@ -157,6 +158,10 @@ static const char *unwind_at(void *code_mapping,
   initialize_context(&context, image_base + (DWORD64)offset, rsp);
   context.Rbp = rbp;
   context.Rax = rax;
+  if (clobbered & 1u) context.R12 = UINT64_C(0xc12c12c12c12c12c);
+  if (clobbered & 2u) context.R13 = UINT64_C(0xc13c13c13c13c13c);
+  if (clobbered & 4u) context.R14 = UINT64_C(0xc14c14c14c14c14c);
+  if (clobbered & 8u) context.R15 = UINT64_C(0xc15c15c15c15c15c);
   memset(&pointers, 0, sizeof(pointers));
   handler = RtlVirtualUnwind((DWORD)0, image_base, context.Rip,
                              function_entry, &context, &handler_data,
@@ -168,6 +173,15 @@ static const char *unwind_at(void *code_mapping,
   if (!nonvolatile_registers_preserved(&context))
     return "RtlVirtualUnwind changed a nonvolatile register";
   return NULL;
+}
+
+static const char *unwind_at(void *code_mapping,
+                            PRUNTIME_FUNCTION function_entry, size_t offset,
+                            DWORD64 rsp, DWORD64 rbp, DWORD64 rax,
+                            DWORD64 entry_rsp, DWORD64 return_rip)
+{
+  return unwind_at_clobbered(code_mapping, function_entry, offset, rsp, rbp,
+                            rax, entry_rsp, return_rip, 0u);
 }
 
 static const char *unwind_allocation_prologue(
@@ -221,33 +235,86 @@ static const char *unwind_allocation_prologue(
   return NULL;
 }
 
+struct callable_save {
+  unsigned reg;
+  unsigned endpoint;
+  uint32_t rsp_offset;
+};
+
+struct callable_layout {
+  uint32_t frame;
+  size_t allocation_end;
+  size_t body;
+  size_t restores;
+  size_t epilogue;
+  unsigned save_count;
+  struct callable_save saves[4];
+};
+
+static DWORD64 saved_register_value(unsigned reg)
+{
+  static const DWORD64 values[] = {
+    UINT64_C(0x5555666677778888), UINT64_C(0x6666777788889999),
+    UINT64_C(0x777788889999aaaa), UINT64_C(0x88889999aaaabbbb)
+  };
+  return values[reg - 12u];
+}
+
 static const char *check_callable_owner(const unsigned char *code,
                                         size_t code_length,
                                         size_t begin, size_t end,
                                         const unsigned char *unwind,
                                         size_t unwind_length,
-                                        uint32_t *frame_bytes,
-                                        size_t *body_offset,
-                                        size_t *epilogue_offset)
+                                        struct callable_layout *layout)
 {
+  unsigned slot = 0;
+  unsigned save;
+  unsigned count;
+  size_t allocation_end = begin + 4u;
   uint32_t frame = 0;
-  size_t body;
-  size_t epilogue;
 
+  memset(layout, 0, sizeof(*layout));
   if (begin >= end || end > code_length || end - begin < 6u)
     return "callable unwind owner range is invalid";
   if (code[begin] != 0x55u || code[begin + 1u] != 0x48u ||
       code[begin + 2u] != 0x89u || code[begin + 3u] != 0xe5u)
     return "callable owner does not begin with PUSH RBP; MOV RBP,RSP";
-
-  if (unwind_length != 8u && unwind_length != 12u)
+  if (unwind_length < 8u || unwind_length > 28u || unwind[0] != 1u ||
+      unwind[3] != 0u || unwind[1] < 4u || unwind[1] > end - begin)
+    return "callable owner has an invalid unwind metadata header";
+  count = unwind[2];
+  if (unwind_length != 4u + (((size_t)count * 2u + 3u) & ~(size_t)3u))
     return "callable owner has an invalid unwind metadata size";
-  body = begin + 4u;
-  if (unwind[2] != 1u) {
+
+  /* SAVE_NONVOL consumes two unwind slots. Decode independently of the
+     compiler, then reverse the metadata order into instruction order. */
+  while (slot + 1u < count && (unwind[5u + slot * 2u] & 15u) == 4u) {
+    struct callable_save *saved;
+    unsigned reg = unwind[5u + slot * 2u] >> 4;
+    if (layout->save_count == 4u || reg < 12u || reg > 15u ||
+        (layout->save_count != 0u &&
+         reg >= layout->saves[layout->save_count - 1u].reg))
+      return "callable saves do not describe unique descending R12-R15 registers";
+    saved = &layout->saves[layout->save_count++];
+    saved->reg = reg;
+    saved->endpoint = unwind[4u + slot * 2u];
+    saved->rsp_offset = 8u * ((uint32_t)unwind[6u + slot * 2u] |
+                              ((uint32_t)unwind[7u + slot * 2u] << 8));
+    slot += 2u;
+  }
+  for (save = 0; save < layout->save_count / 2u; ++save) {
+    struct callable_save temporary = layout->saves[save];
+    layout->saves[save] = layout->saves[layout->save_count - 1u - save];
+    layout->saves[layout->save_count - 1u - save] = temporary;
+  }
+  if (slot + 1u < count) {
     size_t allocation;
-    if (unwind[1] < 11u || unwind[1] > end - begin)
+    unsigned op = unwind[5u + slot * 2u];
+    if (unwind[4u + slot * 2u] < 11u ||
+        unwind[4u + slot * 2u] > unwind[1])
       return "callable owner has an invalid allocation endpoint";
-    allocation = begin + unwind[1] - 7u;
+    allocation_end = begin + unwind[4u + slot * 2u];
+    allocation = allocation_end - 7u;
     if (code[allocation] != 0x48u || code[allocation + 1u] != 0x81u ||
         code[allocation + 2u] != 0xecu)
       return "callable owner does not allocate at its unwind endpoint";
@@ -257,47 +324,62 @@ static const char *check_callable_owner(const unsigned char *code,
     if (!valid_probe_prefix(code + begin + 4u, end - begin - 4u, frame) ||
         allocation != begin + 4u + probe_prefix_size(frame))
       return "callable owner has an invalid page-probe sequence";
-    body = allocation + 7u;
-  }
-
-  if (frame == 0u) {
-    if (end - begin < 6u || code[end - 2u] != 0x5du || code[end - 1u] != 0xc3u)
-      return "frameless callable owner does not end with POP RBP; RET";
-    epilogue = end - 2u;
-    if (unwind_length != 8u || unwind[0] != 0x01u || unwind[1] != 0x04u ||
-        unwind[2] != 0x01u || unwind[3] != 0x00u || unwind[4] != 0x01u ||
-        unwind[5] != 0x50u || unwind[6] != 0x00u || unwind[7] != 0x00u)
-      return "frameless callable owner has incorrect PUSH_NONVOL unwind metadata";
-  } else {
-    unsigned char expected_small =
-        (unsigned char)((((frame / 8u) - 1u) << 4) | 0x02u);
-    if (end - begin < 13u || code[end - 9u] != 0x48u ||
-        code[end - 8u] != 0x81u || code[end - 7u] != 0xc4u ||
-        read_u32(code + end - 6u) != frame || code[end - 2u] != 0x5du ||
-        code[end - 1u] != 0xc3u)
-      return "frameful callable owner has an incorrect epilogue";
-    epilogue = end - 9u;
-    if (unwind[0] != 0x01u || unwind[1] != body - begin || unwind[3] != 0x00u ||
-        unwind[4] != body - begin)
-      return "frameful callable owner has an incorrect unwind header";
     if (frame <= 128u) {
-      if (unwind_length != 8u || unwind[2] != 0x02u ||
-          unwind[5] != expected_small || unwind[6] != 0x01u ||
-          unwind[7] != 0x50u)
-        return "small callable frame has incorrect unwind operations";
+      if (op != ((((frame / 8u) - 1u) << 4) | 2u))
+        return "small callable frame has incorrect allocation unwind operation";
+      ++slot;
     } else {
-      uint16_t scaled = (uint16_t)(frame / 8u);
-      if (unwind_length != 12u || unwind[2] != 0x03u || unwind[5] != 0x01u ||
-          unwind[6] != (unsigned char)(scaled & 0xffu) ||
-          unwind[7] != (unsigned char)(scaled >> 8) || unwind[8] != 0x01u ||
-          unwind[9] != 0x50u || unwind[10] != 0x00u || unwind[11] != 0x00u)
-        return "large callable frame has incorrect unwind operations";
+      if (slot + 2u >= count || op != 1u ||
+          frame / 8u != ((unsigned)unwind[6u + slot * 2u] |
+                         ((unsigned)unwind[7u + slot * 2u] << 8)))
+        return "large callable frame has incorrect allocation unwind operation";
+      slot += 2u;
     }
   }
-
-  *frame_bytes = frame;
-  *body_offset = body;
-  *epilogue_offset = epilogue;
+  if (slot + 1u != count || unwind[4u + slot * 2u] != 1u ||
+      unwind[5u + slot * 2u] != 0x50u)
+    return "callable owner has incorrect PUSH_NONVOL unwind operation";
+  if ((count & 1u) != 0u &&
+      (unwind[unwind_length - 2u] != 0u || unwind[unwind_length - 1u] != 0u))
+    return "callable unwind padding is not zero";
+  layout->body = allocation_end + layout->save_count * 7u;
+  if (layout->body - begin != unwind[1])
+    return "callable full prologue does not include exactly its register saves";
+  if (frame == 0u && layout->save_count != 0u)
+    return "frameless callable owner has register-save operations";
+  layout->epilogue = end - (frame == 0u ? 2u : 9u);
+  if (code[end - 2u] != 0x5du || code[end - 1u] != 0xc3u)
+    return "callable owner does not end with POP RBP; RET";
+  if (frame != 0u &&
+      (end - begin < 13u || code[end - 9u] != 0x48u ||
+       code[end - 8u] != 0x81u || code[end - 7u] != 0xc4u ||
+       read_u32(code + end - 6u) != frame))
+    return "frameful callable owner has an incorrect epilogue";
+  if (layout->epilogue < layout->body + layout->save_count * 7u)
+    return "callable save and restore sequences overlap";
+  layout->restores = layout->epilogue - layout->save_count * 7u;
+  for (save = 0; save < layout->save_count; ++save) {
+    const struct callable_save *saved = &layout->saves[save];
+    size_t store = allocation_end + save * 7u;
+    size_t restore = layout->restores + save * 7u;
+    unsigned char modrm = (unsigned char)(0x85u | ((saved->reg - 8u) << 3));
+    uint32_t displacement = saved->rsp_offset - frame;
+    unsigned previous;
+    if (saved->rsp_offset >= frame ||
+        saved->endpoint != store + 7u - begin ||
+        code[store] != 0x4cu || code[store + 1u] != 0x89u ||
+        code[store + 2u] != modrm || read_u32(code + store + 3u) != displacement)
+      return "callable register-save instruction differs from unwind metadata";
+    for (previous = 0; previous < save; ++previous)
+      if (saved->rsp_offset == layout->saves[previous].rsp_offset)
+        return "callable register-save slots overlap";
+    if (code[restore] != 0x4cu || code[restore + 1u] != 0x8bu ||
+        code[restore + 2u] != modrm ||
+        read_u32(code + restore + 3u) != displacement)
+      return "callable register restore differs from its save instruction";
+  }
+  layout->frame = frame;
+  layout->allocation_end = allocation_end;
   return NULL;
 }
 
@@ -432,9 +514,7 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
     intnat begin;
     intnat end;
     size_t unwind_length;
-    uint32_t frame = 0;
-    size_t body = 0;
-    size_t epilogue = 0;
+    struct callable_layout layout;
     if (!Is_block(descriptor) || Tag_val(descriptor) != 0 ||
         Wosize_val(descriptor) != 3)
       caml_invalid_argument("callable unwind descriptor is malformed");
@@ -451,16 +531,16 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
         (index != 0u && begin != Long_val(Field(Field(functions_value, index - 1u), 1))))
       caml_invalid_argument("callable unwind ranges are not contiguous and valid");
     unwind_length = (size_t)caml_string_length(unwind_value);
-    if (unwind_length != 8u && unwind_length != 12u)
+    if (unwind_length < 8u || unwind_length > 28u || (unwind_length & 3u) != 0u)
       caml_invalid_argument("callable unwind metadata has an unexpected size");
     if (unwind_length > SIZE_MAX - unwind_end)
       caml_invalid_argument("callable unwind metadata size overflow");
     failure = check_callable_owner(code, code_length, (size_t)begin, (size_t)end,
         (const unsigned char *)String_val(unwind_value), unwind_length,
-        &frame, &body, &epilogue);
+        &layout);
     if (failure != NULL)
       caml_invalid_argument(failure);
-    if (frame > maximum_frame) maximum_frame = frame;
+    if (layout.frame > maximum_frame) maximum_frame = layout.frame;
     unwind_end += unwind_length;
   }
   if ((uintnat)Long_val(Field(Field(functions_value, function_count - 1u), 1)) !=
@@ -508,9 +588,9 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
     value unwind_value = Field(descriptor, 2);
     size_t begin = (size_t)Long_val(Field(descriptor, 0));
     size_t end = (size_t)Long_val(Field(descriptor, 1));
-    uint32_t frame_bytes = 0;
-    size_t body_offset = 0;
-    size_t epilogue_offset = 0;
+    struct callable_layout layout;
+    unsigned clobbered = 0u;
+    unsigned save;
     unsigned char *entry_stack = stack_mapping + stack_length - 4096u + 8u;
     DWORD64 entry_rsp = (DWORD64)(uintptr_t)entry_stack;
     DWORD64 saved_rbp = UINT64_C(0x2222333344445555);
@@ -522,13 +602,15 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
     failure = check_callable_owner(
         code, code_length, begin, end,
         (const unsigned char *)String_val(unwind_value),
-        (size_t)caml_string_length(unwind_value), &frame_bytes, &body_offset,
-        &epilogue_offset);
+        (size_t)caml_string_length(unwind_value), &layout);
     if (failure != NULL)
       break;
+    /* Poison all as-yet-unsaved slots and both stack boundaries. A stale
+       unwind endpoint must not mistake these canaries for saved registers. */
+    memset(stack_mapping, 0xa7, stack_length);
     memcpy(entry_stack - 8u, &saved_rbp, sizeof(saved_rbp));
     memcpy(entry_stack, &return_rip, sizeof(return_rip));
-    found = RtlLookupFunctionEntry(image_base + (DWORD64)body_offset,
+    found = RtlLookupFunctionEntry(image_base + (DWORD64)layout.body,
                                    &lookup_base, NULL);
     if (found == NULL || lookup_base != image_base ||
         found->BeginAddress != table[index].BeginAddress ||
@@ -542,24 +624,72 @@ CAMLprim value holyc_test_native_program_unwind(value code_value,
     for (size_t offset = begin + 1u; failure == NULL && offset < begin + 4u; ++offset)
       failure = unwind_at(mapping, found, offset, entry_rsp - 8u, saved_rbp,
                           0u, entry_rsp, return_rip);
-    if (failure == NULL && frame_bytes != 0u)
+    if (failure == NULL && layout.frame != 0u)
       failure = unwind_allocation_prologue(mapping, found, begin + 4u,
-          frame_bytes, entry_rsp - 8u, entry_rsp - 8u, entry_rsp, return_rip);
+          layout.frame, entry_rsp - 8u, entry_rsp - 8u, entry_rsp, return_rip);
     if (failure != NULL) break;
-    failure = unwind_at(mapping, found, body_offset,
-        entry_rsp - 8u - (DWORD64)frame_bytes, entry_rsp - 8u, 0u,
-        entry_rsp, return_rip);
-    if (failure != NULL)
-      break;
-    failure = unwind_at(mapping, found, epilogue_offset,
-        entry_rsp - 8u - (DWORD64)frame_bytes, entry_rsp - 8u, 0u,
-        entry_rsp, return_rip);
+    for (save = 0; failure == NULL && save < layout.save_count; ++save) {
+      const struct callable_save *saved = &layout.saves[save];
+      DWORD64 original = saved_register_value(saved->reg);
+      size_t offset;
+      /* Before each store finishes only earlier stores may be unwound. The
+         unsaved register retains its caller value; its slot is still poison. */
+      for (offset = layout.allocation_end + save * 7u;
+           failure == NULL && offset < layout.allocation_end + (save + 1u) * 7u;
+           ++offset)
+        failure = unwind_at_clobbered(mapping, found, offset,
+            entry_rsp - 8u - layout.frame, entry_rsp - 8u, 0u,
+            entry_rsp, return_rip, clobbered);
+      memcpy(entry_stack - 8u - layout.frame + saved->rsp_offset,
+             &original, sizeof(original));
+      clobbered |= 1u << (saved->reg - 12u);
+    }
+    if (failure == NULL)
+      failure = unwind_at_clobbered(mapping, found, layout.body,
+          entry_rsp - 8u - layout.frame, entry_rsp - 8u, 0u,
+          entry_rsp, return_rip, clobbered);
+    for (save = 0; failure == NULL && save < layout.save_count; ++save) {
+      size_t offset;
+      for (offset = layout.restores + save * 7u;
+           failure == NULL && offset < layout.restores + (save + 1u) * 7u;
+           ++offset)
+        failure = unwind_at_clobbered(mapping, found, offset,
+            entry_rsp - 8u - layout.frame, entry_rsp - 8u, 0u,
+            entry_rsp, return_rip, clobbered);
+      clobbered &= ~(1u << (layout.saves[save].reg - 12u));
+    }
+    if (failure == NULL)
+      failure = unwind_at_clobbered(mapping, found, layout.epilogue,
+          entry_rsp - 8u - layout.frame, entry_rsp - 8u, 0u,
+          entry_rsp, return_rip, clobbered);
     if (failure == NULL)
       failure = unwind_at(mapping, found, end - 2u, entry_rsp - 8u,
                           entry_rsp - 8u, 0u, entry_rsp, return_rip);
     if (failure == NULL)
       failure = unwind_at(mapping, found, end - 1u, entry_rsp, saved_rbp, 0u,
                           entry_rsp, return_rip);
+    if (failure == NULL) {
+      DWORD64 observed;
+      memcpy(&observed, entry_stack - 16u - layout.frame, sizeof(observed));
+      if (observed != UINT64_C(0xa7a7a7a7a7a7a7a7))
+        failure = "RtlVirtualUnwind changed the lower stack canary";
+      memcpy(&observed, entry_stack + 8u, sizeof(observed));
+      if (observed != UINT64_C(0xa7a7a7a7a7a7a7a7))
+        failure = "RtlVirtualUnwind changed the upper stack canary";
+      memcpy(&observed, entry_stack - 8u, sizeof(observed));
+      if (observed != saved_rbp)
+        failure = "RtlVirtualUnwind changed the saved RBP";
+      memcpy(&observed, entry_stack, sizeof(observed));
+      if (observed != return_rip)
+        failure = "RtlVirtualUnwind changed the saved return address";
+      for (save = 0; save < layout.save_count; ++save) {
+        const struct callable_save *saved = &layout.saves[save];
+        memcpy(&observed, entry_stack - 8u - layout.frame + saved->rsp_offset,
+               sizeof(observed));
+        if (observed != saved_register_value(saved->reg))
+          failure = "RtlVirtualUnwind changed a nonvolatile save slot";
+      }
+    }
   }
 
   if (registered && !RtlDeleteFunctionTable(table)) {

@@ -395,3 +395,10 @@ Large-frame allocation may clobber RAX, which is free at each generated
 allocation entry; argument, context, nonvolatile and stack registers survive
 until the final allocation. The callable and retained-closed admission paths validate the exact loop
 and unwind endpoint before execution.
+
+[Physical R12-R15 variables](register-variable-analysis.md#physical-r12-r15-variables)
+use authenticated explicit requests, typed parameter entry and per-invocation
+save slots. Normal and fault returns restore caller values. Windows unwind
+metadata describes each nonvolatile save, and admission checks the matching
+save/restore bytes. General automatic and floating register allocation remain
+outside this milestone.

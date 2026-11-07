@@ -1,6 +1,6 @@
 module Facts = Generated.Opcode_keywords
 
-type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
+type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11 | R12 | R13 | R14 | R15
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 type shift = Shl | Shr | Sar
@@ -87,6 +87,10 @@ type instruction =
   | Ret
 
 let registers = [ Rax; Rcx; Rdx; R8; R9; R10; R11 ]
+
+(* Nonvolatile variable registers are encodable but never enter the temporary
+   allocator's bank. Their owners must preserve them across callable frames. *)
+let encodable_registers = registers @ [ R12; R13; R14; R15 ]
 let max_code_bytes = min (16 * 1024 * 1024) Sys.max_string_length
 
 let stack_slot ~offset =
@@ -137,6 +141,10 @@ let register_spelling = function
   | R9 -> "R9"
   | R10 -> "R10"
   | R11 -> "R11"
+  | R12 -> "R12"
+  | R13 -> "R13"
+  | R14 -> "R14"
+  | R15 -> "R15"
 
 let register_numbers =
   List.map
@@ -149,7 +157,7 @@ let register_numbers =
           Facts.registers
       in
       (register, fact.register_number))
-    registers
+    encodable_registers
 
 let register_number register = List.assoc register register_numbers
 

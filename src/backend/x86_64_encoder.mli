@@ -1,4 +1,19 @@
-type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
+type register =
+  | Rax
+  | Rcx
+  | Rdx
+  | R8
+  | R9
+  | R10
+  | R11
+  | R12
+  | R13
+  | R14
+  | R15
+      (** Encodable registers. R12 through R15 are nonvolatile variable
+          registers, separate from the temporary allocator bank in [registers].
+          Callers own their save/restore discipline. *)
+
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 type shift = Shl | Shr | Sar
@@ -192,7 +207,7 @@ type instruction =
           [TEST register,register], without changing the register. *)
   | Setcc of condition * register
       (** Write zero or one to the destination's low byte, preserving the higher
-          bits and flags. Only R8b through R11b need a REX prefix. *)
+          bits and flags. R8b through R15b need a REX prefix. *)
   | Movzx8 of register * register
       (** Destination then source: zero-extend the source's low byte into the
           full 64-bit destination, preserving flags. The registers may alias. *)
@@ -206,7 +221,8 @@ type instruction =
           slots. *)
 
 val registers : register list
-(** Deterministic allocation order: RAX, RCX, RDX, R8, R9, R10, R11. *)
+(** Deterministic temporary allocation order: RAX, RCX, RDX, R8, R9, R10, R11.
+    Encodable nonvolatile registers R12 through R15 are excluded. *)
 
 val stack_slot : offset:int -> (stack_slot, string) result
 (** Construct an eight-byte spill slot addressed from RSP. Offsets are aligned
@@ -244,7 +260,7 @@ val max_code_bytes : int
 val size : instruction -> int
 (** Exact encoded byte count, including any REX prefix and immediate. [Shift_cl]
     is always three bytes (REX.W with REX.B when needed, D3, ModR/M). [Setcc]
-    uses three bytes for AL/CL/DL and four for R8b through R11b. Stack
+    uses three bytes for AL/CL/DL and four for R8b through R15b. Stack
     loads/stores always use an eight-byte fixed-disp32 SIB form; stack
     allocation/free use seven-byte imm32 forms. Allocations from 4096 through
     65528 bytes prepend eight-byte page probes; larger allocations prepend a

@@ -251,6 +251,7 @@ type value = {
 }
 
 type frame_access = {
+  physical_register : Encoder.register option;
   frame_offset : int;
   frame_bytes : int;
   frame_word : word_type;
@@ -1188,7 +1189,7 @@ let build_windows_unwind_info frame_size =
        set 7 ((scaled lsr 8) land 0xff));
     info
 
-let build_callable_windows_unwind_info frame_size =
+let build_callable_windows_unwind_info ?(register_saves = []) frame_size =
   let has_allocation = frame_size <> 0 in
   let allocation_end = 4 + Encoder.stack_allocation_size frame_size in
   let large_allocation = frame_size > 128 in
@@ -1222,7 +1223,34 @@ let build_callable_windows_unwind_info frame_size =
      set 7 ((scaled lsr 8) land 0xff);
      set 8 1;
      set 9 (5 lsl 4));
-  info
+  if register_saves = [] then info
+  else
+    let count = List.length register_saves in
+    let old_slots = Char.code (Bytes.get info 2) in
+    let slots = old_slots + (2 * count) in
+    let extended = Bytes.make (4 + (2 * (slots + (slots mod 2)))) '\000' in
+    Bytes.blit info 0 extended 0 4;
+    Bytes.set extended 1 (Char.chr (allocation_end + (7 * count)));
+    Bytes.set extended 2 (Char.chr slots);
+    List.iteri
+      (fun index (register, offset) ->
+        let number =
+          match register with
+          | Encoder.R12 -> 12
+          | Encoder.R13 -> 13
+          | Encoder.R14 -> 14
+          | Encoder.R15 -> 15
+          | _ -> reject "HCBACK0003" "invalid saved variable register"
+        in
+        let code = 4 + (4 * (count - index - 1)) in
+        let scaled = (frame_size + offset) / 8 in
+        Bytes.set extended code (Char.chr (allocation_end + (7 * (index + 1))));
+        Bytes.set extended (code + 1) (Char.chr ((number lsl 4) lor 4));
+        Bytes.set extended (code + 2) (Char.chr (scaled land 255));
+        Bytes.set extended (code + 3) (Char.chr ((scaled lsr 8) land 255)))
+      register_saves;
+    Bytes.blit info 4 extended (4 + (4 * count)) (2 * old_slots);
+    extended
 
 type label_supply = { mutable next_label : int }
 
@@ -1304,24 +1332,31 @@ let atomic_width ?span = function
         "LOCK requires an exact 8, 16, 32 or 64-bit scalar"
 
 let load_frame_scalar span destination access =
-  if access.frame_bytes = 8 then
-    Encoder.Load_frame (destination, encoder_frame_slot span access.frame_offset)
-  else
-    Encoder.Load_frame_narrow
-      ( destination,
-        encoder_scalar_frame_slot span access.frame_offset,
-        narrow_frame_width ?span access.frame_bytes,
-        if access.frame_word = I64 then Encoder.Sign_extend
-        else Encoder.Zero_extend )
+  match access.physical_register with
+  | Some register -> Encoder.Mov (destination, register)
+  | None ->
+      if access.frame_bytes = 8 then
+        Encoder.Load_frame
+          (destination, encoder_frame_slot span access.frame_offset)
+      else
+        Encoder.Load_frame_narrow
+          ( destination,
+            encoder_scalar_frame_slot span access.frame_offset,
+            narrow_frame_width ?span access.frame_bytes,
+            if access.frame_word = I64 then Encoder.Sign_extend
+            else Encoder.Zero_extend )
 
 let store_frame_scalar span access source =
-  if access.frame_bytes = 8 then
-    Encoder.Store_frame (encoder_frame_slot span access.frame_offset, source)
-  else
-    Encoder.Store_frame_narrow
-      ( encoder_scalar_frame_slot span access.frame_offset,
-        narrow_frame_width ?span access.frame_bytes,
-        source )
+  match access.physical_register with
+  | Some register -> Encoder.Mov (register, source)
+  | None ->
+      if access.frame_bytes = 8 then
+        Encoder.Store_frame (encoder_frame_slot span access.frame_offset, source)
+      else
+        Encoder.Store_frame_narrow
+          ( encoder_scalar_frame_slot span access.frame_offset,
+            narrow_frame_width ?span access.frame_bytes,
+            source )
 
 let load_arena_scalar span destination access =
   if access.arena_bytes = 8 then
@@ -1946,11 +1981,12 @@ let allocate_body ?callable_frame ?(shared_values = [])
       ]
   in
   let store_frame_scalar span access source =
-    reference_service 3
-      [
-        Reference_service.Frame_address access.frame_offset;
-        Reference_service.Immediate (Int64.of_int access.frame_bytes);
-      ];
+    if Option.is_none access.physical_register then
+      reference_service 3
+        [
+          Reference_service.Frame_address access.frame_offset;
+          Reference_service.Immediate (Int64.of_int access.frame_bytes);
+        ];
     store_frame_scalar span access source
   in
   let store_arena_scalar span access source =
@@ -3180,6 +3216,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
                 uninitialized)
             access.initialized_flag_offset;
           if instruction.locked then (
+            if Option.is_some access.physical_register then
+              reject ?span:instruction.span "HCBACK0003"
+                "physical register variable cannot be locked";
             emit
               (Encoder.Address_frame
                  ( Encoder.Rdx,
@@ -5828,6 +5867,17 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         = Some Ir.Register_variable_analysis.Register_candidate)
       register_proof
   in
+  let physical_register location =
+    Option.bind register_proof (fun proof ->
+        Ir.Register_variable_analysis.physical_register proof ~frame ~body
+          ~symbol:(Frame.location_symbol location))
+    |> Option.map (function
+      | 12 -> Encoder.R12
+      | 13 -> Encoder.R13
+      | 14 -> Encoder.R14
+      | 15 -> Encoder.R15
+      | _ -> reject ?span "HCBACK0003" "invalid physical register proof")
+  in
   let proved_register_request location =
     Option.fold ~none:false
       ~some:(fun proof ->
@@ -6021,6 +6071,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           owned_targets = Option.map (fun _ -> ref []) callback;
           access =
             {
+              physical_register = physical_register location;
               frame_offset = actual;
               frame_bytes =
                 (if wide_register location then 8 else storage_scalar.byte_size);
@@ -6105,6 +6156,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
             owned_targets = None;
             access =
               {
+                physical_register = None;
                 frame_offset = argc_offset;
                 frame_bytes = 8;
                 frame_word = I64;
@@ -6303,6 +6355,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           owned_targets = Option.map (fun _ -> ref []) callback;
           access =
             {
+              physical_register = physical_register location;
               frame_offset = Option.value register_offset ~default:actual;
               frame_bytes =
                 (if Option.is_some register_offset then 8
@@ -6655,6 +6708,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     -(rbp_bytes + !reference_bytes)
   in
   let frame_reference_origin slot =
+    if Option.is_some slot.access.physical_register then
+      reject "HCBACK0003"
+        "physical register variable cannot escape as a frame address";
     { access = slot.access; extent_bytes = slot.slot_extent_bytes }
   in
   let slot_strides slot =
@@ -12567,10 +12623,16 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           (fun _ -> fresh_label supply)
       in
       let allocate_graph ~graph ~prepared ~rbp_bytes ~init_flag_offsets
-          ~parameter_owner_offsets ~register_entries ~variadic ~is_entry
-          ~start_label =
+          ~parameter_owner_offsets ~register_entries ~physical_registers
+          ~variadic ~is_entry ~start_label =
         let reference_service_label = fresh_label supply in
         let rbp_bytes = rbp_bytes + prepared.callable_reference_bytes in
+        let register_saves =
+          List.mapi
+            (fun index register -> (register, -(rbp_bytes + (8 * (index + 1)))))
+            physical_registers
+        in
+        let rbp_bytes = rbp_bytes + (8 * List.length register_saves) in
         let reference_frame = -(rbp_bytes + 24) in
         let rbp_bytes = rbp_bytes + 24 in
         let home_slots = max 4 prepared.callable_home_slots in
@@ -12722,6 +12784,11 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             | None -> []
             | Some frame ->
                 [ Planned_instruction (Encoder.Alloc_call_frame frame) ])
+          @ List.map
+              (fun (register, offset) ->
+                Planned_instruction
+                  (Encoder.Store_frame (encoder_frame_slot None offset, register)))
+              register_saves
           @ (if local_subroutine_capacity = 0 then []
              else
                [
@@ -12745,7 +12812,11 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                 [
                   Planned_instruction
                     (load_frame_scalar None Encoder.Rax
-                       { access with frame_bytes = width });
+                       {
+                         access with
+                         frame_bytes = width;
+                         physical_register = None;
+                       });
                   Planned_instruction
                     (store_frame_scalar None access Encoder.Rax);
                 ])
@@ -12843,6 +12914,11 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                  Planned_instruction (Encoder.Store_context (24, Encoder.Rax));
                ]
              else [])
+          @ List.map
+              (fun (register, offset) ->
+                Planned_instruction
+                  (Encoder.Load_frame (register, encoder_frame_slot None offset)))
+              register_saves
           @ (match frame with
             | None -> []
             | Some frame ->
@@ -12867,13 +12943,14 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             @ reference_shared_plan @ suffix;
           body_frame_size = !frame_size;
           body_peak = !peak;
-          body_unwind = build_callable_windows_unwind_info !frame_size;
+          body_unwind =
+            build_callable_windows_unwind_info ~register_saves !frame_size;
         }
       in
       let entry_allocated =
         allocate_graph ~graph:entry_graph ~prepared:entry_prepared ~rbp_bytes:0
           ~init_flag_offsets:[] ~parameter_owner_offsets:[] ~register_entries:[]
-          ~is_entry:true ~variadic:None ~start_label:None
+          ~physical_registers:[] ~is_entry:true ~variadic:None ~start_label:None
       in
       let functions_allocated =
         Array.mapi
@@ -12910,14 +12987,21 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                      in
                      if
                        slot.slot_dimensions = []
-                       && List.mem slot.slot_extent_bytes [ 1; 2; 4 ]
+                       && (List.mem slot.slot_extent_bytes [ 1; 2; 4 ]
+                          || Option.is_some slot.access.physical_register)
                        && slot.access.frame_bytes = 8
                      then Some (slot.access, slot.slot_extent_bytes)
                      else None)
                    info.parameter_types)
               |> List.filter_map Fun.id
             in
-            allocate_graph
+            let physical_registers =
+              Int_map.bindings info.frame_slots
+              |> List.filter_map (fun (_, slot) ->
+                  slot.access.physical_register)
+              |> List.sort_uniq compare
+            in
+            allocate_graph ~physical_registers
               ~graph:(Ir.X87_stack.graph (Function.x87 info.definition.body))
               ~prepared:function_prepared.(index) ~rbp_bytes:info.rbp_bytes
               ~init_flag_offsets:info.init_flag_offsets ~is_entry:false

@@ -48,3 +48,17 @@ val selection :
   selection option
 (** Recheck the original frame, body and instruction identities. Foreign or
     modified inputs return [None], not a reconstructed allocation decision. *)
+
+val physical_register :
+  t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  symbol:Sema.Symbol.t ->
+  int option
+(** Return an original source-owned member's explicit R12 through R15 request
+    only after [selection] revalidates [Register_candidate]. Automatic and plain
+    [reg] candidates, stack or unknown selections, and other registers return
+    [None]. Register numbers, canonical spellings and source origins are sealed
+    independently of the shared semantic request record; changing those inputs
+    invalidates the witness. This query authorizes only this bounded physical
+    placement, not a general register allocation decision. *)

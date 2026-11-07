@@ -484,3 +484,10 @@ unproved.
 retain register storage when a plain assignment feeds a condition or return.
 Stack-selected and unknown-pressure destinations remain excluded because their
 by-value expression results need separate optimizer rules.
+
+[Physical R12-R15 variables](register-variable-analysis.md#physical-r12-r15-variables)
+use authenticated explicit requests, typed parameter entry and per-invocation
+save slots. Normal and fault returns restore caller values. Windows unwind
+metadata describes each nonvolatile save, and admission checks the matching
+save/restore bytes. General automatic and floating register allocation remain
+outside this milestone.

@@ -528,7 +528,19 @@ static void native_validate_stack_allocation(const unsigned char *code,
   }
 }
 
-static unsigned native_validate_program_unwind(value unwind)
+struct native_callable_unwind {
+  unsigned allocation;
+  unsigned allocation_offset;
+  unsigned save_count;
+  /* Windows lists unwind operations in reverse prologue order. */
+  struct {
+    unsigned reg;
+    unsigned code_offset;
+    unsigned stack_offset;
+  } saves[4];
+};
+
+static struct native_callable_unwind native_validate_program_unwind(value unwind)
 {
   const unsigned char *bytes;
   mlsize_t length;
@@ -539,6 +551,7 @@ static unsigned native_validate_program_unwind(value unwind)
   int saw_push_rbp = 0;
   int saw_allocation = 0;
   unsigned allocation_bytes = 0;
+  struct native_callable_unwind result = {0};
 
   if (!Is_block(unwind) || Tag_val(unwind) != String_tag)
     caml_invalid_argument("native program unwind entry is not a string");
@@ -570,11 +583,11 @@ static unsigned native_validate_program_unwind(value unwind)
     switch (operation) {
     case 0: /* UWOP_PUSH_NONVOL */
       if (info != 5u || code_offset != 1u || saw_push_rbp)
-        caml_invalid_argument("native program unwind may only save RBP");
+        caml_invalid_argument("native program unwind may only push RBP");
       saw_push_rbp = 1;
       break;
     case 1: /* UWOP_ALLOC_LARGE */
-      if (info != 0u || code_offset != bytes[1] || saw_allocation)
+      if (info != 0u || saw_allocation || saw_push_rbp)
         caml_invalid_argument("native program large-allocation unwind opcode is malformed");
       slots = 2;
       if (slots > count - index)
@@ -583,12 +596,30 @@ static unsigned native_validate_program_unwind(value unwind)
         8u * ((unsigned)bytes[6u + (2u * index)] |
               ((unsigned)bytes[7u + (2u * index)] << 8));
       saw_allocation = 1;
+      result.allocation_offset = code_offset;
       break;
     case 2: /* UWOP_ALLOC_SMALL */
-      if (code_offset != bytes[1] || saw_allocation)
+      if (saw_allocation || saw_push_rbp)
         caml_invalid_argument("native program small-allocation unwind opcode is malformed");
       allocation_bytes = (info * 8u) + 8u;
       saw_allocation = 1;
+      result.allocation_offset = code_offset;
+      break;
+    case 4: /* UWOP_SAVE_NONVOL */
+      if (info < 12u || info > 15u || result.save_count == 4u ||
+          saw_allocation || saw_push_rbp ||
+          (result.save_count != 0u &&
+           info >= result.saves[result.save_count - 1u].reg))
+        caml_invalid_argument("native program nonvolatile unwind register is outside the sealed save order");
+      slots = 2;
+      if (slots > count - index)
+        caml_invalid_argument("native program unwind opcode overruns its code array");
+      result.saves[result.save_count].reg = info;
+      result.saves[result.save_count].code_offset = code_offset;
+      result.saves[result.save_count].stack_offset =
+        8u * ((unsigned)bytes[6u + (2u * index)] |
+              ((unsigned)bytes[7u + (2u * index)] << 8));
+      ++result.save_count;
       break;
     default:
       caml_invalid_argument("native program unwind opcode is outside the sealed ABI");
@@ -600,17 +631,76 @@ static unsigned native_validate_program_unwind(value unwind)
   if (!saw_push_rbp)
     caml_invalid_argument("native program unwind record does not save RBP");
   if (saw_allocation) {
-    if (bytes[1] != 11u + native_stack_probe_bytes(allocation_bytes) ||
+    if (result.allocation_offset !=
+          11u + native_stack_probe_bytes(allocation_bytes) ||
+        bytes[1] != result.allocation_offset + 7u * result.save_count ||
         allocation_bytes < 16u || allocation_bytes > 524272u ||
         (allocation_bytes & 15u) != 0u)
       caml_invalid_argument("native program unwind allocation is outside the callable frame bound");
-    if ((allocation_bytes <= 128u && count != 2u) ||
-        (allocation_bytes > 128u && count != 3u))
+    if ((allocation_bytes <= 128u && count != 2u + 2u * result.save_count) ||
+        (allocation_bytes > 128u && count != 3u + 2u * result.save_count))
       caml_invalid_argument("native program unwind allocation does not use the shortest sealed form");
   } else if (bytes[1] != 4u || count != 1u) {
     caml_invalid_argument("native program frameless callable unwind record is malformed");
   }
-  return allocation_bytes;
+  for (index = 0; index < result.save_count; ++index) {
+    unsigned other;
+    if (result.saves[index].code_offset != result.allocation_offset +
+          7u * (result.save_count - index) ||
+        result.saves[index].stack_offset >= allocation_bytes)
+      caml_invalid_argument("native program nonvolatile unwind save is outside its frame or prologue");
+    for (other = 0; other < index; ++other)
+      if (result.saves[index].stack_offset == result.saves[other].stack_offset)
+        caml_invalid_argument("native program nonvolatile unwind saves overlap");
+  }
+  if (result.save_count != 0u) {
+    size_t padding;
+    for (padding = 4u + 2u * count; padding < length; ++padding)
+      if (bytes[padding] != 0u)
+        caml_invalid_argument("native nonvolatile unwind padding must be zero");
+  }
+  result.allocation = allocation_bytes;
+  return result;
+}
+
+static void native_validate_nonvolatile_saves(
+  const unsigned char *code, size_t length,
+  const struct native_callable_unwind *unwind)
+{
+  size_t restore_offset;
+  unsigned index;
+  uint32_t encoded_allocation;
+
+  if (unwind->save_count == 0u) return;
+  /* The fixed disp32 RBP forms are seven bytes each. The terminal sequence is
+     ADD RSP,imm32; POP RBP; RET, after the ascending-register restores. */
+  if (length < unwind->allocation_offset + 14u * unwind->save_count + 9u)
+    caml_invalid_argument("native callable nonvolatile save/restore sequence is truncated");
+  restore_offset = length - 9u - 7u * unwind->save_count;
+  memcpy(&encoded_allocation, code + length - 6u, sizeof(encoded_allocation));
+  if (code[length - 9u] != 0x48 || code[length - 8u] != 0x81 ||
+      code[length - 7u] != 0xc4 || encoded_allocation != unwind->allocation ||
+      code[length - 2u] != 0x5d || code[length - 1u] != 0xc3)
+    caml_invalid_argument("native callable nonvolatile restores have an invalid frame epilogue");
+
+  for (index = 0; index < unwind->save_count; ++index) {
+    const unsigned reverse = unwind->save_count - 1u - index;
+    const unsigned modrm = 0x85u | ((unwind->saves[reverse].reg & 7u) << 3);
+    const uint32_t displacement =
+      (uint32_t)unwind->saves[reverse].stack_offset - unwind->allocation;
+    const unsigned char *save = code + unwind->saves[reverse].code_offset - 7u;
+    const unsigned char *restore = code + restore_offset + 7u * index;
+    uint32_t save_displacement;
+    uint32_t restore_displacement;
+    memcpy(&save_displacement, save + 3u, sizeof(save_displacement));
+    memcpy(&restore_displacement, restore + 3u, sizeof(restore_displacement));
+    if (save[0] != 0x4c || save[1] != 0x89 || save[2] != modrm ||
+        save_displacement != displacement)
+      caml_invalid_argument("native callable nonvolatile save disagrees with its unwind record");
+    if (restore[0] != 0x4c || restore[1] != 0x8b || restore[2] != modrm ||
+        restore_displacement != displacement)
+      caml_invalid_argument("native callable nonvolatile restore disagrees with its saved register");
+  }
 }
 
 static mlsize_t native_validate_program_functions(value functions,
@@ -661,7 +751,9 @@ static mlsize_t native_validate_program_functions(value functions,
         if (target > HOLYC_NATIVE_MAX_ARENA_BYTES - 8)
           caml_invalid_argument("native leaf target cell exceeds the task bound");
       } else {
-        const unsigned allocation = native_validate_program_unwind(unwind);
+        const struct native_callable_unwind callable =
+          native_validate_program_unwind(unwind);
+        const unsigned allocation = callable.allocation;
         const unsigned char *owner = (const unsigned char *)String_val(code) + begin;
         const size_t owner_length = (size_t)(end - begin);
         if (owner_length < 4u || owner[0] != 0x55 || owner[1] != 0x48 ||
@@ -670,6 +762,7 @@ static mlsize_t native_validate_program_functions(value functions,
         if (allocation != 0)
           native_validate_stack_allocation(owner + 4u, owner_length - 4u, allocation,
             "native stack allocation disagrees with its unwind frame");
+        native_validate_nonvolatile_saves(owner, owner_length, &callable);
         if (index == 0) *entry_allocation = allocation;
       }
     }

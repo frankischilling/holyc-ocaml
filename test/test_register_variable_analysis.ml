@@ -3723,6 +3723,215 @@ let explicit_register_selection () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let physical_register_selection () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (register, number) ->
+          List.iter
+            (fun type_ ->
+              List.iter
+                (fun source ->
+                  let fn = compile mode source in
+                  let proof =
+                    Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+                  in
+                  let symbol = location fn.frame "x" |> Frame.location_symbol in
+                  Alcotest.(check (option int))
+                    "selected original explicit member" (Some number)
+                    (Analysis.physical_register proof ~frame:fn.frame
+                       ~body:fn.body ~symbol))
+                [
+                  Printf.sprintf
+                    "I64 F(%s reg %s x,I64 c){if(c)x+=1;return x;}42;" type_
+                    register;
+                  Printf.sprintf
+                    "I64 F(I64 c){%s reg %s x=127;if(c)x+=1;return x;}42;" type_
+                    register;
+                ])
+            [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ])
+        [ ("R12", 12); ("R13", 13); ("R14", 14); ("R15", 15) ];
+      List.iter
+        (fun qualifier ->
+          let fn =
+            compile mode
+              (Printf.sprintf "I64 F(I8 %s x,I64 c){if(c)x+=1;return x;}42;"
+                 qualifier)
+          in
+          let proof =
+            Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+          in
+          let symbol = location fn.frame "x" |> Frame.location_symbol in
+          Alcotest.(check (option int))
+            "selection alone grants no physical register" None
+            (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+               ~symbol))
+        [ ""; "reg"; "noreg"; "reg RSI"; "reg RDI"; "reg R10"; "reg R11" ];
+      let fn = compile mode "I64 F(I8 x,I64 reg R12 c){x<<=c;return x;}42;" in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "c" |> Frame.location_symbol in
+      Alcotest.(check bool)
+        "explicit request can retain unknown selection" true
+        (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+        = Some Analysis.Unknown);
+      Alcotest.(check (option int))
+        "unknown explicit request grants no physical register" None
+        (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body ~symbol))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let physical_register_ownership () =
+  let module Request = Semantic_register_request in
+  let source = "I64 F(I8 reg R12 x,I64 c){x<<=c;return x;}42;" in
+  let explicit location =
+    match Frame.location_register_selection location with
+    | Request.Explicit register -> register
+    | _ -> failwith "expected explicit register request"
+  in
+  List.iter
+    (fun mode ->
+      let fn = compile mode source and foreign = compile mode source in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      Alcotest.(check (option int))
+        "foreign frame cannot reuse physical register authority" None
+        (Analysis.physical_register proof ~frame:foreign.frame ~body:fn.body
+           ~symbol);
+      Alcotest.(check (option int))
+        "foreign body cannot reuse physical register authority" None
+        (Analysis.physical_register proof ~frame:fn.frame ~body:foreign.body
+           ~symbol);
+      let foreign_symbol =
+        location foreign.frame "x" |> Frame.location_symbol
+      in
+      let clone =
+        Symbol.create ~id:(Symbol.id symbol) ~scope_id:(Symbol.scope_id symbol)
+          ~name:(Symbol.name symbol) ~kind:(Symbol.kind symbol)
+          ~origin:(Symbol.origin symbol)
+      in
+      List.iter
+        (fun symbol ->
+          Alcotest.(check (option int))
+            "foreign or reconstructed symbol grants no authority" None
+            (Analysis.physical_register proof ~frame:fn.frame ~body:fn.body
+               ~symbol))
+        [ foreign_symbol; clone ];
+      let mutations =
+        [
+          ( "number",
+            fun register -> Obj.set_field (Obj.repr register) 1 (Obj.repr 13) );
+          ( "spelling",
+            fun register -> Obj.set_field (Obj.repr register) 0 (Obj.repr "R13")
+          );
+          ( "canonical number and spelling",
+            fun register ->
+              Obj.set_field (Obj.repr register) 0 (Obj.repr "R13");
+              Obj.set_field (Obj.repr register) 1 (Obj.repr 13) );
+          ( "origin",
+            fun register ->
+              Obj.set_field (Obj.repr register) 2
+                (Obj.repr (Symbol.Synthesized "forged physical request")) );
+          ( "origin source span",
+            fun register ->
+              match Request.explicit_register_origin register with
+              | Symbol.Source_location origin ->
+                  Obj.set_field (Obj.repr origin.span) 1
+                    (Obj.repr (origin.span.start + 1))
+              | _ -> failwith "expected source register origin" );
+          ( "shared spelling contents",
+            fun register ->
+              let spelling = Request.explicit_register_spelling register in
+              Bytes.set (Bytes.unsafe_of_string spelling) 2 '3';
+              Obj.set_field (Obj.repr register) 1 (Obj.repr 13) );
+        ]
+      in
+      List.iter
+        (fun (label, mutate) ->
+          let changed = compile mode source in
+          let original_location = location changed.frame "x" in
+          let symbol = Frame.location_symbol original_location in
+          let proof =
+            Option.get
+              (Analysis.analyze ~frame:changed.frame ~body:changed.body)
+          in
+          Alcotest.(check (option int))
+            "original request has physical authority" (Some 12)
+            (Analysis.physical_register proof ~frame:changed.frame
+               ~body:changed.body ~symbol);
+          mutate (explicit original_location);
+          Alcotest.(check bool)
+            (label ^ " invalidates selection")
+            true
+            (Option.is_none
+               (Analysis.selection proof ~frame:changed.frame ~body:changed.body
+                  ~symbol));
+          Alcotest.(check (option int))
+            (label ^ " cannot change physical authority")
+            None
+            (Analysis.physical_register proof ~frame:changed.frame
+               ~body:changed.body ~symbol))
+        mutations;
+      List.iter
+        (fun source ->
+          let changed = compile mode source in
+          let original_location = location changed.frame "x" in
+          let symbol = Frame.location_symbol original_location in
+          let proof =
+            Option.get
+              (Analysis.analyze ~frame:changed.frame ~body:changed.body)
+          in
+          let register = explicit original_location in
+          let copied : Request.explicit_register =
+            Obj.obj (Obj.dup (Obj.repr register))
+          in
+          Obj.set_field
+            (Obj.repr original_location)
+            12
+            (Obj.repr (Request.Explicit copied));
+          Alcotest.(check (option int))
+            "equal reconstructed request cannot reuse authority" None
+            (Analysis.physical_register proof ~frame:changed.frame
+               ~body:changed.body ~symbol);
+          let reproved =
+            Option.get
+              (Analysis.analyze ~frame:changed.frame ~body:changed.body)
+          in
+          Alcotest.(check (option int))
+            "frame-only request cannot acquire source authority" None
+            (Analysis.physical_register reproved ~frame:changed.frame
+               ~body:changed.body ~symbol))
+        [ source; "I64 F(){I8 reg R12 x=127;x<<=1;return x;}42;" ];
+      List.iter
+        (fun qualifier ->
+          let changed =
+            compile mode
+              (Printf.sprintf "I64 F(I8 %s x,I64 c){x<<=c;return x;}42;"
+                 qualifier)
+          in
+          let original_location = location changed.frame "x" in
+          let symbol = Frame.location_symbol original_location in
+          let proof =
+            Option.get
+              (Analysis.analyze ~frame:changed.frame ~body:changed.body)
+          in
+          Obj.set_field
+            (Obj.repr original_location)
+            12
+            (Obj.repr
+               (Frame.location_register_selection (location fn.frame "x")));
+          Alcotest.(check (option int))
+            "replacing a nonphysical request cannot grant authority" None
+            (Analysis.physical_register proof ~frame:changed.frame
+               ~body:changed.body ~symbol))
+        [ ""; "reg"; "noreg"; "reg RSI" ];
+      let malformed = compile mode source in
+      let register = explicit (location malformed.frame "x") in
+      Obj.set_field (Obj.repr register) 0 (Obj.repr "RAX");
+      Alcotest.(check bool)
+        "mismatched canonical spelling cannot acquire a witness" true
+        (Option.is_none
+           (Analysis.analyze ~frame:malformed.frame ~body:malformed.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let local_parameter_selection () =
   List.iter
     (fun mode ->
@@ -5588,6 +5797,10 @@ let () =
             many_parameter_selection;
           Alcotest.test_case "explicit register selection" `Quick
             explicit_register_selection;
+          Alcotest.test_case "bounded physical register selection" `Quick
+            physical_register_selection;
+          Alcotest.test_case "physical register ownership" `Quick
+            physical_register_ownership;
           Alcotest.test_case "parameter-initialized local selection" `Quick
             local_parameter_selection;
           Alcotest.test_case "dynamic parameter local selection" `Quick

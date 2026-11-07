@@ -15268,3 +15268,15 @@ status = "partial"
 issue = 703
 verification = "Exact old/new probe bytes, signed loop back edge and bounds, maximum scaled unwind allocation, host admission mutations, unwind instruction states, large source arrays, recursion/fault cleanup and independent exact/one-below quotas."
 evidence_limit = "Host stack growth and unwind follow the linked Microsoft x64 specifications. Spill frames stop at 524280 bytes, callable frames at 524272; defaults remain unchanged. Does not establish physical source-register placement, floating allocation or new TempleOS runtime captures."
+
+[[feature]]
+id = "HC-REGISTER-PHYSICAL-NONVOLATILE"
+description = "Physical R12-R15 placement for authenticated explicit integer variable requests."
+sources = ["Compiler/OptPass3.HC:534-611", "Compiler/OptPass4.HC:196-218", "Compiler/OptPass789A.HC:387-405,698-719", "Compiler/BackLib.HC:509-520"]
+implementation = ["src/ir/register_variable_analysis.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/native_execution_stubs.c"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_nonvolatile_register_encoder.ml", "test/test_physical_register_cli.ml", "examples/physical-register-calls.hc", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c"]
+documentation = ["docs/register-variable-analysis.md", "docs/native-programs.md", "docs/holy-abi.md"]
+status = "partial"
+issue = 703
+verification = "Independent request snapshots, exact register encodings, typed parameter entry, register-preserving callable frames and checked nonvolatile save/restore metadata."
+evidence_limit = "Only source-proved explicit R12-R15 integer variables are placed physically. General automatic allocation, other variable registers, floating allocation and complete HolyC ABI remain open. No new TempleOS runtime capture."
