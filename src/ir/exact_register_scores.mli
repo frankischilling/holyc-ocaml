@@ -82,3 +82,34 @@ val analyze_members :
     escapes, casts and side effects in indices remain outside this proof. The
     caller must independently reconstruct and authenticate the complete
     canonical graph. *)
+
+val permits_automatic_analysis_with_budget :
+  budget:Register_proof_budget.t -> Function_body.t -> bool
+(** Shared-budget entry points. Exhaustion is deliberately not caught: callers
+    must revoke the entire attempt rather than try another proof after it. *)
+
+val source_requests_match_with_budget :
+  budget:Register_proof_budget.t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  bool
+
+val analyze_with_budget :
+  budget:Register_proof_budget.t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  (Sema.Function_frame_layout.location * int) list option
+
+val analyze_whole_with_budget :
+  budget:Register_proof_budget.t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  statements:Integer_program_lowering.statement list ->
+  (Sema.Function_frame_layout.location * int) list option
+
+val analyze_members_with_budget :
+  budget:Register_proof_budget.t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  statements:Integer_program_lowering.statement list ->
+  member_score list option

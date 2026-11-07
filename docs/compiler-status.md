@@ -1155,3 +1155,14 @@ initialization, bounds and lifetime checks remain independent. Explicit requests
 without a proved supported physical home reject rather than silently using
 stack storage. Unnamed, dimensioned, aggregate and callback member allocation,
 duplicate/fixed register requests and general optimizer coverage remain open.
+
+### Allocation proof scaling
+
+Whole-function allocation no longer stops at 32 members, 64 blocks or 512
+instructions. Exact and conservative attempts share checked source-sized
+traversal work, with a separate 256-level proof nesting safeguard. Exhaustion
+is an explicit hosted resource error rather than a change to narrow-value
+storage semantics. Existing source-shape restrictions, mutation-sensitive
+validation and native quotas still apply. See
+[allocation pressure](allocation-pressure.md). General allocation and issue
+#703 remain open.

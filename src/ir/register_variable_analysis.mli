@@ -15,7 +15,7 @@ val analyze :
 (** Analyze scalar register selection using the original definition, frame,
     typed occurrences and completed-body compiler options. Specialized proofs
     cover direct returns of supported literal compound updates and prefix or
-    postfix updates. The whole-function proof covers one to 32 integer frame
+    postfix updates. The whole-function proof covers complete integer frame
     members across straight-line code, branches, loops and original named calls.
 
     Mixed integer/F64 functions require complete canonical re-lowering of the
@@ -111,8 +111,12 @@ val analyze :
     formation and Boolean frame members require the owned-member path. Every
     original signature parameter must have its own authenticated frame location,
     including each anonymous [_anon_] member. First-visible name lookup does not
-    remove later members or their register reservations. Limits are 64 blocks,
-    512 instructions and 32 expression levels. Calls, casts, short-circuit
+    remove later members or their register reservations. Members, blocks and
+    instructions use a size-derived cumulative traversal allowance, shared by
+    exact and conservative attempts, rather than separate count caps. Recursive
+    visitors retain a 256-level host-stack safeguard. Execution callers use the
+    result-returning APIs below so exhaustion rejects explicitly rather than
+    silently changing narrow register semantics. Calls, casts, short-circuit
     expressions, power and unmatched optimizer rewrites cannot acquire an
     expression-tree proof.
 
@@ -225,3 +229,30 @@ val authenticates_mixed_scalar_source :
 (** Reconstruct the bounded scalar source body and compare all original graph
     records, including conversion flags, ordered operands and result classes.
     This authenticates source shape, not optimizer scores or x87 links. *)
+
+type proof_error = Proof_limit_exceeded
+
+val analyze_result :
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  (t option, proof_error) result
+
+val analyze_with_runtime_result :
+  runtime:Runtime_call_context.t ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  (t option, proof_error) result
+(** Execution callers must reject [Error Proof_limit_exceeded], never interpret
+    it as stack selection: a missing register can change narrow value semantics.
+    [Ok None] retains the existing unsupported-source contract. A function with
+    no frame members returns [Ok None] without an allocation-expression walk:
+    there is no register/stack choice, even for independently supported deep
+    source expressions. *)
+
+val analyze_with_work_limit :
+  max_work:int ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  (t option, proof_error) result
+(** As [analyze_result], with a stricter per-attempt work allowance. This can
+    reduce, but never expand, the size-derived hosted limit. *)

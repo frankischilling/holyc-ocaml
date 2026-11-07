@@ -2609,3 +2609,11 @@ boundaries and repeated same-image fault recovery. Side effects, partial chains,
 grouped array bases, per-dimension invalid constants and existing execution
 limits remain explicit controls. See
 [local-index normalization](local-index-normalization.md).
+
+Allocation scaling tests cross the former member and graph cutoffs with 31, 32,
+33 and 128 members, exact 64/65-block and 512/513-instruction graphs, and 1,500
+shallow updates. Independent literal tie maps preserve sort-before-trim order.
+Mixed storage, duplicate requests, recursive large frames, exact quotas and
+same-image recovery accompany explicit depth-exhaustion errors. Focused tests
+also cover exact/one-below proof fuel, malformed extents, physical identity and
+duplicated instruction uses. See [allocation pressure](allocation-pressure.md).

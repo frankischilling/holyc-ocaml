@@ -6143,8 +6143,14 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
     Headers.function_variadic_bindings (Frame.function_header frame)
   in
   let register_proof =
-    Ir.Register_variable_analysis.analyze_with_runtime
-      ~runtime:source.source_runtime_calls ~frame ~body
+    match
+      Ir.Register_variable_analysis.analyze_with_runtime_result
+        ~runtime:source.source_runtime_calls ~frame ~body
+    with
+    | Ok proof -> proof
+    | Error Ir.Register_variable_analysis.Proof_limit_exceeded ->
+        reject ?span "HCBACK0001"
+          "allocation proof exceeds the hosted work or nesting allowance"
   in
   let has_float_storage_or_code =
     List.exists

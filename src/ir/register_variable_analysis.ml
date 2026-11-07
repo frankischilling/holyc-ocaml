@@ -3,7 +3,9 @@ module Request = Sema.Register_request
 module Seq = Instruction_sequence
 module Values = Map.Make (Seq.Value_id)
 module O = Opcode
+module Budget = Register_proof_budget
 
+type proof_error = Proof_limit_exceeded
 type selection = Register_candidate | Stack | Unknown
 
 type explicit_conflict = {
@@ -2685,7 +2687,7 @@ module Mixed_scalar_source = struct
 
   let direct_resolution call = Typed.direct_source call |> Policy.direct_source
 
-  let reconstruct ?runtime ?(owned = false) ~frame ~body () =
+  let reconstruct ?runtime ?(owned = false) ~budget ~frame ~body () =
     try
       let source = get (Function_body.definition_source body) in
       let declaration = get (Function_body.definition_declaration body) in
@@ -2705,8 +2707,7 @@ module Mixed_scalar_source = struct
         && Typed.function_selectors source = []
         && Typed.function_switch_cases source = []
         && Typed.function_implicit_outputs source = []
-        && Typed.function_outer_callback_calls source = []
-        && List.length (Typed.function_all_results source) <= 512);
+        && Typed.function_outer_callback_calls source = []);
       let calls =
         List.map
           (function
@@ -2734,11 +2735,22 @@ module Mixed_scalar_source = struct
                     targets)
                = 1)
              calls);
+      let module Identities = Budget.Identity (struct
+        type t = Typed.expression_result
+      end) in
+      let owners = Identities.create 16 and claimed = Identities.create 16 in
+      List.iter
+        (fun value ->
+          Budget.charge budget 1;
+          Identities.replace owners value ())
+        (Typed.function_all_results source);
       let seen = ref [] and seen_calls = ref [] in
       let rec expression depth value =
-        require (depth > 0 && not (List.exists (( == ) value) !seen));
+        Budget.enter budget depth;
+        require (not (Identities.mem claimed value));
+        Identities.add claimed value ();
         require
-          (List.exists (( == ) value) (Typed.function_all_results source)
+          (Identities.mem owners value
           && (Typed.result_array_rank value = 0 || owned)
           && scalar_or_void_call ~owned value);
         seen := value :: !seen;
@@ -2845,7 +2857,7 @@ module Mixed_scalar_source = struct
         | _ -> raise Unproved
       in
       let validate value =
-        let pairs = expression 32 value in
+        let pairs = expression Budget.max_depth value in
         let pairs =
           List.sort
             (fun (a, _) (b, _) ->
@@ -2862,18 +2874,59 @@ module Mixed_scalar_source = struct
                 ~expression:(Typed.result_source value)
                 ~calls:(List.map fst pairs) ~call_expressions:pairs ()))
       in
-      let initializers = ref (Typed.function_initializers source)
-      and expressions = ref (Typed.function_expression_statements source)
-      and conditions = ref (Typed.function_conditions source)
-      and returns = ref (Typed.function_returns source) in
-      let take remaining matches =
-        let found =
-          match List.filter matches !remaining with
-          | [ found ] -> found
-          | _ -> raise Unproved
+      let span_key (span : Common.Span.t) =
+        (Common.Source_id.to_int span.source, span.start, span.stop)
+      in
+      let value_span value =
+        match Typed.result_origin value with
+        | Sema.Symbol.Source_location location -> location.span
+        | _ -> raise Unproved
+      in
+      let indexed_roots span roots =
+        let index = Hashtbl.create 16 in
+        List.iter
+          (fun root ->
+            Budget.charge budget 1;
+            let key = span_key (span root) in
+            let old = Option.value ~default:[] (Hashtbl.find_opt index key) in
+            Hashtbl.replace index key (root :: old))
+          roots;
+        let take span matches =
+          Budget.charge budget 1;
+          let key = span_key span in
+          let roots = Option.value ~default:[] (Hashtbl.find_opt index key) in
+          Budget.charge budget (2 * List.length roots);
+          let found =
+            match List.filter matches roots with
+            | [ found ] -> found
+            | _ -> raise Unproved
+          in
+          let rest = List.filter (fun other -> other != found) roots in
+          if rest = [] then Hashtbl.remove index key
+          else Hashtbl.replace index key rest;
+          found
         in
-        remaining := List.filter (fun other -> other != found) !remaining;
-        found
+        (take, fun () -> Hashtbl.length index = 0)
+      in
+      let initializers, no_initializers =
+        indexed_roots
+          (fun root -> value_span (Typed.initializer_value root))
+          (Typed.function_initializers source)
+      and expressions, no_expressions =
+        indexed_roots
+          (fun root -> value_span (Typed.expression_statement_value root))
+          (Typed.function_expression_statements source)
+      and conditions, no_conditions =
+        indexed_roots
+          (fun root -> value_span (Typed.condition_value root))
+          (Typed.function_conditions source)
+      and returns, no_returns =
+        indexed_roots
+          (fun root ->
+            match Source.return_origin (Typed.return_source root) with
+            | Sema.Symbol.Source_location location -> location.span
+            | _ -> raise Unproved)
+          (Typed.function_returns source)
       in
       let matches value ast =
         Option.equal ( == )
@@ -2882,7 +2935,7 @@ module Mixed_scalar_source = struct
       in
       let condition role ast =
         let root =
-          take conditions (fun root ->
+          conditions (Ast.expression_location ast).span (fun root ->
               Source.condition_role (Typed.condition_source root) = role
               && matches (Typed.condition_value root) ast)
         in
@@ -2891,10 +2944,9 @@ module Mixed_scalar_source = struct
         validate value;
         value
       in
-      let declarations = ref 0 and statement_budget = ref 1024 in
+      let declarations = ref 0 in
       let rec statement depth node =
-        decr statement_budget;
-        require (depth > 0 && !statement_budget >= 0);
+        Budget.enter budget depth;
         match node with
         | Ast.Empty_statement empty ->
             Lower.Empty
@@ -2912,7 +2964,9 @@ module Mixed_scalar_source = struct
                  sequence.sequence_elements)
         | Expression_statement ast ->
             let root =
-              take expressions (fun root ->
+              expressions
+                (Ast.expression_location ast.expression_statement_expression)
+                  .span (fun root ->
                   matches
                     (Typed.expression_statement_value root)
                     ast.expression_statement_expression)
@@ -2922,7 +2976,7 @@ module Mixed_scalar_source = struct
             Lower.Expression value
         | Return_statement ast ->
             let root =
-              take returns (fun root ->
+              returns ast.return_location.span (fun root ->
                   (match (Typed.return_value root, ast.return_value) with
                     | Some value, Some original -> matches value original
                     | None, None -> true
@@ -2958,7 +3012,8 @@ module Mixed_scalar_source = struct
                         | _ -> raise Unproved
                       in
                       let root =
-                        take initializers (fun root ->
+                        initializers (Ast.expression_location ast).span
+                          (fun root ->
                             let local =
                               Typed.initializer_source root
                               |> Source.initializer_local
@@ -3015,11 +3070,11 @@ module Mixed_scalar_source = struct
         | _ -> raise Unproved
       in
       let statements =
-        List.map (statement 32) (Option.to_list definition.body)
+        List.map (statement Budget.max_depth) (Option.to_list definition.body)
       in
       require
-        (!initializers = [] && !expressions = [] && !conditions = []
-       && !returns = []
+        (no_initializers () && no_expressions () && no_conditions ()
+       && no_returns ()
         && List.length !seen = List.length (Typed.function_all_results source)
         && List.length !seen_calls = List.length calls);
       let canonical =
@@ -3055,12 +3110,22 @@ module Mixed_scalar_source = struct
       Some statements
     with Unproved -> None
 
-  let authenticate ?runtime ~frame ~body () =
-    Option.is_some (reconstruct ?runtime ~frame ~body ())
+  let authenticate ?runtime ~budget ~frame ~body () =
+    Option.is_some (reconstruct ?runtime ~budget ~frame ~body ())
 end
 
 let authenticates_mixed_scalar_source ~runtime ~frame ~body =
-  Mixed_scalar_source.authenticate ~runtime ~frame ~body ()
+  Option.value ~default:false
+    (Budget.protect (fun () ->
+         let budget = Budget.create body in
+         if
+           not
+             (Exact_register_scores.permits_automatic_analysis_with_budget
+                ~budget body)
+         then Some false
+         else
+           Some
+             (Mixed_scalar_source.authenticate ~runtime ~budget ~frame ~body ())))
 
 (* OptPass3 scores member accesses across the whole function, not per basic
    block. Check that all automatic candidates fit the remaining variable banks,
@@ -3072,7 +3137,8 @@ let authenticates_mixed_scalar_source ~runtime ~frame ~body =
    activation. IC_CALL_INDIRECT2 is admitted only for a named definition's JIT
    address slot, not for a callback. Locals require a single source-owned initializer in the entry block, with
    local dependencies initialized before each read. *)
-let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
+let analyze_integer_function ?exact ?runtime ?(mixed = false) ~budget ~frame
+    ~body () =
   let locations = Frame.function_locations frame in
   let integer_member location =
     (Frame.location_kind location = Frame.Named_parameter
@@ -3093,6 +3159,8 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
   let code =
     List.concat_map (fun (_, instructions, _) -> instructions) blocks
   in
+  Budget.charge budget
+    (List.length locations + List.length blocks + List.length code);
   let update = function
     | O.Ic_shl_equ
     | Ic_shr_equ
@@ -3266,12 +3334,11 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
          (Int64.lognot Function_body.ordinary_calling_flag_mask)
        <> 0L
     || locations = []
-    || List.length locations > 32
     || (not (List.for_all integer_member locations))
     || (not (safe_register_requests locations))
-    || List.length blocks > 64
-    || List.length code > 512
-    || (mixed && not (Mixed_scalar_source.authenticate ?runtime ~frame ~body ()))
+    || mixed
+       && not
+            (Mixed_scalar_source.authenticate ?runtime ~budget ~frame ~body ())
     || List.length targets <> List.length source_calls
     || not (List.for_all allowed code)
   then None
@@ -3284,19 +3351,21 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
           | Some result -> Values.add result.value_id item map)
         Values.empty code
     in
-    let users id =
-      List.filter
-        (fun (item : Seq.description) ->
-          List.exists (Seq.Value_id.equal id) item.operands)
-        code
-    in
-    let location_at offset =
-      List.find_opt
-        (fun location ->
+    let users = Budget.users budget code in
+    let by_offset = Hashtbl.create 16 in
+    List.iter
+      (fun location ->
+        Budget.charge budget 1;
+        let offset =
           Frame.frame_slot_displacement
             (Option.get (Frame.location_frame_slot location))
-          = offset)
-        locations
+        in
+        if not (Hashtbl.mem by_offset offset) then
+          Hashtbl.add by_offset offset location)
+      locations;
+    let location_at offset =
+      Budget.charge budget 1;
+      Hashtbl.find_opt by_offset offset
     in
     let frame_address (item : Seq.description) =
       match (item.opcode, item.operands, item.result) with
@@ -3330,8 +3399,21 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
       | _ -> None
     in
     let addresses = List.filter_map frame_address code in
+    let module Locations = Budget.Identity (struct
+      type t = Frame.location
+    end) in
+    let used_locations = Locations.create 16 in
+    let address_index =
+      List.fold_left
+        (fun index ((id, location) as address) ->
+          Budget.charge budget 1;
+          Locations.replace used_locations location ();
+          if Values.mem id index then index else Values.add id address index)
+        Values.empty addresses
+    in
     let used location =
-      List.exists (fun (_, original) -> original == location) addresses
+      Budget.charge budget 1;
+      Locations.mem used_locations location
     in
     let register_capacity_fits, forced_capacity_fits =
       let explicit =
@@ -3393,7 +3475,8 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
            locations
     in
     let address id =
-      List.find_opt (fun (other, _) -> Seq.Value_id.equal id other) addresses
+      Budget.charge budget 1;
+      Values.find_opt id address_index
     in
     let load id =
       Option.bind (Values.find_opt id produced) (fun (item : Seq.description) ->
@@ -3465,8 +3548,8 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
     in
     let rec matches_expression_operand ?(allowed_load = fun _ _ -> true) depth
         value operand =
-      if depth = 0 then false
-      else if
+      Budget.enter budget depth;
+      if
         Option.fold ~none:false
           ~some:(fun (_, location) -> not (allowed_load operand location))
           (load operand)
@@ -3692,7 +3775,8 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
           == Frame.location_symbol location
           &&
           let source = Typed.initializer_value initialization in
-          matches_expression_operand ~allowed_load 32 source operand)
+          matches_expression_operand ~allowed_load Budget.max_depth source
+            operand)
         local_initializers
     in
     let initialization (item : Seq.description) =
@@ -3719,6 +3803,37 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
         | [ _ ] -> true
         | _ -> false
     in
+    let source_updates = Hashtbl.create 16 in
+    Option.iter
+      (fun source ->
+        List.iter
+          (fun value ->
+            Budget.charge budget 1;
+            let span =
+              match
+                Calls.argument_expression_source (Typed.result_source value)
+              with
+              | Some (Frontend.Ast.Binary_expression binary) ->
+                  Some binary.binary_operator.operator_location.span
+              | Some (Frontend.Ast.Prefix_expression prefix) ->
+                  Some prefix.prefix_operator.operator_location.span
+              | Some (Frontend.Ast.Postfix_expression postfix) ->
+                  Some postfix.postfix_operator.operator_location.span
+              | _ -> None
+            in
+            Option.iter
+              (fun span ->
+                let old =
+                  Option.value ~default:[]
+                    (Hashtbl.find_opt source_updates span)
+                in
+                Hashtbl.replace source_updates span (value :: old))
+              span)
+          (Typed.function_all_results source))
+      (Function_body.definition_source body);
+    Hashtbl.filter_map_inplace
+      (fun _ values -> Some (List.rev values))
+      source_updates;
     let source_matches_update (item : Seq.description) =
       let span_matches (operator : Frontend.Ast.expression_operator) =
         item.span = Some operator.operator_location.span
@@ -3738,7 +3853,8 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
                         (item.opcode = O.Ic_shl_equ
                        || item.opcode = O.Ic_shr_equ)
                       right operand
-                   || matches_expression_operand 32 right operand)
+                   || matches_expression_operand Budget.max_depth right operand
+                   )
                 &&
                 match (binary.binary_operator_spec.spelling, item.opcode) with
                 | "=", O.Ic_assign
@@ -3780,9 +3896,13 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
       in
       item.payload = None
       && Option.fold ~none:false
-           ~some:(fun source ->
-             List.exists matches (Typed.function_all_results source))
-           (Function_body.definition_source body)
+           ~some:(fun span ->
+             let values =
+               Option.value ~default:[] (Hashtbl.find_opt source_updates span)
+             in
+             Budget.charge budget (List.length values);
+             List.exists matches values)
+           item.span
     in
     let literal_operand opcode operand =
       match Values.find_opt operand produced with
@@ -3910,10 +4030,12 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
                              adds one score/LEA, then :119-135,149-163,223-244
                              adds one score and cancels that LEA for its sole
                              authenticated read/write consumer. Initializers
-                             count as writes. The 32-member/512-instruction
-                             bound cannot overflow the REG_ALLOC seed. *)
+                             count as writes. Each claim charges the checked
+                             traversal allowance, leaving headroom above the
+                             REG_ALLOC seed for twice the occurrence count. *)
                           score =
-                            Int64.add seed (Int64.of_int (2 * occurrences));
+                            Int64.add seed
+                              (Int64.mul 2L (Int64.of_int occurrences));
                           offset =
                             Frame.frame_slot_displacement
                               (Option.get (Frame.location_frame_slot location));
@@ -3932,6 +4054,7 @@ let analyze_integer_function ?exact ?runtime ?(mixed = false) ~frame ~body () =
                     ( Frame.location_symbol (fst (List.nth members index)),
                       number ))
                   (Scored_register_allocation.allocate
+                     ~charge:(fun () -> Budget.charge budget 1)
                      ~reserved:(List.map snd explicit) candidates))
           exact
       in
@@ -4036,22 +4159,31 @@ let complete_parameter_coverage ~frame =
                (Headers.parameter_source parameter))
            sources parameters)
        (source_parameters frame)
-  && List.for_all
-       (fun parameter ->
-         List.length
-           (List.filter
-              (fun location ->
-                match source_requests ~frame location with
-                | Some { owner = Parameter_owner original; _ } ->
-                    original == parameter
-                    && Sema.Symbol.name (Frame.location_symbol location)
-                       = Headers.parameter_lookup_name parameter
-                    && Sema.Symbol.origin (Frame.location_symbol location)
-                       = Headers.parameter_lookup_origin parameter
-                | _ -> false)
-              named_locations)
-         = 1)
-       parameters
+  && let module Owners = Budget.Identity (struct
+       type t = Headers.parameter
+     end) in
+     let counts = Owners.create 16 in
+     let valid =
+       List.for_all
+         (fun location ->
+           match source_requests ~frame location with
+           | Some { owner = Parameter_owner original; _ }
+             when Sema.Symbol.name (Frame.location_symbol location)
+                  = Headers.parameter_lookup_name original
+                  && Sema.Symbol.origin (Frame.location_symbol location)
+                     = Headers.parameter_lookup_origin original ->
+               let count =
+                 Option.value ~default:0 (Owners.find_opt counts original)
+               in
+               Owners.replace counts original (count + 1);
+               true
+           | _ -> false)
+         named_locations
+     in
+     valid
+     && List.for_all
+          (fun parameter -> Owners.find_opt counts parameter = Some 1)
+          parameters
 
 let source_owned_requests ~frame ~body (original : location_stamp) =
   let members =
@@ -4101,7 +4233,7 @@ let source_owned_requests ~frame ~body (original : location_stamp) =
    canonical graph retains every frame load/store and its runtime initialization
    checks. A register home for an uninitialized local is not an initialized value.
    Pointer homes contain private descriptor pointers, never language addresses. *)
-let analyze_owned_members ?runtime ~frame ~body () =
+let analyze_owned_members ?runtime ~budget ~frame ~body () =
   let locations = Frame.function_locations frame in
   if
     (not (supported_options body && supported_register_requests locations))
@@ -4119,11 +4251,11 @@ let analyze_owned_members ?runtime ~frame ~body () =
   then None
   else
     Option.bind
-      (Mixed_scalar_source.reconstruct ?runtime ~owned:true ~frame ~body ())
-      (fun statements ->
+      (Mixed_scalar_source.reconstruct ?runtime ~owned:true ~budget ~frame ~body
+         ()) (fun statements ->
         Option.bind
-          (Exact_register_scores.analyze_members ~frame ~body ~statements)
-          (fun members ->
+          (Exact_register_scores.analyze_members_with_budget ~budget ~frame
+             ~body ~statements) (fun members ->
             (* Explicit requests bypass OptPass3's balance filtering. Their
                stack/register coexistence is not represented: reject, never spill
                or substitute a different requested physical home. *)
@@ -4219,6 +4351,7 @@ let analyze_owned_members ?runtime ~frame ~body () =
                       ( Frame.location_symbol (List.nth members index).location,
                         number ))
                     (Scored_register_allocation.allocate
+                       ~charge:(fun () -> Budget.charge budget 1)
                        ~reserved:(List.map snd explicit) candidates)
               in
               let blocks = snapshot body in
@@ -4295,11 +4428,15 @@ let analyze_owned_members ?runtime ~frame ~body () =
                     runtime_ = runtime;
                   }))
 
-let analyze_with_context ?runtime ~frame ~body () =
+let analyze_with_context ?runtime ~budget ~frame ~body () =
   if
     (not (complete_parameter_coverage ~frame))
-    || (not (Exact_register_scores.permits_automatic_analysis body))
-    || (not (Exact_register_scores.source_requests_match ~frame ~body))
+    || (not
+          (Exact_register_scores.permits_automatic_analysis_with_budget ~budget
+             body))
+    || (not
+          (Exact_register_scores.source_requests_match_with_budget ~budget
+             ~frame ~body))
     || not
          (Option.fold ~none:false
             ~some:(fun source ->
@@ -4336,17 +4473,20 @@ let analyze_with_context ?runtime ~frame ~body () =
           (Frame.function_locations frame)
       then
         let scores =
-          match Exact_register_scores.analyze ~frame ~body with
+          match
+            Exact_register_scores.analyze_with_budget ~budget ~frame ~body
+          with
           | Some _ as scores -> scores
           | None ->
               Option.bind
-                (Mixed_scalar_source.reconstruct ?runtime ~frame ~body ())
-                (fun statements ->
-                  Exact_register_scores.analyze_whole ~frame ~body ~statements)
+                (Mixed_scalar_source.reconstruct ?runtime ~budget ~frame ~body
+                   ()) (fun statements ->
+                  Exact_register_scores.analyze_whole_with_budget ~budget ~frame
+                    ~body ~statements)
         in
         Option.bind scores (fun scores ->
-            analyze_integer_function ?runtime ~exact:scores ~mixed ~frame ~body
-              ())
+            analyze_integer_function ?runtime ~exact:scores ~mixed ~budget
+              ~frame ~body ())
       else None
     in
     let extended =
@@ -4392,7 +4532,8 @@ let analyze_with_context ?runtime ~frame ~body () =
            (snapshot body)
     in
     let exact =
-      if extended then analyze_owned_members ?runtime ~frame ~body () else exact
+      if extended then analyze_owned_members ?runtime ~budget ~frame ~body ()
+      else exact
     in
     match exact with
     | Some proof -> Some proof
@@ -4405,7 +4546,8 @@ let analyze_with_context ?runtime ~frame ~body () =
                 ~some:(source_owned_requests ~frame ~body)
                 (location_stamp ~frame location))
             (Frame.function_locations frame)
-        then analyze_integer_function ?runtime ~mixed:true ~frame ~body ()
+        then
+          analyze_integer_function ?runtime ~mixed:true ~budget ~frame ~body ()
         else None
     | None -> (
         match analyze_parameter ~frame ~body with
@@ -4413,12 +4555,48 @@ let analyze_with_context ?runtime ~frame ~body () =
         | None -> (
             match analyze_local ~frame ~body with
             | Some proof -> Some proof
-            | None -> analyze_integer_function ~frame ~body ()))
+            | None -> analyze_integer_function ~budget ~frame ~body ()))
 
-let analyze ~frame ~body = analyze_with_context ~frame ~body ()
+let analyze_result_with_context ?runtime ?max_work ~frame ~body () =
+  (* With no frame members there is no register/stack choice to prove. In
+     particular, independently supported long comparison chains must not pay
+     the recursive allocation-expression cost merely to discover an empty
+     candidate list. This grants no witness and does not excuse exhaustion in
+     any function containing a member, including ordinary narrow integers. *)
+  if Frame.function_locations frame = [] then Ok None
+  else
+    let original_source =
+      Option.bind
+        (Function_body.definition_source body)
+        Sema.Function_call_expression_result.function_source_body
+    in
+    match (original_source, Function_body.span body) with
+    | Some definition, Some span
+      when Function_body.definition_matches_frame body frame
+           && span = definition.Frontend.Ast.location.span -> (
+        try
+          let budget = Budget.create ?max_work body in
+          Ok (analyze_with_context ?runtime ~budget ~frame ~body ())
+        with Budget.Exhausted -> Error Proof_limit_exceeded)
+    | _ -> Ok None
+
+let analyze_result ~frame ~body = analyze_result_with_context ~frame ~body ()
+
+let analyze_with_runtime_result ~runtime ~frame ~body =
+  analyze_result_with_context ~runtime ~frame ~body ()
+
+let analyze_with_work_limit ~max_work ~frame ~body =
+  analyze_result_with_context ~max_work ~frame ~body ()
+
+let analyze ~frame ~body =
+  match analyze_result ~frame ~body with
+  | Ok proof -> proof
+  | Error _ -> None
 
 let analyze_with_runtime ~runtime ~frame ~body =
-  analyze_with_context ~runtime ~frame ~body ()
+  match analyze_with_runtime_result ~runtime ~frame ~body with
+  | Ok proof -> proof
+  | Error _ -> None
 
 let selection t ~frame ~body ~symbol =
   if
@@ -4464,7 +4642,11 @@ let selection t ~frame ~body ~symbol =
     in
     match
       ( find t.selections_,
-        analyze_with_context ?runtime:t.runtime_ ~frame ~body () )
+        match
+          analyze_result_with_context ?runtime:t.runtime_ ~frame ~body ()
+        with
+        | Ok proof -> proof
+        | Error _ -> None )
     with
     | Some expected, Some current
       when find current.selections_ = Some expected
@@ -4519,8 +4701,10 @@ let unused_explicit_reservation t ~frame ~body ~symbol =
           | Explicit_request (_, number, _)
             when List.mem number variable_registers ->
               Option.bind
-                (Mixed_scalar_source.reconstruct ?runtime:t.runtime_ ~owned:true
-                   ~frame ~body ()) (fun statements ->
+                (Budget.protect (fun () ->
+                     Mixed_scalar_source.reconstruct ?runtime:t.runtime_
+                       ~owned:true ~budget:(Budget.create body) ~frame ~body ()))
+                (fun statements ->
                   Option.bind
                     (Exact_register_scores.analyze_members ~frame ~body
                        ~statements) (fun members ->

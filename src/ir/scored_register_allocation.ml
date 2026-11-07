@@ -42,23 +42,33 @@ let resolve_explicit requests =
   in
   { owners; shadowed = List.rev shadowed; conflicts = List.rev conflicts }
 
-let sort candidates =
+let sort ?(charge = fun () -> ()) candidates =
   let members = Array.of_list candidates in
+  let compare left right =
+    charge ();
+    Int64.compare left.score right.score
+  in
   (* COptMemberVar is 40 bytes, hence QSort dispatches to QSort2b, not the
      pointer-sized specialization. The pivot is a copied record. Translating
      byte pointers to array indices preserves every equal-score swap. *)
-  let rec qsort base count =
+  let pending = ref [ (0, Array.length members) ] in
+  while !pending <> [] do
+    charge ();
+    let base, count = List.hd !pending in
+    pending := List.tl !pending;
     if count > 1 then (
       let left = ref base and right = ref (base + count - 1) in
       let pivot = members.(base + (count / 2)) in
       while !left <= !right do
-        while Int64.compare members.(!left).score pivot.score > 0 do
+        charge ();
+        while compare members.(!left) pivot > 0 do
           incr left
         done;
-        while Int64.compare members.(!right).score pivot.score < 0 do
+        while compare members.(!right) pivot < 0 do
           decr right
         done;
         if !left <= !right then (
+          charge ();
           let temporary = members.(!right) in
           members.(!right) <- members.(!left);
           members.(!left) <- temporary;
@@ -66,23 +76,28 @@ let sort candidates =
           decr right)
       done;
       let lower = 1 + !right - base in
-      if lower > 1 && lower < count then qsort base lower;
       let upper = count + base - !left in
-      if upper > 1 && upper < count then qsort !left upper)
-  in
-  qsort 0 (Array.length members);
+      (* Push upper first so the explicit stack visits lower first, exactly as
+         QSort2b does. Partition swaps and unstable equal-score order stay intact,
+         without input-dependent host recursion. *)
+      if upper > 1 && upper < count then pending := (!left, upper) :: !pending;
+      if lower > 1 && lower < count then pending := (base, lower) :: !pending)
+  done;
   Array.to_list members
 
-let allocate ~reserved candidates =
+let allocate ?(charge = fun () -> ()) ~reserved candidates =
   (* OptPass3.HC:538-553 sorts before removing zeros. Removing them first
      changes the unstable equal-score order of the remaining members. *)
   let rec trim = function
-    | member :: rest when member.score = 0L -> trim rest
+    | member :: rest when member.score = 0L ->
+        charge ();
+        trim rest
     | members -> members
   in
   let candidates =
-    sort candidates |> List.rev |> trim |> List.rev
+    sort ~charge candidates |> List.rev |> trim |> List.rev
     |> List.filter (fun member ->
+        charge ();
         member.lea_balance = 0L && member.offset <> 0L)
   in
   let used = ref reserved and assigned = ref [] in
@@ -92,6 +107,7 @@ let allocate ~reserved candidates =
     in
     List.iter
       (fun member ->
+        charge ();
         if eligible member && not (List.mem_assoc member.member !assigned) then
           match !registers with
           | [] -> ()

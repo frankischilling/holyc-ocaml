@@ -82,17 +82,17 @@ apply. This does not close the general allocation work in #703.
 
 ## Parameter values across branches and loops
 
-A separate whole-function proof covers two to 32 checked integer frame members
-across branches, `while`, `do`, `for`, early returns and gotos. Compound updates must be
-standalone statements with a direct parameter or local read as their operand.
-Parameters may
-change between updates, including self-updates and mutually updated parameters.
+A separate whole-function proof covers the function’s complete checked integer
+member list across branches, `while`, `do`, `for`, early returns and gotos.
+Compound updates must be standalone statements with a direct parameter or local
+read as their operand. Parameters may change between updates, including self-updates and mutually updated parameters.
 Locals need the initializer proof described below. The proof rejects escaped
 addresses, Boolean members,
 immediate compound operands, consumed compound results, conflicting register
-requests and unsupported compiler options. It admits at most 64 blocks and 512
-instructions. The register-bank checks below account for explicit requests
-and `noreg`.
+requests and unsupported compiler options. It uses the same checked,
+size-derived traversal allowance as the exact proof, without independent block
+or instruction caps. The register-bank checks below account for explicit
+requests and `noreg`.
 
 `OptPass3.HC:223-247,511-621` scores member accesses across the whole function and
 selects nonescaping variables. `CInit.HC:244-257` and
@@ -182,7 +182,7 @@ the variable is unused. RAX, RBX, RCX, RDX, R8, R9, RBP and RSP remain outside
 this proof, as do duplicate requests. The host backend physically places authenticated RSI, RDI and R12-R15
 requests as described below. Other selected values retain private homes.
 
-The whole-function proof accepts two to 32 scalar frame members, provided every
+The whole-function proof accepts the complete scalar member list, provided every
 automatic candidate fits without a score-dependent eviction. `noreg` members
 consume no register slots. Unused ordinary parameters consume none either, but
 an unused `reg` request still counts because `OptPass3.HC:22-48` gives it a high
@@ -204,9 +204,42 @@ frame registers and preserve them across ordinary calls. The
 [register-bank example](../examples/register-bank-capacity.hc) uses all eight
 explicit registers across recursion and returns -240 after narrow argument
 conversion. Hosted tests cover all six narrow widths, division/remainder
-clobbers, calls, the 32-member bound and mixed `noreg` frames. These are
+clobbers, calls, more than 32 members and mixed `noreg` frames. These are
 source-derived expectations, not new TempleOS runtime captures or a completed
 physical register allocator.
+
+## Hosted proof work and larger functions
+
+Member, block, instruction and typed-result counts no longer have independent
+32/64/512 cutoffs. The default traversal allowance is 64 times one plus the
+original function source byte extent, member count, typed-result count, complete
+block count and instruction count. Extents and arithmetic are checked. Original
+source ownership and seals are still required; source size supplies work, never
+authenticity. Empty statements and unreachable code are included.
+
+Exact and conservative attempts share that allowance. Recursive source and
+expression visitors charge work and retain a separate 256-level host-stack
+guard. Receipt, typed-owner, instruction-use and access indexes preserve physical
+identity, duplicate detection and source order. Candidate sorting retains every
+pinned QSort2b comparison and swap, charging comparisons, partitions and bank
+scans, with an explicit partition stack instead of input-dependent host
+recursion. Other source-shape restrictions remain in force.
+
+Exhaustion revokes the complete attempt and is reported as a hosted resource
+failure, not a stack-selection decision. That distinction matters for ordinary
+narrow integers: truncating an unproved register value could change the result.
+The result-returning analysis API reports this separately from unsupported
+source shapes; its test-only stricter work override cannot expand the default
+allowance. Functions with no frame members need no allocation proof and skip
+its expression traversal, preserving independently supported long comparison
+chains. This does not exempt any function with a narrow or explicit member.
+Native graph, code, frame and runtime quotas remain independent.
+
+This is a traversal allowance, not a wall-clock or total compiler-CPU limit.
+Existing semantic seals and canonical lowering do their own work, and witness
+queries still reauthenticate the complete source and graph. No mutation-sensitive
+proof cache is introduced. See [allocation pressure](allocation-pressure.md) for
+larger public-command fixtures and the separate quota checks.
 
 ## Compiler option snapshots
 
@@ -357,7 +390,7 @@ full register result into a selected destination. The proof checks every
 accepted expression node against the original typed operator, source span and
 ordered operands. Changing an operand or adding a payload cannot acquire a new
 proof. Existing whole-function, capacity, initialization and escape checks
-still apply; expression matching is limited to 32 levels.
+still apply; recursive expression matching has the 256-level host-stack safeguard.
 
 Tests cover six narrow widths, four qualifiers, nested arithmetic/bitwise
 expressions, branches, loops, locals and values retained across named calls.
@@ -448,7 +481,7 @@ TempleOS runtime captures or a general physical register allocator.
 Register selection no longer requires a branch or named call. TempleOS scores
 and selects members across the complete function (`OptPass3.HC:22-48,516-621`),
 including straight-line bodies. The same owned whole-function proof now covers
-one to 32 integer frame members without imposing a return-expression shape or
+complete integer frame membership without imposing a return-expression shape or
 an arbitrary five-update limit. Existing code, block, expression-depth and
 register-capacity bounds still apply.
 
@@ -656,15 +689,15 @@ separately in both JIT and AOT modes.
 
 ## Scored straight-line allocation
 
-Straight-line integer and mixed integer/F64 functions can use the original score and allocation
-order instead of the conservative capacity estimate. The supported source has
+Straight-line integer and mixed integer/F64 functions can use the original
+score and allocation order instead of the conservative capacity estimate. The supported source has
 named scalar parameters, initialized automatic locals, ordinary integer
 expressions, discarded assignments or updates, and a final return. Calls,
 branches, loops, casts, pointer operations, aggregates, statics and nested writes
-remain outside this exact subset. The checker also limits functions to 32 frame
-members, 512 entry instructions and expression depth 32. The broader
-conservative proofs still cover
-their previously supported shapes.
+remain outside this exact subset. The checker shares the size-derived traversal
+allowance and 256-level host-stack safeguard described above, with no separate
+member or instruction cap. The broader conservative proofs still cover their
+previously supported shapes.
 
 Each original direct member read or write target contributes two score points.
 PrsExp.HC:800-802 emits its frame address; OptPass3.HC:187-198 scores the LEA,

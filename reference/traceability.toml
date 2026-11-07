@@ -15458,3 +15458,15 @@ status = "partial"
 issue = 703
 verification = "Original typed index chains, classes, conversion intent, dimensions and canonical owners authenticate a bounded integer/address tree with the original whole-function passes and enclosing supplied-argument preparation passes. Scalar SIZEOF wrappers preserve delayed first-pass folding; dynamic zero multiplication retains its reads. Original multidimensional strides produce actual surviving RBP displacement events rather than an algebraically flattened index. Independent source trees, scores, LEA balances and literal maps accompany per-dimension bounds, exact quotas, compact frames and retained-image recovery. Saved/fresh ownership mutations include bracket-class-size metadata and dimension order."
 evidence_limit = "Only integer literals, owned scalar reads, index grouping, unary plus/minus and binary plus/minus/multiply are admitted. Unrepresentable signed folds and source-merged shifts of 64 or more reject; the source bit-63 multiplier rule is modeled. Side effects, calls, updates, unproved conversions, grouped bases and partial escapes remain excluded. Existing storage/index/numeric execution boundaries are unchanged. Pinned-source deductions and hosted tests, not new TempleOS captures or full issue 703."
+
+[[feature]]
+id = "HC-SCALABLE-ALLOCATION-PROOF"
+description = "Whole-function allocation beyond small hosted member and graph cutoffs, with checked proof traversal work."
+sources = ["Compiler/OptPass3.HC:21-49,119-245,536-612", "Kernel/QSort.HC:55-100"]
+implementation = ["src/ir/register_proof_budget.ml", "src/ir/exact_register_scores.ml", "src/ir/register_variable_analysis.ml", "src/ir/scored_register_allocation.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/driver/integer_update_initializers.ml", "src/driver/integer_initializers.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_scored_register_allocation.ml", "test/test_allocation_pressure_cli.ml"]
+documentation = ["docs/allocation-pressure.md", "docs/register-variable-analysis.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md"]
+status = "partial"
+issue = 703
+verification = "Source-sized candidate membership and pinned unstable QSort ordering remain complete beyond the former 32-member, 64-block and 512-instruction cutoffs. Shared checked traversal work covers exact and conservative attempts, recursive visitors and sorting. Physical-identity indexes retain duplicate cardinality and original ordering. Explicit resource errors prevent exhaustion from silently changing narrow register values. Independent pressure, tie-order, large-frame, depth, exact-quota and recovery cases exercise IR and native JIT/AOT paths."
+evidence_limit = "A hosted traversal allowance and 256-level proof recursion safeguard, not a TempleOS resource limit or total compiler CPU budget. Source-shape restrictions, semantic reauthentication, specialized pattern limits and native quotas remain. No new TempleOS captures, general F64 comparison/update allocation or complete issue 703."

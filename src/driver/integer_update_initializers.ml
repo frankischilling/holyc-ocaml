@@ -8,7 +8,10 @@ module Values = Map.Make (Seq.Value_id)
 module Locations = Map.Make (Sema.Symbol.Id)
 
 type terminal = { value : Seq.Value_id.t; destination_type : T.t }
-type failure = { instruction : Seq.description; reason : string }
+
+type failure =
+  | Unsupported_update of { instruction : Seq.description; reason : string }
+  | Allocation_proof_limit_exceeded of Common.Span.t option
 
 type memory =
   | Memory
@@ -176,15 +179,18 @@ let scalar_number target_type opcode operands =
 
 let check_graph ~globals ~frame ~function_body ~compiler_options ~terminal graph
     =
-  let register_proof =
+  let ( let* ) = Result.bind in
+  let* register_proof =
     match (frame, function_body) with
     | Some frame, Some body
       when Ir.Function_body.body body == graph
            && Ir.Function_body.compiler_options body = compiler_options ->
-        Option.map
-          (fun proof -> (frame, body, proof))
-          (Ir.Register_variable_analysis.analyze ~frame ~body)
-    | _ -> None
+        Ir.Register_variable_analysis.analyze_result ~frame ~body
+        |> Result.map (Option.map (fun proof -> (frame, body, proof)))
+        |> Result.map_error (function
+            | Ir.Register_variable_analysis.Proof_limit_exceeded ->
+            Allocation_proof_limit_exceeded (Ir.Function_body.span body))
+    | _ -> Ok None
   in
   let selected_register location =
     Option.fold ~none:false
@@ -586,7 +592,8 @@ let check_graph ~globals ~frame ~function_body ~compiler_options ~terminal graph
                    rather than a possible wide register"
         in
         match if verify then failure else None with
-        | Some reason -> Error { instruction = item; reason }
+        | Some reason ->
+            Error (Unsupported_update { instruction = item; reason })
         | None ->
             let produced_number =
               match

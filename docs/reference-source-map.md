@@ -2701,3 +2701,13 @@ For provided fixed-call arguments, `PrsExp.HC:469-485` runs preliminary passes
 zero and one before the whole-function passes. Nested argument contexts retain
 each preparation step; argument-value conversion is attached afterward rather
 than to the index subtree.
+
+### Allocation proof width and hosted traversal work
+
+`OptPass3.HC:21-49` sizes candidates from the original member count, not a small
+fixed cutoff. Lines 536-612 sort before trimming and selecting homes;
+`Kernel/QSort.HC:55-100` defines the unstable tie order. Hosted analysis retains
+that order with an explicit partition stack and checked traversal work, including
+sorting. Source/IR identity checks remain separate from the work allowance.
+See [allocation pressure](allocation-pressure.md) for the source-derived tests
+and the retained host safeguards.

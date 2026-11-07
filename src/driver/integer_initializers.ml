@@ -862,15 +862,24 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   ~terminal graph =
                 Updates.check_graph ~globals ~frame ~function_body
                   ~compiler_options ~terminal graph
-                |> Result.map_error (fun (failure : Updates.failure) ->
-                    [
-                      Common.Diagnostic.make ~code:"HCRUN0006"
-                        ~severity:Common.Diagnostic.Error
-                        ~message:failure.reason
-                        ~primary:
-                          (Option.value failure.instruction.span ~default:at)
-                        ~notes ();
-                    ])
+                |> Result.map_error (function
+                  | Updates.Unsupported_update { instruction; reason } ->
+                      [
+                        Common.Diagnostic.make ~code:"HCRUN0006"
+                          ~severity:Common.Diagnostic.Error ~message:reason
+                          ~primary:(Option.value instruction.span ~default:at)
+                          ~notes ();
+                      ]
+                  | Updates.Allocation_proof_limit_exceeded span ->
+                      [
+                        Common.Diagnostic.make ~code:"HCIRVM0007"
+                          ~severity:Common.Diagnostic.Error
+                          ~message:
+                            "allocation proof exceeds the hosted work or \
+                             nesting allowance"
+                          ~primary:(Option.value span ~default:at)
+                          ~notes ();
+                      ])
               in
               let* destination_type, compiler_options =
                 match root_ with

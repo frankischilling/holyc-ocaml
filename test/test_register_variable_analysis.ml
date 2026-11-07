@@ -5649,9 +5649,9 @@ let register_bank_selection () =
           in
           let fn = compile ~name:"F" mode source in
           Alcotest.(check bool)
-            "frame member bound" (count = 32)
+            "frame members scale beyond the old cap" true
             (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
-        [ 32; 33 ];
+        [ 32; 33; 128 ];
       List.iter
         (fun register ->
           let source =
@@ -6490,9 +6490,6 @@ let unsupported_selection () =
           "I64 F(){I8 x=255;x+=2147483648;return x;}42;";
           "I64 F(){I8 x=255;x-=0x8000000000000000;return x;}42;";
           "I64 F(){I8 x=255;x-=2147483648;return x;}42;";
-          "I64 F(I8 x,I64 c){"
-          ^ String.concat "" (List.init 200 (fun _ -> "c;"))
-          ^ "x<<=c;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -8493,11 +8490,174 @@ let local_index_call_context_authority () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let scalable_proof_policy () =
+  let module Budget = Holyc_lib__Ir.Register_proof_budget in
+  List.iter
+    (fun mode ->
+      let chain = String.concat "<=" (List.init 2001 (fun _ -> "1")) in
+      let memberless =
+        compile ~name:"F" mode
+          ("I64 F(){if(" ^ chain ^ ")return 42;return 9;}F();")
+      in
+      Alcotest.(check int)
+        "long chain has no allocation candidates" 0
+        (List.length (Frame.function_locations memberless.frame));
+      Alcotest.(check bool)
+        "memberless deep expression needs no allocation proof" true
+        (Analysis.analyze_result ~frame:memberless.frame ~body:memberless.body
+        = Ok None);
+      Alcotest.(check bool)
+        "memberless source does not consume allocation work" true
+        (Analysis.analyze_with_work_limit ~max_work:0 ~frame:memberless.frame
+           ~body:memberless.body
+        = Ok None);
+      let fn = compile ~name:"F" mode "I64 F(I8 x){x+=1;return x;}42;" in
+      let frame = fn.frame and body = fn.body in
+      let capacity = Budget.remaining (Budget.create body) in
+      Alcotest.(check int)
+        "size accounting includes source and retained graph" 640
+        (Budget.capacity ~source_bytes:4 ~retained_nodes:5);
+      List.iter
+        (fun (source_bytes, retained_nodes) ->
+          Alcotest.check_raises "invalid or overflowing size fails closed"
+            Budget.Exhausted (fun () ->
+              ignore (Budget.capacity ~source_bytes ~retained_nodes)))
+        [ (-1, 0); (0, -1); (max_int, 0); (0, max_int); (max_int / 64, 0) ];
+      let clone : Body.t = Obj.obj (Obj.dup (Obj.repr body)) in
+      let original_span = Option.get (Body.span body) in
+      let bad_span = { original_span with start = -1 } in
+      Obj.set_field (Obj.repr clone) 9 (Obj.repr (Some bad_span));
+      Alcotest.(check bool)
+        "forged negative span installed" true
+        (Body.span clone = Some bad_span);
+      Alcotest.check_raises "malformed body span cannot supply fuel"
+        Budget.Exhausted (fun () -> ignore (Budget.create clone));
+      Alcotest.(check bool)
+        "unowned span does not become a resource claim" true
+        (Analysis.analyze_result ~frame ~body:clone = Ok None);
+      let synthetic : Body.t = Obj.obj (Obj.dup (Obj.repr body)) in
+      Obj.set_field (Obj.repr synthetic) 12 (Obj.repr None);
+      Alcotest.(check bool)
+        "synthetic body has no source" true
+        (Body.definition_source synthetic = None);
+      Alcotest.(check bool)
+        "missing source remains unsupported rather than quota failure" true
+        (Analysis.analyze_result ~frame ~body:synthetic = Ok None);
+      let has_proof = function
+        | Ok (Some _) -> true
+        | _ -> false
+      in
+      Alcotest.(check bool)
+        "default size-derived allowance admits proof" true
+        (has_proof (Analysis.analyze_result ~frame ~body));
+      let rec first low high =
+        if low = high then low
+        else
+          let middle = low + ((high - low) / 2) in
+          if
+            has_proof
+              (Analysis.analyze_with_work_limit ~max_work:middle ~frame ~body)
+          then first low middle
+          else first (middle + 1) high
+      in
+      let required = first 0 capacity in
+      Alcotest.(check bool) "positive cumulative work" true (required > 0);
+      Alcotest.(check bool)
+        "exact work allowance" true
+        (has_proof
+           (Analysis.analyze_with_work_limit ~max_work:required ~frame ~body));
+      Alcotest.(check bool)
+        "one-below rejects instead of falling back" true
+        (Analysis.analyze_with_work_limit ~max_work:(required - 1) ~frame ~body
+        = Error Analysis.Proof_limit_exceeded);
+      Alcotest.(check bool)
+        "zero work rejects before fallback" true
+        (Analysis.analyze_with_work_limit ~max_work:0 ~frame ~body
+        = Error Analysis.Proof_limit_exceeded);
+      Alcotest.(check bool)
+        "negative work rejects" true
+        (Analysis.analyze_with_work_limit ~max_work:(-1) ~frame ~body
+        = Error Analysis.Proof_limit_exceeded);
+      Alcotest.(check bool)
+        "larger override cannot enlarge default capacity" true
+        (Budget.remaining (Budget.create ~max_work:max_int body) = capacity);
+      let recovered = Option.get (Analysis.analyze ~frame ~body) in
+      Alcotest.(check (option int))
+        "failure does not poison later source proof" (Some 6)
+        (Analysis.physical_register recovered ~frame ~body
+           ~symbol:(Frame.location_symbol (location frame "x")));
+      let budget = Budget.create ~max_work:1 body in
+      Budget.charge budget 1;
+      Alcotest.(check int)
+        "exact charge consumes allowance" 0 (Budget.remaining budget);
+      Alcotest.check_raises "one beyond allowance" Budget.Exhausted (fun () ->
+          Budget.charge budget 1);
+      Alcotest.check_raises "negative charge cannot mint work" Budget.Exhausted
+        (fun () -> Budget.charge budget (-1));
+      let code =
+        Graph.blocks (Body.body body)
+        |> List.concat_map (fun block ->
+            Seq.instructions (Graph.instructions block)
+            |> List.map Seq.description)
+      in
+      let item =
+        List.find (fun (item : Seq.description) -> item.operands <> []) code
+      in
+      let operand = List.hd item.operands in
+      let repeated = { item with Seq.operands = [ operand; operand ] } in
+      let users = Budget.users (Budget.create body) [ repeated ] in
+      Alcotest.(check int)
+        "same operand twice remains one consuming instruction" 1
+        (List.length (users operand));
+      let users = Budget.users (Budget.create body) [ repeated; repeated ] in
+      Alcotest.(check int)
+        "duplicate instruction occurrence cannot be hidden" 2
+        (List.length (users operand));
+      let more = { repeated with Seq.flags = Int64.logxor repeated.flags 1L } in
+      let users = Budget.users (Budget.create body) [ repeated; more ] in
+      Alcotest.(check bool)
+        "use index preserves complete source instruction order" true
+        (match users operand with
+        | [ a; b ] -> a == repeated && b == more
+        | _ -> false);
+      let module Identity = Budget.Identity (struct
+        type t = int ref
+      end) in
+      let table = Identity.create 1 in
+      let original = ref 1 in
+      Identity.add table original ();
+      Alcotest.(check bool)
+        "physical owner preserved" true
+        (Identity.mem table original);
+      Alcotest.(check bool)
+        "structurally equal foreign owner rejected" false
+        (Identity.mem table (ref 1));
+      List.iter
+        (fun statements ->
+          let source =
+            "I64 F(I8 x,I64 c){" ^ statements ^ "x<<=c;return x;}42;"
+          in
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "complete straight-line proof exceeds old IR cap" true
+            (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [ String.concat "" (List.init 200 (fun _ -> "c;")) ];
+      let nested = String.make 40 '(' ^ "x" ^ String.make 40 ')' in
+      let fn =
+        compile ~name:"F" mode ("I64 F(I8 x){x+=1;return " ^ nested ^ ";}42;")
+      in
+      Alcotest.(check bool)
+        "expression proof exceeds old depth32" true
+        (Option.is_some (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Register variable analysis"
     [
       ( "source",
         [
+          Alcotest.test_case "scalable proof traversal policy" `Quick
+            scalable_proof_policy;
           Alcotest.test_case "local index call context authority" `Quick
             local_index_call_context_authority;
           Alcotest.test_case "local index source phase normalization" `Quick

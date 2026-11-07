@@ -10,6 +10,52 @@ module O = Opcode
 module Ast = Frontend.Ast
 module Request = Sema.Register_request
 
+exception Unproved
+
+module Budget = Register_proof_budget
+
+module Result_identity = Budget.Identity (struct
+  type t = Typed.expression_result
+end)
+
+module Binding_identity = Budget.Identity (struct
+  type t = Binding.binding
+end)
+
+module Location_identity = Budget.Identity (struct
+  type t = Frame.location
+end)
+
+let result_claims budget source =
+  let owners = Result_identity.create 16 and seen = Result_identity.create 16 in
+  List.iter
+    (fun owner ->
+      Budget.charge budget 1;
+      Result_identity.replace owners owner ())
+    (Typed.function_all_results source);
+  fun value ->
+    Budget.charge budget 1;
+    if
+      (not (Result_identity.mem owners value)) || Result_identity.mem seen value
+    then false
+    else (
+      Result_identity.add seen value ();
+      true)
+
+let binding_locations budget locations =
+  let index = Binding_identity.create 16 in
+  List.iter
+    (fun location ->
+      Budget.charge budget 1;
+      let binding = Frame.location_binding location in
+      (* A duplicate owner is not a different source member. *)
+      if Binding_identity.mem index binding then raise Unproved;
+      Binding_identity.add index binding location)
+    locations;
+  fun binding ->
+    Budget.charge budget 1;
+    Binding_identity.find_opt index binding
+
 (* PrsLib.HC:257-263 runs OptPass012 twice before member scoring. In this
    admitted integer grammar, OptLib.HC:172-177,196-225 folds only immediate
    children. OptPass012.HC:308-432,485-658 preserves the variable subtree in
@@ -24,8 +70,6 @@ module Request = Sema.Register_request
    disappear only after scoring (BackLib.HC:509-510). Source occurrences
    therefore survive to OptPass3 one for one; hosted loads alone are never
    used to infer the TempleOS score or floating execution semantics. *)
-
-exception Unproved
 
 let require condition = if not condition then raise Unproved
 
@@ -113,6 +157,60 @@ type access = {
   kind : access_kind;
 }
 
+let access_groups budget locations accesses =
+  let index = Location_identity.create 16 in
+  List.iter
+    (fun access ->
+      Budget.charge budget 1;
+      let previous =
+        Option.value ~default:[]
+          (Location_identity.find_opt index access.location)
+      in
+      Location_identity.replace index access.location (access :: previous))
+    accesses;
+  List.map
+    (fun location ->
+      Budget.charge budget 1;
+      ( location,
+        List.rev
+          (Option.value ~default:[] (Location_identity.find_opt index location))
+      ))
+    locations
+
+let access_index ~with_kind budget accesses =
+  let index = Hashtbl.create 16 in
+  let key access =
+    ( Common.Source_id.to_int access.span.source,
+      access.span.start,
+      access.span.stop,
+      Frame.frame_slot_displacement
+        (get (Frame.location_frame_slot access.location)),
+      if with_kind then Some access.kind else None )
+  in
+  List.iter
+    (fun access ->
+      Budget.charge budget 1;
+      let key = key access in
+      let old = Option.value ~default:[] (Hashtbl.find_opt index key) in
+      Hashtbl.replace index key (access :: old))
+    accesses;
+  let take span displacement kind =
+    Budget.charge budget 1;
+    let key =
+      ( Common.Source_id.to_int span.Common.Span.source,
+        span.start,
+        span.stop,
+        displacement,
+        if with_kind then kind else None )
+    in
+    match Hashtbl.find_opt index key with
+    | Some [ access ] ->
+        Hashtbl.remove index key;
+        access
+    | _ -> raise Unproved
+  in
+  (take, fun () -> Hashtbl.length index = 0)
+
 type root =
   | Initializer of Typed.initializer_result
   | Statement of Typed.expression_statement_result
@@ -165,42 +263,68 @@ let equal_source_stamp left right =
          statement == other && span = other_span)
        left.statements right.statements
 
-let permits_automatic_analysis body =
-  let rec statement = function
-    | Ast.Try_catch_statement _ -> false
-    | Block_statement block -> List.for_all statement block.block_statements
+(* Visit every source arm, including empty and unreachable statements, before
+   any proof fallback. The semantic owner also retains its independent seal. Source bytes supply finite work,
+   not authority. Stack depth and cumulative work are independent safeguards. *)
+let visit_source_statements ~budget body visit =
+  let rec statement depth node =
+    Budget.enter budget depth;
+    visit node;
+    let statement = statement (depth - 1) in
+    match node with
+    | Ast.Block_statement block -> List.iter statement block.block_statements
     | Sequence_statement sequence ->
-        List.for_all
+        List.iter
           (fun element -> statement element.Ast.sequence_statement)
           sequence.sequence_elements
     | If_statement conditional ->
-        statement conditional.if_then_branch
-        && Option.fold ~none:true
-             ~some:(fun branch -> statement branch.Ast.else_branch)
-             conditional.if_else_clause
+        statement conditional.if_then_branch;
+        Option.iter
+          (fun branch -> statement branch.Ast.else_branch)
+          conditional.if_else_clause
     | While_statement loop -> statement loop.while_body
     | Do_while_statement loop -> statement loop.do_body
     | For_statement loop ->
-        statement loop.for_initializer
-        && Option.fold ~none:true ~some:statement loop.for_update
-        && statement loop.for_body
+        statement loop.for_initializer;
+        Option.iter statement loop.for_update;
+        statement loop.for_body
     | Lock_statement locked -> statement locked.lock_body
-    | Switch_statement switch -> List.for_all element switch.switch_elements
-    | _ -> true
-  and element = function
-    | Ast.Switch_statement_element source -> statement source
+    | Try_catch_statement tried ->
+        statement tried.try_body;
+        statement tried.catch_body
+    | Switch_statement switch ->
+        List.iter (element (depth - 1)) switch.switch_elements
+    | _ -> ()
+  and element depth node =
+    Budget.enter budget depth;
+    match node with
+    | Ast.Switch_statement_element source -> statement (depth - 1) source
     | Switch_subswitch_element source ->
-        List.for_all element source.subswitch_elements
-    | Switch_case_element _ | Switch_default_element _ -> true
+        List.iter (element (depth - 1)) source.subswitch_elements
+    | Switch_case_element _ | Switch_default_element _ -> ()
   in
-  match Function_body.definition_source body with
-  | None -> false
-  | Some source ->
-      Typed.function_source_body_valid source
-      && Option.fold ~none:false
-           ~some:(fun definition ->
-             Option.fold ~none:false ~some:statement definition.Ast.body)
-           (Typed.function_source_body source)
+  let source = get (Function_body.definition_source body) in
+  let definition = get (Typed.function_source_body source) in
+  Option.iter (statement Budget.max_depth) definition.Ast.body
+
+let permits_automatic_analysis_with_budget ~budget body =
+  try
+    visit_source_statements ~budget body (function
+      | Ast.Try_catch_statement _ -> raise Unproved
+      | _ -> ());
+    let source = get (Function_body.definition_source body) in
+    Typed.function_source_body_valid source
+    && Option.is_some
+         (Option.bind (Typed.function_source_body source) (fun definition ->
+              definition.Ast.body))
+  with Unproved -> false
+
+let permits_automatic_analysis body =
+  Option.value ~default:false
+    (Budget.protect (fun () ->
+         Some
+           (permits_automatic_analysis_with_budget ~budget:(Budget.create body)
+              body)))
 
 let requests_match qualifiers requests =
   same_list
@@ -228,7 +352,7 @@ let requests_match qualifiers requests =
       | _ -> false)
     qualifiers requests
 
-let source_requests_match ~frame ~body =
+let source_requests_match_with_budget ~budget ~frame ~body =
   try
     let source = get (Function_body.definition_source body) in
     let definition = get (Typed.function_source_body source) in
@@ -245,40 +369,30 @@ let source_requests_match ~frame ~body =
                 (Headers.parameter_register_requests parameter))
          definition.parameters parameters);
     let declarations = ref [] in
-    let rec statement = function
+    visit_source_statements ~budget body (function
       | Ast.Local_declaration_statement local ->
-          declarations := !declarations @ [ local ]
-      | Block_statement block -> List.iter statement block.block_statements
-      | Sequence_statement sequence ->
-          List.iter
-            (fun element -> statement element.Ast.sequence_statement)
-            sequence.sequence_elements
-      | If_statement conditional ->
-          statement conditional.if_then_branch;
-          Option.iter
-            (fun branch -> statement branch.Ast.else_branch)
-            conditional.if_else_clause
-      | While_statement loop -> statement loop.while_body
-      | Do_while_statement loop -> statement loop.do_body
-      | For_statement loop ->
-          statement loop.for_initializer;
-          Option.iter statement loop.for_update;
-          statement loop.for_body
-      | Lock_statement locked -> statement locked.lock_body
-      | Try_catch_statement tried ->
-          statement tried.try_body;
-          statement tried.catch_body
-      | Switch_statement switch -> List.iter element switch.switch_elements
-      | _ -> ()
-    and element = function
-      | Ast.Switch_statement_element source -> statement source
-      | Switch_subswitch_element source ->
-          List.iter element source.subswitch_elements
-      | Switch_case_element _ | Switch_default_element _ -> ()
+          declarations := local :: !declarations
+      | _ -> ());
+    let candidates =
+      List.concat_map
+        (fun declaration -> declaration.Ast.local_declarators)
+        (List.rev !declarations)
     in
-    Option.iter statement definition.body;
+    let declarators = Hashtbl.create 16 in
+    List.iter
+      (fun declarator ->
+        Budget.charge budget 1;
+        let key =
+          Sema.Initializer_source.origin_of_location
+            declarator.Ast.local_name.location
+        in
+        let old = Option.value ~default:[] (Hashtbl.find_opt declarators key) in
+        Hashtbl.replace declarators key (declarator :: old))
+      candidates;
+    let parameters = Array.of_list parameters in
     List.iter
       (fun location ->
+        Budget.charge budget 1;
         let requests =
           match Frame.location_kind location with
           | Frame.Named_parameter ->
@@ -287,28 +401,16 @@ let source_requests_match ~frame ~body =
                   (Binding.binding_parameter_index
                      (Frame.location_binding location))
               in
-              let parameter =
-                get
-                  (List.find_opt
-                     (fun parameter ->
-                       Headers.parameter_index parameter = index)
-                     parameters)
-              in
+              require (index >= 0 && index < Array.length parameters);
+              let parameter = parameters.(index) in
+              require (Headers.parameter_index parameter = index);
               Headers.parameter_register_requests parameter
           | Automatic_local ->
               let local = get (Frame.location_local_source location) in
-              let candidates =
-                List.concat_map
-                  (fun declaration -> declaration.Ast.local_declarators)
-                  !declarations
-              in
               let matching =
-                List.filter
-                  (fun declarator ->
-                    Sema.Initializer_source.origin_of_location
-                      declarator.Ast.local_name.location
-                    = Sema.Symbol.origin (Local.local_symbol local))
-                  candidates
+                Option.value ~default:[]
+                  (Hashtbl.find_opt declarators
+                     (Sema.Symbol.origin (Local.local_symbol local)))
               in
               let declarator =
                 match matching with
@@ -328,7 +430,14 @@ let source_requests_match ~frame ~body =
     true
   with Unproved -> false
 
-let authenticate_body ~frame ~body ~locations source roots =
+let source_requests_match ~frame ~body =
+  Option.value ~default:false
+    (Budget.protect (fun () ->
+         Some
+           (source_requests_match_with_budget ~budget:(Budget.create body)
+              ~frame ~body)))
+
+let authenticate_body ~budget ~frame ~body ~locations source roots =
   let definition = get (Typed.function_source_body source) in
   require
     (definition.variadic = None
@@ -352,14 +461,35 @@ let authenticate_body ~frame ~body ~locations source roots =
     | Some statement -> [ statement ]
     | None -> raise Unproved
   in
-  let remaining = ref roots and ordered = ref [] and declarations = ref 0 in
-  let take matches =
+  let module Roots = Budget.Identity (struct
+    type t = Ast.expression
+  end) in
+  let remaining = Roots.create 16
+  and ordered = ref []
+  and declarations = ref 0 in
+  List.iter
+    (fun root ->
+      Budget.charge budget 1;
+      let ast =
+        get
+          (Source.argument_expression_source
+             (Typed.result_source (root_value root)))
+      in
+      let old = Option.value ~default:[] (Roots.find_opt remaining ast) in
+      Roots.replace remaining ast (root :: old))
+    roots;
+  let take ast matches =
+    Budget.charge budget 1;
+    let roots = Option.value ~default:[] (Roots.find_opt remaining ast) in
+    Budget.charge budget (List.length roots);
     let root =
-      match List.filter matches !remaining with
+      match List.filter matches roots with
       | [ root ] -> root
       | _ -> raise Unproved
     in
-    remaining := List.filter (fun other -> other != root) !remaining;
+    let rest = List.filter (fun other -> other != root) roots in
+    if rest = [] then Roots.remove remaining ast
+    else Roots.replace remaining ast rest;
     ordered := root :: !ordered
   in
   let expression_matches value ast =
@@ -368,7 +498,7 @@ let authenticate_body ~frame ~body ~locations source roots =
       (Some ast)
   in
   let rec statement depth node =
-    require (depth > 0);
+    Budget.enter budget depth;
     match node with
     | Ast.Sequence_statement sequence ->
         require (sequence.sequence_leading_commas = []);
@@ -378,7 +508,7 @@ let authenticate_body ~frame ~body ~locations source roots =
             statement (depth - 1) element.sequence_statement)
           sequence.sequence_elements
     | Ast.Expression_statement statement ->
-        take (function
+        take statement.expression_statement_expression (function
           | Statement root ->
               expression_matches
                 (Typed.expression_statement_value root)
@@ -386,7 +516,7 @@ let authenticate_body ~frame ~body ~locations source roots =
           | _ -> false)
     | Ast.Return_statement statement ->
         let expression = get statement.return_value in
-        take (function
+        take expression (function
           | Return root ->
               expression_matches (get (Typed.return_value root)) expression
               && Source.return_origin (Typed.return_source root)
@@ -407,7 +537,7 @@ let authenticate_body ~frame ~body ~locations source roots =
               | Ast.Scalar_initializer value -> value
               | _ -> raise Unproved
             in
-            take (function
+            take expression (function
               | Initializer root ->
                   let local =
                     Typed.initializer_source root |> Source.initializer_local
@@ -439,38 +569,22 @@ let authenticate_body ~frame ~body ~locations source roots =
        original statement tree, never infer its absence from optimized IR. *)
     | _ -> raise Unproved
   in
-  List.iter (statement 32) statements;
-  require (!remaining = []);
+  List.iter (statement Budget.max_depth) statements;
+  require (Roots.length remaining = 0);
   List.rev !ordered
 
-let source_local_declarations body =
-  let rec statement = function
-    | Ast.Local_declaration_statement local -> [ local ]
-    | Block_statement block -> List.concat_map statement block.block_statements
-    | Sequence_statement sequence ->
-        List.concat_map
-          (fun element -> statement element.Ast.sequence_statement)
-          sequence.sequence_elements
-    | If_statement conditional ->
-        statement conditional.if_then_branch
-        @ Option.fold ~none:[]
-            ~some:(fun branch -> statement branch.Ast.else_branch)
-            conditional.if_else_clause
-    | While_statement loop -> statement loop.while_body
-    | Do_while_statement loop -> statement loop.do_body
-    | For_statement loop ->
-        statement loop.for_initializer
-        @ Option.fold ~none:[] ~some:statement loop.for_update
-        @ statement loop.for_body
-    | _ -> []
-  in
-  let source = get (Function_body.definition_source body) in
-  let definition = get (Typed.function_source_body source) in
-  Option.fold ~none:[] ~some:statement definition.body
+let source_local_declarations ~budget body =
+  let declarations = ref [] in
+  visit_source_statements ~budget body (function
+    | Ast.Local_declaration_statement local ->
+        declarations := local :: !declarations
+    | _ -> ());
+  List.rev !declarations
 
-let source_order ?(owned = false) ~frame ~body () =
+let source_order ?(owned = false) ~budget ~frame ~body () =
   let locations = Frame.function_locations frame in
-  require (locations <> [] && List.length locations <= 32);
+  Budget.charge budget (List.length locations);
+  require (locations <> []);
   require
     (List.for_all
        (fun location ->
@@ -504,18 +618,27 @@ let source_order ?(owned = false) ~frame ~body () =
     Frame.function_header frame
     |> Headers.function_signature |> Headers.signature_parameters
   in
+  let parameter_index = Hashtbl.create 16 in
+  List.iter
+    (fun location ->
+      Budget.charge budget 1;
+      if Frame.location_kind location = Frame.Named_parameter then
+        let index =
+          get
+            (Binding.binding_parameter_index (Frame.location_binding location))
+        in
+        let old =
+          Option.value ~default:[] (Hashtbl.find_opt parameter_index index)
+        in
+        Hashtbl.replace parameter_index index (location :: old))
+    locations;
   let parameter_locations =
     List.mapi
       (fun index parameter ->
         require (Headers.parameter_index parameter = index);
+        Budget.charge budget 1;
         let matches =
-          List.filter
-            (fun location ->
-              Frame.location_kind location = Frame.Named_parameter
-              && Binding.binding_parameter_index
-                   (Frame.location_binding location)
-                 = Some index)
-            locations
+          Option.value ~default:[] (Hashtbl.find_opt parameter_index index)
         in
         let location =
           match matches with
@@ -541,7 +664,9 @@ let source_order ?(owned = false) ~frame ~body () =
       (fun location -> Frame.location_kind location = Frame.Automatic_local)
       locations
   in
-  let declarations = if owned then source_local_declarations body else [] in
+  let declarations =
+    if owned then source_local_declarations ~budget body else []
+  in
   if owned then
     require
       (List.fold_left
@@ -549,11 +674,22 @@ let source_order ?(owned = false) ~frame ~body () =
            count + List.length declaration.Ast.local_declarators)
          0 declarations
       = List.length locals);
+  let declaration_index =
+    Array.of_list
+      (List.map
+         (fun declaration ->
+           Budget.charge budget
+             (1 + List.length declaration.Ast.local_declarators);
+           (declaration, Array.of_list declaration.local_declarators))
+         declarations)
+  in
   let local_key location =
+    Budget.charge budget 1;
     let original = get (Frame.location_local_source location) in
     let binding = Frame.location_binding location in
     let declaration = Local.local_declaration_index original
     and declarator = Local.local_declarator_index original in
+    require (declaration >= 0 && declarator >= 0);
     require
       (Binding.binding_local_declaration_index binding = Some declaration
       && Binding.binding_local_declarator_index binding = Some declarator
@@ -561,8 +697,10 @@ let source_order ?(owned = false) ~frame ~body () =
       && Local.local_storage original = Local.Automatic
       && (owned || Option.is_some (Local.local_initializer original)));
     if owned then (
-      let source = get (List.nth_opt declarations declaration) in
-      let item = get (List.nth_opt source.Ast.local_declarators declarator) in
+      require (declaration < Array.length declaration_index);
+      let source, declarators = declaration_index.(declaration) in
+      require (declarator < Array.length declarators);
+      let item = declarators.(declarator) in
       require
         (source.local_storage = Ast.Automatic_local
         && item.local_function_pointer = None
@@ -605,10 +743,21 @@ let source_order ?(owned = false) ~frame ~body () =
            (Frame.location_dimensions location)));
     (declaration, declarator)
   in
+  let keyed =
+    List.map (fun location -> (local_key location, location)) locals
+  in
+  let keys = Location_identity.create 16 in
+  List.iter
+    (fun (key, location) -> Location_identity.add keys location key)
+    keyed;
+  let local_key location = Location_identity.find keys location in
   let locals =
     List.sort
-      (fun left right -> compare (local_key left) (local_key right))
-      locals
+      (fun (left, _) (right, _) ->
+        Budget.charge budget 1;
+        compare left right)
+      keyed
+    |> List.map snd
   in
   (if owned then
      let original =
@@ -669,6 +818,7 @@ let source_order ?(owned = false) ~frame ~body () =
     && members_match (Function_body.locals body) locals);
   let ordered = parameter_locations @ locals in
   if owned then (
+    let parameter_count = List.length parameter_locations in
     let cursor = ref 0L in
     List.iteri
       (fun index location ->
@@ -683,8 +833,8 @@ let source_order ?(owned = false) ~frame ~body () =
         in
         require (List.mem element [ 1; 2; 4; 8 ]);
         let offset, bytes, alignment =
-          if index < List.length parameter_locations then
-            (Int64.of_int (16 + (8 * index)), 8L, 8)
+          if index < parameter_count then
+            (Int64.add 16L (Int64.mul 8L (Int64.of_int index)), 8L, 8)
           else
             let bytes =
               List.fold_left
@@ -806,11 +956,13 @@ let equal_instruction (left : Seq.description) (right : Seq.description) =
       Seq.Block_id.equal left right
   | _ -> false
 
-let analyze ~frame ~body =
+let analyze_with_budget ~budget ~frame ~body =
   try
     require (Function_body.definition_matches_frame body frame);
     let source = get (Function_body.definition_source body) in
-    let locations = source_order ~frame ~body () in
+    let locations = source_order ~budget ~frame ~body () in
+    let find_binding = binding_locations budget locations in
+    let claim_result = result_claims budget source in
     require
       (Typed.function_calls source = []
       && Typed.function_conditions source = []
@@ -838,7 +990,9 @@ let analyze ~frame ~body =
           (Typed.function_expression_statements source)
       @ [ Return returned ]
     in
-    let roots = authenticate_body ~frame ~body ~locations source roots in
+    let roots =
+      authenticate_body ~budget ~frame ~body ~locations source roots
+    in
     let previous = ref None in
     List.iter
       (fun root ->
@@ -857,8 +1011,7 @@ let analyze ~frame ~body =
     let seen = ref [] and accesses = ref [] and initialized = ref [] in
     let floating value = f64_type (get (Typed.result_type value)) in
     let claim value =
-      require (not (List.exists (( == ) value) !seen));
-      require (List.exists (( == ) value) (Typed.function_all_results source));
+      require (claim_result value);
       require
         ((match Typed.result_class value with
            | Typed.Integer_result ->
@@ -893,12 +1046,7 @@ let analyze ~frame ~body =
         | Sema.Module_expression_binding.Local_binding binding -> binding
         | _ -> raise Unproved
       in
-      let location =
-        get
-          (List.find_opt
-             (fun location -> Frame.location_binding location == binding)
-             locations)
-      in
+      let location = get (find_binding binding) in
       let identifier =
         match Source.argument_expression_source original with
         | Some (Ast.Identifier_expression identifier) -> identifier
@@ -923,7 +1071,7 @@ let analyze ~frame ~body =
       accesses := { location; span; kind } :: !accesses
     in
     let rec expression depth ~write ~inside_comparison value =
-      require (depth > 0);
+      Budget.enter budget depth;
       claim value;
       let original = Typed.result_source value in
       let ast = get (Source.argument_expression_source original) in
@@ -1041,6 +1189,12 @@ let analyze ~frame ~body =
     List.iter
       (fun root ->
         let value = root_value root in
+        expression Budget.max_depth
+          ~write:
+            (match root with
+            | Statement _ -> true
+            | _ -> false)
+          ~inside_comparison:false value;
         require
           (Result.is_ok
              (Source.validate_source_expression
@@ -1050,12 +1204,6 @@ let analyze ~frame ~body =
                         (Typed.result_source value)))
                 ~expression:(Typed.result_source value)
                 ~calls:[] ()));
-        expression 32
-          ~write:
-            (match root with
-            | Statement _ -> true
-            | _ -> false)
-          ~inside_comparison:false value;
         match root with
         | Initializer initial ->
             require
@@ -1103,7 +1251,7 @@ let analyze ~frame ~body =
     let entry = Block_graph.entry graph in
     let blocks = Block_graph.blocks graph in
     let code = descriptions entry in
-    require (List.length code <= 512);
+    Budget.charge budget (List.length code);
     let others = List.filter (fun block -> block != entry) blocks in
     let epilogue =
       match
@@ -1156,12 +1304,7 @@ let analyze ~frame ~body =
               Values.add result.value_id item map)
         Values.empty code
     in
-    let users id =
-      List.filter
-        (fun (item : Seq.description) ->
-          List.exists (Seq.Value_id.equal id) item.operands)
-        code
-    in
+    let users = Budget.users budget code in
     let pending = ref code in
     let consume expected =
       List.iter
@@ -1182,9 +1325,8 @@ let analyze ~frame ~body =
         in
         let instruction_id = first.Seq.instruction_id in
         let value_id = (get first.result).Seq.value_id in
-        require
-          (Seq.Instruction_id.to_int instruction_id < max_int - 512
-          && Seq.Value_id.to_int value_id < max_int - 512);
+        (* The lowerers check every emitted instruction/value increment.
+           Work allowance is not an identity bound. *)
         match root with
         | Return returned -> (
             match
@@ -1237,7 +1379,9 @@ let analyze ~frame ~body =
     (* Independently pair original source occurrences with unique canonical
        RBP+offset ADDs and their sole DEREF/write consumer. This guards against
        shared, omitted or extra accesses even if lowering changes in future. *)
-    let remaining = ref !accesses in
+    let take_access, accesses_consumed =
+      access_index ~with_kind:true budget !accesses
+    in
     List.iter
       (fun (item : Seq.description) ->
         if item.opcode = O.Ic_rbp then (
@@ -1274,34 +1418,14 @@ let analyze ~frame ~body =
               Write)
           in
           let span = get address.span in
-          let candidates =
-            List.filter
-              (fun access ->
-                access.span = span && access.kind = kind
-                && Frame.frame_slot_displacement
-                     (get (Frame.location_frame_slot access.location))
-                   = displacement)
-              !remaining
-          in
-          let access =
-            match candidates with
-            | [ access ] -> access
-            | _ -> raise Unproved
-          in
-          require (item.span = Some span && offset.span = Some span);
-          remaining :=
-            List.filter (fun candidate -> candidate != access) !remaining))
+          let _access = take_access span displacement (Some kind) in
+          require (item.span = Some span && offset.span = Some span)))
       code;
-    require (!remaining = []);
+    require (accesses_consumed ());
     Some
       (List.map
-         (fun location ->
-           ( location,
-             List.length
-               (List.filter
-                  (fun access -> access.location == location)
-                  !accesses) ))
-         locations)
+         (fun (location, accesses) -> (location, List.length accesses))
+         (access_groups budget locations !accesses))
   with Unproved -> None
 
 (* This ledger is a separate obligation from canonical source reconstruction.
@@ -1330,16 +1454,18 @@ let analyze ~frame ~body =
    score=1 and lea_balance=1. IC_ADDR survives the pre-scoring passes, so even
    *(&x) cannot use the direct IC_LEA cancellation. These are source-phase
    events, not estimates from hosted loads or temporary liveness. *)
-let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
+let analyze_accesses ?(owned = false) ~budget ~frame ~body ~statements () =
   let module Lower = Integer_program_lowering in
   let module Policy = Sema.Function_call_conversion_policy in
   try
     require
       (Function_body.definition_matches_frame body frame
-      && permits_automatic_analysis body
-      && source_requests_match ~frame ~body);
+      && permits_automatic_analysis_with_budget ~budget body
+      && source_requests_match_with_budget ~budget ~frame ~body);
     let source = get (Function_body.definition_source body) in
-    let locations = source_order ~owned ~frame ~body () in
+    let locations = source_order ~owned ~budget ~frame ~body () in
+    let find_binding = binding_locations budget locations in
+    let claim_result = result_claims budget source in
     let accesses = ref [] and seen = ref [] and seen_calls = ref [] in
     let initialized = ref [] in
     let preliminary_passes = ref 0 in
@@ -1357,8 +1483,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
     in
     let claim ?(array = false) value =
       require
-        ((not (List.exists (( == ) value) !seen))
-        && List.exists (( == ) value) (Typed.function_all_results source)
+        (claim_result value
         && (Typed.result_array_rank value = 0 || array)
         && scalar_or_void_call value);
       seen := value :: !seen
@@ -1378,12 +1503,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
         | Sema.Module_expression_binding.Local_binding binding -> binding
         | _ -> raise Unproved
       in
-      let location =
-        get
-          (List.find_opt
-             (fun location -> Frame.location_binding location == binding)
-             locations)
-      in
+      let location = get (find_binding binding) in
       require
         (owned
         || Frame.location_kind location = Frame.Named_parameter
@@ -1401,7 +1521,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
       location
     in
     let rec expression depth ~write ~inside_comparison value =
-      require (depth > 0);
+      Budget.enter budget depth;
       claim value;
       let original = Typed.result_source value in
       let ast = get (Source.argument_expression_source original) in
@@ -1554,7 +1674,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
             ast.call_arguments arguments
       | _ -> raise Unproved
     and lvalue depth kind value =
-      require (depth > 0);
+      Budget.enter budget depth;
       claim value;
       match Source.argument_expression_kind (Typed.result_source value) with
       | Source.Bound_identifier_expression _ -> ignore (member value kind)
@@ -1586,7 +1706,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
         typed
       in
       let rec chain depth current =
-        require (depth > 0);
+        Budget.enter budget depth;
         let source = Typed.result_source current in
         match
           ( Source.argument_expression_kind source,
@@ -1635,7 +1755,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
          casts, floating conversions, pointer arithmetic or nested array reads
          can masquerade as a pure integer index. *)
       let rec index_tree depth current =
-        require (depth > 0);
+        Budget.enter budget depth;
         claim current;
         require
           (Option.is_some
@@ -1757,63 +1877,59 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
         :: !accesses
     in
     let value ~write root =
-      expression 32 ~write ~inside_comparison:false root
+      expression Budget.max_depth ~write ~inside_comparison:false root
     in
-    let budget = ref 1024 in
-    let rec statement depth = function
-      | _ when depth = 0 || !budget = 0 -> raise Unproved
-      | node -> (
-          decr budget;
-          let statement = statement (depth - 1) in
-          match node with
-          | Lower.Empty _ | Break _ -> ()
-          | Block children -> List.iter statement children
-          | Expression root -> value ~write:true root
-          | Return root ->
-              Option.iter (value ~write:false) (Typed.return_value root)
-          | Initialize root ->
-              value ~write:false (Typed.initializer_value root);
-              let local =
-                Typed.initializer_source root |> Source.initializer_local
-              in
-              let location =
-                get
-                  (List.find_opt
-                     (fun location ->
-                       Frame.location_symbol location
-                       == Typed.initializer_target_symbol root)
-                     locations)
-              in
-              (match Frame_address_lowering.prepare_initializer ~frame root with
-              | Ok (Some _) -> ()
-              | _ -> raise Unproved);
-              initialized := location :: !initialized;
-              accesses :=
-                {
-                  location;
-                  span =
-                    source_span (Sema.Symbol.origin (Local.local_symbol local));
-                  kind = Write;
-                }
-                :: !accesses
-          | If (condition, yes, no) ->
-              value ~write:false condition;
-              statement yes;
-              Option.iter statement no
-          | While (condition, body) ->
-              value ~write:false condition;
-              statement body
-          | Do_while (body, condition) ->
-              statement body;
-              value ~write:false condition
-          | For (initial, condition, update, body) ->
-              statement initial;
-              value ~write:false condition;
-              statement body;
-              Option.iter statement update
-          | _ -> raise Unproved)
+    let rec statement depth node =
+      Budget.enter budget depth;
+      let statement = statement (depth - 1) in
+      match node with
+      | Lower.Empty _ | Break _ -> ()
+      | Block children -> List.iter statement children
+      | Expression root -> value ~write:true root
+      | Return root ->
+          Option.iter (value ~write:false) (Typed.return_value root)
+      | Initialize root ->
+          value ~write:false (Typed.initializer_value root);
+          let local =
+            Typed.initializer_source root |> Source.initializer_local
+          in
+          let location =
+            get
+              (List.find_opt
+                 (fun location ->
+                   Frame.location_symbol location
+                   == Typed.initializer_target_symbol root)
+                 locations)
+          in
+          (match Frame_address_lowering.prepare_initializer ~frame root with
+          | Ok (Some _) -> ()
+          | _ -> raise Unproved);
+          initialized := location :: !initialized;
+          accesses :=
+            {
+              location;
+              span = source_span (Sema.Symbol.origin (Local.local_symbol local));
+              kind = Write;
+            }
+            :: !accesses
+      | If (condition, yes, no) ->
+          value ~write:false condition;
+          statement yes;
+          Option.iter statement no
+      | While (condition, body) ->
+          value ~write:false condition;
+          statement body
+      | Do_while (body, condition) ->
+          statement body;
+          value ~write:false condition
+      | For (initial, condition, update, body) ->
+          statement initial;
+          value ~write:false condition;
+          statement body;
+          Option.iter statement update
+      | _ -> raise Unproved
     in
-    List.iter (statement 32) statements;
+    List.iter (statement Budget.max_depth) statements;
     require
       (List.length !seen = List.length (Typed.function_all_results source)
       && List.length !seen_calls = List.length (Typed.function_calls source)
@@ -1831,7 +1947,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
        A future DCE lowerer must supply an explicit phase-deletion receipt. *)
     let blocks = Block_graph.blocks (Function_body.body body) in
     let code = List.concat_map descriptions blocks in
-    require (List.length blocks <= 64 && List.length code <= 512);
+    Budget.charge budget (List.length blocks + List.length code);
     let produced =
       List.fold_left
         (fun map (item : Seq.description) ->
@@ -1840,17 +1956,14 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
           | Some result -> Values.add result.value_id item map)
         Values.empty code
     in
-    let users id =
-      List.filter
-        (fun (item : Seq.description) ->
-          List.exists (Seq.Value_id.equal id) item.operands)
-        code
-    in
+    let users = Budget.users budget code in
     let sole = function
       | [ item ] -> item
       | _ -> raise Unproved
     in
-    let remaining = ref !accesses in
+    let take_access, accesses_consumed =
+      access_index ~with_kind:false budget !accesses
+    in
     List.iter
       (fun (item : Seq.description) ->
         if item.opcode = O.Ic_rbp then (
@@ -1873,16 +1986,7 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
           in
           let consumer = sole (users (get address.result).value_id) in
           let span = get address.span in
-          let access =
-            sole
-              (List.filter
-                 (fun access ->
-                   access.span = span
-                   && Frame.frame_slot_displacement
-                        (get (Frame.location_frame_slot access.location))
-                      = displacement)
-                 !remaining)
-          in
+          let access = take_access span displacement None in
           (match access.kind with
           | Array_element _ ->
               (* Hosted checked indexing keeps the base and scaled addition
@@ -1898,24 +2002,16 @@ let analyze_accesses ?(owned = false) ~frame ~body ~statements () =
                   Write)
               in
               require (kind = actual));
-          require (item.span = Some span && offset.span = Some span);
-          remaining :=
-            List.filter (fun candidate -> candidate != access) !remaining))
+          require (item.span = Some span && offset.span = Some span)))
       code;
-    require (!remaining = []);
-    Some
-      (List.map
-         (fun location ->
-           ( location,
-             List.filter (fun access -> access.location == location) !accesses
-           ))
-         locations)
+    require (accesses_consumed ());
+    Some (access_groups budget locations !accesses)
   with Unproved -> None
 
-let analyze_whole ~frame ~body ~statements =
+let analyze_whole_with_budget ~budget ~frame ~body ~statements =
   Option.map
     (List.map (fun (location, accesses) -> (location, List.length accesses)))
-    (analyze_accesses ~frame ~body ~statements ())
+    (analyze_accesses ~budget ~frame ~body ~statements ())
 
 type member_score = {
   location : Frame.location;
@@ -1923,7 +2019,7 @@ type member_score = {
   lea_balance : int64;
 }
 
-let analyze_members ~frame ~body ~statements =
+let analyze_members_with_budget ~budget ~frame ~body ~statements =
   Option.map
     (List.map (fun (location, accesses) ->
          let address_count =
@@ -1936,7 +2032,24 @@ let analyze_members ~frame ~body ~statements =
          in
          {
            location;
-           score = Int64.of_int ((2 * List.length accesses) - address_count);
+           score =
+             Int64.sub
+               (Int64.mul 2L (Int64.of_int (List.length accesses)))
+               (Int64.of_int address_count);
            lea_balance = Int64.of_int address_count;
          }))
-    (analyze_accesses ~owned:true ~frame ~body ~statements ())
+    (analyze_accesses ~owned:true ~budget ~frame ~body ~statements ())
+
+let analyze ~frame ~body =
+  Budget.protect (fun () ->
+      analyze_with_budget ~budget:(Budget.create body) ~frame ~body)
+
+let analyze_whole ~frame ~body ~statements =
+  Budget.protect (fun () ->
+      analyze_whole_with_budget ~budget:(Budget.create body) ~frame ~body
+        ~statements)
+
+let analyze_members ~frame ~body ~statements =
+  Budget.protect (fun () ->
+      analyze_members_with_budget ~budget:(Budget.create body) ~frame ~body
+        ~statements)

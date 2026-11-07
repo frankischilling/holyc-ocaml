@@ -1389,11 +1389,18 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                      []
                    else
                      match
-                       Ir.Register_variable_analysis.analyze_with_runtime
+                       Ir.Register_variable_analysis.analyze_with_runtime_result
                          ~runtime:runtime_calls_ ~frame ~body
                      with
-                     | None -> []
-                     | Some proof ->
+                     | Error Ir.Register_variable_analysis.Proof_limit_exceeded
+                       ->
+                         fail
+                           (Option.value (Body.span body) ~default:ast.span)
+                           "HCIRVM0007"
+                           "allocation proof exceeds the hosted work or \
+                            nesting allowance"
+                     | Ok None -> []
+                     | Ok (Some proof) ->
                          Ir.Register_variable_analysis.explicit_conflicts proof
                            ~frame ~body
                          |> Option.value ~default:[]

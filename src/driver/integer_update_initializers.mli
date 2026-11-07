@@ -3,10 +3,12 @@ type terminal = {
   destination_type : Sema.Type.t;
 }
 
-type failure = {
-  instruction : Ir.Instruction_sequence.description;
-  reason : string;
-}
+type failure =
+  | Unsupported_update of {
+      instruction : Ir.Instruction_sequence.description;
+      reason : string;
+    }
+  | Allocation_proof_limit_exceeded of Common.Span.t option
 
 val check_graph :
   globals:Ir.Integer_globals.t ->
@@ -23,4 +25,6 @@ val check_graph :
     seeds the bounded-write proof; subsequent unbounded assignments or direct
     updates still disqualify that location, except when the exact bound body
     proves a supported register update. [terminal] is the exact declaration leaf
-    sink, never a callee return. *)
+    sink, never a callee return. Allocation proof work or nesting exhaustion is
+    a separate failure; it must not be treated as an unsupported update or a
+    stack-selection proof. *)

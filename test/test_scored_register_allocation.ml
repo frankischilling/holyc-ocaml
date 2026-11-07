@@ -210,12 +210,63 @@ let explicit_requests () =
        ~reserved:(List.map snd resolved.owners)
        (candidates [ 2L ]))
 
+let charged_sort () =
+  let values = candidates (List.init 8 (fun _ -> 2L)) in
+  let expected = [ 5; 4; 7; 6; 1; 0; 3; 2 ] in
+  let charges = ref 0 in
+  let result = Allocation.sort ~charge:(fun () -> incr charges) values in
+  Alcotest.(check (list int))
+    "charged comparisons preserve pinned unstable ties" expected
+    (List.map (fun value -> value.Allocation.member) result);
+  Alcotest.(check bool)
+    "comparisons and partitions charge work" true (!charges > 8);
+  let limited count =
+    let remaining = ref count in
+    fun () -> if !remaining = 0 then raise Exit else decr remaining
+  in
+  Alcotest.(check (list int))
+    "exact sort allowance succeeds" expected
+    (Allocation.sort ~charge:(limited !charges) values
+    |> List.map (fun value -> value.Allocation.member));
+  Alcotest.check_raises "one-below sort allowance aborts complete result" Exit
+    (fun () -> ignore (Allocation.sort ~charge:(limited (!charges - 1)) values));
+  Alcotest.(check (list int))
+    "failed sort does not mutate source candidates" expected
+    (Allocation.sort values |> List.map (fun value -> value.Allocation.member));
+  let charges = ref 0 in
+  let expected_allocation = Allocation.allocate ~reserved:[] values in
+  Alcotest.(check (list (pair int int)))
+    "charged bank scans preserve allocation" expected_allocation
+    (Allocation.allocate ~charge:(fun () -> incr charges) ~reserved:[] values);
+  Alcotest.check_raises "bank allocation exhaustion never returns partial homes"
+    Exit (fun () ->
+      ignore
+        (Allocation.allocate
+           ~charge:(limited (!charges - 1))
+           ~reserved:[] values));
+  let patterned =
+    candidates
+      (List.init 10000 (fun index -> Int64.of_int (index * 7919 mod 10007)))
+  in
+  let sorted = Allocation.sort patterned in
+  Alcotest.(check int)
+    "large partition stack retains every member" 10000 (List.length sorted);
+  let rec descending = function
+    | first :: (second :: _ as rest) ->
+        first.Allocation.score >= second.score && descending rest
+    | _ -> true
+  in
+  Alcotest.(check bool)
+    "large patterned scores sort without host recursion" true
+    (descending sorted)
+
 let () =
   Alcotest.run "TempleOS scored register allocation"
     [
       ( "source algorithm",
         [
           Alcotest.test_case "unstable ties" `Quick ties;
+          Alcotest.test_case "charged iterative partitions" `Quick charged_sort;
           Alcotest.test_case "ordered explicit owners" `Quick explicit_requests;
           Alcotest.test_case "local array candidate membership" `Quick
             local_array_members;

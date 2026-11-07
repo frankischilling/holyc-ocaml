@@ -6045,3 +6045,21 @@
    %{exe:../bin/holyc.exe}
    %{dep:../examples/local-index-normalization.hc}
    --native)))
+
+(executable
+ (name test_allocation_pressure_cli)
+ (modules test_allocation_pressure_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_allocation_pressure_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_allocation_pressure_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))

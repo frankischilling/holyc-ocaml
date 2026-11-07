@@ -6727,6 +6727,7 @@ let stored_bytes = function
 
 let frame_context ?globals ?runtime_calls ?(pointer_arguments = false)
     ~max_frame_bytes ~frame ~arguments function_ =
+  let ( let* ) = Result.bind in
   let invalid message =
     Error
       [
@@ -6735,12 +6736,19 @@ let frame_context ?globals ?runtime_calls ?(pointer_arguments = false)
       ]
   in
   let locations = Frame.function_locations frame in
-  let register_proof =
-    match runtime_calls with
-    | None -> Register_variable_analysis.analyze ~frame ~body:function_
-    | Some runtime ->
-        Register_variable_analysis.analyze_with_runtime ~runtime ~frame
-          ~body:function_
+  let* register_proof =
+    (match runtime_calls with
+      | None -> Register_variable_analysis.analyze_result ~frame ~body:function_
+      | Some runtime ->
+          Register_variable_analysis.analyze_with_runtime_result ~runtime ~frame
+            ~body:function_)
+    |> Result.map_error (function
+        | Register_variable_analysis.Proof_limit_exceeded ->
+        [
+          make_error ~stage:Preflight ~executed_steps:0
+            ?span:(Function.span function_) "HCIRVM0007"
+            "allocation proof exceeds the hosted work or nesting allowance";
+        ])
   in
   let wide_register location =
     Option.fold ~none:false

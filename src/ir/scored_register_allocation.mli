@@ -28,12 +28,19 @@ val resolve_explicit : (int * int) list -> explicit_resolution
     authority: callers must prove complete ordered membership, distinct frame
     extents, supported requests and source ownership before using its result. *)
 
-val sort : candidate list -> candidate list
+val sort : ?charge:(unit -> unit) -> candidate list -> candidate list
 (** TempleOS Kernel/QSort.HC QSort2b with OptLib.HC's descending score
-    comparator. Equal scores deliberately have no stable tie breaker. *)
+    comparator. Equal scores deliberately have no stable tie breaker. The
+    optional work hook charges partition visits, comparisons, scan steps and
+    swaps; raising from it aborts without returning a partial result. *)
 
-val allocate : reserved:int list -> candidate list -> (int * int) list
+val allocate :
+  ?charge:(unit -> unit) ->
+  reserved:int list ->
+  candidate list ->
+  (int * int) list
 (** Sort the complete original candidate list before trimming zero scores and
     filtering nonzero-LEA/zero-offset members. Return member/register pairs in
     allocation order, including R10/R11. Callers authenticate source membership,
-    score bounds, register requests and NO_REG_VAR before using this result. *)
+    score bounds, register requests and NO_REG_VAR before using this result. The
+    optional work hook also charges trimming and bank/member scans. *)
