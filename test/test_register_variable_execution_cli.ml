@@ -405,7 +405,25 @@ let computed_assignment_cases =
           List.concat_map
             (fun (expression, value) ->
               let expected = Int64.to_string (store value) in
+              let initialized =
+                Int64.to_string (store (Int64.succ (store value)))
+              in
               [
+                ( Printf.sprintf
+                    "I64 F(I64 a,I64 b){%s %s x=%s;if(b)x+=1;return \
+                     x;}F(%Ld,3);"
+                    type_ qualifier expression high,
+                  initialized );
+                ( Printf.sprintf
+                    "I64 F(I64 a,I64 b){%s %s x=%s;while(b){x+=1;b=0;}return \
+                     x;}F(%Ld,3);"
+                    type_ qualifier expression high,
+                  initialized );
+                ( Printf.sprintf
+                    "I64 G(I64 n){return n;}I64 F(I64 a,I64 b){%s %s \
+                     x=%s;G(x);x+=1;return x;}F(%Ld,3);"
+                    type_ qualifier expression high,
+                  initialized );
                 ( Printf.sprintf
                     "I64 F(%s %s x,I64 a,I64 b){if(b)x=%s;return x;}F(0,%Ld,3);"
                     type_ qualifier expression high,
@@ -497,6 +515,7 @@ let () =
         (read "../examples/register-pressure.hc", "256");
         (read "../examples/register-computed-assignment.hc", "256");
         (read "../examples/register-computed-updates.hc", "256");
+        (read "../examples/register-computed-initializers.hc", "256");
         ("I64 F(I8 x,I64 y,I64 c){x+=c;y+=c;return x+y;}F(127,42,1);", "171");
         ( "I64 F(U8 reg R12 x,U8 reg R13 y,U8 reg R14 z,I64 \
            c){x+=c;y-=c;z*=c;return x+y+z;}F(255,255,255,2);",

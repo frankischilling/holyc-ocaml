@@ -391,3 +391,27 @@ loops and values retained across named calls. Consumed update results, calls
 or unsupported operators within the operand tree, address escapes and general
 allocation remain outside this proof. Expectations are source-derived; no new
 TempleOS runtime capture is claimed.
+
+## Computed local initializers
+
+An automatic integer local may now start from a source-owned addition,
+subtraction, multiplication or bitwise expression over parameters and literals.
+The initializer must still be the original declaration's one entry-block
+assignment. A selected I8 initialized with `(a+1)*(b-1)` for a=127 and b=3
+retains 256; a stack I8 starts at 0. The
+[initializer example](../examples/register-computed-initializers.hc) follows
+both with an update to show that the initial value survives.
+
+TempleOS lowers these initializers through the assignment path selected by
+`OptPass4.HC:351-405` and emitted by `BackC.HC:159-171` and
+`BackLib.HC:445-520`. The proof shares its typed expression matcher with later
+assignments, while checking the initializer's original local symbol and
+declaration address occurrence. Reordering an arithmetic node's operands
+invalidates both an existing proof and a fresh analysis.
+
+The tests cover six narrow widths, four qualifiers, nested expressions,
+branches, loops and named calls. Initializer leaves remain restricted to
+parameters and literals, so this does not infer initialization order between
+locals. Conditional declarations, uninitialized locals, calls, casts and
+unsupported expression operators remain unproved. These expectations come
+from pinned source and existing storage semantics, not new TempleOS captures.

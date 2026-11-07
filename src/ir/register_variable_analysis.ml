@@ -2715,6 +2715,89 @@ let analyze_control_parameters ~frame ~body =
     let entry_code =
       Function_body.body body |> Block_graph.entry |> descriptions
     in
+    let binding_matches value location =
+      match Calls.argument_expression_kind (Typed.result_source value) with
+      | Calls.Bound_identifier_expression bound -> (
+          match
+            Sema.Module_expression_binding.occurrence_resolution
+              (Calls.bound_identifier_occurrence bound)
+          with
+          | Sema.Module_expression_binding.Local_binding binding ->
+              binding == Frame.location_binding location
+          | _ -> false)
+      | _ -> false
+    in
+    let matches_operand ?(normalize_shift = false) value operand =
+      match load operand with
+      | Some (_, location) -> binding_matches value location
+      | None -> (
+          match
+            ( Calls.argument_expression_kind (Typed.result_source value),
+              Values.find_opt operand produced )
+          with
+          | ( Calls.Integer_literal bits,
+              Some
+                {
+                  opcode = O.Ic_imm_i64;
+                  payload = Some (Seq.Integer actual);
+                  _;
+                } ) ->
+              actual = if normalize_shift then Int64.logand bits 63L else bits
+          | _ -> false)
+    in
+    let rec matches_expression_operand ?(parameters_only = false) depth value
+        operand =
+      if depth = 0 then false
+      else if
+        parameters_only
+        && Option.fold ~none:false
+             ~some:(fun (_, location) ->
+               Frame.location_kind location <> Frame.Named_parameter)
+             (load operand)
+      then false
+      else if matches_operand value operand then true
+      else if
+        match Calls.argument_expression_kind (Typed.result_source value) with
+        | Calls.Parenthesized_expression _ -> true
+        | _ -> false
+      then
+        Option.fold ~none:false
+          ~some:(fun inner ->
+            matches_expression_operand ~parameters_only (depth - 1) inner
+              operand)
+          (Typed.result_operand value)
+      else
+        match
+          ( Calls.argument_expression_source (Typed.result_source value),
+            Typed.result_binary_operands value,
+            Values.find_opt operand produced )
+        with
+        | ( Some (Frontend.Ast.Binary_expression binary),
+            Some (left, right),
+            Some expression ) -> (
+            expression.payload = None
+            && expression.span
+               = Some binary.binary_operator.operator_location.span
+            && (match
+                  (binary.binary_operator_spec.spelling, expression.opcode)
+                with
+              | "+", O.Ic_add
+              | "-", Ic_sub
+              | "*", Ic_mul
+              | "&", Ic_and
+              | "|", Ic_or
+              | "^", Ic_xor -> true
+              | _ -> false)
+            &&
+            match expression.operands with
+            | [ left_operand; right_operand ] ->
+                matches_expression_operand ~parameters_only (depth - 1) left
+                  left_operand
+                && matches_expression_operand ~parameters_only (depth - 1) right
+                     right_operand
+            | _ -> false)
+        | _ -> false
+    in
     let initializer_matches location operand =
       List.exists
         (fun initialization ->
@@ -2725,28 +2808,7 @@ let analyze_control_parameters ~frame ~body =
           == Frame.location_symbol location
           &&
           let source = Typed.initializer_value initialization in
-          match Calls.argument_expression_kind (Typed.result_source source) with
-          | Calls.Integer_literal bits -> (
-              match Values.find_opt operand produced with
-              | Some
-                  {
-                    opcode = O.Ic_imm_i64;
-                    payload = Some (Seq.Integer actual);
-                    _;
-                  } -> bits = actual
-              | _ -> false)
-          | Calls.Bound_identifier_expression bound -> (
-              match
-                ( Sema.Module_expression_binding.occurrence_resolution
-                    (Calls.bound_identifier_occurrence bound),
-                  load operand )
-              with
-              | ( Sema.Module_expression_binding.Local_binding binding,
-                  Some (_, parameter) ) ->
-                  Frame.location_kind parameter = Frame.Named_parameter
-                  && binding == Frame.location_binding parameter
-              | _ -> false)
-          | _ -> false)
+          matches_expression_operand ~parameters_only:true 32 source operand)
         local_initializers
     in
     let initialization (item : Seq.description) =
@@ -2791,86 +2853,8 @@ let analyze_control_parameters ~frame ~body =
         | _ -> false
     in
     let source_matches_update (item : Seq.description) =
-      let binding_matches value location =
-        match Calls.argument_expression_kind (Typed.result_source value) with
-        | Calls.Bound_identifier_expression bound -> (
-            match
-              Sema.Module_expression_binding.occurrence_resolution
-                (Calls.bound_identifier_occurrence bound)
-            with
-            | Sema.Module_expression_binding.Local_binding binding ->
-                binding == Frame.location_binding location
-            | _ -> false)
-        | _ -> false
-      in
       let span_matches (operator : Frontend.Ast.expression_operator) =
         item.span = Some operator.operator_location.span
-      in
-      let matches_operand ?(normalize_shift = false) value operand =
-        match load operand with
-        | Some (_, location) -> binding_matches value location
-        | None -> (
-            match
-              ( Calls.argument_expression_kind (Typed.result_source value),
-                Values.find_opt operand produced )
-            with
-            | ( Calls.Integer_literal bits,
-                Some
-                  {
-                    opcode = O.Ic_imm_i64;
-                    payload = Some (Seq.Integer actual);
-                    _;
-                  } ) ->
-                actual
-                =
-                if
-                  normalize_shift
-                  && (item.opcode = O.Ic_shl_equ || item.opcode = O.Ic_shr_equ)
-                then Int64.logand bits 63L
-                else bits
-            | _ -> false)
-      in
-      let rec matches_expression_operand depth value operand =
-        if depth = 0 then false
-        else if matches_operand value operand then true
-        else if
-          match Calls.argument_expression_kind (Typed.result_source value) with
-          | Calls.Parenthesized_expression _ -> true
-          | _ -> false
-        then
-          Option.fold ~none:false
-            ~some:(fun inner ->
-              matches_expression_operand (depth - 1) inner operand)
-            (Typed.result_operand value)
-        else
-          match
-            ( Calls.argument_expression_source (Typed.result_source value),
-              Typed.result_binary_operands value,
-              Values.find_opt operand produced )
-          with
-          | ( Some (Frontend.Ast.Binary_expression binary),
-              Some (left, right),
-              Some expression ) -> (
-              expression.payload = None
-              && expression.span
-                 = Some binary.binary_operator.operator_location.span
-              && (match
-                    (binary.binary_operator_spec.spelling, expression.opcode)
-                  with
-                | "+", O.Ic_add
-                | "-", Ic_sub
-                | "*", Ic_mul
-                | "&", Ic_and
-                | "|", Ic_or
-                | "^", Ic_xor -> true
-                | _ -> false)
-              &&
-              match expression.operands with
-              | [ left_operand; right_operand ] ->
-                  matches_expression_operand (depth - 1) left left_operand
-                  && matches_expression_operand (depth - 1) right right_operand
-              | _ -> false)
-          | _ -> false
       in
       let matches value =
         match
@@ -2882,7 +2866,11 @@ let analyze_control_parameters ~frame ~body =
             | Some (_, location), Some (left, right) -> (
                 span_matches binary.binary_operator
                 && binding_matches left location
-                && (matches_operand ~normalize_shift:true right operand
+                && (matches_operand
+                      ~normalize_shift:
+                        (item.opcode = O.Ic_shl_equ
+                       || item.opcode = O.Ic_shr_equ)
+                      right operand
                    || matches_expression_operand 32 right operand)
                 &&
                 match (binary.binary_operator_spec.spelling, item.opcode) with

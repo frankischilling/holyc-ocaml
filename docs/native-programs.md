@@ -456,3 +456,8 @@ division and shifts inside those trees remain outside the proof.
 extend all ten discarded integer compound updates to source-owned arithmetic
 and bitwise operand trees. Literal-only restrictions remain in force, and
 nested shift-count literals retain their exact source values.
+
+[Computed local initializers](register-variable-analysis.md#computed-local-initializers)
+retain full selected integer values from source-owned arithmetic/bitwise trees
+over parameters and literals. Original entry-block declaration ownership remains
+required; ordering between local initializers is not inferred.

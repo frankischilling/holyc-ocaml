@@ -4715,7 +4715,7 @@ let local_control_selection () =
             (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
         [
           "I64 F(I64 n,I64 c){I8 x;if(n)x=c;return x;}42;";
-          "I64 F(I64 n,I64 c){I8 x=n+c;if(n)x+=c;return x;}42;";
+          "I64 F(I64 n,I64 c){I8 x=n/c;if(n)x+=c;return x;}42;";
           "I64 F(I64 n,I64 c){I8 x=127;I8 *p=&x;if(n)*p+=c;return x;}42;";
           "I64 F(I64 n,I64 c){if(n){I8 x=127;x+=c;return x;}return 0;}42;";
         ])
@@ -5053,6 +5053,67 @@ let computed_update_selection () =
           "I64 F(I8 x,I64 a){if(a)x+=a/3;return x;}42;";
           "I64 F(I8 x,I64 a){if(a)return x+=a+1;return x;}42;";
           "I64 F(I8 x,I64 a){if(a)x/=3;return x;}42;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let computed_initializer_selection () =
+  let module O = Holyc_lib__Ir.Opcode in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun qualifier ->
+          List.iter
+            (fun expression ->
+              let fn =
+                compile ~name:"F" mode
+                  (Printf.sprintf
+                     "I64 F(I64 a,I64 b){I8 %s x=%s;if(b)x+=1;return x;}42;"
+                     qualifier expression)
+              in
+              let proof =
+                Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body)
+              in
+              let symbol = location fn.frame "x" |> Frame.location_symbol in
+              Alcotest.(check bool)
+                "computed initializer retains destination selection" true
+                (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol
+                = Some
+                    (if qualifier = "noreg" then Analysis.Stack
+                     else Analysis.Register_candidate)))
+            [ "a+1"; "a-b"; "a*b"; "a&b"; "a|b"; "a^b"; "(a+1)*(b-2)" ])
+        [ ""; "reg"; "noreg"; "reg R12" ];
+      let fn =
+        compile ~name:"F" mode
+          "I64 F(I64 a,I64 b){I8 x=(a+1)*(b-2);if(b)x+=1;return x;}42;"
+      in
+      let proof = Option.get (Analysis.analyze ~frame:fn.frame ~body:fn.body) in
+      let symbol = location fn.frame "x" |> Frame.location_symbol in
+      let expression =
+        Body.body fn.body |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions
+            |> List.map Seq.description)
+        |> List.find (fun (d : Seq.description) -> d.opcode = O.Ic_mul)
+      in
+      Obj.set_field (Obj.repr expression) 2
+        (Obj.repr (List.rev expression.operands));
+      Alcotest.(check bool)
+        "computed initializer substitution invalidates proof" true
+        (Option.is_none
+           (Analysis.selection proof ~frame:fn.frame ~body:fn.body ~symbol));
+      Alcotest.(check bool)
+        "computed initializer substitution cannot be reproved" true
+        (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body));
+      List.iter
+        (fun source ->
+          let fn = compile ~name:"F" mode source in
+          Alcotest.(check bool)
+            "initializer needs entry placement and parameter leaves" true
+            (Option.is_none (Analysis.analyze ~frame:fn.frame ~body:fn.body)))
+        [
+          "I64 F(I64 a,I64 b){if(b){I8 x=a+1;x+=1;return x;}return 0;}42;";
+          "I64 F(I64 a,I64 b){I64 y=a;I8 x=y+1;if(b)x+=1;return x;}42;";
+          "I64 F(I64 a,I64 b){I8 x=a/3;if(b)x+=1;return x;}42;";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -5395,6 +5456,8 @@ let () =
             forced_pressure_selection;
           Alcotest.test_case "computed update ownership" `Quick
             computed_update_selection;
+          Alcotest.test_case "computed initializer ownership" `Quick
+            computed_initializer_selection;
           Alcotest.test_case "computed assignment ownership" `Quick
             computed_assignment_selection;
           Alcotest.test_case "parameter and local reassignment" `Quick

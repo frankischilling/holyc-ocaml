@@ -15196,3 +15196,15 @@ status = "partial"
 issue = 703
 verification = "Six widths and four qualifiers across all ten compound operators, parameters, locals, loops and named calls. Nested shift literals are authenticated without applying direct-count normalization."
 evidence_limit = "Bounded discarded updates with source-owned arithmetic/bitwise operand trees. Existing immediate limits remain; consumed results and unsupported tree operators remain unproved. No new TempleOS runtime capture."
+
+[[feature]]
+id = "HC-REGISTER-COMPUTED-INITIALIZERS"
+description = "Preserve full selected integer values from source-owned computed local initializers."
+sources = ["Compiler/OptPass4.HC:351-405", "Compiler/BackC.HC:159-171", "Compiler/BackLib.HC:445-520"]
+implementation = ["src/ir/register_variable_analysis.ml"]
+tests = ["test/test_register_variable_analysis.ml", "test/test_register_variable_execution_cli.ml", "examples/register-computed-initializers.hc"]
+documentation = ["docs/register-variable-analysis.md", "docs/holy-abi.md", "docs/native-programs.md"]
+status = "partial"
+issue = 703
+verification = "Six narrow widths and four qualifiers across arithmetic/bitwise initializers, branches, loops and named calls. Operand substitution, conditional initialization and local-dependent initializer negatives preserve ownership."
+evidence_limit = "Original entry-block initialization with parameter/literal leaves only. Does not infer ordering between locals, support arbitrary expressions or claim a new TempleOS capture."
