@@ -294,8 +294,16 @@ let valid_chain values =
   List.rev reversed
 
 let deterministic_property =
+  let small_length =
+    QCheck.Gen.(
+      int_bound 3 >>= fun choice -> int_bound (if choice = 0 then 99 else 9))
+  in
   QCheck.Test.make ~count:500 ~name:"valid IR dumps are deterministic"
-    QCheck.(list_small int64)
+    QCheck.(
+      make
+        ~print:(Print.list Int64.to_string)
+        ~shrink:Shrink.(list ~shrink:int64)
+        (Gen.list_size small_length (get_gen int64)))
     (fun values ->
       match Ir.create (valid_chain values) with
       | Error _ -> false

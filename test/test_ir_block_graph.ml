@@ -356,10 +356,18 @@ let ordered_graph raw_ids =
                ids
           && String.equal (Graph.human graph) (Graph.human graph))
 
+let small_nat_gen =
+  QCheck.Gen.(
+    int_bound 3 >>= fun choice -> int_bound (if choice = 0 then 99 else 9))
+
 let order_and_lookup_property =
   QCheck.Test.make ~count:500
     ~name:"block order, lookup, and dumps are deterministic"
-    QCheck.(list_small nat_small)
+    QCheck.(
+      make
+        ~print:Print.(list int)
+        ~shrink:Shrink.(list ~shrink:int)
+        (Gen.list_size small_nat_gen small_nat_gen))
     ordered_graph
 
 let error_signature errors =
@@ -531,7 +539,16 @@ let dominance_matches_path_removal =
   QCheck.Test.make ~count:500
     ~name:"external definitions agree with independent path removal"
     QCheck.(
-      triple (list_size (Gen.int_range 2 12) nat_small) nat_small nat_small)
+      make
+        ~print:Print.(triple (list int) int int)
+        ~shrink:
+          Shrink.(
+            triple
+              (filter (fun xs -> List.length xs >= 2) (list ~shrink:int))
+              int int)
+        (Gen.triple
+           (Gen.list_size (Gen.int_range 2 12) small_nat_gen)
+           small_nat_gen small_nat_gen))
     (fun (raw_targets, raw_owner, raw_use) ->
       let count = List.length raw_targets in
       let owner = raw_owner mod count and use = raw_use mod count in
