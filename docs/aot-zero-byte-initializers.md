@@ -90,7 +90,8 @@ supported; see [integer division](integer-division.md).
 The warning is counted at the original leaf callback, with single-use source
 authority. The compiler checks the current data-heap option before counting the
 load-assignment warning. Bounded numeric expressions containing a completed
-integer global also receive the assignment warning at a U0 leaf. The classifier
+integer global also receive the assignment warning at a U0 leaf, including
+ordinary integer comparisons. The classifier
 does not count it for constant copies or nonzero destinations. Hosted tests cover
 global and static leaves and warning-before-load-fault ordering; these cases have
 no new TempleOS captures. `Compiler/OptPass012.HC` marks opcodes with the

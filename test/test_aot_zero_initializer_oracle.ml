@@ -323,7 +323,17 @@ let numeric_global_assignment_warnings () =
               Alcotest.(check (list string))
                 "numeric global assignment warning" [ "HCSEMA0080" ]
                 (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
-            [ ("N", 7L); ("N+1", 8L); ("N%3", 1L) ])
+            [
+              ("N", 7L);
+              ("N+1", 8L);
+              ("N%3", 1L);
+              ("N==7", 1L);
+              ("N!=7", 0L);
+              ("N<8", 1L);
+              ("N>8", 0L);
+              ("N<=7", 1L);
+              ("N>=8", 0L);
+            ])
         [ false; true ])
     [ false; true ];
   List.iter
@@ -349,6 +359,8 @@ let numeric_global_assignment_warnings () =
         [
           "class Box{U0 empty;I64 value;};Box x={7,42};x.value;";
           "I64 N=7;class Box{I64 first;I64 value;};Box x={N,42};x.value;";
+          "I64 N=7;class Box{I64 first;I64 value;};Box x={N==7,42};x.value;";
+          "class Box{U0 empty;I64 value;};Box x={7==7,42};x.value;";
         ];
       let diagnostics, result, _ =
         run native Preprocessor.Aot
@@ -360,6 +372,42 @@ let numeric_global_assignment_warnings () =
       Alcotest.(check (list string))
         "constant failure precedes raw warning" [ "HCIRL0007" ]
         (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+    [ false; true ]
+
+(* Comparison warning controls are hosted observations, not new TempleOS captures. *)
+let comparison_argument_warnings () =
+  List.iter
+    (fun native ->
+      List.iter
+        (fun static ->
+          List.iter
+            (fun (expression, expected) ->
+              let declaration =
+                if static then
+                  "I64 F(){static Box x={Get(" ^ expression
+                  ^ "),42};return x.value;}F();"
+                else "Box x={Get(" ^ expression ^ "),42};x.value;"
+              in
+              let source =
+                "I64 N=7;I64 Get(I64 n){return n;}class Box{U0 empty;I64 \
+                 value;};" ^ declaration
+              in
+              let diagnostics, result, _ = run native Preprocessor.Aot source in
+              Alcotest.(check (option int64))
+                "comparison result" (Some expected) (Result.get_ok result);
+              Alcotest.(check (list string))
+                "comparison warning" [ "HCSEMA0080" ]
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [
+              ("N==7", 1L);
+              ("N!=7", 0L);
+              ("N<8", 1L);
+              ("N>8", 0L);
+              ("N<=7", 1L);
+              ("N>=8", 0L);
+              ("(N+1)==8", 1L);
+            ])
+        [ false; true ])
     [ false; true ]
 
 let nested_constant_fault_precedes_warning () =
@@ -380,6 +428,7 @@ let nested_constant_fault_precedes_warning () =
         [
           "(N+((-9223372036854775807-1)/-1))/-3";
           "N/((-9223372036854775807-1)/-1)";
+          "N==((-9223372036854775807-1)/-1)";
         ])
     [ false; true ]
 
@@ -1455,6 +1504,8 @@ let () =
             direct_call_division_argument_warnings;
           Alcotest.test_case "numeric global assignment warnings" `Quick
             numeric_global_assignment_warnings;
+          Alcotest.test_case "comparison argument warnings" `Quick
+            comparison_argument_warnings;
           Alcotest.test_case "nested constant fault precedes warning" `Quick
             nested_constant_fault_precedes_warning;
           Alcotest.test_case "negative one source fault phases" `Quick

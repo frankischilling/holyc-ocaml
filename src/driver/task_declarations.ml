@@ -5939,7 +5939,18 @@ let numeric_initializer_proofs ledger =
       | A.Binary_expression
           { binary_left; binary_operator_spec; binary_right; _ } -> (
           match binary_operator_spec.ic_name with
-          | "IC_ADD" | "IC_SUB" | "IC_MUL" | "IC_AND" | "IC_OR" | "IC_XOR" ->
+          | "IC_ADD"
+          | "IC_SUB"
+          | "IC_MUL"
+          | "IC_AND"
+          | "IC_OR"
+          | "IC_XOR"
+          | "IC_EQU_EQU"
+          | "IC_NOT_EQU"
+          | "IC_LESS"
+          | "IC_GREATER"
+          | "IC_LESS_EQU"
+          | "IC_GREATER_EQU" ->
               proven_numeric (fuel - 1) binary_left
               && proven_numeric (fuel - 1) binary_right
           | "IC_DIV" | "IC_MOD" -> (
@@ -5996,7 +6007,18 @@ let numeric_initializer_proofs ledger =
       | A.Binary_expression
           { binary_left; binary_operator_spec; binary_right; _ } -> (
           match binary_operator_spec.ic_name with
-          | "IC_ADD" | "IC_SUB" | "IC_MUL" | "IC_AND" | "IC_OR" | "IC_XOR" ->
+          | "IC_ADD"
+          | "IC_SUB"
+          | "IC_MUL"
+          | "IC_AND"
+          | "IC_OR"
+          | "IC_XOR"
+          | "IC_EQU_EQU"
+          | "IC_NOT_EQU"
+          | "IC_LESS"
+          | "IC_GREATER"
+          | "IC_LESS_EQU"
+          | "IC_GREATER_EQU" ->
               proven_numeric (fuel - 1) binary_left
               && proven_numeric (fuel - 1) binary_right
               && (dynamic_numeric (fuel - 1) binary_left
