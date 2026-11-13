@@ -872,7 +872,7 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                                                | ( Ir.Opcode.Ic_imm_i64,
                                                    Some (Seq.Integer n),
                                                    Some type_ )
-                                                 when n >= 2L
+                                                 when n >= 1L
                                                       && Option.fold ~none:false
                                                            ~some:(fun scalar ->
                                                              Ir
@@ -888,7 +888,7 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                                    in
                                    Option.fold ~none:false
                                      ~some:(fun n ->
-                                       n <> 0L && n <> -1L
+                                       n <> 0L
                                        && (Int64.logand n (Int64.sub n 1L) <> 0L
                                           || n > 0L
                                              && item.opcode = Ir.Opcode.Ic_mod

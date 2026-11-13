@@ -5920,8 +5920,9 @@ let proven_direct_arguments ledger header arguments =
     | A.Identifier_expression name -> completed_integer_global name
     | _ -> false
   in
-  (* A bounded tree of source-selected integer operands and non-faulting
-     operators needs no invented constant or runtime value. *)
+  (* Selected integer trees do not invent values at warning time. A negative
+     literal divisor is admitted only with a nonconstant global numerator;
+     its runtime fault remains separate from this source-phase warning. *)
   let rec proven_numeric fuel expression =
     if fuel = 0 then false
     else
@@ -5949,6 +5950,16 @@ let proven_direct_arguments ledger header arguments =
               | A.Integer_literal right -> (
                   match right.literal_value with
                   | A.Integer_value n -> n > 0L
+                  | _ -> false)
+              | A.Prefix_expression
+                  {
+                    prefix_operator_kind = A.Unary_minus;
+                    prefix_operand = A.Integer_literal right;
+                    _;
+                  } -> (
+                  match (binary_left, right.literal_value) with
+                  | A.Identifier_expression name, A.Integer_value n ->
+                      n > 0L && completed_integer_global name
                   | _ -> false)
               | _ -> false)
           | "IC_SHL" | "IC_SHR" -> (

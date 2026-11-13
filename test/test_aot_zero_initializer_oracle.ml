@@ -232,19 +232,32 @@ let direct_call_division_argument_warnings () =
             "modulo source warning" [ "HCSEMA0080" ]
             (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
           List.iter
-            (fun expression ->
+            (fun (expression, expected) ->
               let diagnostics, result, _ =
                 run native Preprocessor.Aot (source expression)
               in
-              Alcotest.(check bool)
-                "unsupported arithmetic remains rejected" true
-                (Result.is_error result);
-              Alcotest.(check bool)
-                "unsafe divisor grants no warning authority" false
-                (List.exists
-                   (fun (d : Diagnostic.t) -> d.code = "HCSEMA0080")
-                   diagnostics))
-            [ "N/0"; "N/-1" ])
+              Alcotest.(check (option int64))
+                "negative divisor load value" (Some expected)
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "negative divisor warning" [ "HCSEMA0080" ]
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [
+              ("N/-1", 4294967289L);
+              ("N%-1", 0L);
+              ("N/-3", 4294967294L);
+              ("N%-3", 1L);
+            ];
+          let diagnostics, result, _ =
+            run native Preprocessor.Aot (source "N/0")
+          in
+          Alcotest.(check bool)
+            "zero divisor remains rejected" true (Result.is_error result);
+          Alcotest.(check bool)
+            "zero divisor grants no warning authority" false
+            (List.exists
+               (fun (d : Diagnostic.t) -> d.code = "HCSEMA0080")
+               diagnostics))
         [ false; true ])
     [ false; true ];
   List.iter
@@ -264,6 +277,64 @@ let direct_call_division_argument_warnings () =
             (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
         [ false; true ])
     [ ("14/2", 7L); ("7%3", 1L) ]
+
+let negative_one_source_fault_phases () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun operator ->
+              let source =
+                "#exe{Print(\"A\");}I64 N=0x8000000000000000;I64 A=N" ^ operator
+                ^ "-1;#exe{Print(\"B\");}42;"
+              in
+              let diagnostics, result, output = run native mode source in
+              Alcotest.(check bool)
+                "signed overflow fails" true (Result.is_error result);
+              Alcotest.(check bool)
+                "signed overflow diagnostic" true
+                (List.exists
+                   (fun (d : Diagnostic.t) -> d.code = "HCIRVM0010")
+                   diagnostics);
+              Alcotest.(check string)
+                "source phase effects"
+                (if mode = Preprocessor.Jit then "A" else "AB")
+                output)
+            [ "/"; "%" ])
+        [ false; true ])
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun native ->
+      let source =
+        "#exe{Print(\"A\");}I64 N=0x8000000000000000;I64 Get(I64 n){return \
+         n;}class Box{U0 empty;I64 value;};Box \
+         x={Get(N/-1),42};#exe{Print(\"B\");}x.value;"
+      in
+      let diagnostics, result, output = run native Preprocessor.Aot source in
+      Alcotest.(check bool)
+        "warning source overflow fails" true (Result.is_error result);
+      Alcotest.(check (list string))
+        "warning precedes reached fault"
+        [ "HCSEMA0080"; "HCIRVM0010" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
+      Alcotest.(check string) "AOT directives precede load fault" "AB" output)
+    [ false; true ];
+  List.iter
+    (fun native ->
+      let source =
+        "I64 Get(I64 n=(-9223372036854775807-1)/-1){return n;}class Box{U0 \
+         empty;I64 value;};Box x={Get(),42};x.value;"
+      in
+      let diagnostics, result, output = run native Preprocessor.Aot source in
+      Alcotest.(check bool)
+        "constant default overflow fails during compilation" true
+        (Result.is_error result);
+      Alcotest.(check (list string))
+        "no later load warning before default failure" [ "HCIRL0007" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
+      Alcotest.(check string) "default failure emits no output" "" output)
+    [ false; true ]
 
 let direct_call_two_argument_warnings () =
   let fields = fixture "warnings-two-arguments" in
@@ -1226,6 +1297,8 @@ let () =
             direct_call_unary_argument_warnings;
           Alcotest.test_case "direct division argument warnings" `Quick
             direct_call_division_argument_warnings;
+          Alcotest.test_case "negative one source fault phases" `Quick
+            negative_one_source_fault_phases;
           Alcotest.test_case "direct two literal argument warnings" `Quick
             direct_call_two_argument_warnings;
           Alcotest.test_case "direct global argument warnings" `Quick

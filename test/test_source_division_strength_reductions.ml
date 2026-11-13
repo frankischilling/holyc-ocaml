@@ -252,6 +252,31 @@ let non_power_initializer_roots () =
         cases)
     modes
 
+let negative_one_initializer_fault_phases () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun operator ->
+          let source =
+            "#exe{Print(\"A\");}I64 N=0x8000000000000000;I64 A=N" ^ operator
+            ^ "-1;#exe{Print(\"B\");}42;"
+          in
+          let report = run mode source in
+          (match integer_program_report_outcome report with
+          | Error diagnostics ->
+              Alcotest.(check bool)
+                "reached signed overflow" true
+                (List.exists
+                   (fun (d : Diagnostic.t) -> d.code = "HCIRVM0010")
+                   diagnostics)
+          | Ok _ -> Alcotest.fail "signed overflow succeeded");
+          Alcotest.(check string)
+            "source-phase effects survive in order"
+            (if mode = Preprocessor.Jit then "A" else "AB")
+            (integer_program_report_output_bytes report))
+        [ "/"; "%" ])
+    modes
+
 let authority () =
   List.iter
     (fun mode ->
@@ -308,6 +333,8 @@ let tests =
       values;
     Alcotest.test_case "source-owned non-power initializer roots" `Quick
       non_power_initializer_roots;
+    Alcotest.test_case "negative one initializer fault phases" `Quick
+      negative_one_initializer_fault_phases;
     Alcotest.test_case "literal, compound and following comparison shapes"
       `Quick shapes;
     Alcotest.test_case "compilation and reached arithmetic fault phases" `Quick
