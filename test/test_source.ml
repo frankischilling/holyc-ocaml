@@ -53,7 +53,11 @@ let expected_position text offset =
 
 let position_property =
   QCheck.Test.make ~count:1_000 ~name:"source positions match LF byte scans"
-    QCheck.(pair string nat)
+    QCheck.(
+      make
+        ~print:Print.(pair string int)
+        ~shrink:Shrink.(pair string int)
+        Gen.(pair string nat))
     (fun (text, raw_offset) ->
       let _, input = source text in
       let offset = raw_offset mod (String.length text + 1) in
