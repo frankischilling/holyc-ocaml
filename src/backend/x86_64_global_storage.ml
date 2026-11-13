@@ -443,7 +443,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let element_count = Shape.cell_count shape in
         let extent_bytes = Shape.byte_size shape in
         let is_array = dimensions <> [] in
-        let byte_flags = is_array || Shape.is_aggregate shape in
+        let byte_flags = is_array || Shape.has_byte_leaves shape in
         let* () =
           if
             dimensions <> Shape.dimensions shape

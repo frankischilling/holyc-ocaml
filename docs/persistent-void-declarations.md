@@ -54,14 +54,15 @@ target storage. Tests compare those observations through IR and native source
 execution. Public-command checks cover all three executors, both outer modes,
 exact and one-below limits, unknown neighbors and unsupported uses.
 
-AOT scalar U0 statics accept supported closed integer initializers. The
-expression runs while its declaration is parsed, even if the function is never
-called. A fault or exhausted preparation limit stops later `#exe` blocks. The
-result is discarded without creating a value cell or writing neighboring storage.
+AOT scalar U0 globals and statics accept supported closed integer initializers.
+The expression runs while its declaration is parsed, even if the enclosing
+function is never called. A fault or exhausted preparation limit stops later
+`#exe` blocks. The result is discarded without creating a value cell or writing
+neighboring storage.
 For example, `I64 F(){static U0 x=42;return sizeof(x)+42;}F();` returns 42.
 
-AOT scalar U0 globals, nonconstant U0 static roots and the separate
-globals-on-data-heap path remain unsupported. Isolated JIT retains its existing
+Nonconstant U0 global and static roots and the separate globals-on-data-heap
+path remain unsupported. Isolated JIT retains its existing
 closed-initializer restrictions. The AOT checks are source-based and hosted;
 they do not establish emitted-byte equality or complete initializer parity.
 Issues #686 and #690 remain open.

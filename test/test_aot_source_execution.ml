@@ -52,6 +52,16 @@ let scalar_void_static_source_order () =
   ignore
     (run ~max_initializer_steps:1 good |> Output.fault ~output:"A" "HCIRVM0007")
 
+let scalar_void_global_source_order () =
+  let good =
+    {|#exe{Print("A");}I64 a=40;U0 x=1,y=2;I64 b=2;#exe{Print("B");}a+b+sizeof(x)+sizeof(y);|}
+  in
+  let bad = {|#exe{Print("A");}I64 a=40;U0 x=1,y=1/0;#exe{Print("B");}a+2;|} in
+  ignore (run good |> Output.expect ~value:(Some 42L) "AB");
+  ignore (run bad |> Output.fault ~output:"A" "HCIRVM0009");
+  ignore
+    (run ~max_initializer_steps:1 good |> Output.fault ~output:"A" "HCIRVM0007")
+
 let first_global_array_source_order () =
   let good =
     {|#exe{Print("A");}I64 items[1]={42};#exe{Print("B");}items[0];|}
@@ -580,6 +590,8 @@ let tests =
         reached_failures;
       Alcotest.test_case "scalar U0 static source order and faults" `Quick
         scalar_void_static_source_order;
+      Alcotest.test_case "scalar U0 global source order and faults" `Quick
+        scalar_void_global_source_order;
       Alcotest.test_case "first global array leaf source order and faults"
         `Quick first_global_array_source_order;
       Alcotest.test_case "multiple global array leaves source order and faults"

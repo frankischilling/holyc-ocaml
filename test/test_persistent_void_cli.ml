@@ -158,15 +158,34 @@ let () =
             (fun source -> ignore (success target mode source []))
             uninitialized;
           List.iter (fun source -> rejected target mode source []) unsupported;
-          if mode = "aot" then
+          if mode = "aot" then (
+            let adjacent =
+              "I64 a=40;U0 x=1,y=2;I64 b=2;a+b+sizeof(x)+sizeof(y);"
+            in
+            let report =
+              success target mode adjacent [ "--global-byte-limit=16" ]
+            in
+            let preparation =
+              report |> member "compiled_initializer_steps" |> to_int
+            in
+            ignore
+              (success target mode adjacent
+                 [
+                   "--global-byte-limit=16";
+                   "--initializer-step-limit=" ^ string_of_int preparation;
+                 ]);
+            rejected target mode adjacent [ "--global-byte-limit=15" ];
+            rejected ~code:"HCIRVM0007" target mode adjacent
+              [ "--initializer-step-limit=" ^ string_of_int (preparation - 1) ];
             List.iter
               (fun (_, source) ->
                 if
                   source
                   = "I64 F(){static U0 x=42;return 21+sizeof(x);}F()+F();"
+                  || source = "U0 x=42;42;"
                 then ignore (success target mode source [])
                 else rejected ~code:"HCRUN0006" target mode source [])
-              initialized)
+              initialized))
         [ "jit"; "aot" ];
       if target <> "host-jit" then (
         List.iter

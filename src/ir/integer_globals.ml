@@ -1101,16 +1101,6 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
           in
           let* () =
             if
-              Shape.is_storage_free shape
-              && Records.compilation_mode records = Resolution.Aot
-              && Option.is_some (Global.global_initializer global)
-            then
-              fail "HCRUN0006"
-                "U0 scalar initializers require the live JIT source path"
-            else Ok ()
-          in
-          let* () =
-            if
               Shape.cell_count shape > Sys.max_array_length - index
               || Shape.byte_size shape > Int.max_int - byte_size
             then

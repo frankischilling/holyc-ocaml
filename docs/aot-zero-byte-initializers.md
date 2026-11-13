@@ -54,9 +54,9 @@ semantics.
 U0 calls without an actual scalar result, reference values without an integer
 word, out-of-bounds store windows, and unresolved constant/preparation phases
 still reject explicitly. No machine-register value is invented. Supported closed
-integer initializers of scalar U0 statics run at their source declaration; see
-[persistent U0 declarations](persistent-void-declarations.md). Scalar U0 global
-root initializers, nonconstant U0 static roots and the separate
+integer initializers of scalar U0 globals and statics run at their source
+declaration; see [persistent U0 declarations](persistent-void-declarations.md).
+Nonconstant scalar U0 global and static roots and the separate
 globals-on-data-heap path remain unsupported. General AOT assignment warnings
 and emitted-byte equality are not claimed.
 
