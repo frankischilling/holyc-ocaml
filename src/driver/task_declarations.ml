@@ -5880,9 +5880,8 @@ let observed_global_initializer_destination ledger receipt =
 (* These source-defined direct calls necessarily retain IC_CALL, which is
    nonconstant in the original optimizer. Keep argument checking deliberately
    narrower than general expression classification. *)
-let proven_direct_arguments ledger header arguments =
+let numeric_initializer_proofs ledger =
   let module A = Frontend.Ast in
-  let parameters = header.Parser.parameters in
   let completed_global_type name =
     match Names.find_opt ledger.references name with
     | Some
@@ -6002,8 +6001,20 @@ let proven_direct_arguments ledger header arguments =
               && proven_numeric (fuel - 1) binary_right
               && (dynamic_numeric (fuel - 1) binary_left
                  || dynamic_numeric (fuel - 1) binary_right)
+          | "IC_DIV" | "IC_MOD" | "IC_SHL" | "IC_SHR" ->
+              proven_numeric (fuel - 1) expression
+              && (dynamic_numeric (fuel - 1) binary_left
+                 || dynamic_numeric (fuel - 1) binary_right)
           | _ -> false)
       | _ -> false
+  in
+  (proven_numeric, dynamic_numeric, completed_numeric_global)
+
+let proven_direct_arguments ledger header arguments =
+  let module A = Frontend.Ast in
+  let parameters = header.Parser.parameters in
+  let proven_numeric, _, completed_numeric_global =
+    numeric_initializer_proofs ledger
   in
   let parameter_shape (parameter : A.function_parameter) =
     parameter.pointer_layers = []
@@ -6108,6 +6119,26 @@ let emit_direct_call_warnings ledger ~context ~span ~value ~destination =
                 then emit "HCSEMA0080" "Assign U0"
             | _ -> ())
       | _ -> ())
+  | ( Ast.Scalar_initializer expression,
+      Some (_, _, Ir.Integer_initializer_layout.Scalar_store, Some scalar) )
+    when Sema.Initializer_type.scalar_byte_size scalar = 0 ->
+      let proven_numeric, dynamic_numeric, _ =
+        numeric_initializer_proofs ledger
+      in
+      if proven_numeric 16 expression && dynamic_numeric 16 expression then
+        let option =
+          Sema.Compiler_option.info Sema.Compiler_option.Globals_on_data_heap
+        in
+        let heap =
+          Parser.context_get_option context
+            ~bit_index:(Int64.of_int option.bit_index)
+          |> checked span
+        in
+        if not heap then
+          Common.Diagnostic.make ~severity:Common.Diagnostic.Warning
+            ~code:"HCSEMA0080" ~message:"Assign U0" ~primary:span ()
+          |> Parser.context_emit_counted_compiler_warning context
+          |> checked span
   | _ -> ()
 
 let emit_aot_direct_call_initializer_warnings ledger receipt =

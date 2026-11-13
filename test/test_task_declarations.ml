@@ -3589,18 +3589,19 @@ let aot_initializer_warning_authority () =
          a+b+c+d+e+f+g+h;}I64 Nine(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 \
          g,I64 h,I64 i){return a+b+c+d+e+f+g+h+i;}I64 Arg(I64 n){return n;}I64 \
          Tiny(U8 n){return n;}I64 Add(I64 a,I64 b){return a+b;}class Box{U0 \
-         empty;I64 value;};Box heap_probe={Get(),42};Box object={Get(),42};Box \
-         argument={Arg(7),42};Box pair={Add(3,4),42};Box named={Arg(N),42};Box \
-         small={Tiny(7),42};Box smallnamed={Tiny(N),42};Box \
-         sum={Arg(3+4),42};Box diff={Arg(8-1),42};Box neg={Arg(-7),42};Box \
-         sumN={Arg(N+0),42};Box negN={Arg(-N),42};Box uarg={Arg(U),42};Box \
-         narrow={Arg(U+0),42};Box both={Arg(N+U),42};Box \
-         nested={Arg((N+1)*2),42};Box doubleNeg={Arg(-(-N)),42};Box \
-         positive={Arg(+N),42};Box complement={Arg(~N),42};Box \
-         logical={Arg(!N),42};Box quotient={Arg(N/2),42};Box \
-         remainder={Arg(N%3),42};Box zerodiv={Arg(N/0),42};Box \
-         zeromod={Arg(N%0),42};Box nestedzero={Arg((N+1)/0),42};Box \
-         nestedneg={Arg((-N)/-1),42};Box \
+         empty;I64 value;};Box heap_probe={Get(),42};Box \
+         raw_heap_probe={N,42};Box object={Get(),42};Box rawglobal={N,42};Box \
+         rawexpr={N+1,42};Box argument={Arg(7),42};Box pair={Add(3,4),42};Box \
+         named={Arg(N),42};Box small={Tiny(7),42};Box \
+         smallnamed={Tiny(N),42};Box sum={Arg(3+4),42};Box \
+         diff={Arg(8-1),42};Box neg={Arg(-7),42};Box sumN={Arg(N+0),42};Box \
+         negN={Arg(-N),42};Box uarg={Arg(U),42};Box narrow={Arg(U+0),42};Box \
+         both={Arg(N+U),42};Box nested={Arg((N+1)*2),42};Box \
+         doubleNeg={Arg(-(-N)),42};Box positive={Arg(+N),42};Box \
+         complement={Arg(~N),42};Box logical={Arg(!N),42};Box \
+         quotient={Arg(N/2),42};Box remainder={Arg(N%3),42};Box \
+         zerodiv={Arg(N/0),42};Box zeromod={Arg(N%0),42};Box \
+         nestedzero={Arg((N+1)/0),42};Box nestedneg={Arg((-N)/-1),42};Box \
          minmod={Arg(N%(-9223372036854775807-1)),42};Box \
          foldedzero={Arg(N/(1-1)),42};Box negdiv={Arg(N/-1),42};Box \
          negmod={Arg(N%-3),42};Box defaultObject={Def(),42};Box \
@@ -3631,8 +3632,10 @@ let aot_initializer_warning_authority () =
             .command_context
         in
         let heap_probe =
-          receipt.leaf_initializer.initializer_owner.global_name.spelling
-          = "heap_probe"
+          (let name =
+             receipt.leaf_initializer.initializer_owner.global_name.spelling
+           in
+           name = "heap_probe" || name = "raw_heap_probe")
           && receipt.leaf_index = 0
         in
         if heap_probe then
@@ -3699,10 +3702,10 @@ let aot_initializer_warning_authority () =
   ignore (Test_parser.expect_ast parsed);
   Alcotest.(check (list int64))
     "heap option suppresses load warning; later leaves count"
-    ([ 0L; 0L; 0L; 0L ]
+    ([ 0L; 0L; 0L; 0L; 0L; 0L ]
     @ List.concat_map
         (fun n -> [ Int64.of_int n; Int64.of_int n ])
-        (List.init 37 (fun n -> n + 1)))
+        (List.init 39 (fun n -> n + 1)))
     (List.rev !counts);
   Option.iter
     (fun receipt ->

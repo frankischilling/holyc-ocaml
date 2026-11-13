@@ -89,7 +89,11 @@ the documented range, and signed remainder by positive full-word powers of two, 
 supported; see [integer division](integer-division.md).
 The warning is counted at the original leaf callback, with single-use source
 authority. The compiler checks the current data-heap option before counting the
-load-assignment warning. `Compiler/OptPass012.HC` marks opcodes with the
+load-assignment warning. Bounded numeric expressions containing a completed
+integer global also receive the assignment warning at a U0 leaf. The classifier
+does not count it for constant copies or nonzero destinations. Hosted tests cover
+global and static leaves and warning-before-load-fault ordering; these cases have
+no new TempleOS captures. `Compiler/OptPass012.HC` marks opcodes with the
 nonconstant flag and warns on a zero-sized assignment operand; the pinned intermediate-code table
 marks `IC_CALL` nonconstant. Other call forms and general expressions remain
 unimplemented. Counting the warning does not make an unsupported F64 call frame,

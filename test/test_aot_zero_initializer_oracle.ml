@@ -299,6 +299,69 @@ let direct_call_division_argument_warnings () =
         [ false; true ])
     [ ("14/2", 7L); ("7%3", 1L) ]
 
+(* Source-derived warning controls; no new TempleOS capture is implied. *)
+let numeric_global_assignment_warnings () =
+  List.iter
+    (fun static ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun (expression, expected) ->
+              let declaration =
+                if static then
+                  "I64 F(){static Box x={" ^ expression
+                  ^ ",42};return x.value;}F();"
+                else "Box x={" ^ expression ^ ",42};x.value;"
+              in
+              let diagnostics, result, _ =
+                run native Preprocessor.Aot
+                  ("I64 N=7;class Box{U0 empty;I64 value;};" ^ declaration)
+              in
+              Alcotest.(check (option int64))
+                "numeric global load value" (Some expected)
+                (Result.get_ok result);
+              Alcotest.(check (list string))
+                "numeric global assignment warning" [ "HCSEMA0080" ]
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ ("N", 7L); ("N+1", 8L); ("N%3", 1L) ])
+        [ false; true ])
+    [ false; true ];
+  List.iter
+    (fun native ->
+      let diagnostics, result, output =
+        run native Preprocessor.Aot
+          "#exe{Print(\"A\");}I64 N=7;class Box{U0 empty;I64 value;};Box \
+           x={N/0,42};#exe{Print(\"B\");}x.value;"
+      in
+      Alcotest.(check bool) "raw zero faults" true (Result.is_error result);
+      Alcotest.(check (list string))
+        "raw warning precedes load fault"
+        [ "HCSEMA0080"; "HCIRVM0009" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
+      Alcotest.(check string) "source directives precede load fault" "AB" output;
+      List.iter
+        (fun source ->
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check bool) "control succeeds" true (Result.is_ok result);
+          Alcotest.(check (list string))
+            "control emits no warning" []
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [
+          "class Box{U0 empty;I64 value;};Box x={7,42};x.value;";
+          "I64 N=7;class Box{I64 first;I64 value;};Box x={N,42};x.value;";
+        ];
+      let diagnostics, result, _ =
+        run native Preprocessor.Aot
+          "I64 N=7;class Box{U0 empty;I64 value;};Box \
+           x={N+((-9223372036854775807-1)/-1),42};x.value;"
+      in
+      Alcotest.(check bool)
+        "raw constant subtree fails" true (Result.is_error result);
+      Alcotest.(check (list string))
+        "constant failure precedes raw warning" [ "HCIRL0007" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+    [ false; true ]
+
 let nested_constant_fault_precedes_warning () =
   List.iter
     (fun native ->
@@ -1390,6 +1453,8 @@ let () =
             direct_call_unary_argument_warnings;
           Alcotest.test_case "direct division argument warnings" `Quick
             direct_call_division_argument_warnings;
+          Alcotest.test_case "numeric global assignment warnings" `Quick
+            numeric_global_assignment_warnings;
           Alcotest.test_case "nested constant fault precedes warning" `Quick
             nested_constant_fault_precedes_warning;
           Alcotest.test_case "negative one source fault phases" `Quick
