@@ -205,7 +205,9 @@ type scalar_capture =
   | Metadata_capture of
       Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t
   | Initializer_capture of
-      Ir.Initializer_fragment_program.t Ir.Native_scalar_capture.t * Domain.id
+      Ir.Initializer_fragment_program.t Ir.Native_scalar_capture.t
+      * Domain.id
+      * Image.word option
   | Static_initializer_capture of
       Ir.Static_initializer_program.t Ir.Native_scalar_capture.t * Domain.id
 
@@ -628,7 +630,8 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                 scalar_capture :=
                                   Option.map
                                     (fun value ->
-                                      Initializer_capture (value, Domain.self ()))
+                                      Initializer_capture
+                                        (value, Domain.self (), None))
                                     capture;
                                 report
                             | Some (Image.Static_initializer program) ->
@@ -802,7 +805,18 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                       || accepts_void
                                     then
                                       Option.map
-                                        (fun value -> (image, value))
+                                        (fun value ->
+                                          let value =
+                                            match value with
+                                            | Initializer_capture
+                                                (capture, domain, _) ->
+                                                Initializer_capture
+                                                  ( capture,
+                                                    domain,
+                                                    completed.final_value )
+                                            | other -> other
+                                          in
+                                          (image, value))
                                         !scalar_capture
                                     else None
                                 | _ -> None
@@ -1163,11 +1177,18 @@ let finish_task_initializer ?scope arena image =
         (Image.task_snapshot image, Image.scalar_initializer image, reached)
       with
       | ( Some snapshot,
-          Some _,
-          Some (entered, Initializer_capture (captured, domain)) )
+          Some program,
+          Some (entered, Initializer_capture (captured, domain, result)) )
         when (not (Atomic.get arena.arena_revoked_))
              && domain = Domain.self ()
              && entered == image
+             && ((not
+                    (Ir.Initializer_fragment_destination.stores_same_f64
+                       (Ir.Initializer_fragment_program.destination program)))
+                ||
+                match result with
+                | Some word -> word.Image.type_ = Image.F64
+                | None -> false)
              && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
              && Atomic.compare_and_set arena.scalar_capture_ reached None ->
           Ok captured

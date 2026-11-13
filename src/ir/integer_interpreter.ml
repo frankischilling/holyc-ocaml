@@ -6134,7 +6134,20 @@ let prepare_native_initializer_copy task attempt execution program capture ~work
     let* bytes =
       let scalar = Option.get (Integer_initializer_layout.scalar layout) in
       match bits with
-      | Some bits -> Integer_initializer_layout.word_bytes scalar bits
+      | Some bits ->
+          let destination = Initializer_fragment_program.destination program in
+          if
+            Initializer_fragment_destination.stores_same_f64 destination
+            && Sema.Initializer_type.scalar_equal scalar
+                 (Option.get
+                    (Integer_initializer_layout.scalar
+                       (Initializer_fragment_destination.layout destination)))
+          then
+            Ok
+              (String.init 8 (fun i ->
+                   Int64.shift_right_logical bits (8 * i)
+                   |> Int64.logand 255L |> Int64.to_int |> Char.chr))
+          else Integer_initializer_layout.word_bytes scalar bits
       | None
         when Initializer_fragment_destination.discards_value
                (Initializer_fragment_program.destination program)

@@ -333,8 +333,8 @@ initializer effects. Reference-bearing AOT statics with the data-heap option
 retain their explicit compile-time phase boundary before later body effects.
 
 Nonconstant AOT statics with globals-on-data-heap remain unsupported.
-Other runtime class changes remain unfinished. Floating and owned callback leaves, inferred
-dimensions, general aggregate copies and the remaining aggregate execution
+Other runtime class changes remain unfinished. Most floating leaves, owned callback leaves,
+inferred dimensions, general aggregate copies and the remaining aggregate execution
 work stay open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686). Native data
 pointer fields retain their separate owned storage and activation checks.
@@ -382,6 +382,23 @@ The source is pinned at `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 `PrsVar.HC:1-120` calls the compiled initializer and copies exactly the reached
 class size. `PrsVar.HC:209-246` preserves global/static traversal.
 `PrsExp.HC:263-301,1116-1133` retains the warning and expression compilation path.
+
+## Native JIT F64 leaves
+
+In the native source-task JIT path, an F64 expression can initialize an F64
+member of a global aggregate. The original leaf executes in the live task, then
+its eight result bytes are copied to the reached member. The decoded native
+result must be F64 and belong to the original initializer image. Copy completion
+retains the source, arena, work count and single-use capture.
+
+The hosted tests check all eight bytes for finite values and negative zero,
+neighboring storage, a function call with output, and the exact initializer
+work limit. They also compile the checked initializer for both private x86-64
+ABIs and reject copied, foreign and replayed capture evidence. These tests do
+not add a TempleOS runtime capture. `Compiler/PrsVar.HC:90-112` calls the
+initializer and copies the selected width when the result and destination are
+both F64. The interpreter, isolated native path, AOT preparation, static F64
+leaves and F64/integer conversions remain outside this slice.
 
 ## Owned data-pointer leaves
 

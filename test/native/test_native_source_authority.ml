@@ -2880,6 +2880,129 @@ let zero_reference_initializer_authority () =
        F(){if(target!=7)return -1;return sizeof(first)+sizeof(second)+42;}F();";
     ]
 
+let floating_initializer_authority () =
+  let session, config, source =
+    inputs "class Box{F64 x;I64 y;};Box b={1.5,42};(&b)(U8*)[6];"
+  in
+  let layout = Image.create_task_layout ~max_global_bytes:64 |> compiled in
+  let arena =
+    Runtime.create_task_arena ~max_arena_bytes:1024 layout |> checked
+  in
+  let foreign_layout =
+    Image.create_task_layout ~max_global_bytes:64 |> compiled
+  in
+  let foreign_arena =
+    Runtime.create_task_arena ~max_arena_bytes:1024 foreign_layout |> checked
+  in
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
+  let saved = ref None in
+  let execute image =
+    let retained = Runtime.retain_task_fragment arena image |> checked in
+    Fun.protect
+      ~finally:(fun () -> Runtime.release retained |> checked)
+      (fun () ->
+        let before = (Runtime.budget_progress budget).executed_steps in
+        let report = Runtime.execute_retained_budget_report budget retained in
+        let result = completed report in
+        let work = (Runtime.budget_progress budget).executed_steps - before in
+        (report, result, work))
+  in
+  let dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun request ->
+          compile_initializer_both_abis layout request;
+          let image =
+            Image.compile_task_initializer ~status_abi:(host_status_abi ())
+              ~layout request
+            |> compiled
+          in
+          let _, result, work = execute image in
+          let program = Dispatch.initializer_program request in
+          if
+            Holyc_lib__Ir.Initializer_fragment_program.is_scalar_evaluation
+              program
+          then (
+            Alcotest.(check bool)
+              "actual capture reports F64" true
+              (match result.final_value with
+              | Some word ->
+                  word.type_ = Image.F64 && word.bits = 0x3ff8_0000_0000_0000L
+              | None -> false);
+            let capture =
+              Runtime.finish_task_initializer arena image |> checked
+            in
+            rejected "capture cannot be taken twice"
+              (Runtime.finish_task_initializer arena image);
+            let copied_program = Obj.obj (Obj.dup (Obj.repr program)) in
+            rejected "copied program cannot consume original floating result"
+              (Holyc_lib__Ir.Native_scalar_capture.consume_value capture
+                 ~program:copied_program ~work);
+            rejected "wrong work cannot consume original floating result"
+              (Dispatch.prepare_initializer_copy request capture ~work:(work + 1));
+            let token =
+              Dispatch.prepare_initializer_copy request capture ~work |> checked
+            in
+            Alcotest.(check string)
+              "executed F64 bits copied little endian"
+              "\000\000\000\000\000\000\248\063"
+              (Dispatch.initializer_copy_bytes token);
+            rejected "capture cannot be consumed twice"
+              (Dispatch.prepare_initializer_copy request capture ~work);
+            let duplicate = Obj.obj (Obj.dup (Obj.repr token)) in
+            rejected "copied token cannot borrow original attempt"
+              (Dispatch.check_initializer_copy request duplicate);
+            rejected "foreign arena cannot take original copy"
+              (Runtime.copy_task_initializer foreign_arena request token);
+            let receipt =
+              Runtime.copy_task_initializer arena request token |> checked
+            in
+            rejected "native copy cannot replay"
+              (Runtime.copy_task_initializer arena request token);
+            Dispatch.finish_initializer_copy request token receipt |> checked;
+            rejected "copy completion cannot replay"
+              (Dispatch.finish_initializer_copy request token receipt);
+            saved := Some (request, token));
+          Ok ());
+      execute_command =
+        (fun request ->
+          compile_command_both_abis layout request;
+          let image =
+            Image.compile_task_command ~status_abi:(host_status_abi ()) ~layout
+              request
+            |> compiled
+          in
+          let report, result, _ = execute image in
+          Ok
+            (if Runtime.value_captured report then
+               Dispatch.Captured
+                 (Option.map
+                    (fun (word : Image.word) ->
+                      match word.type_ with
+                      | Image.I64 -> Dispatch.I64 word.bits
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
+                    result.final_value)
+             else Dispatch.Unchanged));
+    }
+  in
+  let report =
+    Fun.protect
+      ~finally:(fun () ->
+        Runtime.release_task_arena arena |> checked;
+        Runtime.release_task_arena foreign_arena |> checked)
+      (fun () ->
+        Source.run ~native_dispatch:dispatch session ~config ~source
+          ~max_steps:100_000)
+  in
+  Source.outcome report |> Result.map_error describe |> checked |> ignore;
+  Alcotest.(check bool)
+    "copied bytes are visible to original task" true
+    (Source.native_final_value report = Some (Dispatch.U64 248L));
+  let request, token = Option.get !saved in
+  rejected "expired source cannot reuse floating copy"
+    (Dispatch.check_initializer_copy request token)
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -2968,6 +3091,8 @@ let () =
           Alcotest.test_case
             "nested anonymous owners and exact completed receipts" `Quick
             native_nested_default_source_authority;
+          Alcotest.test_case "floating leaf capture and copy authority" `Quick
+            floating_initializer_authority;
           Alcotest.test_case "zero-byte reference evaluation and copy authority"
             `Quick zero_reference_initializer_authority;
         ] );

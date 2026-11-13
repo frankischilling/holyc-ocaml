@@ -34,9 +34,32 @@ let stores_pointer value =
     ~scalar:(Layout.scalar value.layout_)
     (Typed.top_level_root_value value.root_)
 
+let same_f64 scalar expression =
+  let is_f64 t =
+    Sema.Type.pointer_depth t = 0
+    &&
+    match Sema.Type.base t with
+    | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> true
+    | _ -> false
+  in
+  Typed.result_array_rank expression = 0
+  && Typed.result_class expression = Typed.F64_result
+  &&
+  match (scalar, Typed.result_value_type expression) with
+  | Some scalar, Some result_type ->
+      Sema.Initializer_type.scalar_byte_size scalar = 8
+      && is_f64 result_type
+      && is_f64 (Sema.Initializer_type.scalar_value_type scalar)
+  | _ -> false
+
+let stores_same_f64 value =
+  same_f64
+    (Layout.scalar value.layout_)
+    (Typed.top_level_root_value value.root_)
+
 let requires_evaluation value =
   Layout.requires_settlement value.layout_
-  || discards_value value
+  || discards_value value || stores_same_f64 value
   || Integer_storage_shape.is_storage_free
        (Globals.storage_shape value.storage_)
 
@@ -95,6 +118,7 @@ let create ~task_view ~reference ~slot ~layout typed =
                value
           || Initializer_value.stores_pointer ~scalar:(Layout.scalar layout)
                value
+          || same_f64 (Layout.scalar layout) value
         then Ok ()
         else if
           Typed.result_array_rank value = 0

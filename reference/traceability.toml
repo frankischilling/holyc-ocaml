@@ -14940,6 +14940,20 @@ evidence_limit = "Native captures cover JIT effects and resulting bytes, not ori
 remaining = ["nonzero copies from unspecified U0 register contents", "original AOT load-assignment storage", "isolated native JIT effectful initializers", "remaining aggregate and initializer acceptance under #686 and #690"]
 
 [[feature]]
+id = "HC-NATIVE-JIT-F64-AGGREGATE-LEAVES"
+description = "Native JIT source tasks copy actual same-class F64 initializer results into global aggregate leaves."
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-112 scalar initializer execution, conversion and copy"]
+implementation = ["src/driver/integer_task.ml", "src/ir/initializer_fragment_destination.ml", "src/ir/integer_interpreter.ml", "src/runtime/native_program_execution.ml"]
+tests = ["test/native/test_native_source_cli.ml", "test/native/test_native_source_authority.ml"]
+documentation = ["docs/aggregate-initializers.md"]
+status = "partial"
+issue = 690
+execution = "A same-class F64 source result executes through its original live native JIT task and eight bytes are copied to the selected global aggregate leaf. The actual decoded F64 capture, original image, task arena, source attempt, work and copy receipt are checked before completion."
+verification = "Hosted CLI controls check all bytes for finite expressions and negative zero, neighboring storage, reached output, and exact/one-below initializer work. The source authority suite compiles both private ABIs and rejects copied, foreign, repeated and expired evidence."
+evidence_limit = "No new TempleOS runtime capture or emitted-byte equivalence is claimed. IR, AOT, isolated native preparation, static F64 leaves, F64/integer conversions and general floating storage remain outside this slice."
+
+[[feature]]
 id = "HC-OWNED-AGGREGATE-POINTER-INITIALIZERS"
 description = "Global and static aggregate initializer leaves preserve checked data references at the original sequential byte cursor."
 sources = ["Compiler/PrsVar.HC:1-246 complete scalar, recursive, global and static initializer paths", "Compiler/PrsVar.HC:34-56 direct AOT string relocation", "Compiler/CInit.HC:29 STR_CONST nonconstant descriptor", "Compiler/OptPass012.HC:66-67 original nonconstant flag propagation"]

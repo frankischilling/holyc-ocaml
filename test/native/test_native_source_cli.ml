@@ -244,3 +244,98 @@ let () =
     |> List.exists (String.starts_with ~prefix:"native-fragments=4"))
     "human report preserves original array fragments";
   print_endline "Native source CLI: 20 executions passed."
+
+(* Hosted controls: these do not add an original TempleOS capture. *)
+let () =
+  let cases =
+    [
+      ("1.5", [ 0; 0; 0; 0; 0; 0; 248; 63 ]);
+      ("-0.0", [ 0; 0; 0; 0; 0; 0; 0; 128 ]);
+      ("1.5+0.5", [ 0; 0; 0; 0; 0; 0; 0; 64 ]);
+      ("2.5/2.0", [ 0; 0; 0; 0; 0; 0; 244; 63 ]);
+    ]
+  in
+  List.iter
+    (fun (expression, bytes) ->
+      let checks =
+        List.mapi
+          (fun index byte -> Printf.sprintf "(&b)(U8*)[%d]==%d" index byte)
+          bytes
+        |> String.concat " && "
+      in
+      let source =
+        Printf.sprintf "class Box{F64 x;I64 y;};Box b={%s,42};(%s) && b.y==42;"
+          expression checks
+      in
+      with_file ".hc" source (fun path ->
+          let report = json_path path in
+          require
+            (member "outcome" report = `String "success"
+            && final_bits report = "0x0000000000000001"
+            && member "diagnostics" report = `List [])
+            ("exact F64 leaf bytes and neighbor: " ^ expression);
+          List.iter
+            (fun (target, mode) ->
+              let result = json_path ~target ~mode ~status:1 path in
+              require
+                (member "outcome" result = `String "error")
+                "unimplemented floating initializer target stays gated")
+            [ ("ir", "jit"); ("ir", "aot"); ("host-jit-task", "aot") ]))
+    cases;
+  List.iter
+    (fun source ->
+      with_file ".hc" source (fun path ->
+          let result = json_path ~status:1 path in
+          require
+            (member "outcome" result = `String "error")
+            "cross-class initializer conversion remains gated"))
+    [
+      "class Box{F64 x;I64 y;};Box b={1,42};42;";
+      "class Box{I64 x;I64 y;};Box b={1.5,42};42;";
+    ]
+
+let () =
+  let source =
+    "F64 Value(){return 1.5;}class Box{F64 x;I64 y;};Box \
+     b={Value(),42};(&b)(U8*)[7]*256+(&b)(U8*)[6];"
+  in
+  with_file ".hc" source (fun path ->
+      let baseline = json_path path in
+      require
+        (member "outcome" baseline = `String "success"
+        && final_bits baseline = "0x0000000000003ff8")
+        "same-class floating call result reaches its leaf";
+      let steps = member "compiled_initializer_steps" baseline |> to_int in
+      require (steps > 0) "floating initialization records real work";
+      let exact =
+        json_path
+          ~options:[ "--initializer-step-limit=" ^ string_of_int steps ]
+          path
+      in
+      require
+        (member "outcome" exact = `String "success"
+        && final_bits exact = final_bits baseline)
+        "exact floating initializer budget";
+      let limited =
+        json_path ~status:1
+          ~options:[ "--initializer-step-limit=" ^ string_of_int (steps - 1) ]
+          path
+      in
+      require
+        (member "outcome" limited = `String "error"
+        && member "diagnostics" limited
+           |> to_list
+           |> List.exists (fun d -> member "code" d = `String "HCIRVM0007"))
+        "one-below floating initializer budget faults")
+
+let () =
+  with_file ".hc"
+    "extern U0 Print(U8 *fmt,...);F64 Value(){Print(\"A\");return 1.5;}class \
+     Box{F64 x;I64 y;};Box b={Value(),42};Print(\"B\"); (&b)(U8*)[6];"
+    (fun path ->
+      let report = json_path ~options:[ "--code-byte-limit=524288" ] path in
+      require
+        (member "outcome" report = `String "success"
+        && member "output_hex" report = `String "4142"
+        && final_bits report = "0x00000000000000f8")
+        "floating initializer effects run once before later commands")

@@ -1992,8 +1992,23 @@ let execute_initializer_leaf ?(use_active_stream = true) ?stream_exe_print task
         |> Sema.Function_call_expression_result.top_level_root_value)
     in
     let* execution =
-      Initializer_fragment_lowering.prepare ~context ~authority
-        ~runtime:task.state destination
+      if
+        Option.is_some task.native_dispatch
+        && Frontend.Preprocessor.Config.compilation_mode task.config
+           = Frontend.Preprocessor.Jit
+        && Ir.Initializer_fragment_destination.stores_same_f64 destination
+      then
+        let* program =
+          Initializer_fragment_lowering.lower ~context ~authority destination
+        in
+        Ir.Initializer_fragment_program.prepare ~authority ~destination
+          ~code:(Ir.Initializer_fragment_program.scheduled_code program)
+          ~steps:0
+        |> Result.map_error (fun message ->
+            [ Integer_source.message_diagnostic ~span message ])
+      else
+        Initializer_fragment_lowering.prepare ~context ~authority
+          ~runtime:task.state destination
     in
     match task.native_dispatch with
     | None ->
