@@ -5921,8 +5921,8 @@ let proven_direct_arguments ledger header arguments =
     | _ -> false
   in
   (* Selected integer trees do not invent values at warning time. A zero or
-     negative literal divisor is admitted only with a nonconstant global
-     numerator; its runtime fault remains separate from this source warning. *)
+     negative literal divisor needs a proven tree containing a completed global;
+     runtime faults remain separate from this source warning. *)
   let rec proven_numeric fuel expression =
     if fuel = 0 then false
     else
@@ -5949,14 +5949,9 @@ let proven_direct_arguments ledger header arguments =
               match binary_right with
               | A.Integer_literal right -> (
                   match right.literal_value with
-                  | A.Integer_value n -> (
+                  | A.Integer_value n ->
                       n > 0L
-                      || n = 0L
-                         &&
-                         match binary_left with
-                         | A.Identifier_expression name ->
-                             completed_integer_global name
-                         | _ -> false)
+                      || (n = 0L && dynamic_numeric (fuel - 1) binary_left)
                   | _ -> false)
               | A.Prefix_expression
                   {
@@ -5964,9 +5959,9 @@ let proven_direct_arguments ledger header arguments =
                     prefix_operand = A.Integer_literal right;
                     _;
                   } -> (
-                  match (binary_left, right.literal_value) with
-                  | A.Identifier_expression name, A.Integer_value n ->
-                      n > 0L && completed_integer_global name
+                  match right.literal_value with
+                  | A.Integer_value n ->
+                      n > 0L && dynamic_numeric (fuel - 1) binary_left
                   | _ -> false)
               | _ -> false)
           | "IC_SHL" | "IC_SHR" -> (
@@ -5979,6 +5974,30 @@ let proven_direct_arguments ledger header arguments =
                   | _ -> false)
               | A.Identifier_expression name -> completed_integer_global name
               | _ -> false)
+          | _ -> false)
+      | _ -> false
+  and dynamic_numeric fuel expression =
+    if fuel = 0 then false
+    else
+      match expression with
+      | A.Identifier_expression name -> completed_integer_global name
+      | A.Parenthesized_expression { grouped_expression; _ } ->
+          dynamic_numeric (fuel - 1) grouped_expression
+      | A.Prefix_expression
+          {
+            prefix_operator_kind =
+              A.Unary_plus | A.Unary_minus | A.Bitwise_not | A.Logical_not;
+            prefix_operand;
+            _;
+          } -> dynamic_numeric (fuel - 1) prefix_operand
+      | A.Binary_expression
+          { binary_left; binary_operator_spec; binary_right; _ } -> (
+          match binary_operator_spec.ic_name with
+          | "IC_ADD" | "IC_SUB" | "IC_MUL" | "IC_AND" | "IC_OR" | "IC_XOR" ->
+              proven_numeric (fuel - 1) binary_left
+              && proven_numeric (fuel - 1) binary_right
+              && (dynamic_numeric (fuel - 1) binary_left
+                 || dynamic_numeric (fuel - 1) binary_right)
           | _ -> false)
       | _ -> false
   in

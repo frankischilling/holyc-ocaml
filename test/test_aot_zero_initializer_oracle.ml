@@ -236,6 +236,15 @@ let direct_call_division_argument_warnings () =
               let diagnostics, result, _ =
                 run native Preprocessor.Aot (source expression)
               in
+              (match result with
+              | Ok _ -> ()
+              | Error () ->
+                  Alcotest.failf "%s native=%b static=%b: %s" expression native
+                    static
+                    (String.concat ", "
+                       (List.map
+                          (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
+                          diagnostics)));
               Alcotest.(check (option int64))
                 "negative divisor load value" (Some expected)
                 (Result.get_ok result);
@@ -247,7 +256,18 @@ let direct_call_division_argument_warnings () =
               ("N%-1", 0L);
               ("N/-3", 4294967294L);
               ("N%-3", 1L);
+              ("(N+1)/-3", 4294967294L);
             ];
+          let diagnostics, result, _ =
+            run native Preprocessor.Aot (source "(-N)%-3")
+          in
+          Alcotest.(check bool)
+            "unary numerator boundary" static (Result.is_error result);
+          Alcotest.(check bool)
+            "unary numerator warning" true
+            (List.exists
+               (fun (d : Diagnostic.t) -> d.code = "HCSEMA0080")
+               diagnostics);
           List.iter
             (fun expression ->
               let diagnostics, result, _ =
@@ -259,7 +279,7 @@ let direct_call_division_argument_warnings () =
                 "warning precedes zero fault"
                 [ "HCSEMA0080"; "HCIRVM0009" ]
                 (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
-            [ "N/0"; "N%0" ])
+            [ "N/0"; "N%0"; "(N+1)/0" ])
         [ false; true ])
     [ false; true ];
   List.iter
@@ -279,6 +299,21 @@ let direct_call_division_argument_warnings () =
             (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
         [ false; true ])
     [ ("14/2", 7L); ("7%3", 1L) ]
+
+let nested_constant_fault_precedes_warning () =
+  List.iter
+    (fun native ->
+      let source =
+        "I64 N=7;I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};Box \
+         x={Get((N+((-9223372036854775807-1)/-1))/-3),42};x.value;"
+      in
+      let diagnostics, result, _ = run native Preprocessor.Aot source in
+      Alcotest.(check bool)
+        "nested constant fault" true (Result.is_error result);
+      Alcotest.(check (list string))
+        "constant fault precedes later warning" [ "HCIRL0007" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+    [ false; true ]
 
 let negative_one_source_fault_phases () =
   List.iter
@@ -1350,6 +1385,8 @@ let () =
             direct_call_unary_argument_warnings;
           Alcotest.test_case "direct division argument warnings" `Quick
             direct_call_division_argument_warnings;
+          Alcotest.test_case "nested constant fault precedes warning" `Quick
+            nested_constant_fault_precedes_warning;
           Alcotest.test_case "negative one source fault phases" `Quick
             negative_one_source_fault_phases;
           Alcotest.test_case "zero source fault phases" `Quick

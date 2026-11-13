@@ -74,9 +74,10 @@ three such parameters.
 Expressions include bounded nesting of unary plus, unary minus, bitwise and
 logical negation, addition, subtraction, multiplication, bitwise operations and
 shifts of integer literals or completed integer scalar globals. Division and
-remainder admit positive literal divisors. A completed integer global may also
-be divided or reduced by a zero or negative literal; its runtime fault is separate
-from the warning. Dynamic divisors remain outside this warning path. Constant
+remainder admit positive literal divisors. A proven integer tree containing a
+completed integer global may also be divided or reduced by a zero or negative
+literal; its runtime fault is separate from the warning. Dynamic divisors remain
+outside this warning path. Constant
 shift counts are limited to 0 through 63; completed integer scalar globals can
 also supply a shift count. The 64-argument bound is this path's verified
 coverage, not a claimed TempleOS limit. Unary plus,

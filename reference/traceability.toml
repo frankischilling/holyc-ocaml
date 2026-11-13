@@ -15038,7 +15038,8 @@ documentation = ["docs/aot-zero-byte-initializers.md", "docs/aggregate-initializ
 status = "partial"
 issue = 690
 verification = "Five original probe pairs repeat twice with zero AOT compilation errors and real BIN loading. U0-target stores overwrite four bytes; default-I64 empty and three-byte class stores overwrite eight. A lookahead-completed two-byte class retains the raw I64 assignment. Hosted IR/native values match those captures. Canonical source-region validation derives raw operations and complete windows; stores invalidate overlapping data/callback ownership. Exact/one-below limits, signed integer results, unaligned offsets and undersized roots are checked. Native authority compiles both ABIs and rejects copied, reordered, missing and foreign evidence."
-verification_boundary = "Missing U0 register results, reference values without actual integer words, undersized roots, nonconstant scalar U0 AOT roots, globals-on-data-heap and unqualified intrinsic folding phases remain unsupported. Original nonconstant opcode evidence is required when assignment and copy widths differ. AOT assignment warnings and emitted-byte equality are not claimed."
+verification_boundary = "Missing U0 register results, reference values without actual integer words, undersized roots, nonconstant scalar U0 AOT roots, globals-on-data-heap and unqualified intrinsic folding phases remain unsupported. Original nonconstant opcode evidence is required when assignment and copy widths differ. General AOT assignment-warning parity and emitted-byte equality are not claimed."
+warning_boundary = "Bounded direct-call warning authority covers proven numeric trees containing completed integer globals divided or reduced by zero or negative literals. Hosted tests check warning timing, original leaf authority, nested constant overflow and retained unsupported execution. No new TempleOS warning capture is claimed."
 
 [[feature]]
 id = "HC-BOUNDED-NARROW-REGISTER-VALUES"
