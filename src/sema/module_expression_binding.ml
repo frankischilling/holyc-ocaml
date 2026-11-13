@@ -72,6 +72,10 @@ let function_item_index (function_ : resolved_function) =
 
 let function_occurrences (function_ : resolved_function) = function_.occurrences
 let function_queries (function_ : resolved_function) = function_.queries
+
+let function_initializer_use_resets (function_ : resolved_function) =
+  Function_expression_binding.function_initializer_use_resets function_.source
+
 let occurrence_source (occurrence : occurrence) = occurrence.source
 
 let occurrence_index (occurrence : occurrence) =

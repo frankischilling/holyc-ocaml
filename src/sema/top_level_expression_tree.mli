@@ -15,6 +15,7 @@ type root_role =
   | Dimension_fragment of Dimension_fragment.t
   | Switch_case_fragment of Switch_case_fragment.t
   | Offset_fragment of Offset_fragment.t
+  | Member_metadata_fragment of Member_metadata_fragment.t
   | Implicit_output_fixed of {
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
@@ -209,6 +210,13 @@ val statement_implicit_outputs :
 val make_offset_root :
   index:int ->
   fragment:Offset_fragment.t ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  (root, error) result
+
+val make_member_metadata_root :
+  index:int ->
+  fragment:Member_metadata_fragment.t ->
   expression:Function_call_resolution.argument_expression ->
   calls:call list ->
   (root, error) result

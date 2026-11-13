@@ -150,6 +150,28 @@ val matches_graph : t -> owner:owner -> Block_graph.t -> bool
     instruction record. Equal text, copied graphs and another context do not
     establish storage ownership. *)
 
+val function_call_targets :
+  t ->
+  body:Function_body.t ->
+  Sema.Function_call_target_classification.t list option
+(** Return the original ordinary direct-call classifications only for the exact
+    sealed function graph and its captured typed source owner. Every receipt
+    must match one original typed call and its selected declaration. Callback,
+    output and intrinsic scopes are excluded. Consumers must independently
+    authenticate source expressions and re-lower complete call/control regions;
+    this accessor alone does not prove register allocation or primitive data. *)
+
+val function_mixed_scalar_call_targets :
+  t ->
+  body:Function_body.t ->
+  Sema.Function_call_target_classification.t list option
+(** Opt-in extension of [function_call_targets] for ordinary direct calls and
+    original sealed numeric conversion intrinsics only. The exact graph, typed
+    source owner, selected declarations and one-to-one original call coverage
+    must still match. Callback, output and nonnumeric intrinsic scopes are
+    rejected. Consumers must independently authenticate and re-lower source
+    expressions; this query does not authorize floating links or conversions. *)
+
 val exception_regions : t -> owner:owner -> Exception_regions.t option
 (** Return the original sealed handler context only after complete graph and
     source validation. A foreign body or changed marker has no exception scope.
@@ -243,17 +265,17 @@ val is_original_pointer_difference_division :
 type preparation_shifts
 
 val original_preparation_shifts : t -> owner:owner -> preparation_shifts option
-(** Validate original/transitive records, then collect full-word canonical
-    constant shifts and scalar right-shift updates with original internal I64
-    counts from 0 through 63. Canonical payloads retain their complete count;
-    execution masks it at the existing consumer. The query does not construct or
-    reseal a context. Prepared execution still requires its original bundle. *)
+(** Validate original/transitive records, then collect supported scalar integer
+    constant and variable shifts and scalar compound shifts with original count
+    producers. Narrow updates require separate storage and result-use checks.
+    Constant payloads retain their complete count; execution masks it at the
+    existing consumer. The query does not construct or reseal a context.
+    Execution still requires its original bundle. *)
 
 val is_original_preparation_shift :
   preparation_shifts -> Instruction_sequence.description -> bool
 (** Require the exact original collected instruction. Copied records, foreign
-    instructions, raw shifts and new-after-seal instructions have no authority.
-*)
+    instructions and new-after-seal instructions have no authority. *)
 
 val find_intrinsic_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> intrinsic option

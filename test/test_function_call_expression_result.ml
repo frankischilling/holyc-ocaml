@@ -3160,8 +3160,8 @@ let default_aggregate_values_keep_nominal_and_scalar_types () =
       let prepared =
         prepare ~mode:compilation_mode ~path:"default-aggregate-result-types.HC"
           "class Box{U64 word;U8 guard;};extern I64 Target(I64 a,I64 b,I64 c);\n\
-           I64 Caller(){Box left,right;left=1;right=42;return \
-           Target(left=right,++left,right--);}"
+           I64 Caller(){Box left,right;left.word=1;right.word=42;return \
+           Target(left,++left,right--);}"
       in
       let _, results = analyze prepared in
       let roots = root_results results "Caller" in
@@ -3210,6 +3210,14 @@ let invalid_assignment_destinations_report_the_operator () =
     ( "floating aggregate",
       "F64 class Box {F64 value;};extern I64 Target(I64 value);I64 Caller(Box \
        left,Box right){return Target(left=right);}",
+      "assignment destination is not a pointer or internal storage value" );
+    ( "ordinary aggregate",
+      "class Box{U64 value;};extern I64 Target(I64 value);I64 Caller(Box \
+       left,Box right){return Target(left=right);}",
+      "assignment destination is not a pointer or internal storage value" );
+    ( "ordinary aggregate endpoint",
+      "class Word{U64 value;};Word class Box{U64 value;};extern I64 Target(I64 \
+       value);I64 Caller(Box left,Box right){return Target(left=right);}",
       "assignment destination is not a pointer or internal storage value" );
     ( "outer",
       "extern I64 Target(I64 value);I64 Caller(){return Target(outer=1);}",

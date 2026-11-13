@@ -28,6 +28,8 @@ val fork_frontend : t -> t
 (** Copy the frontend definition and symbol state while sharing source files.
     Semantic state starts fresh. *)
 
+val is_direct_fork : parent:t -> t -> bool
+val semantic_fork : t -> Sema.Symbol_table.empty_fork option
 val sources : t -> Common.Source_manager.t
 val definitions : t -> Frontend.Definition.Environment.t
 val symbols : t -> Frontend.Symbol_visibility.Environment.t

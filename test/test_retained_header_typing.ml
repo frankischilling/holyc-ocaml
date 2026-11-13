@@ -137,8 +137,9 @@ let local_names function_ =
 let retains_header_while_adding_locals () =
   let fixture =
     parse_fixture
-      "I64 F(I64 n=40,U0 (**handler)(U8 *node,I64=lastclass,U8 *(*nested)(I64 \
-       value,...),...),...){I64 local=n;static I64 saved=0;return n;}"
+      "I64 F(I64 n=40,U0 (**handler)(U8 *node,I64 _anon_=lastclass,U8 \
+       *(*nested)(I64 value,...),...),...){I64 local=n;static I64 \
+       saved=0;return n;}"
   in
   let header_parameters = parameter_entries fixture.collected_header in
   let collection =

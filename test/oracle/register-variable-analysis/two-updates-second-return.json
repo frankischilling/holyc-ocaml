@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "d5e95d0e1926dd87c790d35aac23be696f204c222ccaea90c505dd5f81cde9ea",
+  "boot_payload_sha256": "d5e95d0e1926dd87c790d35aac23be696f204c222ccaea90c505dd5f81cde9ea",
+  "boot_payload_bytes": 1199,
+  "capture_sha256": "c20f8a3642c067376b4c9a923ce0bec27c8d64ee7992f3173fbaab3d5fba7add",
+  "boot_iso_sha256": "d9faa2a03a5a780ede75bf99150b4216095b985c4f5d1aad626cc0e928f18cd5",
+  "fields": {
+    "J_S": "43",
+    "J_U": "128",
+    "J_SN": "43",
+    "J_UN": "-128",
+    "ERR": "0",
+    "A_S": "43",
+    "A_U": "128",
+    "A_SN": "43",
+    "A_UN": "-128"
+  },
+  "scope": "Two independent original JIT and compiled observations of returning the second of two updated full-width and narrow parameters, captured with QEMU 10.0.13. A newline separates captures."
+}

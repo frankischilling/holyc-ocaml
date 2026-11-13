@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e02d3dd70dc8a948667b051ae839b10d5b4942e61f9abac6e494398e997b9ba3",
+  "boot_payload_sha256": "d15be2e73d281e0b9efba0f4d99f55ea9c9f605a7ac24c164b342ad0410223d3",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "c2fc1459835b2bdc0964c22efd9c885fdf8e5c0dff534e6e7fd32ad6eb9f09b8",
+  "boot_iso_sha256": "3609678765a283196be6e5c807abe20704062b4842cb6988bcd8c81b9cc291f4",
+  "fields": {
+    "J_S": "2147483654",
+    "J_U": "4294967302",
+    "J_SN": "2147483654",
+    "J_UN": "4294967302",
+    "ERR": "0",
+    "A_S": "2147483654",
+    "A_U": "4294967302",
+    "A_SN": "2147483654",
+    "A_UN": "4294967302"
+  },
+  "scope": "Repeated original JIT and compiled observations with a dynamic signed 64-bit global outer value."
+}

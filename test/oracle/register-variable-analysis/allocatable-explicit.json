@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "806e90d64a45cecedc239e588b11d00d11180dfc3087bac148e14fd7888cd348",
+  "boot_payload_sha256": "4329a25d925b8ccacb48d95a6444b5441b78984aa6fb3e23458bc01e02975dc8",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ac6c15a0eb8ca33339cb2a9765c34554252bce3b7dc30f7f18b1b54dc69c1efc",
+  "boot_iso_sha256": "f532af3bdb6c1cb87f67180a79bf026c96cfc8da8850aef7c8ec4315737aa510",
+  "fields": {
+    "J_S": "254",
+    "J_U": "510",
+    "J_SN": "-2",
+    "J_UN": "254",
+    "ERR": "0",
+    "A_S": "254",
+    "A_U": "510",
+    "A_SN": "-2",
+    "A_UN": "254"
+  },
+  "scope": "Repeated original JIT and compiled observations of explicit or allocatable register requests."
+}

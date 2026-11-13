@@ -8,14 +8,25 @@ type context = {
   policies : Sema.Function_call_conversion_policy.t;
   records_ : Sema.Function_record_classification.t;
   function_sources_ : Sema.Function_call_expression_result.t;
+  aggregate_visibility : Sema.Function_aggregate_visibility.t option;
 }
 
 let ( let* ) = Result.bind
 let records context = context.records_
 let function_sources context = context.function_sources_
 
-let create_context_with_mode ?aggregate_headers ~compilation_mode ~table ~parent
-    () =
+let create_context_with_mode ?aggregate_headers ?aggregate_visibility
+    ~compilation_mode ~table ~parent () =
+  let* () =
+    if
+      Option.fold ~none:false
+        ~some:(fun visibility ->
+          not
+            (Sema.Function_aggregate_visibility.owns visibility ~table ~parent))
+        aggregate_visibility
+    then Error "fragment member metadata belongs to another namespace"
+    else Ok ()
+  in
   let* headers =
     match aggregate_headers with
     | Some headers -> Ok headers
@@ -70,17 +81,18 @@ let create_context_with_mode ?aggregate_headers ~compilation_mode ~table ~parent
       policies;
       records_;
       function_sources_;
+      aggregate_visibility;
     }
 
-let create_context_selected ?aggregate_headers ~compilation_mode ~table ~parent
-    () =
+let create_context_selected ?aggregate_headers ?aggregate_visibility
+    ~compilation_mode ~table ~parent () =
   let compilation_mode =
     match compilation_mode with
     | Frontend.Preprocessor.Jit -> Sema.Outer_environment.Jit
     | Frontend.Preprocessor.Aot -> Sema.Outer_environment.Aot
   in
-  create_context_with_mode ?aggregate_headers ~compilation_mode ~table ~parent
-    ()
+  create_context_with_mode ?aggregate_headers ?aggregate_visibility
+    ~compilation_mode ~table ~parent ()
 
 let create_context ~table ~parent =
   create_context_with_mode ~compilation_mode:Jit ~table ~parent ()
@@ -101,7 +113,8 @@ let finish context ~environment ~build bindings =
       ~functions:context.functions ~expressions
   in
   Sema.Function_call_expression_result.analyze_top_level ~table
-    ~members:context.members ~policies:context.policies ~identifiers expressions
+    ~members:context.members ~policies:context.policies ~identifiers
+    ?aggregate_visibility:context.aggregate_visibility expressions
   |> Result.map_error Sema.Function_call_expression_result.error_to_string
 
 let prepare context fragment =
@@ -189,4 +202,17 @@ let prepare_offset context fragment =
     ~build:(fun ~table ~expressions ->
       Top_level_expression_tree.build_offset_fragment ~table ~expressions
         fragment)
+    bindings
+
+let prepare_member_metadata context fragment =
+  let* bindings =
+    Top_level_expression_binding.resolve_member_metadata_fragment
+      ~table:context.table ~parent:context.parent
+      ~module_expressions:context.expressions fragment
+  in
+  finish context
+    ~environment:(Sema.Member_metadata_fragment.environment fragment)
+    ~build:(fun ~table ~expressions ->
+      Top_level_expression_tree.build_member_metadata_fragment ~table
+        ~expressions fragment)
     bindings

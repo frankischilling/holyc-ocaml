@@ -181,7 +181,6 @@ let rejected =
     "I64 F(){I64 x;I64 *p=&x;I64 **q=&p;return q==q;}F();";
     "I64 F(){I64 x,y;return &x==&y==&x;}F();";
     "I64 x;I64 *p=&x;42;";
-    "I64 *F(){I64 x;return &x;}F();";
   ]
 
 let boundaries () =

@@ -51,6 +51,7 @@ type error_kind =
 type error
 
 val owns_table : t -> Symbol_table.t -> bool
+val owns_symbol : t -> Symbol.t -> bool
 val owns_parent : t -> Symbol_table.scope -> bool
 val parent_scope : t -> Symbol_table.scope
 
@@ -74,7 +75,29 @@ val lookup :
 (** Search the queried aggregate before following its single base chain. This
     operation is pure; use-count accounting belongs to the consuming pass. *)
 
+val lookup_partial :
+  t ->
+  visibility:Function_aggregate_visibility.function_ ->
+  source:Frontend.Ast.expression ->
+  aggregate:Symbol.t ->
+  name:string ->
+  (lookup option, error) result
+(** Select a direct or inherited member from the original partial class snapshot
+    captured at this function expression. Later body phases cannot replace its
+    placement. *)
+
 val lookup_queried_aggregate : lookup -> Symbol.t
+
+val lookup_reference :
+  t ->
+  identifier:Frontend.Ast.identifier ->
+  visibility:Compiler_record.aggregate_reference_visibility ->
+  aggregate:Symbol.t ->
+  name:string ->
+  (lookup option, error) result
+(** Read reached member metadata from this exact identifier, table and
+    namespace. *)
+
 val lookup_declaring_aggregate : lookup -> Symbol.t
 val lookup_inheritance_depth : lookup -> int
 val lookup_member : lookup -> member

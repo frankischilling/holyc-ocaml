@@ -1,6 +1,6 @@
 module Codegen = X86_64_word_codegen
 
-type word_type = Codegen.word_type = I64 | U64
+type word_type = Codegen.word_type = I64 | U64 | F64
 type status_abi = Codegen.status_abi = Windows_x64 | System_v_x64
 type arithmetic_operation = Codegen.arithmetic_operation = Divide | Remainder
 type arithmetic_fault_kind = Division_by_zero | Signed_division_overflow
@@ -22,6 +22,7 @@ type error = Codegen.error = {
 type t = Codegen.expression_image
 
 let hard_max_stack_bytes = Codegen.hard_max_stack_bytes
+let default_stack_bytes = Codegen.default_stack_bytes
 let validate_limits = Codegen.validate_limits
 let validate_stack_limit = Codegen.validate_stack_limit
 let compile = Codegen.compile_expression

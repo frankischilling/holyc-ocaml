@@ -40,6 +40,107 @@ let reached_failures () =
       ("HCIRVM0009", {|#exe {Print("A");}1/0;|});
     ]
 
+let scalar_void_static_source_order () =
+  let good =
+    {|#exe{Print("A");}I64 F(){static U0 x=42;#exe{Print("B");}return 42;}F();|}
+  in
+  let bad =
+    {|#exe{Print("A");}I64 F(){static U0 x=1/0;#exe{Print("B");}return 42;}F();|}
+  in
+  ignore (run good |> Output.expect "AB");
+  ignore (run bad |> Output.fault ~output:"A" "HCIRVM0009");
+  ignore
+    (run ~max_initializer_steps:1 good |> Output.fault ~output:"A" "HCIRVM0007")
+
+let scalar_void_global_source_order () =
+  let good =
+    {|#exe{Print("A");}I64 a=40;U0 x=1,y=2;I64 b=2;#exe{Print("B");}a+b+sizeof(x)+sizeof(y);|}
+  in
+  let bad = {|#exe{Print("A");}I64 a=40;U0 x=1,y=1/0;#exe{Print("B");}a+2;|} in
+  ignore (run good |> Output.expect ~value:(Some 42L) "AB");
+  ignore (run bad |> Output.fault ~output:"A" "HCIRVM0009");
+  ignore
+    (run ~max_initializer_steps:1 good |> Output.fault ~output:"A" "HCIRVM0007")
+
+let first_global_array_source_order () =
+  let good =
+    {|#exe{Print("A");}I64 items[1]={42};#exe{Print("B");}items[0];|}
+  in
+  let bad =
+    {|#exe{Print("A");}I64 items[1]={1/0};#exe{Print("B");}items[0];|}
+  in
+  ignore (run good |> Output.expect "AB");
+  ignore (run bad |> Output.fault ~output:"A" "HCIRVM0009")
+
+let multiple_global_array_source_order () =
+  let good =
+    {|#exe{Print("A");}I64 items[2]={40,2};#exe{Print("B");}items[0]+items[1];|}
+  in
+  let bad =
+    {|#exe{Print("A");}I64 items[2]={40,1/0};#exe{Print("B");}items[0]+items[1];|}
+  in
+  ignore (run good |> Output.expect "AB");
+  ignore (run bad |> Output.fault ~output:"A" "HCIRVM0009");
+  ignore
+    (run ~max_initializer_steps:3 good |> Output.fault ~output:"A" "HCIRVM0007")
+
+let multiple_static_array_source_order () =
+  let good =
+    {|#exe{Print("A");}I64 F(){static I64 items[2]={40,2};#exe{Print("B");}return items[0]+items[1];}F();|}
+  in
+  let bad =
+    {|#exe{Print("A");}I64 F(){static I64 items[2]={40,1/0};#exe{Print("B");}return items[0]+items[1];}F();|}
+  in
+  ignore (run good |> Output.expect "AB");
+  ignore (run bad |> Output.fault ~output:"A" "HCIRVM0009");
+  ignore
+    (run ~max_initializer_steps:3 good |> Output.fault ~output:"A" "HCIRVM0007")
+
+let global_string_copy_source_order () =
+  let source =
+    {|#exe{Print("A");}U8 text[5]="ABCD";#exe{Print("B");}if(text[0]!=65||text[3]!=68||text[4]!=0)1/0;42;|}
+  in
+  ignore (run source |> Output.expect "AB");
+  ignore
+    (run ~max_initializer_steps:4 source
+    |> Output.fault ~output:"A" "HCIRVM0007")
+
+let retained_array_cursor_stress () =
+  let leaves = List.init 95 (fun _ -> "0") @ [ "21" ] |> String.concat "," in
+  let source =
+    Printf.sprintf
+      "#exe{Print(\"A\");}I64 g[96]={%s};I64 F(){static I64 s[96]={%s};return \
+       s[95];}g[95]+F();"
+      leaves leaves
+  in
+  ignore (run source |> Output.expect "A")
+
+let multiple_global_string_copies () =
+  let source =
+    {|#exe{Print("A");}U8 texts[2][3]={"AB","CD"};#exe{Print("B");}if(texts[0][0]!=65||texts[0][2]!=0||texts[1][0]!=67||texts[1][2]!=0)1/0;42;|}
+  in
+  ignore (run source |> Output.expect "AB");
+  ignore
+    (run ~max_initializer_steps:5 source
+    |> Output.fault ~output:"A" "HCIRVM0007");
+  let unpaired =
+    {|U8 texts[2][3]={"AB","CD"};if(texts[0][0]!=65||texts[0][2]!=0||texts[1][0]!=67||texts[1][2]!=0)1/0;42;|}
+  in
+  ignore (run unpaired |> Output.expect "")
+
+let multiple_static_string_copies () =
+  let source =
+    {|#exe{Print("A");}I64 F(){static U8 texts[2][3]={"AB","CD"};#exe{Print("B");}if(texts[0][0]!=65||texts[0][2]!=0||texts[1][0]!=67||texts[1][2]!=0)1/0;return 42;}F();|}
+  in
+  ignore (run source |> Output.expect "AB");
+  ignore
+    (run ~max_initializer_steps:5 source
+    |> Output.fault ~output:"A" "HCIRVM0007");
+  let unpaired =
+    {|I64 F(){static U8 texts[2][3]={"AB","CD"};if(texts[0][0]!=65||texts[0][2]!=0||texts[1][0]!=67||texts[1][2]!=0)1/0;return 42;}F();|}
+  in
+  ignore (run unpaired |> Output.expect "")
+
 let namespace_separation () =
   ignore
     (run {|I64 Print=7;#exe {Print("A");StreamPrint("42;");}|}
@@ -327,7 +428,46 @@ let preparation_ticket () =
     VM.execute_isolated_program_in_task task ~runtime_calls ~globals
       ~initialization ~functions entry
   in
+  let unrelated = Test_integer_globals.compile ~mode:Aot "40;" in
+  let module InternalVM = Holyc_lib__Ir.Integer_interpreter in
+  let receipt =
+    match
+      InternalVM.execute_constant_receipt ~max_steps:100
+        (integer_program_entry unrelated)
+    with
+    | Ok receipt -> receipt
+    | Error _ -> Alcotest.fail "closed graph must evaluate"
+  in
+  let foreign_receipt_rejected =
+    try
+      ignore (InternalVM.begin_isolated_preparation ~receipts:[ receipt ] task);
+      false
+    with Invalid_argument _ -> true
+  in
+  Alcotest.(check bool)
+    "unowned evaluated graph cannot supply prepaid work" true
+    foreign_receipt_rejected;
   let ticket = VM.begin_isolated_preparation task in
+  let copied_ticket = Obj.obj (Obj.dup (Obj.repr ticket)) in
+  Alcotest.(check bool)
+    "copied ticket cannot seal" true
+    (Result.is_error (seal copied_ticket));
+  let copied_record_rejected =
+    try
+      VM.record_isolated_preparation task copied_ticket ~steps:3;
+      false
+    with Invalid_argument _ -> true
+  in
+  Alcotest.(check bool)
+    "copied ticket cannot charge" true copied_record_rejected;
+  let copied_abort_rejected =
+    try
+      VM.abort_isolated_preparation task copied_ticket;
+      false
+    with Invalid_argument _ -> true
+  in
+  Alcotest.(check bool)
+    "copied ticket cannot abort original" true copied_abort_rejected;
   Alcotest.(check bool)
     "uncharged preparation cannot seal" true
     (Result.is_error (seal ticket));
@@ -448,6 +588,24 @@ let tests =
         (generates {|I64 N=#exe {StreamPrint("42");};N;|});
       Alcotest.test_case "reached effects survive later failures" `Quick
         reached_failures;
+      Alcotest.test_case "scalar U0 static source order and faults" `Quick
+        scalar_void_static_source_order;
+      Alcotest.test_case "scalar U0 global source order and faults" `Quick
+        scalar_void_global_source_order;
+      Alcotest.test_case "first global array leaf source order and faults"
+        `Quick first_global_array_source_order;
+      Alcotest.test_case "multiple global array leaves source order and faults"
+        `Quick multiple_global_array_source_order;
+      Alcotest.test_case "multiple static array leaves source order and faults"
+        `Quick multiple_static_array_source_order;
+      Alcotest.test_case "global string copy source order and limit" `Quick
+        global_string_copy_source_order;
+      Alcotest.test_case "global and static source cursor stress" `Quick
+        retained_array_cursor_stress;
+      Alcotest.test_case "multiple global string copies and work limit" `Quick
+        multiple_global_string_copies;
+      Alcotest.test_case "multiple static string copies and work limit" `Quick
+        multiple_static_string_copies;
       Alcotest.test_case "early AOT task namespace separation" `Quick
         namespace_separation;
       Alcotest.test_case "ordinary and textual directives stay inactive" `Quick

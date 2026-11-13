@@ -48,6 +48,7 @@ and signature = {
 type parameter_binding = {
   binding_parameter_index : int;
   binding_symbol : Symbol.t;
+  binding_source : Frontend.Ast.function_parameter option;
 }
 
 type synthetic_parameter = Argc | Argv
@@ -83,6 +84,7 @@ type function_declaration = {
   function_variadic_bindings_ : variadic_bindings option;
   function_completed_header_ : Frontend.Parser.completed_function_header option;
   mutable function_header_reused_ : bool;
+  function_source_parameters_ : Frontend.Ast.function_parameter list option;
 }
 
 type resolved_function = function_declaration
@@ -109,6 +111,7 @@ let function_parameter_bindings function_ =
 
 let function_variadic_bindings function_ = function_.function_variadic_bindings_
 let function_completed_header function_ = function_.function_completed_header_
+let function_source_parameters function_ = function_.function_source_parameters_
 let signature_opening_origin signature = signature.signature_opening_origin_
 let signature_parameters signature = signature.signature_parameters_
 let signature_variadic_origin signature = signature.signature_variadic_origin_
@@ -132,6 +135,14 @@ let parameter_register_selection parameter =
 
 let parameter_name parameter = parameter.parameter_name_
 let parameter_name_origin parameter = parameter.parameter_name_origin_
+
+let parameter_lookup_name parameter =
+  Option.value parameter.parameter_name_ ~default:"_anon_"
+
+let parameter_lookup_origin parameter =
+  Option.value parameter.parameter_name_origin_
+    ~default:parameter.parameter_origin_
+
 let parameter_type_reference parameter = parameter.parameter_type_reference_
 let parameter_declarator_kind parameter = parameter.parameter_declarator_kind_
 let parameter_default parameter = parameter.parameter_default_
@@ -155,6 +166,7 @@ let function_pointer_closing_origin pointer = pointer.pointer_closing_origin
 let function_pointer_signature pointer = pointer.pointer_signature
 let parameter_binding_index binding = binding.binding_parameter_index
 let parameter_binding_symbol binding = binding.binding_symbol
+let parameter_binding_source binding = binding.binding_source
 let variadic_marker_origin variadic = variadic.variadic_marker_origin_
 let variadic_argc variadic = variadic.variadic_argc_
 let variadic_argv variadic = variadic.variadic_argv_
@@ -389,7 +401,18 @@ let make_parameter_binding ~parameter_index ~symbol =
     Error "semantic parameter binding index cannot be negative"
   else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Parameter) then
     Error "semantic function parameter binding requires a parameter symbol"
-  else Ok { binding_parameter_index = parameter_index; binding_symbol = symbol }
+  else
+    Ok
+      {
+        binding_parameter_index = parameter_index;
+        binding_symbol = symbol;
+        binding_source = None;
+      }
+
+let make_source_parameter_binding ~source ~parameter_index ~symbol =
+  Result.map
+    (fun binding -> { binding with binding_source = Some source })
+    (make_parameter_binding ~parameter_index ~symbol)
 
 let internal_i64 type_ =
   Type.pointer_depth type_ = 0
@@ -456,22 +479,23 @@ let make_variadic_bindings ~marker_origin ~argc ~argv =
         variadic_argv_ = argv;
       }
 
-let named_parameters signature =
-  List.filter_map
-    (fun parameter ->
-      match (parameter.parameter_name_, parameter.parameter_name_origin_) with
-      | Some name, Some origin -> Some (parameter.parameter_index_, name, origin)
-      | None, None -> None
-      | None, Some _ | Some _, None -> assert false)
-    signature.signature_parameters_
-
 let validate_parameter_bindings signature bindings =
-  let expected = named_parameters signature in
+  let expected = signature.signature_parameters_ in
   let rec validate expected bindings =
     match (expected, bindings) with
     | [], [] -> Ok ()
-    | (index, name, origin) :: expected_rest, binding :: binding_rest ->
-        if binding.binding_parameter_index <> index then
+    | parameter :: expected_rest, binding :: binding_rest ->
+        let index = parameter_index parameter in
+        let name = parameter_lookup_name parameter in
+        let origin = parameter_lookup_origin parameter in
+        if
+          not
+            (Option.equal ( == ) binding.binding_source
+               parameter.parameter_source_)
+        then
+          Error
+            "semantic parameter binding has another original source parameter"
+        else if binding.binding_parameter_index <> index then
           Error "semantic parameter binding has the wrong signature slot"
         else if not (String.equal (Symbol.name binding.binding_symbol) name)
         then Error "semantic parameter binding has the wrong name"
@@ -479,7 +503,7 @@ let validate_parameter_bindings signature bindings =
           Error "semantic parameter binding has the wrong source origin"
         else validate expected_rest binding_rest
     | [], _ :: _ | _ :: _, [] ->
-        Error "semantic parameter bindings do not match the named parameters"
+        Error "semantic parameter bindings do not match all fixed parameters"
   in
   validate expected bindings
 
@@ -503,8 +527,8 @@ let validate_variadic_bindings signature bindings =
   | None, Some _ | Some _, None ->
       Error "semantic variadic bindings do not match the signature"
 
-let make_function_record completed_header ~symbol ~scope ~item_index
-    ~return_type ~signature ~parameter_bindings ~variadic_bindings =
+let make_function_record completed_header source_parameters ~symbol ~scope
+    ~item_index ~return_type ~signature ~parameter_bindings ~variadic_bindings =
   if Option.is_some signature.signature_provisional_call_ then
     Error
       "provisional call evidence cannot authorize an ordinary function record"
@@ -514,6 +538,19 @@ let make_function_record completed_header ~symbol ~scope ~item_index
     Error "semantic function type requires a function scope"
   else if item_index < 0 then
     Error "semantic function type item index cannot be negative"
+  else if
+    not
+      (Option.fold ~none:true
+         ~some:(fun sources ->
+           List.length sources = List.length signature.signature_parameters_
+           && List.for_all2
+                (fun source parameter ->
+                  Option.equal ( == ) (Some source) (parameter_source parameter))
+                sources signature.signature_parameters_)
+         source_parameters)
+  then
+    Error
+      "semantic function signature substituted its original parameter children"
   else
     match validate_parameter_bindings signature parameter_bindings with
     | Error _ as error -> error
@@ -533,17 +570,27 @@ let make_function_record completed_header ~symbol ~scope ~item_index
                 function_variadic_bindings_ = variadic_bindings;
                 function_completed_header_ = completed_header;
                 function_header_reused_ = false;
+                function_source_parameters_ =
+                  Option.map (List.map Fun.id) source_parameters;
               })
 
 let make_function ~symbol ~scope ~item_index ~return_type ~signature
     ~parameter_bindings ~variadic_bindings =
-  make_function_record None ~symbol ~scope ~item_index ~return_type ~signature
-    ~parameter_bindings ~variadic_bindings
+  make_function_record None None ~symbol ~scope ~item_index ~return_type
+    ~signature ~parameter_bindings ~variadic_bindings
 
-let make_function_with_completed_header completed_header ~symbol ~scope
+let make_function_with_source_parameters source_parameters ~symbol ~scope
     ~item_index ~return_type ~signature ~parameter_bindings ~variadic_bindings =
-  make_function_record (Some completed_header) ~symbol ~scope ~item_index
+  make_function_record None (Some source_parameters) ~symbol ~scope ~item_index
     ~return_type ~signature ~parameter_bindings ~variadic_bindings
+
+let make_function_with_completed_header
+    (completed_header : Frontend.Parser.completed_function_header) ~symbol
+    ~scope ~item_index ~return_type ~signature ~parameter_bindings
+    ~variadic_bindings =
+  make_function_record (Some completed_header)
+    (Some completed_header.parameters) ~symbol ~scope ~item_index ~return_type
+    ~signature ~parameter_bindings ~variadic_bindings
 
 let same_scope left right =
   Symbol.Scope_id.equal
@@ -618,6 +665,7 @@ let validate_variadic_ownership ~table ~scope seen = function
             binding_parameter_index =
               variadic.variadic_argc_.synthetic_parameter_index;
             binding_symbol = variadic.variadic_argc_.synthetic_symbol;
+            binding_source = None;
           }
       with
       | Error _ as error -> error
@@ -627,6 +675,7 @@ let validate_variadic_ownership ~table ~scope seen = function
               binding_parameter_index =
                 variadic.variadic_argv_.synthetic_parameter_index;
               binding_symbol = variadic.variadic_argv_.synthetic_symbol;
+              binding_source = None;
             })
 
 let validate_function ~table ~parent previous_item seen_symbols seen_scopes
@@ -751,6 +800,7 @@ and same_declarator_kind left right =
 let same_parameter_binding left right =
   left.binding_parameter_index = right.binding_parameter_index
   && left.binding_symbol == right.binding_symbol
+  && Option.equal ( == ) left.binding_source right.binding_source
 
 let same_synthetic_shape left right =
   match (left, right) with
@@ -804,6 +854,14 @@ let validate_retained_header ~retained_item_index_offset ~table ~parent retained
       (same_completed_header retained.function_completed_header_
          function_.function_completed_header_)
   then Error "semantic retained function type has different source evidence"
+  else if
+    not
+      (Option.equal (List.equal ( == )) retained.function_source_parameters_
+         function_.function_source_parameters_)
+  then
+    Error
+      "semantic retained function type has different original parameter \
+       children"
   else if retained.function_symbol_ != function_.function_symbol_ then
     Error "semantic retained function type has the wrong function symbol"
   else if retained.function_scope_ != function_.function_scope_ then
@@ -1241,6 +1299,7 @@ let make_provisional_function_with_selection
       function_variadic_bindings_ = None;
       function_completed_header_ = None;
       function_header_reused_ = false;
+      function_source_parameters_ = None;
     }
 
 let make_provisional_function ~table ~namespace ~shape ~scope ~return_type

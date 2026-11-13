@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "85606f264c679b91b1e6365e73051cc2e38a99cd443eff6b6bdf9fcf0aec97e9",
+  "boot_payload_sha256": "85606f264c679b91b1e6365e73051cc2e38a99cd443eff6b6bdf9fcf0aec97e9",
+  "boot_payload_bytes": 615,
+  "capture_sha256": "9b7280a17113524d1e355185d9d855fa221cab0fdf5c896ed2f373cc1c90c907",
+  "boot_iso_sha256": "e5638e1c85746ed3a8ea4cd510cc0e8b52b32e711fb11f5af9abae3fa9c74dfd",
+  "fields": {
+    "PARAM": "384",
+    "FIVE": "1280",
+    "ERR": "0"
+  },
+  "scope": "Two independent original compile-time observations of three and five parameter updates, captured with QEMU 10.0.13. A newline separates captures."
+}

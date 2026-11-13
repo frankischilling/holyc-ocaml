@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "eb99622e82919195c0b2fdac79637ca91703c583b22513690bcb8026b2054eb6",
+  "boot_payload_sha256": "cfb58730c3bf745ea941a9ee97f728a15b79abe8ee448ea29dae7984aef33534",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "351f24ebbd5e4a2ede9b629a4dad3af86ff3647d47373cd81d82f94cff4bb3fb",
+  "boot_iso_sha256": "75fec86735dad409addd9f936473a22dcfe4ee7b74bb7419644c0997c885ed89",
+  "fields": {
+    "J_S": "-129",
+    "J_U": "-1",
+    "J_SN": "-129",
+    "J_UN": "-1",
+    "ERR": "0",
+    "A_S": "-129",
+    "A_U": "-1",
+    "A_SN": "-129",
+    "A_UN": "-1"
+  },
+  "scope": "Repeated original observations with an unsigned 64-bit global outer value."
+}

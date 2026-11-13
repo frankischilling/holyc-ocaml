@@ -259,6 +259,7 @@ let snapshot_authority () =
   and first_snapshot = ref None
   and first_read = ref None in
   let current_read = ref None and completed = ref [] and last_root = ref None in
+  let metadata_queries = ref [] in
   let reads = ref 0 in
   let reject = Test_task_declarations.reject in
   let declaration = function
@@ -268,6 +269,16 @@ let snapshot_authority () =
           Some (Record.begin_aggregate ~table ~namespace publication |> checked);
         Ok ()
     | Parser.Aggregate_advanced phase ->
+        (match phase.phase_step with
+        | Parser.Aggregate_member_metadata_reached _ ->
+            let result, _ =
+              Record.prepare_aggregate_member_metadata ~table ~namespace
+                ~queries:(List.rev !metadata_queries)
+                ~max_work:100 (Option.get !progress) phase
+            in
+            ignore (result |> checked);
+            metadata_queries := []
+        | _ -> ());
         Record.advance_aggregate
           ~dimensions:(fun _ -> None)
           (Option.get !progress) phase
@@ -295,6 +306,11 @@ let snapshot_authority () =
         Ok ()
     | Parser.Query_completed receipt ->
         completed := (receipt, Option.get !current_read) :: !completed;
+        metadata_queries :=
+          (Record.complete_query ~table ~receipt
+             ~sizeof_read:(Option.get !current_read) ()
+          |> checked)
+          :: !metadata_queries;
         Ok ()
     | _ -> Ok ()
   in
@@ -792,8 +808,154 @@ let local_position_dependencies () =
         diagnostic.message)
     Test_integer_globals.modes
 
+let member_metadata_authority () =
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let other = C.create_namespace ~table () |> checked in
+  let publication = ref None and progress = ref None in
+  let completed = ref [] and phases = ref [] in
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  let prepare namespace allowance current phase =
+    Record.prepare_aggregate_member_metadata ~table ~namespace
+      ~max_work:allowance ~queries:[] current phase
+  in
+  let declaration = function
+    | Parser.Aggregate_declared source ->
+        let value = C.publish_aggregate namespace source |> checked in
+        publication := Some value;
+        progress :=
+          Some (Record.begin_aggregate ~table ~namespace value |> checked);
+        Ok ()
+    | Parser.Aggregate_advanced phase ->
+        let current = Option.get !progress in
+        (match phase.phase_step with
+        | Parser.Aggregate_member_metadata_reached original ->
+            let fields =
+              Record.aggregate_metadata current
+              |> checked |> Record.aggregate_fields
+            in
+            Alcotest.(check string)
+              "metadata follows member placement" original.member_name.spelling
+              (Record.aggregate_field_name (List.hd fields)).spelling;
+            let result, work = prepare other 20 current phase in
+            reject "foreign namespace cannot prepare metadata" result;
+            Alcotest.(check int) "foreign preparation spends nothing" 0 work;
+            let prepared, work = prepare namespace 20 current phase in
+            let prepared = prepared |> checked in
+            Alcotest.(check int)
+              "receipt retains reached work" work
+              (Record.member_metadata_work prepared);
+            let duplicate, spent = prepare namespace 20 current phase in
+            reject "metadata cannot be prepared twice" duplicate;
+            Alcotest.(check int) "duplicate spends nothing" 0 spent;
+            phases := (current, phase, prepared) :: !phases
+        | Parser.Aggregate_offset_reached _ ->
+            let result, _ =
+              Record.prepare_aggregate_offset ~table ~namespace ~max_work:20
+                ~queries:[] current phase
+            in
+            ignore (result |> checked)
+        | _ -> ());
+        Record.advance_aggregate ~dimensions:(fun _ -> None) current phase
+        |> checked |> ignore;
+        Ok ()
+    | Parser.Aggregate_completed receipt ->
+        let record =
+          Record.complete_aggregate ~table ~namespace
+            ~progress:(Option.get !progress) (Option.get !publication) receipt
+          |> checked
+        in
+        completed := record :: !completed;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let source =
+    Session.add_source session ~path:"member-metadata-authority.hc"
+      ~contents:
+        {|class Box{U8 x data 40+2 note "A\0" "B" data 43 bits 1.5 at $$ zero 0;I64 y data 44;};class Box{I64 x data 7;};union U{$$=4;I64 x at $$;};|}
+  in
+  ignore
+    (Parser.parse
+       ~commands:(Test_provisional_function_parser.sink declaration)
+       ~sources:(Session.sources session) ~symbols:(Session.symbols session)
+       ~definitions:(Session.definitions session)
+       ~config:(Preprocessor.Config.create () |> checked)
+       source
+    |> Test_parser.expect_ast);
+  let first = List.hd (List.rev !completed) in
+  let fields = Record.aggregate_fields first in
+  let x =
+    List.find
+      (fun field -> (Record.aggregate_field_name field).spelling = "x")
+      fields
+  in
+  let word field name expected =
+    let value =
+      Record.aggregate_field_metadata_find field name
+      |> Option.get |> Record.member_metadata_value
+    in
+    match value with
+    | Record.Metadata_word actual -> Alcotest.(check int64) name expected actual
+    | Record.Metadata_string _ -> Alcotest.fail (name ^ " is not a word")
+  in
+  word x "data" 43L;
+  word x "bits" (Int64.bits_of_float 1.5);
+  word x "at" 1L;
+  word x "zero" 0L;
+  Alcotest.(check int)
+    "duplicate names remain in the prepended chain" 6
+    (List.length (Record.aggregate_field_metadata x));
+  (match
+     Record.aggregate_field_metadata_find x "note"
+     |> Option.get |> Record.member_metadata_value
+   with
+  | Record.Metadata_string value ->
+      Alcotest.(check string) "joined bytes" "A\000B" value
+  | _ -> Alcotest.fail "note is not a string");
+  Alcotest.(check bool)
+    "absent metadata stays absent" true
+    (Option.is_none (Record.aggregate_field_metadata_find x "missing"));
+  let newer =
+    List.nth (List.rev !completed) 1 |> Record.aggregate_fields |> List.hd
+  in
+  word newer "data" 7L;
+  let union = List.hd !completed |> Record.aggregate_fields |> List.hd in
+  word union "at" 4L;
+  word x "data" 43L;
+  List.iter
+    (fun (current, phase, _) ->
+      let result, work = prepare namespace 20 current phase in
+      reject "expired metadata cannot prepare again" result;
+      Alcotest.(check int) "expired preparation spends nothing" 0 work)
+    !phases
+
+let member_metadata_limits () =
+  List.iter
+    (fun mode ->
+      let source = {|class B{I64 x data 40+2;};42;|} in
+      ignore (O.run ~mode ~max_initializer_steps:3 source |> O.expect "");
+      ignore
+        (O.run ~mode ~max_initializer_steps:2 source |> O.fault "HCIRVM0007");
+      let source = {|class B{I64 x data 40+2;};I64 N=42;N;|} in
+      ignore (O.run ~mode ~max_initializer_steps:6 source |> O.expect "");
+      ignore
+        (O.run ~mode ~max_initializer_steps:5 source |> O.fault "HCIRVM0007");
+      let source = {|#exe {class B{I64 x data 40+2;};StreamPrint("42;");}|} in
+      ignore (O.run ~mode ~max_initializer_steps:3 source |> O.expect "");
+      ignore
+        (O.run ~mode ~max_initializer_steps:2 source |> O.fault "HCIRVM0007"))
+    Test_integer_globals.modes
+
 let tests =
   [
+    Alcotest.test_case
+      "member metadata retains original values and source authority" `Quick
+      member_metadata_authority;
+    Alcotest.test_case "member metadata preparation shares bounded task work"
+      `Quick member_metadata_limits;
     Alcotest.test_case
       "local declarations capture original downward allocation positions" `Quick
       local_offset_positions;

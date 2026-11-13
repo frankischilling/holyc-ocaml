@@ -1,15 +1,48 @@
 type t
 
+val task_state : t -> Ir.Integer_interpreter.task_state
+
 type completion
 (** A receipt issued only after actual checked preparation and successful
     completion charged to the original native source invocation. *)
 
 val create :
+  ?max_steps:int ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
+  ?max_generated_bytes:int ->
   compilation_mode:Frontend.Preprocessor.compilation_mode ->
   max_initializer_steps:int ->
   ?max_default_bytes:int ->
   Session.t ->
   (t, string) result
+
+val create_aot_peer :
+  t ->
+  parent:Session.t ->
+  child:Session.t ->
+  invocation:Sema.Aot_invocation.t ->
+  (Ir.Integer_interpreter.task_state, string) result
+
+val finish_unpaired_aot_output :
+  t ->
+  sequence:Frontend.Parser.completed_sequence ->
+  globals:Ir.Integer_globals.t ->
+  initialization:Ir.Global_initialization.t ->
+  entry:Ir.X87_stack.t ->
+  (unit, string) result
+
+val begin_aot_invocation :
+  t ->
+  parent:Session.t ->
+  ledger:Task_declarations.t ->
+  context:Frontend.Parser.command_context ->
+  fork:Sema.Symbol_table.empty_fork ->
+  (Sema.Aot_invocation.t, Common.Diagnostic.t list) result
 (** An isolated preparation budget. It has no source-command executor, retained
     task bindings or executable-memory capability. Saved payloads default to
     65,536 bytes and charge eight bytes per successful scalar integer or
@@ -27,6 +60,7 @@ val prepare :
   (unit, Common.Diagnostic.t list) result
 
 val work : t -> int
+val remaining_work : t -> int
 
 val synchronize_work : t -> work:int -> bytes:int -> (unit, string) result
 (** Charge other original source contexts to the same invocation allowance.

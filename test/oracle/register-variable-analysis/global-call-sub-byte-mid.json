@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "07783164d37778acf4553c67ed7194c930c45a016ecfeea75d503886162fa2a3",
+  "boot_payload_sha256": "686fed6da4555b85bc458e1f0d22581d3ea55a0f21559035ad1be5b1926cde31",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "9f6e75516e0abf4d79c4bf3cb7d29779603d69e42480adc5391d734014d2668a",
+  "boot_iso_sha256": "fa65bb18c99618a7cfeb7aab463eeea9ad0c5679f967df318474f995fbfc1679",
+  "fields": {
+    "J_S": "-128",
+    "J_U": "0",
+    "J_SN": "-128",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "-128",
+    "A_U": "0",
+    "A_SN": "-128",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of a global literal compound update used as a direct function argument."
+}

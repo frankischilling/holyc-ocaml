@@ -298,7 +298,8 @@ let actual_source ?max_layout_work ~adversarial () =
                         (fun (word : Image.word) ->
                           match word.type_ with
                           | Image.I64 -> Dispatch.I64 word.bits
-                          | U64 -> Dispatch.U64 word.bits)
+                          | U64 -> Dispatch.U64 word.bits
+                          | F64 -> Dispatch.F64 word.bits)
                         result.final_value)
                  else Dispatch.Unchanged));
     }
@@ -389,7 +390,8 @@ let array_source ?(both_abis = false) ?(max_arena_bytes = 48)
                             (fun (word : Image.word) ->
                               match word.type_ with
                               | Image.I64 -> Dispatch.I64 word.bits
-                              | U64 -> Dispatch.U64 word.bits)
+                              | U64 -> Dispatch.U64 word.bits
+                              | F64 -> Dispatch.F64 word.bits)
                             result.final_value)
                      else Dispatch.Unchanged)));
     }
@@ -962,7 +964,8 @@ let native_function_preflight_retry () =
                         (fun (word : Image.word) ->
                           match word.type_ with
                           | Image.I64 -> Dispatch.I64 word.bits
-                          | U64 -> Dispatch.U64 word.bits)
+                          | U64 -> Dispatch.U64 word.bits
+                          | F64 -> Dispatch.F64 word.bits)
                         result.final_value)
                  else Dispatch.Unchanged)));
     }
@@ -1059,7 +1062,8 @@ let native_function_reached_fault_retains_source () =
                       (fun (word : Image.word) ->
                         match word.type_ with
                         | Image.I64 -> Dispatch.I64 word.bits
-                        | U64 -> Dispatch.U64 word.bits)
+                        | U64 -> Dispatch.U64 word.bits
+                        | F64 -> Dispatch.F64 word.bits)
                       execution.final_value
                   in
                   Ok
@@ -1356,7 +1360,8 @@ let native_literal_source_authority () =
                         (fun (word : Image.word) ->
                           match word.type_ with
                           | Image.I64 -> Dispatch.I64 word.bits
-                          | U64 -> Dispatch.U64 word.bits)
+                          | U64 -> Dispatch.U64 word.bits
+                          | F64 -> Dispatch.F64 word.bits)
                         result.final_value)
                  else Dispatch.Unchanged)));
     }
@@ -1430,7 +1435,8 @@ let native_static_source_authority ?(callback_type = "I64") () =
                     (fun (word : Image.word) ->
                       match word.type_ with
                       | Image.I64 -> Dispatch.I64 word.bits
-                      | U64 -> Dispatch.U64 word.bits)
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
                     result.final_value)
              else Dispatch.Unchanged));
     }
@@ -1676,7 +1682,8 @@ let native_static_copy_authority () =
                     (fun (word : Image.word) ->
                       match word.type_ with
                       | Image.I64 -> Dispatch.I64 word.bits
-                      | U64 -> Dispatch.U64 word.bits)
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
                     result.final_value)
              else Dispatch.Unchanged));
     }
@@ -1795,11 +1802,14 @@ let native_static_copy_host_bounds () =
           (40, 39, 32, "AB");
           (40, 0, 40, "AB");
           (40, 0, 0, "AB");
-          (40, 0, 32, "");
+          (39, 0, 32, "");
           (40, 0, 32, String.make 40 'A');
           (max_int, 0, 32, "AB");
         ];
       invalid (fun () -> raw_static_copy handle (Obj.magic 0));
+      Alcotest.(check int)
+        "empty copy validates the arena without writing" 0
+        (raw_static_copy handle (40, 0, 32, ""));
       Alcotest.(check int)
         "real original flags remain available after malformed copies" 1
         (raw_static_copy handle (40, 1, 31, "B"));
@@ -1813,7 +1823,8 @@ let native_static_copy_host_bounds () =
         "remaining original array elements stay available" 2
         (raw_static_copy handle (40, 2, 30, "CD"));
       raw_arena_release handle;
-      invalid (fun () -> raw_static_copy handle (40, 0, 32, "A")));
+      invalid (fun () -> raw_static_copy handle (40, 0, 32, "A"));
+      invalid (fun () -> raw_static_copy handle (40, 0, 32, "")));
   let corrupt = raw_arena_create 40 in
   Fun.protect
     ~finally:(fun () -> raw_arena_release corrupt)
@@ -1870,7 +1881,8 @@ let native_default_source_authority_case ?(callback_saved = false) text () =
                     (fun (word : Image.word) ->
                       match word.type_ with
                       | Image.I64 -> Dispatch.I64 word.bits
-                      | U64 -> Dispatch.U64 word.bits)
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
                     result.final_value)
              else Dispatch.Unchanged));
     }
@@ -2710,6 +2722,287 @@ let print_callback_entry_abis () =
        *fmt,...){N=42;}q=&Print;p(\"A\");q(\"B\");N;";
     ]
 
+let check_zero_reference_initializer_authority contents =
+  let module Program = Holyc_lib__Ir.Initializer_fragment_program in
+  let module Destination = Holyc_lib__Ir.Initializer_fragment_destination in
+  let module Capture = Holyc_lib__Ir.Native_scalar_capture in
+  let session, config, source = inputs contents in
+  let layout = Image.create_task_layout ~max_global_bytes:64 |> compiled in
+  let arena =
+    Runtime.create_task_arena ~max_arena_bytes:1024 layout |> checked
+  in
+  let foreign_layout =
+    Image.create_task_layout ~max_global_bytes:64 |> compiled
+  in
+  let foreign_arena =
+    Runtime.create_task_arena ~max_arena_bytes:1024 foreign_layout |> checked
+  in
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
+  let zero_copies = ref 0 and saved = ref [] in
+  let execute image =
+    let retained = Runtime.retain_task_fragment arena image |> checked in
+    Fun.protect
+      ~finally:(fun () -> Runtime.release retained |> checked)
+      (fun () ->
+        let before = (Runtime.budget_progress budget).executed_steps in
+        let report = Runtime.execute_retained_budget_report budget retained in
+        let result = completed report in
+        let work = (Runtime.budget_progress budget).executed_steps - before in
+        (report, result, work))
+  in
+  let native_dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun request ->
+          compile_initializer_both_abis layout request;
+          let image =
+            Image.compile_task_initializer ~status_abi:(host_status_abi ())
+              ~layout request
+            |> compiled
+          in
+          let report, result, work = execute image in
+          let program = Dispatch.initializer_program request in
+          if Program.is_scalar_evaluation program then (
+            let capture =
+              Runtime.finish_task_initializer arena image |> checked
+            in
+            let scalar =
+              Program.destination program
+              |> Destination.layout
+              |> Holyc_lib__Ir.Integer_initializer_layout.scalar |> Option.get
+            in
+            let zero =
+              Holyc_lib__Sema.Initializer_type.scalar_byte_size scalar = 0
+            in
+            if zero then (
+              incr zero_copies;
+              Alcotest.(check bool)
+                "actual reference evaluation was captured" true
+                (Runtime.value_captured report);
+              Alcotest.(check bool)
+                "reference evaluation supplies no scalar word" true
+                (Option.is_none result.final_value);
+              rejected "reference capture cannot masquerade as an integer"
+                (Capture.consume capture ~program ~work);
+              let copied_program = Obj.obj (Obj.dup (Obj.repr program)) in
+              rejected
+                "copied program cannot consume original reference completion"
+                (Capture.consume_value capture ~program:copied_program ~work);
+              rejected "invented work cannot complete a zero-byte copy"
+                (Dispatch.prepare_initializer_copy request capture
+                   ~work:(work + 1)));
+            let token =
+              Dispatch.prepare_initializer_copy request capture ~work |> checked
+            in
+            if zero then (
+              Alcotest.(check string)
+                "no pointer bits or initialization flags are copied" ""
+                (Dispatch.initializer_copy_bytes token);
+              rejected "reference execution receipt is consumed once"
+                (Dispatch.prepare_initializer_copy request capture ~work);
+              let copied_token = Obj.obj (Obj.dup (Obj.repr token)) in
+              rejected "copied empty-copy token has no original attempt"
+                (Dispatch.check_initializer_copy request copied_token);
+              rejected "an empty copy still requires its original arena"
+                (Runtime.copy_task_initializer foreign_arena request token);
+              Dispatch.check_initializer_copy request token |> checked;
+              List.iter
+                (fun (_, prior) ->
+                  rejected
+                    "another source leaf cannot reuse an empty completion"
+                    (Dispatch.check_initializer_copy request prior))
+                !saved);
+            let receipt =
+              Runtime.copy_task_initializer arena request token |> checked
+            in
+            if zero then
+              rejected "zero byte count cannot authorize a repeated native copy"
+                (Runtime.copy_task_initializer arena request token);
+            Dispatch.finish_initializer_copy request token receipt |> checked;
+            if zero then (
+              rejected "completed empty copy cannot settle twice"
+                (Dispatch.finish_initializer_copy request token receipt);
+              saved := (request, token) :: !saved));
+          Ok ());
+      execute_command =
+        (fun request ->
+          compile_command_both_abis layout request;
+          let image =
+            Image.compile_task_command ~status_abi:(host_status_abi ()) ~layout
+              request
+            |> compiled
+          in
+          let report, result, _ = execute image in
+          Ok
+            (if Runtime.value_captured report then
+               Dispatch.Captured
+                 (Option.map
+                    (fun (word : Image.word) ->
+                      match word.type_ with
+                      | Image.I64 -> Dispatch.I64 word.bits
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
+                    result.final_value)
+             else Dispatch.Unchanged));
+    }
+  in
+  let report =
+    Fun.protect
+      ~finally:(fun () ->
+        Runtime.release_task_arena arena |> checked;
+        Runtime.release_task_arena foreign_arena |> checked)
+      (fun () ->
+        Source.run ~native_dispatch session ~config ~source ~max_steps:100_000)
+  in
+  (match Source.outcome report with
+  | Ok _ -> ()
+  | Error errors -> Alcotest.fail (describe errors));
+  Alcotest.(check bool)
+    "native references neither call nor overwrite their targets" true
+    (Source.native_final_value report = Some (Dispatch.I64 42L));
+  Alcotest.(check string)
+    "reference evaluation has no output" ""
+    (Source.output_bytes report);
+  Alcotest.(check int) "both original reference leaves complete" 2 !zero_copies;
+  List.iter
+    (fun (request, token) ->
+      rejected "closed source cannot reuse empty-copy authority"
+        (Dispatch.check_initializer_copy request token))
+    !saved
+
+let zero_reference_initializer_authority () =
+  List.iter check_zero_reference_initializer_authority
+    [
+      "I64 target=7;U0 Fn(){target=99;}class Box{U0 empty;I64 value;};Box \
+       first={&Fn,20},second={&target,22};I64 F(){if(target!=7)return \
+       -1;return first.value+second.value;}F();";
+      "I64 target=7;U0 Fn(){target=99;}U0 first=&Fn,second=&target;I64 \
+       F(){if(target!=7)return -1;return sizeof(first)+sizeof(second)+42;}F();";
+    ]
+
+let floating_initializer_authority () =
+  let session, config, source =
+    inputs "class Box{F64 x;I64 y;};Box b={1.5,42};(&b)(U8*)[6];"
+  in
+  let layout = Image.create_task_layout ~max_global_bytes:64 |> compiled in
+  let arena =
+    Runtime.create_task_arena ~max_arena_bytes:1024 layout |> checked
+  in
+  let foreign_layout =
+    Image.create_task_layout ~max_global_bytes:64 |> compiled
+  in
+  let foreign_arena =
+    Runtime.create_task_arena ~max_arena_bytes:1024 foreign_layout |> checked
+  in
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
+  let saved = ref None in
+  let execute image =
+    let retained = Runtime.retain_task_fragment arena image |> checked in
+    Fun.protect
+      ~finally:(fun () -> Runtime.release retained |> checked)
+      (fun () ->
+        let before = (Runtime.budget_progress budget).executed_steps in
+        let report = Runtime.execute_retained_budget_report budget retained in
+        let result = completed report in
+        let work = (Runtime.budget_progress budget).executed_steps - before in
+        (report, result, work))
+  in
+  let dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun request ->
+          compile_initializer_both_abis layout request;
+          let image =
+            Image.compile_task_initializer ~status_abi:(host_status_abi ())
+              ~layout request
+            |> compiled
+          in
+          let _, result, work = execute image in
+          let program = Dispatch.initializer_program request in
+          if
+            Holyc_lib__Ir.Initializer_fragment_program.is_scalar_evaluation
+              program
+          then (
+            Alcotest.(check bool)
+              "actual capture reports F64" true
+              (match result.final_value with
+              | Some word ->
+                  word.type_ = Image.F64 && word.bits = 0x3ff8_0000_0000_0000L
+              | None -> false);
+            let capture =
+              Runtime.finish_task_initializer arena image |> checked
+            in
+            rejected "capture cannot be taken twice"
+              (Runtime.finish_task_initializer arena image);
+            let copied_program = Obj.obj (Obj.dup (Obj.repr program)) in
+            rejected "copied program cannot consume original floating result"
+              (Holyc_lib__Ir.Native_scalar_capture.consume_value capture
+                 ~program:copied_program ~work);
+            rejected "wrong work cannot consume original floating result"
+              (Dispatch.prepare_initializer_copy request capture ~work:(work + 1));
+            let token =
+              Dispatch.prepare_initializer_copy request capture ~work |> checked
+            in
+            Alcotest.(check string)
+              "executed F64 bits copied little endian"
+              "\000\000\000\000\000\000\248\063"
+              (Dispatch.initializer_copy_bytes token);
+            rejected "capture cannot be consumed twice"
+              (Dispatch.prepare_initializer_copy request capture ~work);
+            let duplicate = Obj.obj (Obj.dup (Obj.repr token)) in
+            rejected "copied token cannot borrow original attempt"
+              (Dispatch.check_initializer_copy request duplicate);
+            rejected "foreign arena cannot take original copy"
+              (Runtime.copy_task_initializer foreign_arena request token);
+            let receipt =
+              Runtime.copy_task_initializer arena request token |> checked
+            in
+            rejected "native copy cannot replay"
+              (Runtime.copy_task_initializer arena request token);
+            Dispatch.finish_initializer_copy request token receipt |> checked;
+            rejected "copy completion cannot replay"
+              (Dispatch.finish_initializer_copy request token receipt);
+            saved := Some (request, token));
+          Ok ());
+      execute_command =
+        (fun request ->
+          compile_command_both_abis layout request;
+          let image =
+            Image.compile_task_command ~status_abi:(host_status_abi ()) ~layout
+              request
+            |> compiled
+          in
+          let report, result, _ = execute image in
+          Ok
+            (if Runtime.value_captured report then
+               Dispatch.Captured
+                 (Option.map
+                    (fun (word : Image.word) ->
+                      match word.type_ with
+                      | Image.I64 -> Dispatch.I64 word.bits
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
+                    result.final_value)
+             else Dispatch.Unchanged));
+    }
+  in
+  let report =
+    Fun.protect
+      ~finally:(fun () ->
+        Runtime.release_task_arena arena |> checked;
+        Runtime.release_task_arena foreign_arena |> checked)
+      (fun () ->
+        Source.run ~native_dispatch:dispatch session ~config ~source
+          ~max_steps:100_000)
+  in
+  Source.outcome report |> Result.map_error describe |> checked |> ignore;
+  Alcotest.(check bool)
+    "copied bytes are visible to original task" true
+    (Source.native_final_value report = Some (Dispatch.U64 248L));
+  let request, token = Option.get !saved in
+  rejected "expired source cannot reuse floating copy"
+    (Dispatch.check_initializer_copy request token)
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -2798,5 +3091,9 @@ let () =
           Alcotest.test_case
             "nested anonymous owners and exact completed receipts" `Quick
             native_nested_default_source_authority;
+          Alcotest.test_case "floating leaf capture and copy authority" `Quick
+            floating_initializer_authority;
+          Alcotest.test_case "zero-byte reference evaluation and copy authority"
+            `Quick zero_reference_initializer_authority;
         ] );
     ]

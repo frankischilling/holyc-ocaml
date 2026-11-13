@@ -321,6 +321,9 @@ let transitive_closure_limits () =
     (List.length (Native.fragments limited))
 
 let unsupported_persistent_function_storage () =
+  if Native_execution.x87_supported () && Native_execution.fisttp_supported ()
+  then ignore (value 1L (run "I64 F(){return 1.0;} F();"));
+  ignore (value 42L (run "I64 F(){1.0;return 42;} F();"));
   let report = run "I64 F(){return 42;} I64 (*p)()=&F; p();" in
   ignore (value 42L report);
   completed report;
@@ -332,7 +335,6 @@ let unsupported_persistent_function_storage () =
     [
       "extern I64 Missing(); I64 F(){return Missing();} F();";
       "I64 F(F64 n=42.0){return 42;} F();";
-      "I64 F(){1.0;return 42;} F();";
     ]
 
 let retained_provider_output () =

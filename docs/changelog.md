@@ -1,6 +1,75 @@
 # Changelog
 
+Bounded integer AOT initializer leaves now use their original raw assignment
+width, separately from JIT and constant-copy widths. [Native captures](aot-zero-byte-initializers.md)
+verify four- and eight-byte stores. Missing register values, ownership and storage
+windows still reject explicitly.
+
+Scalar U0 globals and statics now retain zero-byte storage and live JIT
+initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)
+for native observations, execution checks and the separate AOT boundary.
+
 ## Unreleased
+
+- Evaluate supported closed integer initializers of AOT scalar U0 globals and
+  statics at their source declaration. Preserve earlier directive effects and stop before
+  later directives if preparation fails. See
+  [persistent U0 declarations](persistent-void-declarations.md).
+
+- Reconstruct the source optimizer phases for grouped, computed and full
+  multidimensional local-array indices. Keep surviving scalar reads, dimension
+  strides and address events separate from algebraic index values. See
+  [local-index normalization](local-index-normalization.md).
+
+- Keep primitive local arrays in whole-function register scoring and pressure
+  while assigning physical homes only to eligible members. Preserve source
+  index-address events, checked array storage and large-frame probes. See
+  [allocation beside arrays](array-member-registers.md).
+
+- Preserve unnamed fixed formal members and first-member lookup for supported
+  duplicate names. Keep initializer assignment targets separate from declaration
+  and warning-reset owners. Resolve supported duplicate explicit register
+  requests in source order, with the last owner in the register and earlier
+  members on the stack. See [formal members](formal-member-identity.md).
+
+- Allocate source-authenticated owned pointer members alongside scalar members,
+  keeping pointer pressure separate from R12/R13 eligibility and retaining exact
+  address balances. Include Bool and uninitialized local membership without
+  weakening storage checks. Reject unproved explicit homes instead of silently
+  substituting stack storage. See [member allocation](register-variable-analysis.md#owned-member-shapes-and-address-balances).
+
+- Evaluate supported reference values in zero-byte JIT initializer leaves
+  without inventing scalar words or writing neighboring bytes. Keep actual
+  execution, once-only receipts, literal charges and arena ownership checks.
+
+- Emit original JIT U0 initializer warnings before execution, with once-only
+  preparation ownership and active compiler warning counts. See
+  [U0 initializer warnings](void-initializer-warnings.md) for scope and evidence.
+
+- Admit original uninitialized scalar U0 locals without allocating value cells
+  or flags. Keep their assignment/register-alias behavior explicitly separate.
+  See [automatic U0 declarations](automatic-void-declarations.md).
+
+- Execute zero-count array declarations and empty initializers without inferring
+  lengths, inventing source bytes or repeating static work. Preserve original
+  empty-dimension witnesses, completion receipts and zero-copy arena checks.
+  See [zero-sized arrays](empty-arrays.md) for native observations and boundaries.
+
+- Match original pending-prefix binding: `++*p` advances the pointer before
+  dereferencing it, while `++(*p)` updates the pointee. Preserve callback-star
+  cancellation, indexed side effects and operator provenance. See
+  [prefix updates](prefix-updates.md) for native observations and remaining cases.
+
+- Preserve owned data references in global and static aggregate initializer
+  leaves, including arrays, strings and reference-returning calls. Packed stores
+  retain target lifetimes and reject expired ownership. Original JIT captures
+  check aliasing and once-only static initialization. See
+  [pointer initializers](aggregate-initializers.md#owned-data-pointer-leaves).
+
+- Execute U0 calls in zero-byte aggregate initializer leaves, preserving their
+  effects without inventing an integer result. Global/static IR and native source
+  tasks support live JIT; original JIT captures verify once-only effects and
+  the following byte. See [initializer effects](aggregate-initializers.md#u0-initializer-effects).
 
 - Added `holyc disasm` and the public `Asm_disassembler` library module, with
   source-owned instruction forms, addresses, operands, relative targets,

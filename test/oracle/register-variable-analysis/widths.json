@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "df2a2a2b82ba08c8a161aa50d6480a5e834a1ffb64d5950a5eabe7572a05c7fa",
+  "boot_payload_sha256": "e4d9c46f3e19b9b1228aa43c642ecd083756efc7867bf060343cf58aaff9dfe0",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "c4b2335d77185ffe4fd47384668859db1e4642063fb07bf9ac6133bec7cea00f",
+  "boot_iso_sha256": "ed71f8c90bb48cee2e8971019d50eab4081ec9afa7cd2e649a2dd88f817b3261",
+  "fields": {
+    "J_S16": "65534",
+    "J_U16": "131070",
+    "J_S32": "4294967294",
+    "J_U32": "8589934590",
+    "ERR": "0",
+    "A_S16": "65534",
+    "A_U16": "131070",
+    "A_S32": "4294967294",
+    "A_U32": "8589934590"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of 16- and 32-bit register-selected compound shifts. The stored source omits trailing spaces used to pad the boot payload."
+}

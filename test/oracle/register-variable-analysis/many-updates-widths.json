@@ -1,0 +1,28 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "498a997af936f7ccc7fdeef711827dbb85dc70ae29af7c086c7854ceda0ffbb0",
+  "boot_payload_sha256": "498a997af936f7ccc7fdeef711827dbb85dc70ae29af7c086c7854ceda0ffbb0",
+  "boot_payload_bytes": 3649,
+  "capture_sha256": "080aabc5fdc474f0f5f44c776cb84fc28d3f0f20dc31c476ee652e1d8a92960b",
+  "boot_iso_sha256": "aa4b41dc6785853294c1704e652f92fb6ed4ab3203ecc23fa647c62e10da1e5e",
+  "fields": {
+    "J_5S16R": "163840",
+    "J_5S16N": "-163840",
+    "J_5U16R": "327680",
+    "J_5U16N": "0",
+    "J_5S32R": "10737418240",
+    "J_5S32N": "-10737418240",
+    "J_5U32R": "21474836480",
+    "J_5U32N": "0",
+    "ERR": "0",
+    "A_5S16R": "163840",
+    "A_5S16N": "-163840",
+    "A_5U16R": "327680",
+    "A_5U16N": "0",
+    "A_5S32R": "10737418240",
+    "A_5S32N": "-10737418240",
+    "A_5U32R": "21474836480",
+    "A_5U32N": "0"
+  },
+  "scope": "Two independent original JIT and compiled observations of five signed and unsigned 16- and 32-bit updates, captured with QEMU 10.0.13. A newline separates captures."
+}

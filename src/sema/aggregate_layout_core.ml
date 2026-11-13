@@ -73,6 +73,7 @@ struct
     | Array_dimension
     | Aggregate_offset
     | Switch_case
+    | Member_metadata
 
   type dimension = {
     dimension_expression : expression option;
@@ -328,6 +329,24 @@ struct
     Result.bind count (fun count ->
         checked_multiply_nonnegative origin "the member storage size"
           element_size count)
+
+  let placed_member_layout ~symbol ~origin ~offset ~element_size ~dimensions
+      ~signedness =
+    Result.map
+      (fun size ->
+        {
+          symbol;
+          path = [ 0 ];
+          declarator_index = 0;
+          origin;
+          offset;
+          size;
+          element_size;
+          dimensions;
+          signedness;
+          alignment = 1;
+        })
+      (member_extent ~origin ~element_size ~counts:dimensions)
 
   let lay_out_member ~selected_size (previous : aggregate_layout Int_map.t) mode
       union_base state member =

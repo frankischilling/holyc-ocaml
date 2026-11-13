@@ -1,3 +1,38 @@
+(test
+ (name test_native_float_plan)
+ (modules test_native_float_plan)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_x87_encoder)
+ (modules test_x87_encoder)
+ (libraries holyc_lib alcotest))
+
+(executable
+ (name test_native_fpu_boundary)
+ (modules test_native_fpu_boundary)
+ (libraries alcotest)
+ (foreign_stubs
+  (language c)
+  (names native_fpu_boundary_test)
+  (flags
+   (:standard -DHOLYC_OCAML_TEST))))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_fpu_boundary.exe})))
+
+(test
+ (name test_scored_register_allocation)
+ (modules test_scored_register_allocation)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_nonvolatile_register_encoder)
+ (modules test_nonvolatile_register_encoder)
+ (libraries holyc_lib alcotest))
+
 (executable
  (name test_native_sections_cli)
  (modules test_native_sections_cli)
@@ -613,6 +648,8 @@
   source_constant_shift_cases
   public_shift_class_cases
   test_native_program
+  test_native_f64_transport
+  test_native_linked_float_authority
   test_native_literal_storage
   test_native_persistent_storage
   test_native_scalar_functions
@@ -5342,9 +5379,15 @@
  (wrapped false)
  (modules
   automatic_aggregate_cases
+  empty_array_cases
+  zero_reference_initializer_cases
   aggregate_member_cases
+  callback_field_cases
+  reference_return_cases
   aggregate_array_cases
   aggregate_pointer_cases
+  aggregate_cast_cases
+  persistent_aggregate_cases
   inherited_aggregate_cases
   backed_aggregate_cases
   default_aggregate_cases
@@ -5382,7 +5425,12 @@
   ../examples/class-value-returns.hc
   ../examples/class-default-words.hc
   ../examples/retained-nested-members.hc
-  ../examples/aggregate-pointer-fields.hc)
+  ../examples/aggregate-pointer-fields.hc
+  ../examples/persistent-aggregates.hc
+  ../examples/aggregate-initializers.hc
+  ../examples/aggregate-value-casts.hc
+  ../examples/reference-returns.hc
+  ../examples/top-level-aggregate-assignments.hc)
  (action
   (run
    %{test}
@@ -5397,23 +5445,37 @@
    %{dep:../examples/class-value-returns.hc}
    %{dep:../examples/class-default-words.hc}
    %{dep:../examples/retained-nested-members.hc}
-   %{dep:../examples/aggregate-pointer-fields.hc})))
+   %{dep:../examples/aggregate-pointer-fields.hc}
+   %{dep:../examples/persistent-aggregates.hc}
+   %{dep:../examples/aggregate-initializers.hc}
+   %{dep:../examples/aggregate-value-casts.hc}
+   %{dep:../examples/reference-returns.hc}
+   %{dep:../examples/top-level-aggregate-assignments.hc})))
 
 (test
  (name test_automatic_aggregate_storage)
  (modules test_automatic_aggregate_storage)
- (libraries holyc_lib automatic_aggregate_fixture alcotest))
+ (libraries
+  holyc_lib
+  automatic_aggregate_fixture
+  aggregate_member_support
+  alcotest))
 
 (test
  (name test_automatic_aggregates_cli)
  (modules test_automatic_aggregates_cli)
  (libraries unix yojson automatic_aggregate_fixture)
- (deps ../examples/automatic-aggregate-byte-views.hc)
+ (deps
+  ../examples/automatic-aggregate-byte-views.hc
+  ../examples/empty-automatic-aggregates.hc
+  ../examples/automatic-aggregate-initializers.hc
+  ../examples/original-automatic-layouts.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
-   %{dep:../examples/automatic-aggregate-byte-views.hc})))
+   %{dep:../examples/automatic-aggregate-byte-views.hc}
+   %{dep:../examples/empty-automatic-aggregates.hc})))
 
 (test
  (name test_source_inherited_layouts)
@@ -5516,3 +5578,530 @@
    %{dep:../examples/native-stream-generation.hc}
    %{dep:../examples/native-stream-declarations.hc}
    %{dep:../examples/native-compiler-options.hc})))
+
+(test
+ (name test_aggregate_initializer_layout)
+ (modules test_aggregate_initializer_layout)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_void_initializer_oracle)
+ (modules test_void_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/void-initializers/*)))
+
+(test
+ (name test_pointer_initializer_oracle)
+ (modules test_pointer_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/pointer-initializers/*)))
+
+(test
+ (name test_prefix_update_oracle)
+ (modules test_prefix_update_oracle)
+ (libraries holyc_lib yojson digestif alcotest automatic_aggregate_fixture)
+ (deps
+  (glob_files oracle/prefix-updates/*)))
+
+(test
+ (name test_empty_array_oracle)
+ (modules test_empty_array_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/empty-arrays/*)))
+
+(executable
+ (name test_automatic_void_cli)
+ (modules test_automatic_void_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_automatic_void_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_automatic_void_cli.exe} %{exe:../bin/holyc.exe} --native)))
+
+(test
+ (name test_automatic_void_oracle)
+ (modules test_automatic_void_oracle)
+ (libraries yojson digestif alcotest)
+ (deps
+  (glob_files oracle/automatic-void/*)))
+
+(test
+ (name test_zero_reference_initializer_oracle)
+ (modules test_zero_reference_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/zero-reference-initializers/*)))
+
+(executable
+ (name test_persistent_void_cli)
+ (modules test_persistent_void_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_persistent_void_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_persistent_void_cli.exe} %{exe:../bin/holyc.exe} --native)))
+
+(test
+ (name test_persistent_void_oracle)
+ (modules test_persistent_void_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/persistent-void/*)))
+
+(test
+ (name test_aot_zero_initializer_oracle)
+ (modules test_aot_zero_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/aot-zero-initializers/*)))
+
+(executable
+ (name test_aot_load_assignment_cli)
+ (modules test_aot_load_assignment_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_aot_load_assignment_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_aot_load_assignment_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(test
+ (name test_root_shift_initializer_oracle)
+ (modules test_root_shift_initializer_oracle)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/source-root-shifts/*)))
+
+(executable
+ (name test_root_shift_initializer_cli)
+ (modules test_root_shift_initializer_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_root_shift_initializer_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_root_shift_initializer_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(test
+ (name test_register_variable_analysis)
+ (modules test_register_variable_analysis)
+ (libraries holyc_lib yojson digestif alcotest)
+ (deps
+  (glob_files oracle/register-variable-analysis/*)))
+
+(executable
+ (name test_register_variable_execution_cli)
+ (modules test_register_variable_execution_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias runtest)
+ (deps
+  ../examples/register-variable-selection.hc
+  ../examples/repeated-register-updates.hc
+  ../examples/remainder-register-updates.hc
+  ../examples/register-control-flow.hc
+  ../examples/register-call-lifetimes.hc
+  ../examples/register-local-lifetimes.hc
+  ../examples/register-bank-capacity.hc
+  ../examples/register-option-snapshots.hc
+  ../examples/register-loop-updates.hc
+  ../examples/register-reassignment.hc
+  ../examples/register-pressure.hc
+  ../examples/register-computed-assignment.hc
+  ../examples/register-computed-updates.hc
+  ../examples/register-computed-initializers.hc
+  ../examples/register-integer-expressions.hc
+  ../examples/register-straight-line.hc
+  ../examples/register-dependent-initializers.hc
+  ../examples/register-consumed-assignment.hc)
+ (action
+  (run
+   %{exe:test_register_variable_execution_cli.exe}
+   %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../examples/register-variable-selection.hc
+  ../examples/repeated-register-updates.hc
+  ../examples/remainder-register-updates.hc
+  ../examples/register-control-flow.hc
+  ../examples/register-call-lifetimes.hc
+  ../examples/register-local-lifetimes.hc
+  ../examples/register-bank-capacity.hc
+  ../examples/register-option-snapshots.hc
+  ../examples/register-loop-updates.hc
+  ../examples/register-reassignment.hc
+  ../examples/register-pressure.hc
+  ../examples/register-computed-assignment.hc
+  ../examples/register-computed-updates.hc
+  ../examples/register-computed-initializers.hc
+  ../examples/register-integer-expressions.hc
+  ../examples/register-straight-line.hc
+  ../examples/register-dependent-initializers.hc
+  ../examples/register-consumed-assignment.hc)
+ (action
+  (run
+   %{exe:test_register_variable_execution_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(executable
+ (name test_large_native_frames_cli)
+ (modules test_large_native_frames_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/large-native-frame.hc ../examples/compact-native-frame.hc)
+ (action
+  (run %{exe:test_large_native_frames_cli.exe} %{exe:../bin/holyc.exe})))
+
+(executable
+ (name test_physical_register_cli)
+ (modules test_physical_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps
+  ../examples/physical-register-calls.hc
+  ../examples/physical-register-pair.hc)
+ (action
+  (run %{exe:test_physical_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../examples/physical-register-calls.hc
+  ../examples/physical-register-pair.hc)
+ (action
+  (run
+   %{exe:test_physical_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(executable
+ (name test_automatic_register_cli)
+ (modules test_automatic_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/automatic-register-placement.hc)
+ (action
+  (run %{exe:test_automatic_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/automatic-register-placement.hc)
+ (action
+  (run
+   %{exe:test_automatic_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(executable
+ (name test_consumed_stack_assignment_cli)
+ (modules test_consumed_stack_assignment_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/register-stack-assignment.hc)
+ (action
+  (run %{exe:test_consumed_stack_assignment_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/register-stack-assignment.hc)
+ (action
+  (run
+   %{exe:test_consumed_stack_assignment_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(executable
+ (name test_scored_register_cli)
+ (modules test_scored_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/scored-register-pressure.hc)
+ (action
+  (run %{exe:test_scored_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/scored-register-pressure.hc)
+ (action
+  (run %{exe:test_scored_register_cli.exe} %{exe:../bin/holyc.exe} --native)))
+
+(executable
+ (name test_native_f64_cli)
+ (modules test_native_f64_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/native-scalar-f64.hc)
+ (action
+  (run %{exe:test_native_f64_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/native-scalar-f64.hc)
+ (action
+  (run %{exe:test_native_f64_cli.exe} %{exe:../bin/holyc.exe} --native)))
+
+(executable
+ (name test_native_linked_f64_cli)
+ (modules test_native_linked_f64_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_native_linked_f64_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_native_linked_f64_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(test
+ (name test_mixed_scalar_register_analysis)
+ (modules test_mixed_scalar_register_analysis)
+ (libraries holyc_lib alcotest))
+
+(executable
+ (name test_native_f64_register_cli)
+ (modules test_native_f64_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_native_f64_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_native_f64_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(executable
+ (name test_mixed_register_scores_cli)
+ (modules test_mixed_register_scores_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_mixed_register_scores_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_mixed_register_scores_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(executable
+ (name test_native_f64_conversions_cli)
+ (modules test_native_f64_conversions_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_native_f64_conversions_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_native_f64_conversions_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(test
+ (name test_native_numeric_conversion_authority)
+ (modules test_native_numeric_conversion_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(executable
+ (name test_owned_member_register_cli)
+ (modules test_owned_member_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_owned_member_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_owned_member_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(executable
+ (name test_formal_member_cli)
+ (modules test_formal_member_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/formal-member-identity.hc)
+ (action
+  (run %{exe:test_formal_member_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/formal-member-identity.hc)
+ (action
+  (run %{exe:test_formal_member_cli.exe} %{exe:../bin/holyc.exe} --native)))
+
+(executable
+ (name test_array_member_register_cli)
+ (modules test_array_member_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/array-member-registers.hc)
+ (action
+  (run %{exe:test_array_member_register_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/array-member-registers.hc)
+ (action
+  (run
+   %{exe:test_array_member_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(executable
+ (name test_local_index_register_cli)
+ (modules test_local_index_register_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run
+   %{exe:test_local_index_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/local-index-normalization.hc})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_local_index_register_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/local-index-normalization.hc}
+   --native)))
+
+(executable
+ (name test_allocation_pressure_cli)
+ (modules test_allocation_pressure_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:test_allocation_pressure_cli.exe} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_allocation_pressure_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --native)))
+
+(test
+ (name test_native_float_comparison_authority)
+ (modules test_native_float_comparison_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(executable
+ (name test_native_float_comparisons_cli)
+ (modules test_native_float_comparisons_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/native-float-comparisons.hc)
+ (action
+  (run
+   %{exe:test_native_float_comparisons_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/native-float-comparisons.hc})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/native-float-comparisons.hc)
+ (action
+  (run
+   %{exe:test_native_float_comparisons_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/native-float-comparisons.hc}
+   --native)))
+
+(executable
+ (name test_native_float_comparison_architecture)
+ (modules test_native_float_comparison_architecture)
+ (libraries alcotest)
+ (foreign_stubs
+  (language c)
+  (names native_float_comparison_test)))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_float_comparison_architecture.exe})))

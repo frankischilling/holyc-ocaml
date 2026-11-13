@@ -8,6 +8,8 @@ type t =
   | Indexed_global of
       Sema.Function_call_expression_result
       .top_level_indexed_global_callback_call
+  | Member of
+      Sema.Function_call_expression_result.top_level_member_callback_call
 
 val callable : t -> Sema.Function_call_resolution.callable
 val origin : t -> Sema.Symbol.origin

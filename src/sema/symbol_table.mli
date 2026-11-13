@@ -10,6 +10,14 @@ type scope
 type t
 
 val create : ?root_name:string -> unit -> t
+
+type empty_fork
+
+val fork_empty : ?root_name:string -> t -> empty_fork * t
+val fork_matches : empty_fork -> parent:t -> child:t -> bool
+val claim_empty_fork : empty_fork -> (unit, string) result
+val fork_parent : empty_fork -> t
+val fork_child : empty_fork -> t
 val root : t -> scope
 
 val create_scope :

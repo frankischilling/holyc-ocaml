@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "eebcecb9e6f9d2022d95ca790dd624869827212350dc0be69bc4aedca356a2a7",
+  "boot_payload_sha256": "1bce9da56ee2741b2abfb80cc65802e79bdafd33cc2562e8df9f597abd962030",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "afacf477157a37aee04cf75abb063d1644168728ac05b1f616894c4e5089ffd6",
+  "boot_iso_sha256": "99e48c7d70af3c2851522fa4d39d77ecd97ce79c67129dec3fbeeefbec467d80",
+  "fields": {
+    "J_S": "-1",
+    "J_U": "0",
+    "J_S16": "-1",
+    "J_U16": "0",
+    "ERR": "0",
+    "A_S": "-1",
+    "A_U": "0",
+    "A_S16": "-1",
+    "A_U16": "0"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of local noreg initialization. The stored source omits trailing spaces used to pad the boot payload."
+}

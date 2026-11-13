@@ -1,3 +1,10 @@
+(** Native scalar transport is separate from interpreter arithmetic. Float
+    payloads are raw IEEE-754 bits, never integer interpreter words. *)
+type native_word =
+  | Native_i64 of int64
+  | Native_u64 of int64
+  | Native_f64 of int64
+
 type word_type = I64 | U64
 type word = private { type_ : word_type; bits : int64 }
 
@@ -196,6 +203,45 @@ val check_native_static_allocation :
   task_state ->
   Integer_static_allocation.t ->
   Integer_globals.task_view ->
+  (unit, string) result
+
+type native_static_initializer_copy
+
+val prepare_native_static_initializer_copy :
+  task_state ->
+  Static_initializer_program.t ->
+  Static_initializer_program.t Native_scalar_capture.t ->
+  work:int ->
+  (native_static_initializer_copy, string) result
+
+val check_native_static_initializer_copy :
+  task_state ->
+  Static_initializer_program.t ->
+  native_static_initializer_copy ->
+  (unit, string) result
+
+val native_static_initializer_copy_bytes :
+  native_static_initializer_copy -> string
+
+val claim_native_static_initializer_copy :
+  task_state ->
+  Static_initializer_program.t ->
+  native_static_initializer_copy ->
+  (unit, string) result
+
+val finish_native_static_initializer_copy :
+  task_state ->
+  Static_initializer_program.t ->
+  native_static_initializer_copy ->
+  native_static_initializer_copy Native_initializer_copy_receipt.t ->
+  (unit, string) result
+
+val observe_task_static_preparation :
+  task_state -> Frontend.Parser.static_leaf_preparation -> (unit, string) result
+
+val observe_task_static_delimiter :
+  task_state ->
+  Frontend.Parser.completed_static_initializer_delimiter ->
   (unit, string) result
 
 val check_native_static_initializer :
@@ -425,6 +471,12 @@ val observe_task_initializer_delimiter :
   Frontend.Parser.completed_initializer_delimiter ->
   (unit, string) result
 
+val observe_task_initializer_preparation :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.initializer_leaf_preparation ->
+  (unit, string) result
+
 val begin_task_initializer_leaf :
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
@@ -446,6 +498,47 @@ val claim_native_task_initializer :
   initializer_attempt ->
   Initializer_fragment_program.execution ->
   Initializer_fragment_program.t ->
+  (unit, string) result
+
+type native_initializer_copy
+
+val prepare_native_initializer_copy :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  Initializer_fragment_program.t Native_scalar_capture.t ->
+  work:int ->
+  (native_initializer_copy, string) result
+
+val check_native_initializer_copy :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  native_initializer_copy ->
+  (unit, string) result
+
+val native_initializer_copy_layout :
+  native_initializer_copy -> Integer_initializer_layout.entry
+
+val native_initializer_copy_bytes : native_initializer_copy -> string
+
+val claim_native_initializer_copy :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  native_initializer_copy ->
+  (unit, string) result
+
+val finish_native_initializer_copy :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  native_initializer_copy ->
+  native_initializer_copy Native_initializer_copy_receipt.t ->
   (unit, string) result
 
 val complete_native_task_initializer :
@@ -531,6 +624,21 @@ val create_compiler_namespace_task :
     require their own synchronous machine bridge. *)
 
 val task_shares_resources : task_state -> task_state -> bool
+val task_has_aot_invocation : task_state -> bool
+val task_same_source_invocation : task_state -> task_state -> bool
+
+val begin_aot_invocation :
+  task_state ->
+  context:Frontend.Parser.command_context ->
+  events_rev:Frontend.Parser.command_event list ->
+  namespace:Sema.Declaration_collection.namespace ->
+  fork:Sema.Symbol_table.empty_fork ->
+  (Sema.Aot_invocation.t, string) result
+
+val create_aot_peer_state :
+  task_state -> invocation:Sema.Aot_invocation.t -> (task_state, string) result
+
+val claim_aot_consumer : task_state -> (unit, string) result
 (** Physical shared-counter/buffer identity, without source or storage
     authority. *)
 
@@ -694,6 +802,7 @@ val start_task_compilation : task_state -> unit
 
 val promote_task_source :
   ?offsets:Sema.Compiler_record.aggregate_offset list ->
+  ?member_metadata:Sema.Compiler_record.member_metadata list ->
   ?dimensions:Sema.Compiler_record.dimension_preparation list ->
   ?completed_dimensions:Sema.Compiler_record.declared_dimension list ->
   task_state ->
@@ -707,6 +816,8 @@ val promote_task_source :
 
 val promote_task_source_activation :
   ?offsets:Sema.Compiler_record.aggregate_offset list ->
+  ?member_metadata:Sema.Compiler_record.member_metadata list ->
+  ?pending_runtime_metadata:Frontend.Parser.aggregate_phase ->
   ?pending_runtime_dimension:Frontend.Parser.array_dimension_preparation ->
   ?pending_runtime_offset:Frontend.Parser.aggregate_phase ->
   ?pending_runtime_switch_case:Frontend.Parser.switch_case_preparation ->
@@ -729,6 +840,24 @@ val charge_source_dimension :
 
 val charge_source_aggregate_offset :
   task_state -> Frontend.Parser.aggregate_phase -> (unit, string) result
+
+val charge_source_member_metadata :
+  task_state -> Frontend.Parser.aggregate_phase -> (unit, string) result
+
+val settle_isolated_member_metadata :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  Sema.Compiler_record.member_metadata list ->
+  (unit, string) result
+
+val prepare_task_member_metadata :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  queries:Sema.Compiler_record.query_read list ->
+  Sema.Compiler_record.aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (Sema.Compiler_record.member_metadata, string) result * int
 
 val charge_isolated_aggregate_offsets :
   task_state ->
@@ -791,6 +920,17 @@ val claim_native_task_program :
   functions:function_definition list ->
   X87_stack.t ->
   (native_program_attempt, string) result
+
+val native_task_final_value : task_state -> native_word option
+
+val complete_native_scalar_task_program :
+  task_state ->
+  native_program_attempt ->
+  captured:bool ->
+  final_value:native_word option ->
+  (unit, string) result
+(** Settle only an original entered attempt. The returned scalar kind must occur
+    at an original capture site; F64 bits never become interpreter words. *)
 
 val complete_native_task_program :
   task_state ->
@@ -976,6 +1116,34 @@ val execute_task_program :
 
 val reference_commit : string
 
+type constant_execution
+
+type constant_source =
+  | Global_constant of
+      Sema.Initializer_fragment.authority
+      * Sema.Function_call_expression_result.top_level_root_result
+  | Static_constant of
+      Sema.Static_initializer_fragment.t
+      * Sema.Function_call_expression_result.top_level_root_result
+
+val execute_constant_receipt :
+  max_steps:int -> X87_stack.t -> (constant_execution, error list) result
+
+val execute_task_constant_receipt :
+  ?static_snapshot:Integer_initializer_layout.static_snapshot ->
+  task_state ->
+  max_steps:int ->
+  source:constant_source ->
+  globals:Integer_globals.t ->
+  lowered:Integer_program_lowering.t ->
+  (constant_execution, error list) result
+
+val constant_receipt_graph : constant_execution -> X87_stack.t
+val constant_receipt_result : constant_execution -> t
+val constant_receipt_owned_by : task_state -> constant_execution -> bool
+val constant_receipt_before : constant_execution -> int option
+val constant_receipt_consumed : constant_execution -> bool
+
 val execute_constant_preparation :
   max_steps:int -> X87_stack.t -> (t, error list) result
 (** Check and evaluate a closed pure constant graph with one byte of frame
@@ -1140,9 +1308,44 @@ val execute_isolated_program_in_task :
     Success reports cumulative instructions/preparation and the actual outer
     result. Active streams and replayed output images reject before effects. *)
 
+type copy_execution
+
+val execute_aot_global_copy :
+  task_state ->
+  before:int ->
+  authority:Sema.Initializer_fragment.authority ->
+  root:Sema.Function_call_expression_result.top_level_root_result ->
+  globals:Integer_globals.t ->
+  (copy_execution, string) result
+
+val execute_aot_static_copy :
+  ?static_snapshot:Integer_initializer_layout.static_snapshot ->
+  task_state ->
+  before:int ->
+  fragment:Sema.Static_initializer_fragment.t ->
+  root:Sema.Function_call_expression_result.top_level_root_result ->
+  globals:Integer_globals.t ->
+  (copy_execution, string) result
+
+val aot_copy_steps : copy_execution -> int
+
+val finish_unpaired_aot_output :
+  task_state ->
+  sequence:Frontend.Parser.completed_sequence ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  entry:X87_stack.t ->
+  receipts:constant_execution list ->
+  copies:copy_execution list ->
+  (unit, string) result
+
 type isolated_preparation
 
-val begin_isolated_preparation : task_state -> isolated_preparation
+val begin_isolated_preparation :
+  ?receipts:constant_execution list ->
+  ?copies:copy_execution list ->
+  task_state ->
+  isolated_preparation
 
 val record_isolated_preparation :
   task_state -> isolated_preparation -> steps:int -> unit
@@ -1302,6 +1505,52 @@ val execute_task_offset :
   task_state ->
   offset_attempt ->
   Offset_fragment_program.execution ->
+  (unit, error list) result
+
+type member_metadata_attempt
+
+val check_native_task_member_metadata :
+  task_state ->
+  member_metadata_attempt ->
+  Member_metadata_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_member_metadata :
+  task_state ->
+  member_metadata_attempt ->
+  Member_metadata_fragment_program.t ->
+  (unit, string) result
+
+val record_native_member_metadata_steps :
+  task_state -> member_metadata_attempt -> int -> (unit, string) result
+
+val complete_native_task_member_metadata :
+  task_state ->
+  member_metadata_attempt ->
+  Member_metadata_fragment_program.t ->
+  Member_metadata_fragment_program.t Native_scalar_capture.t ->
+  (unit, string) result
+
+val begin_task_member_metadata :
+  task_state ->
+  Sema.Member_metadata_fragment.authority ->
+  (member_metadata_attempt, string) result
+
+val fail_task_member_metadata :
+  task_state -> member_metadata_attempt -> (unit, string) result
+
+val task_member_metadata :
+  task_state ->
+  Frontend.Parser.aggregate_phase ->
+  Sema.Compiler_record.member_metadata option
+
+val execute_task_member_metadata :
+  ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
+  ?stream_exe_print:stream_exe_print ->
+  task_state ->
+  member_metadata_attempt ->
+  Member_metadata_fragment_program.execution ->
   (unit, error list) result
 
 val begin_task_callback_default :

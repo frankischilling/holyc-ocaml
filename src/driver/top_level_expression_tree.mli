@@ -48,6 +48,12 @@ val build_offset_fragment :
   Sema.Offset_fragment.t ->
   (Sema.Top_level_expression_tree.t, string) result
 
+val build_member_metadata_fragment :
+  table:Sema.Symbol_table.t ->
+  expressions:Sema.Top_level_outer_expression_binding.t ->
+  Sema.Member_metadata_fragment.t ->
+  (Sema.Top_level_expression_tree.t, string) result
+
 val build_static_fragment :
   table:Sema.Symbol_table.t ->
   expressions:Sema.Top_level_outer_expression_binding.t ->

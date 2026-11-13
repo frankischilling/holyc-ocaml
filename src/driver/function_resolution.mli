@@ -1,5 +1,6 @@
 val resolve :
   ?namespace:Sema.Declaration_collection.namespace ->
+  ?compiler_options:(Frontend.Ast.identifier -> (int64, string) result) ->
   ?previous:Sema.Function_resolution.resolved_declaration list ->
   ?record_heads:Sema.Function_resolution.resolved_declaration list ->
   ?compiler_option_mask:int64 ->
@@ -10,5 +11,5 @@ val resolve :
   Frontend.Ast.module_ ->
   (Sema.Function_resolution.t, string) result
 (** Classify source function declarations and reconcile their semantic
-    identities without changing the symbol table. The optional batch snapshot
-    supplies the current compiler-option state at each declaration. *)
+    identities without changing the symbol table. Original occurrence snapshots
+    take precedence over the optional batch snapshot. *)

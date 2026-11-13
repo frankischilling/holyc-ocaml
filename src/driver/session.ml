@@ -6,6 +6,8 @@ type primitive_binding = {
 }
 
 type t = {
+  fork_parent : t option;
+  semantic_fork : Sema.Symbol_table.empty_fork option;
   sources : Common.Source_manager.t;
   definitions : Frontend.Definition.Environment.t;
   symbols : Frontend.Symbol_visibility.Environment.t;
@@ -166,6 +168,8 @@ let create () =
   in
   let primitives = primitives @ seed_public_unions symbols semantic_symbols in
   {
+    fork_parent = None;
+    semantic_fork = None;
     sources = Common.Source_manager.create ();
     definitions = Frontend.Definition.Environment.create ();
     symbols;
@@ -175,8 +179,9 @@ let create () =
   }
 
 let fork_frontend session =
-  let semantic_symbols =
-    Sema.Symbol_table.create ~root_name:"session-task" ()
+  let semantic_fork, semantic_symbols =
+    Sema.Symbol_table.fork_empty ~root_name:"session-task"
+      session.semantic_symbols
   in
   let primitives =
     List.map
@@ -209,6 +214,8 @@ let fork_frontend session =
       primitives
   in
   {
+    fork_parent = Some session;
+    semantic_fork = Some semantic_fork;
     sources = session.sources;
     definitions = Definition.Environment.copy session.definitions;
     symbols = Symbol_visibility.Environment.copy session.symbols;
@@ -224,6 +231,15 @@ let task_frontend session =
     symbols = Symbol_visibility.Environment.task_view session.symbols;
   }
 
+let is_direct_fork ~parent child =
+  Option.fold ~none:false ~some:(( == ) parent) child.fork_parent
+  && Option.fold ~none:false
+       ~some:(fun fork ->
+         Sema.Symbol_table.fork_matches fork ~parent:parent.semantic_symbols
+           ~child:child.semantic_symbols)
+       child.semantic_fork
+
+let semantic_fork session = session.semantic_fork
 let sources session = session.sources
 let definitions session = session.definitions
 let symbols session = session.symbols

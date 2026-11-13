@@ -37,6 +37,51 @@
 #define HOLYC_NATIVE_PLATFORM 0
 #endif
 
+#if HOLYC_NATIVE_PLATFORM != 0
+#if defined(_MSC_VER)
+#include <intrin.h>
+#elif defined(__GNUC__) || defined(__clang__)
+#include <cpuid.h>
+#endif
+#endif
+
+#if HOLYC_NATIVE_PLATFORM != 0
+#include "native_fpu_boundary.h"
+#include "native_reference_shadow.h"
+#endif
+
+#ifndef HOLYC_NATIVE_X87_SUPPORTED
+#define HOLYC_NATIVE_X87_SUPPORTED 0
+#endif
+
+CAMLprim value holyc_native_x87_supported(value unit)
+{
+  (void)unit;
+  return Val_bool(HOLYC_NATIVE_X87_SUPPORTED);
+}
+
+/* FISTTP is an SSE3 CPU feature even though it operates on the x87 stack.
+   Keep this separate from the build's audited x87 boundary capability: pure
+   x87 arithmetic remains usable on x86-64 processors without SSE3. */
+CAMLprim value holyc_native_fisttp_supported(value unit)
+{
+  (void)unit;
+#if HOLYC_NATIVE_PLATFORM != 0 && defined(_MSC_VER)
+  int registers[4];
+  __cpuid(registers, 0);
+  if (registers[0] < 1) return Val_false;
+  __cpuid(registers, 1);
+  return Val_bool(((unsigned int)registers[2] & 1u) != 0);
+#elif HOLYC_NATIVE_PLATFORM != 0 && \
+    (defined(__GNUC__) || defined(__clang__))
+  unsigned int eax, ebx, ecx, edx;
+  if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx)) return Val_false;
+  return Val_bool((ecx & 1u) != 0);
+#else
+  return Val_false;
+#endif
+}
+
 /* A custom finalizer can run while OCaml promotes a global root and holds its
    root-table lock. Root-owning finalizers must not remove roots there. They
    detach C owners with lock-free operations and retain the roots and mappings
@@ -152,7 +197,7 @@ static uint64_t native_windows_execute_mapping(void *mapping,
   }
 
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
 
   if (function_count != 0 && !RtlDeleteFunctionTable(function_table))
     caml_failwith("native unwind removal failed; registered mapping retained");
@@ -255,7 +300,7 @@ static uint64_t native_windows_execute_mapping_storage(
   }
 
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   pointer_ok = context[9] == (uint64_t)(uintptr_t)arena;
 
   if (function_count != 0 && !RtlDeleteFunctionTable(function_table)) {
@@ -320,7 +365,7 @@ static uint64_t native_linux_execute_code(value code, mlsize_t length,
   }
   __builtin___clear_cache((char *)mapping, (char *)mapping + length);
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   if (munmap(mapping, (size_t)length) != 0)
     native_os_error("release", (unsigned long)errno);
   return bits;
@@ -373,7 +418,7 @@ static uint64_t native_linux_execute_code_storage(value code, mlsize_t length,
   memcpy(arena, String_val(arena_image), arena_length);
   context[9] = (uint64_t)(uintptr_t)arena;
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   pointer_ok = context[9] == (uint64_t)(uintptr_t)arena;
 
   {
@@ -460,7 +505,84 @@ static uint64_t native_execute_checked_image(value code, value unwind,
 #define HOLYC_NATIVE_MAX_ARENA_BYTES (32u * 1024u * 1024u)
 #define HOLYC_NATIVE_MAX_OUTPUT_BYTES (16u * 1024u * 1024u)
 
-static unsigned native_validate_program_unwind(value unwind)
+/* All probes preserve RSP and nonvolatile/argument registers. Large frames
+   use RAX as a volatile downward page cursor before the fixed allocation. */
+static unsigned native_stack_probe_bytes(unsigned allocation)
+{
+  if (allocation > 65528u)
+    return 27u + ((allocation & 4095u) != 0u ? 8u : 0u);
+  return allocation < 4096u ? 0u : 8u * ((allocation + 4095u) / 4096u);
+}
+
+static void native_validate_stack_probe(const unsigned char *code,
+                                        unsigned distance)
+{
+  uint32_t displacement;
+  memcpy(&displacement, code + 4u, sizeof(displacement));
+  if (code[0] != 0x48 || code[1] != 0x85 ||
+      code[2] != 0x84 || code[3] != 0x24 ||
+      displacement != 0u - distance)
+    caml_invalid_argument("native stack allocation has missing or invalid page probes");
+}
+
+static void native_validate_stack_allocation(const unsigned char *code,
+                                              size_t length,
+                                              unsigned allocation,
+                                              const char *allocation_error)
+{
+  unsigned offset = 0;
+  const unsigned probes = native_stack_probe_bytes(allocation);
+  if (length < (size_t)probes + 7u)
+    caml_invalid_argument("native stack allocation prologue is truncated");
+  if (allocation > 65528u) {
+    static const unsigned char loop_start[18] = {
+      0x48, 0xc7, 0xc0, 0x00, 0xf0, 0xff, 0xff,
+      0x48, 0x85, 0x04, 0x04,
+      0x48, 0x81, 0xe8, 0x00, 0x10, 0x00, 0x00
+    };
+    uint32_t floor_displacement;
+    memcpy(&floor_displacement, code + 21u, sizeof(floor_displacement));
+    if (memcmp(code, loop_start, sizeof(loop_start)) != 0 ||
+        code[18] != 0x48 || code[19] != 0x81 || code[20] != 0xf8 ||
+        floor_displacement != 0u - (allocation & ~4095u) ||
+        code[25] != 0x7d || code[26] != 0xec)
+      caml_invalid_argument("native stack allocation has an invalid compact probe loop");
+    offset = 27u;
+    if ((allocation & 4095u) != 0u) {
+      native_validate_stack_probe(code + offset, allocation);
+      offset += 8u;
+    }
+  } else {
+    unsigned distance;
+    for (distance = 4096u; offset < probes; distance += 4096u, offset += 8u)
+      native_validate_stack_probe(code + offset,
+                                 distance < allocation ? distance : allocation);
+  }
+  if (offset != probes)
+    caml_invalid_argument("native stack allocation probe length is inconsistent");
+  {
+    uint32_t encoded;
+    memcpy(&encoded, code + probes + 3u, sizeof(encoded));
+    if (code[probes] != 0x48 || code[probes + 1u] != 0x81 ||
+        code[probes + 2u] != 0xec || encoded != allocation)
+      caml_invalid_argument(allocation_error);
+  }
+}
+
+struct native_callable_unwind {
+  unsigned allocation;
+  unsigned allocation_offset;
+  unsigned save_count;
+  /* RSI, RDI, and R12-R15 are saved in ascending register order. Windows
+     lists their unwind operations in reverse prologue order. */
+  struct {
+    unsigned reg;
+    unsigned code_offset;
+    unsigned stack_offset;
+  } saves[7];
+};
+
+static struct native_callable_unwind native_validate_program_unwind(value unwind)
 {
   const unsigned char *bytes;
   mlsize_t length;
@@ -471,6 +593,7 @@ static unsigned native_validate_program_unwind(value unwind)
   int saw_push_rbp = 0;
   int saw_allocation = 0;
   unsigned allocation_bytes = 0;
+  struct native_callable_unwind result = {0};
 
   if (!Is_block(unwind) || Tag_val(unwind) != String_tag)
     caml_invalid_argument("native program unwind entry is not a string");
@@ -502,11 +625,11 @@ static unsigned native_validate_program_unwind(value unwind)
     switch (operation) {
     case 0: /* UWOP_PUSH_NONVOL */
       if (info != 5u || code_offset != 1u || saw_push_rbp)
-        caml_invalid_argument("native program unwind may only save RBP");
+        caml_invalid_argument("native program unwind may only push RBP");
       saw_push_rbp = 1;
       break;
     case 1: /* UWOP_ALLOC_LARGE */
-      if (info != 0u || code_offset != 11u || saw_allocation)
+      if (info != 0u || saw_allocation || saw_push_rbp)
         caml_invalid_argument("native program large-allocation unwind opcode is malformed");
       slots = 2;
       if (slots > count - index)
@@ -515,12 +638,31 @@ static unsigned native_validate_program_unwind(value unwind)
         8u * ((unsigned)bytes[6u + (2u * index)] |
               ((unsigned)bytes[7u + (2u * index)] << 8));
       saw_allocation = 1;
+      result.allocation_offset = code_offset;
       break;
     case 2: /* UWOP_ALLOC_SMALL */
-      if (code_offset != 11u || saw_allocation)
+      if (saw_allocation || saw_push_rbp)
         caml_invalid_argument("native program small-allocation unwind opcode is malformed");
       allocation_bytes = (info * 8u) + 8u;
       saw_allocation = 1;
+      result.allocation_offset = code_offset;
+      break;
+    case 4: /* UWOP_SAVE_NONVOL */
+      if ((info != 3u && info != 6u && info != 7u && (info < 12u || info > 15u)) ||
+          result.save_count == 7u ||
+          saw_allocation || saw_push_rbp ||
+          (result.save_count != 0u &&
+           info >= result.saves[result.save_count - 1u].reg))
+        caml_invalid_argument("native program nonvolatile unwind register is outside the sealed save order");
+      slots = 2;
+      if (slots > count - index)
+        caml_invalid_argument("native program unwind opcode overruns its code array");
+      result.saves[result.save_count].reg = info;
+      result.saves[result.save_count].code_offset = code_offset;
+      result.saves[result.save_count].stack_offset =
+        8u * ((unsigned)bytes[6u + (2u * index)] |
+              ((unsigned)bytes[7u + (2u * index)] << 8));
+      ++result.save_count;
       break;
     default:
       caml_invalid_argument("native program unwind opcode is outside the sealed ABI");
@@ -532,16 +674,77 @@ static unsigned native_validate_program_unwind(value unwind)
   if (!saw_push_rbp)
     caml_invalid_argument("native program unwind record does not save RBP");
   if (saw_allocation) {
-    if (bytes[1] != 11u || allocation_bytes < 16u || allocation_bytes > 4080u ||
+    if (result.allocation_offset !=
+          11u + native_stack_probe_bytes(allocation_bytes) ||
+        bytes[1] != result.allocation_offset + 7u * result.save_count ||
+        allocation_bytes < 16u || allocation_bytes > 524272u ||
         (allocation_bytes & 15u) != 0u)
       caml_invalid_argument("native program unwind allocation is outside the callable frame bound");
-    if ((allocation_bytes <= 128u && count != 2u) ||
-        (allocation_bytes > 128u && count != 3u))
+    if ((allocation_bytes <= 128u && count != 2u + 2u * result.save_count) ||
+        (allocation_bytes > 128u && count != 3u + 2u * result.save_count))
       caml_invalid_argument("native program unwind allocation does not use the shortest sealed form");
   } else if (bytes[1] != 4u || count != 1u) {
     caml_invalid_argument("native program frameless callable unwind record is malformed");
   }
-  return allocation_bytes;
+  for (index = 0; index < result.save_count; ++index) {
+    unsigned other;
+    if (result.saves[index].code_offset != result.allocation_offset +
+          7u * (result.save_count - index) ||
+        result.saves[index].stack_offset >= allocation_bytes)
+      caml_invalid_argument("native program nonvolatile unwind save is outside its frame or prologue");
+    for (other = 0; other < index; ++other)
+      if (result.saves[index].stack_offset == result.saves[other].stack_offset)
+        caml_invalid_argument("native program nonvolatile unwind saves overlap");
+  }
+  if (result.save_count != 0u) {
+    size_t padding;
+    for (padding = 4u + 2u * count; padding < length; ++padding)
+      if (bytes[padding] != 0u)
+        caml_invalid_argument("native nonvolatile unwind padding must be zero");
+  }
+  result.allocation = allocation_bytes;
+  return result;
+}
+
+static void native_validate_nonvolatile_saves(
+  const unsigned char *code, size_t length,
+  const struct native_callable_unwind *unwind)
+{
+  size_t restore_offset;
+  unsigned index;
+  uint32_t encoded_allocation;
+
+  if (unwind->save_count == 0u) return;
+  /* The fixed disp32 RBP forms are seven bytes each. The terminal sequence is
+     ADD RSP,imm32; POP RBP; RET, after the ascending-register restores. */
+  if (length < unwind->allocation_offset + 14u * unwind->save_count + 9u)
+    caml_invalid_argument("native callable nonvolatile save/restore sequence is truncated");
+  restore_offset = length - 9u - 7u * unwind->save_count;
+  memcpy(&encoded_allocation, code + length - 6u, sizeof(encoded_allocation));
+  if (code[length - 9u] != 0x48 || code[length - 8u] != 0x81 ||
+      code[length - 7u] != 0xc4 || encoded_allocation != unwind->allocation ||
+      code[length - 2u] != 0x5d || code[length - 1u] != 0xc3)
+    caml_invalid_argument("native callable nonvolatile restores have an invalid frame epilogue");
+
+  for (index = 0; index < unwind->save_count; ++index) {
+    const unsigned reverse = unwind->save_count - 1u - index;
+    const unsigned rex = unwind->saves[reverse].reg >= 8u ? 0x4cu : 0x48u;
+    const unsigned modrm = 0x85u | ((unwind->saves[reverse].reg & 7u) << 3);
+    const uint32_t displacement =
+      (uint32_t)unwind->saves[reverse].stack_offset - unwind->allocation;
+    const unsigned char *save = code + unwind->saves[reverse].code_offset - 7u;
+    const unsigned char *restore = code + restore_offset + 7u * index;
+    uint32_t save_displacement;
+    uint32_t restore_displacement;
+    memcpy(&save_displacement, save + 3u, sizeof(save_displacement));
+    memcpy(&restore_displacement, restore + 3u, sizeof(restore_displacement));
+    if (save[0] != rex || save[1] != 0x89 || save[2] != modrm ||
+        save_displacement != displacement)
+      caml_invalid_argument("native callable nonvolatile save disagrees with its unwind record");
+    if (restore[0] != rex || restore[1] != 0x8b || restore[2] != modrm ||
+        restore_displacement != displacement)
+      caml_invalid_argument("native callable nonvolatile restore disagrees with its saved register");
+  }
 }
 
 static mlsize_t native_validate_program_functions(value functions,
@@ -592,7 +795,18 @@ static mlsize_t native_validate_program_functions(value functions,
         if (target > HOLYC_NATIVE_MAX_ARENA_BYTES - 8)
           caml_invalid_argument("native leaf target cell exceeds the task bound");
       } else {
-        const unsigned allocation = native_validate_program_unwind(unwind);
+        const struct native_callable_unwind callable =
+          native_validate_program_unwind(unwind);
+        const unsigned allocation = callable.allocation;
+        const unsigned char *owner = (const unsigned char *)String_val(code) + begin;
+        const size_t owner_length = (size_t)(end - begin);
+        if (owner_length < 4u || owner[0] != 0x55 || owner[1] != 0x48 ||
+            owner[2] != 0x89 || owner[3] != 0xe5)
+          caml_invalid_argument("native callable does not save its frame pointer");
+        if (allocation != 0)
+          native_validate_stack_allocation(owner + 4u, owner_length - 4u, allocation,
+            "native stack allocation disagrees with its unwind frame");
+        native_validate_nonvolatile_saves(owner, owner_length, &callable);
         if (index == 0) *entry_allocation = allocation;
       }
     }
@@ -768,6 +982,7 @@ struct native_task_arena {
   size_t committed;
   size_t page_size;
   struct native_task_code_owner **owners;
+  struct native_reference_state reference_shadows;
   size_t owner_capacity;
   atomic_int active;
   int closing;
@@ -778,6 +993,7 @@ static int native_task_arena_close(struct native_task_arena *arena)
 {
   arena->closing = 1;
   arena->close_error[0] = 0;
+  native_reference_state_clear(&arena->reference_shadows);
   if (arena->mapping == NULL) return 1;
 #if HOLYC_NATIVE_PLATFORM == 1
   if (!VirtualFree(arena->mapping, 0, MEM_RELEASE)) {
@@ -894,7 +1110,8 @@ static unsigned native_validate_retained_functions(value code, value functions,
       value unwind = Field(descriptor, 2);
       const mlsize_t length = caml_string_length(unwind);
       const unsigned char *bytes = (const unsigned char *)String_val(unwind);
-      if (length == 0 || (length == 8 && bytes[1] == 7)) {
+      if (length == 0 || (length == 8 &&
+          (bytes[1] == 7 || bytes[1] >= 23))) {
         size_t capture_offset = 0;
         const unsigned char *encoded = (const unsigned char *)String_val(code);
         if (Long_val(Field(descriptor, 0)) != 0 ||
@@ -902,7 +1119,7 @@ static unsigned native_validate_retained_functions(value code, value functions,
             (uintnat)Long_val(Field(descriptor, 1)) != (uintnat)code_length)
           caml_invalid_argument("retained native closed entry range does not cover its code");
         if (length != 0) {
-          if (bytes[0] != 1 || bytes[3] != 0 || bytes[4] != 7)
+          if (bytes[0] != 1 || bytes[3] != 0 || bytes[4] != bytes[1])
             caml_invalid_argument("retained native closed entry unwind header is malformed");
           if (bytes[2] == 1 && (bytes[5] & 15u) == 2u &&
               bytes[6] == 0 && bytes[7] == 0) {
@@ -914,15 +1131,14 @@ static unsigned native_validate_retained_functions(value code, value functions,
           } else {
             caml_invalid_argument("retained native closed entry unwind allocation is malformed");
           }
-          if (allocation < 8u || allocation > 4088u ||
+          if (allocation < 8u || allocation > 524280u ||
               (allocation & 15u) != 8u)
             caml_invalid_argument("retained native closed entry unwind allocation exceeds its frame bound");
-          if (code_length < 10 || encoded[0] != 0x48 || encoded[1] != 0x81 ||
-              encoded[2] != 0xec || encoded[3] != (allocation & 0xffu) ||
-              encoded[4] != ((allocation >> 8) & 0xffu) ||
-              encoded[5] != 0 || encoded[6] != 0)
-            caml_invalid_argument("retained native closed entry code disagrees with its spill frame");
-          capture_offset = 7;
+          if (bytes[1] != 7u + native_stack_probe_bytes(allocation))
+            caml_invalid_argument("retained native closed entry has an invalid prologue length");
+          native_validate_stack_allocation(encoded, code_length, allocation,
+            "retained native closed entry code disagrees with its spill frame");
+          capture_offset = bytes[1];
         }
         if (code_length < capture_offset + 3 ||
             encoded[capture_offset] != 0x49 ||
@@ -1181,7 +1397,7 @@ static uint64_t native_retained_run(value handle, uint64_t *context, value enter
   if (entered != Val_unit)
     Store_field(entered, 0, Val_true);
   native_source_enter(context);
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   native_source_leave(context);
   atomic_store(&program->active, 0);
   if (context[9] != arena)
@@ -1325,7 +1541,7 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
   if (entered != Val_unit)
     Store_field(entered, 0, Val_true);
   native_source_enter(context);
-  bits = entry(context);
+  bits = native_fpu_enter(entry, context);
   native_source_leave(context);
   pointer_ok = context[9] == arena_address;
   for (size_t index = 0; index < borrowed; ++index) {
@@ -1356,7 +1572,7 @@ CAMLprim value holyc_native_execute_image(value code, value unwind, value abi)
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
   CAMLlocal4(result, boxed_bits, boxed_kind, boxed_site);
-  uint64_t status[2] = {0, 0};
+  uint64_t status[NATIVE_FPU_CONTEXT_WORDS] = {0, 0};
   const uint64_t bits =
     native_execute_checked_image(code, unwind, Long_val(abi), status);
 
@@ -1394,9 +1610,9 @@ CAMLprim value holyc_native_execute_program(value code, value unwind, value abi,
   if (step_limit <= 0)
     caml_invalid_argument("native program max_steps must be greater than zero");
 
-  /* Preserve the original six-word closed-program ABI exactly. Callable source
+  /* Preserve the original six visible words of the closed-program ABI. Callable source
      programs use holyc_native_execute_program_functions below. */
-  uint64_t context[6] = {0, 0, (uint64_t)step_limit, 0, 0, 0};
+  uint64_t context[NATIVE_FPU_CONTEXT_WORDS] = {0, 0, (uint64_t)step_limit, 0, 0, 0};
   (void)native_execute_checked_image(code, unwind, abi_code, context);
   if (context[2] != (uint64_t)step_limit)
     caml_failwith("native program status integrity failure: budget was modified");
@@ -1459,8 +1675,8 @@ CAMLprim value holyc_native_execute_program_functions(value code, value function
     caml_invalid_argument("native program max_frame_bytes must be greater than zero");
   if (depth_limit <= 0)
     caml_invalid_argument("native program max_call_depth must be greater than zero");
-  if (active_stack_limit <= 0 || active_stack_limit > 65536)
-    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 65536");
+  if (active_stack_limit <= 0 || active_stack_limit > 524288)
+    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 524288");
   if (entry_stack_bytes <= 0 || entry_stack_bytes > active_stack_limit)
     caml_invalid_argument("native program entry stack exceeds max_active_stack_bytes");
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
@@ -1469,12 +1685,20 @@ CAMLprim value holyc_native_execute_program_functions(value code, value function
      result bits, remaining semantic-frame bytes, remaining call depth, and
      remaining physical native-stack bytes. The root's exact physical cost is
      charged before entry; generated CALL/return and checked-fault paths restore
-     all three remaining quotas to these values. */
-  uint64_t context[9] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+     all three remaining quotas to these values. Word 35 is the live remaining
+     step allowance, initialized by the callable root. This hosted layout frees
+     TempleOS source-variable registers R10/R11; the legacy closed executor above
+     still exposes only its original six status words. */
+  uint64_t context[NATIVE_FPU_CONTEXT_WORDS] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                          (uint64_t)frame_limit, (uint64_t)depth_limit,
                          remaining_stack};
+  struct native_reference_state reference_state = {0};
+  struct native_reference_scope reference_scope;
+  native_reference_context_init(context, &reference_scope, &reference_state);
   (void)native_execute_checked_program_image(code, functions, abi_code,
                                              (uintnat)entry_stack_bytes, context);
+  native_reference_scope_finish(&reference_scope);
+  native_reference_state_clear(&reference_state);
   if (context[2] != (uint64_t)step_limit)
     caml_failwith("native program status integrity failure: budget was modified");
   if (context[6] != (uint64_t)frame_limit)
@@ -1563,8 +1787,8 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
     caml_invalid_argument("native program max_frame_bytes must be greater than zero");
   if (depth_limit <= 0)
     caml_invalid_argument("native program max_call_depth must be greater than zero");
-  if (active_stack_limit <= 0 || active_stack_limit > 65536)
-    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 65536");
+  if (active_stack_limit <= 0 || active_stack_limit > 524288)
+    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 524288");
   if (entry_stack_bytes <= 0 || entry_stack_bytes > active_stack_limit)
     caml_invalid_argument("native program entry stack exceeds max_active_stack_bytes");
   if (global_limit <= 0 || (uintnat)global_limit > HOLYC_NATIVE_MAX_GLOBAL_BYTES)
@@ -1581,8 +1805,6 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
     caml_invalid_argument("native program logical literal bytes exceed their bound");
   if (metadata_bytes < 0 || (uintnat)metadata_bytes > HOLYC_NATIVE_MAX_ARENA_BYTES)
     caml_invalid_argument("native program private metadata bytes exceed their bound");
-  if (logical_global_bytes == 0 && logical_literal_bytes == 0)
-    caml_invalid_argument("native storage program has no persistent data");
   if ((uintnat)arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       (uintnat)arena_length != (uintnat)logical_global_bytes +
                                (uintnat)logical_literal_bytes + (uintnat)metadata_bytes)
@@ -1591,12 +1813,18 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   /* The tenth word is an immutable private arena pointer installed by the
      platform helper after fresh RW allocation. Generated code may only read it
-     through the sealed R11 context and keeps R9 reserved as the arena base. */
-  uint64_t context[10] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
+     through the sealed RBX callable context and keeps R9 reserved as the arena
+     base. Word 35 is the callable root's live remaining step allowance. */
+  uint64_t context[NATIVE_FPU_CONTEXT_WORDS] = {0, 0, (uint64_t)step_limit, 0, 0, 0,
                           (uint64_t)frame_limit, (uint64_t)depth_limit,
                           remaining_stack, 0};
+  struct native_reference_state reference_state = {0};
+  struct native_reference_scope reference_scope;
+  native_reference_context_init(context, &reference_scope, &reference_state);
   (void)native_execute_checked_program_storage_image(
     code, functions, abi_code, (uintnat)entry_stack_bytes, arena_image, context);
+  native_reference_scope_finish(&reference_scope);
+  native_reference_state_clear(&reference_state);
   if (context[2] != (uint64_t)step_limit)
     caml_failwith("native program status integrity failure: budget was modified");
   if (context[6] != (uint64_t)frame_limit)
@@ -2159,12 +2387,12 @@ static uint64_t native_compiler_callback(uint64_t *context,
   CAMLreturnT(uint64_t, bits);
 }
 
-static uint64_t native_source_callback(uint64_t *context)
+static NATIVE_FPU_BODY uint64_t native_source_callback_body(uint64_t *context)
 {
   return native_compiler_callback(context, 0, 0, 0);
 }
 
-static uint64_t native_option_callback(uint64_t *context,
+static NATIVE_FPU_BODY uint64_t native_option_callback_body(uint64_t *context,
   uint64_t option_index, uint64_t encoded_value)
 {
   if (encoded_value > 2) {
@@ -2547,8 +2775,8 @@ static value native_execute_program_output(value code, value functions,
     caml_invalid_argument("native program max_frame_bytes must be greater than zero");
   if (depth_limit <= 0)
     caml_invalid_argument("native program max_call_depth must be greater than zero");
-  if (active_stack_limit <= 0 || active_stack_limit > 65536)
-    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 65536");
+  if (active_stack_limit <= 0 || active_stack_limit > 524288)
+    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 524288");
   if (entry_stack_bytes <= 0 || entry_stack_bytes > active_stack_limit)
     caml_invalid_argument("native program entry stack exceeds max_active_stack_bytes");
   if (global_limit <= 0 || (uintnat)global_limit > HOLYC_NATIVE_MAX_GLOBAL_BYTES)
@@ -2636,9 +2864,6 @@ static value native_execute_program_output(value code, value functions,
       (uintnat)arena_length != (uintnat)logical_global_bytes +
                                (uintnat)logical_literal_bytes + (uintnat)metadata_bytes)
     caml_invalid_argument("native output program arena image is inconsistent with data and metadata");
-  if (logical_global_bytes == 0 && logical_literal_bytes == 0 &&
-      metadata_bytes != 0 && !task_storage)
-    caml_invalid_argument("native output program private metadata has no persistent data");
 
   /* Validate the sealed code and unwind table before reserving the capture
      buffer. The checked execution helpers repeat these checks at entry. */
@@ -2689,7 +2914,7 @@ static value native_execute_program_output(value code, value functions,
   }
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
-    uint64_t context[24] = {
+    uint64_t context[NATIVE_FPU_CONTEXT_WORDS] = {
       0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
       output_address, remaining_output, remaining_work, 0,
@@ -2699,6 +2924,12 @@ static value native_execute_program_output(value code, value functions,
       (uint64_t)(uintptr_t)bridge,
       bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_option_callback
     };
+
+    struct native_reference_state reference_state = {0};
+    struct native_reference_scope reference_scope;
+    struct native_reference_state *reference_shared = task_storage ?
+      &native_task_arena_get(task_arena)->reference_shadows : &reference_state;
+    native_reference_context_init(context, &reference_scope, reference_shared);
 
     if (bridge != NULL) {
       bridge->handle = bridge_owner;
@@ -2725,6 +2956,11 @@ static value native_execute_program_output(value code, value functions,
         context);
     }
 
+    native_reference_scope_finish(&reference_scope);
+    native_reference_state_clear(&reference_state);
+    if (context[24] != (uint64_t)(uintptr_t)&native_reference_service ||
+        context[25] != (uint64_t)(uintptr_t)&reference_scope)
+      caml_failwith("native reference status integrity failure: owner was modified");
     if (context[21] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_source_callback) ||
         context[22] != (uint64_t)(uintptr_t)bridge ||
         context[23] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_option_callback))
@@ -2989,12 +3225,12 @@ static value native_retain_program_identity(value identity, int task_fragment)
   globals = Long_val(Field(storage, 0));
   literals = Long_val(Field(storage, 1));
   metadata = Long_val(Field(storage, 2));
+  /* Empty persistent roots can own a metadata-only arena. */
   if (globals < 0 || (uintnat)globals > HOLYC_NATIVE_MAX_GLOBAL_BYTES ||
       literals < 0 || (uintnat)literals > HOLYC_NATIVE_MAX_LITERAL_BYTES ||
       metadata < 0 || (uintnat)metadata > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
-      arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata ||
-      (globals == 0 && literals == 0 && metadata != 0 && Wosize_val(identity) < 6))
+      arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata)
     caml_invalid_argument("retained native arena image is inconsistent with data and metadata");
   if (Wosize_val(identity) < 6) {
     for (mlsize_t index = 0; index < Wosize_val(functions); ++index)
@@ -3002,9 +3238,7 @@ static value native_retain_program_identity(value identity, int task_fragment)
         caml_invalid_argument("native leaf entries require original task owner bindings");
   }
   if (Wosize_val(identity) >= 6) {
-    size_t maximum = native_validate_task_bindings(identity, arena_length);
-    if (globals == 0 && literals == 0 && metadata != 0 && maximum == 0)
-      caml_invalid_argument("retained task metadata has no original code owner");
+    native_validate_task_bindings(identity, arena_length);
   }
   if (closed_entry && arena_length != 0)
     caml_invalid_argument("retained native closed entry cannot own a data arena");
@@ -3196,6 +3430,8 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
   for (chunks = literal_chunks; chunks != Val_emptylist; chunks = Field(chunks, 1)) {
     value chunk = Field(chunks, 0);
     value payload = Field(chunk, 1);
+    native_reference_invalidate(&arena->reference_shadows,
+      (uintptr_t)((char *)arena->mapping + Long_val(Field(chunk, 0))), caml_string_length(payload));
     memcpy((char *)arena->mapping + Long_val(Field(chunk, 0)),
            String_val(payload), caml_string_length(payload));
   }
@@ -3382,6 +3618,26 @@ CAMLprim value holyc_native_bind_task_default_string(value handle, value request
   CAMLreturn(Val_unit);
 }
 
+#if HOLYC_NATIVE_PLATFORM != 0
+static void native_validate_empty_task_copy(struct native_task_arena *arena, value handle,
+                                           intnat prefix, value scope_option)
+{
+  int expected = 0;
+  if (prefix < 0 || (uintnat)prefix > HOLYC_NATIVE_MAX_ARENA_BYTES)
+    caml_invalid_argument("empty byte copy has an invalid arena prefix");
+  int borrowed_arena = native_source_borrows_arena(scope_option, handle);
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_invalid_argument("native task arena is already active");
+  if ((size_t)prefix != arena->used || arena->used > arena->capacity
+      || arena->closing || arena->mapping == NULL) {
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
+    caml_invalid_argument("empty byte copy has another original arena");
+  }
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
+}
+
+#endif
+
 CAMLprim value holyc_native_task_static_copy(value handle, value descriptor, value scope_option)
 {
   CAMLparam3(handle, descriptor, scope_option);
@@ -3407,6 +3663,12 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor, val
   flag = Long_val(Field(descriptor, 2));
   payload = Field(descriptor, 3);
   count = caml_string_length(payload);
+  /* Zero-width copies claim the original arena scope without touching data
+     or flag addresses. They do not create a scalar result or source byte. */
+  if (count == 0) {
+    native_validate_empty_task_copy(arena, handle, prefix, scope_option);
+    CAMLreturn(Val_long(0));
+  }
   if (prefix <= 0 || (uintnat)prefix > HOLYC_NATIVE_MAX_ARENA_BYTES
       || data < 0 || data >= prefix || count == 0
       || count > (uintnat)(prefix - data)
@@ -3435,12 +3697,104 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor, val
       caml_invalid_argument("native static byte copy has a malformed initialization flag");
     }
   }
+  native_reference_invalidate(&arena->reference_shadows, (uintptr_t)(mapping + data), count);
   memcpy(mapping + data, String_val(payload), count);
   for (i = 0; i < count; ++i) mapping[(size_t)flag - i] = 1;
   if (!borrowed_arena) atomic_store(&arena->active, 0);
   CAMLreturn(Val_long((intnat)count));
 #endif
   CAMLreturn(Val_unit);
+}
+
+struct initializer_copy_receipt {
+  struct native_deferred_cleanup cleanup;
+  value token;
+  value arena;
+  intnat count;
+  _Atomic int consumed;
+};
+
+static void initializer_copy_dispose(struct native_deferred_cleanup *cleanup)
+{
+  struct initializer_copy_receipt *copy = (struct initializer_copy_receipt *)cleanup;
+  caml_remove_generational_global_root(&copy->token);
+  caml_remove_generational_global_root(&copy->arena);
+  free(copy);
+}
+
+static void initializer_copy_finalize(value receipt)
+{
+  struct initializer_copy_receipt *copy = *(struct initializer_copy_receipt **)Data_custom_val(receipt);
+  if (copy == NULL) return;
+  *(struct initializer_copy_receipt **)Data_custom_val(receipt) = NULL;
+  native_defer_cleanup(&copy->cleanup, initializer_copy_dispose);
+}
+
+static struct custom_operations initializer_copy_operations = {
+  "holyc.native.initializer-copy", initializer_copy_finalize,
+  custom_compare_default, custom_hash_default, custom_serialize_default,
+  custom_deserialize_default, custom_compare_ext_default, custom_fixed_length_default
+};
+
+CAMLprim value holyc_native_task_initializer_copy(value handle, value descriptor,
+                                                  value scope_option, value token)
+{
+  CAMLparam4(handle, descriptor, scope_option, token);
+  CAMLlocal2(receipt, copied);
+  native_collect_deferred();
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native initializer copy requires Windows or Linux x86-64");
+#else
+  if (!Is_block(descriptor) || Tag_val(descriptor) != 0 || Wosize_val(descriptor) != 4
+      || !Is_long(Field(descriptor, 0)) || !Is_long(Field(descriptor, 1))
+      || !Is_long(Field(descriptor, 2))
+      || !Is_block(Field(descriptor, 3)) || Tag_val(Field(descriptor, 3)) != String_tag)
+    caml_invalid_argument("native initializer copy descriptor is malformed");
+  if (caml_string_length(Field(descriptor, 3)) == 0) {
+    native_validate_empty_task_copy(native_task_arena_get(handle), handle,
+        Long_val(Field(descriptor, 0)), scope_option);
+    copied = Val_long(0);
+  } else {
+    copied = holyc_native_task_static_copy(handle, descriptor, scope_option);
+  }
+  receipt = caml_alloc_custom(&initializer_copy_operations,
+      sizeof(struct initializer_copy_receipt *), sizeof(struct initializer_copy_receipt), 1024 * 1024);
+  *(struct initializer_copy_receipt **)Data_custom_val(receipt) = NULL;
+  struct initializer_copy_receipt *copy = calloc(1, sizeof(*copy));
+  if (copy == NULL) caml_raise_out_of_memory();
+  copy->token = token;
+  copy->arena = handle;
+  caml_register_generational_global_root(&copy->token);
+  caml_register_generational_global_root(&copy->arena);
+  copy->count = Long_val(copied);
+  atomic_init(&copy->consumed, 0);
+  *(struct initializer_copy_receipt **)Data_custom_val(receipt) = copy;
+  CAMLreturn(receipt);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_consume_initializer_copy(value receipt, value expected)
+{
+  CAMLparam2(receipt, expected);
+  native_collect_deferred();
+  if (!Is_block(receipt) || Tag_val(receipt) != Custom_tag
+      || Custom_ops_val(receipt) != &initializer_copy_operations)
+    caml_invalid_argument("foreign native initializer copy receipt");
+  struct initializer_copy_receipt *copy = *(struct initializer_copy_receipt **)Data_custom_val(receipt);
+  if (copy == NULL || atomic_load(&copy->consumed) || !Is_block(expected) || Tag_val(expected) != 0
+      || Wosize_val(expected) != 2 || !Is_long(Field(expected, 1))
+      || copy->token != Field(expected, 0) || copy->count != Long_val(Field(expected, 1)))
+    caml_invalid_argument("native initializer copy is expired, repeated or substituted");
+#if HOLYC_NATIVE_PLATFORM != 0
+  struct native_task_arena *arena = native_task_arena_get(copy->arena);
+  if (arena->closing || arena->mapping == NULL)
+    caml_invalid_argument("native initializer copy arena has been released");
+#endif
+  int unused = 0;
+  if (!atomic_compare_exchange_strong(&copy->consumed, &unused, 1))
+    caml_invalid_argument("native initializer copy has already been consumed");
+  CAMLreturn(Val_true);
 }
 
 CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor, value scope_option)
@@ -3688,6 +4042,7 @@ struct native_internal_binding_capture {
   struct native_deferred_cleanup cleanup;
   value program, arena, scope;
   uint64_t bits;
+  int64_t value_site;
   intnat work;
   _Atomic int consumed;
 };
@@ -3741,7 +4096,7 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
   steps = Int64_val(Field(status, 2));
   saved = Val_none;
   if (Int64_val(Field(status, 0)) == 0 &&
-      Int64_val(Field(status, 3)) > 0 &&
+      Int64_val(Field(status, 3)) != 0 &&
       steps > Long_val(Field(consumed, 0))) {
     capture_handle = caml_alloc_custom_mem(
       &native_internal_binding_capture_operations, sizeof(capture),
@@ -3754,6 +4109,10 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
     value scope_option = Field(Field(task, 3), 0);
     capture->scope = scope_option == Val_none ? Val_unit : Field(scope_option, 0);
     capture->bits = (uint64_t)Int64_val(Field(status, 4));
+    /* Negative sites retain checked non-scalar completion: U0 or a discarded
+       owned reference, never an invented integer zero. The image decoder
+       validates the original site before publication. */
+    capture->value_site = Int64_val(Field(status, 3));
     capture->work = (intnat)(steps - Long_val(Field(consumed, 0)));
     atomic_init(&capture->consumed, 0);
     caml_register_generational_global_root(&capture->program);
@@ -3769,10 +4128,11 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
   CAMLreturn(result);
 }
 
-CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
-                                                           value request, value scope_option)
+static value native_consume_binding_capture(value handle, value request,
+                                           value scope_option, int optional)
 {
   CAMLparam3(handle, request, scope_option);
+  CAMLlocal2(result, bits);
   native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
@@ -3789,6 +4149,8 @@ CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
       capture->program != Field(request, 0) ||
       capture->work != Long_val(Field(request, 1)))
     caml_invalid_argument("native internal binding has another program or actual work");
+  if (!optional && capture->value_site < 0)
+    caml_invalid_argument("native scalar capture contains no scalar word");
   arena = native_task_arena_get(capture->arena);
   struct native_source_scope *source_scope = native_source_scope_option(scope_option);
   if ((source_scope == NULL ? Val_unit : Field(scope_option, 0)) != capture->scope)
@@ -3806,7 +4168,24 @@ CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
     caml_failwith("native internal binding capture was already consumed");
   }
   if (!borrowed_arena) atomic_store(&arena->active, 0);
-  CAMLreturn(caml_copy_int64((int64_t)capture->bits));
+  if (optional && capture->value_site < 0) CAMLreturn(Val_none);
+  bits = caml_copy_int64((int64_t)capture->bits);
+  if (!optional) CAMLreturn(bits);
+  result = caml_alloc_small(1, 0);
+  Field(result, 0) = bits;
+  CAMLreturn(result);
 #endif
   CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
+                                                           value request, value scope_option)
+{
+  return native_consume_binding_capture(handle, request, scope_option, 0);
+}
+
+CAMLprim value holyc_native_consume_initializer_value_capture(value handle,
+                                                            value request, value scope_option)
+{
+  return native_consume_binding_capture(handle, request, scope_option, 1);
 }

@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "16b3f0b0e3709bef41e609bd42f9a825ef8e5fccc499aed394c09391db4f3eb4",
+  "boot_payload_sha256": "14abf33c805df8cdd5229d605f457985c76c1e7f0c1e7b51612c1a5378893dcf",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "00a7994f7b2fd8962446900d3326a8019b33acf465057cc05137a3f6007d942c",
+  "boot_iso_sha256": "6fe401964b02cced6bf6f82f484a580259e5c357370692b2bf797308dcf19e84",
+  "fields": {
+    "J_S": "-9223372036854775808",
+    "J_U": "0",
+    "J_SN": "0",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "-9223372036854775808",
+    "A_U": "0",
+    "A_SN": "0",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original observations of a narrow count parameter converting 255 to -1 before shifting a parameter-initialized local. Stored source omits boot padding."
+}

@@ -142,7 +142,14 @@ let () =
               (List.hd fragments |> member "kind" |> to_string = "aot-module")
               "AOT views use the separate module image")
           else
-            let report = invoke target mode example in
+            let report =
+              invoke
+                ~options:
+                  (if target = "host-jit-task" then
+                     [ "--code-byte-limit=131072" ]
+                   else [])
+                target mode example
+            in
             word "42" report;
             require
               (member "output_hex" report = `String "4142"

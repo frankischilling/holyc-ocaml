@@ -1,13 +1,118 @@
 # Compiler status and implementation notes
 
+[Local-index normalization](local-index-normalization.md) extends array-bearing
+register allocation to bounded pure computed indices and full multidimensional
+chains. Receipts retain parser SIZEOF timing, whole-function optimization and
+supplied-argument preparation passes. Unproved arithmetic, side effects and
+partial escapes still reject.
+
+[Allocation beside local arrays](array-member-registers.md) keeps primitive
+array members in the original score, sort and pressure sequence. Eligible
+scalar homes can share an owner with checked large-array frames. Explicit array
+requests, zero extents and unsupported access/storage shapes remain excluded.
+
+[Formal member identity](formal-member-identity.md) now preserves unnamed fixed
+arguments, first-member duplicate lookup and initializer assignment targets.
+Supported duplicate explicit register requests keep the final source owner and
+leave earlier members on the stack. This is a bounded source-backed extension,
+not completion of register allocation or the HolyC ABI.
+
+[Large native frames](native-stack-probing.md) now use page probes and
+matching Windows unwind offsets. The larger quota is opt-in; default frame
+and active-stack limits are unchanged. General register allocation in #703
+is still open.
+
+Bounded integer AOT initializer leaves now use their original raw assignment
+width, separately from JIT and constant-copy widths. [Native captures](aot-zero-byte-initializers.md)
+verify four- and eight-byte stores. Missing register values, ownership and storage
+windows still reject explicitly.
+
+Scalar U0 globals and statics now retain zero-byte storage and live JIT
+initializer effects. See [persistent U0 declarations](persistent-void-declarations.md)
+for native observations, execution checks and the separate AOT boundary.
+
+[Zero-byte reference initializers](zero-byte-reference-initializers.md) now
+evaluate supported function, callback and data references in live JIT sources
+without copying address bits. Original AOT behavior remains separately gated.
+
+[JIT U0 initializer warnings](void-initializer-warnings.md) now increment their
+original compiler control before expression execution. [Bounded AOT direct-call
+warning phases](aot-zero-byte-initializers.md) are also implemented; wider AOT
+warning behavior and complete warning parity remain unfinished.
+
+[Uninitialized scalar U0 locals](automatic-void-declarations.md) retain their
+original zero-byte frames without runtime value storage. Automatic assignments
+and their original register aliases remain a separate, unsupported family.
+
+[Zero-sized arrays](empty-arrays.md) retain ordinary `[]` and evaluated-zero
+counts through global, static and automatic storage. Empty initializer and copy
+receipts remain source-owned without granting source bytes or repeating static
+work. Original native observations cover sizes and dimension effects. Automatic
+zero-array address materialization and broader inference replay remain explicit
+boundaries under #686 and #690.
+
+[Aggregate assignment observations](backed-aggregate-values.md) retain the
+original lvalue endpoint, lookahead gate and reached index stride in function
+bodies and top-level source tasks. Initializers, statics, saved defaults,
+dimensions, offsets, metadata, switch endpoints and internal bindings retain
+their own completed expression metadata. The
+[top-level example](../examples/top-level-aggregate-assignments.hc) prints `A`
+and returns 42 through IR and native source tasks in both outer modes.
+Other value families and the remaining #686 acceptance stay open.
+
+[Member metadata preparation](member-metadata.md) now retains strings and closed
+numeric words at original member phases in IR and native source tasks. Duplicate
+names resolve to the last source entry. Live integer metadata now executes calls,
+updates and captured queries in original JIT tasks through IR and native source
+execution. Data/code addresses, live floating expressions, ordinary AOT live
+metadata and runtime compiler reflection remain part of #686.
+
+[Data pointer fields](aggregate-pointer-fields.md) execute through IR, native
+programs and native source tasks in both modes. Separate ownership shadows and
+activation identities preserve caller storage, retained pointer types and
+invalid-memory checks. The remaining
+aggregate requirements under #686 remain open.
+
+[Owned reference returns](reference-returns.md) preserve integer and class
+pointer descriptors through named calls and callbacks in IR and both native
+targets. Caller/global/static storage stays usable; callee-local targets expire
+on return. Native calls snapshot the private return buffer before another call
+can replace it. The [example](../examples/reference-returns.hc) prints `AB`
+and returns 42 in both source modes.
+
+[Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
+and union globals and statics their original byte roots in IR and native execution.
+Integer fields, arrays, scalar prefixes and member size queries retain the selected
+layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
+[Aggregate initializers](aggregate-initializers.md) cover completed selected class
+records, integer leaves, owned data-pointer leaves, nested fixed arrays and byte strings. Original forward
+members can complete before traversal, including through JIT lookahead. Changes
+during a leaf and the remaining aggregate execution families stay open.
+
+[Class pointer views](class-pointer-views.md) cast owned integer and class
+references to complete earlier layouts in IR and native execution. The
+[example](../examples/class-pointer-views.hc) prints `AB` and returns 42 while
+checking a primitive round trip and the selected class stride. Local and retained
+casts preserve their original source selections; numeric references remain
+unfinished. [Aggregate value casts](aggregate-value-casts.md) distinguish
+original storage reads from grouped register values across the nine integer
+raw classes. Cast destinations preserve root bounds and update only the
+selected bytes; register class values supply no addressable object.
+
 Native emission, assembly linking and BIN output share the checked [section and relocation model](native-sections.md). Native branches and calls resolve through ordered, address-independent objects. Reports retain function/global source identities and source maps; private hosted storage remains tied to its original runtime owner.
 
-Owned data pointer fields execute in IR with their original member types,
+Owned data pointer fields execute in IR and native code with their original member types,
 array strides and target lifetimes. Function-local classes, nested and inherited
 fields, pointer updates and retained functions share the checked storage path.
 The [pointer field example](../examples/aggregate-pointer-fields.hc) prints `AB`
 and returns 42. See [pointer fields](aggregate-pointer-fields.md) for the
 native execution boundary and overlap rules.
+
+[Callback fields](callback-fields.md) now retain their original signature and
+executable owner through IR and both native targets. Typed stores, member arrays,
+fixed defaults, variadic and U0 calls preserve the captured callee and argument
+effects. Overlapping numeric stores invalidate ownership; restored bits cannot
+authorize a call.
 
 Builtin integer-union member `sizeof` queries use their original field types
 and counts. Nested queries, scalar globals and static locals retain the class
@@ -267,7 +372,7 @@ pointer storage remain unsupported by this native increment.
 `holyc run --target=host-jit examples/native-scalar-pointers.hc` executes checked
 one-level scalar pointer aliases in both JIT and AOT source modes. Local and
 fixed-parameter references preserve object width, initialization and ownership;
-pointer returns and persistent pointer storage remain outside native admission.
+persistent standalone pointer storage remains outside native admission; owned reference returns use their separate checked path.
 See [native pointers](native-pointers.md).
 
 `holyc run --target=host-jit examples/integer-arrays.hc` returns 42 using
@@ -386,6 +491,29 @@ proof as I64/U64 defaults. `examples/native-u0-functions.hc` exercises U0
 fallthrough, early return and recursion; its last procedure call finishes without
 a numeric final value. [Native scalar functions](native-scalars.md) explains
 the distinction between stored bytes, returned bits and no-value completion.
+
+[Native scalar F64](native-f64.md) adds bit-preserving parameters, automatic
+locals, direct calls and returns, plus x87 unary minus and basic arithmetic.
+Source-authenticated pure expression regions reproduce asymmetric extended-value
+links, selected identity normalization and explicit materialization boundaries.
+The mixed-scalar allocation proof also covers exact explicit F64 GPRs,
+sole-forced placement and capacity-proved narrow integer storage, including
+fixed named calls and control flow. Source-proved access scores and the original
+unstable tie order now cover supported whole functions, including branches, loops,
+multiple returns and named calls. Scores count static source accesses before
+dead-code removal, not runtime iterations or only reachable blocks.
+[Numeric conversions](native-f64-conversions.md) now cover checked scalar
+assignment, initialization, arguments, returns and mixed arithmetic, with
+source-proved extended conversion links and bounded explicit builtins. Explicit
+numeric calls can take arithmetic arguments and feed isolated arithmetic
+consumers, preserving their binary64 or integer materialization boundary.
+A [phase-ordered normalization proof](native-numeric-normalization.md) covers
+six direct-return identity/copy forms for I64-to-I64, I64-to-F64 and
+F64-to-I64 values. It preserves the pinned compiler behavior where eliminated
+operators can return raw F64 bits as I64. Unproved
+constant folding, reassociation and other conversion identities still reject.
+Host x87 state is isolated at entry and callback boundaries; builds without
+that capability reject images requiring x87. Issue #703 remains open.
 
 `holyc run --target=host-jit examples/integer-goto.hc` and the ordinary `ir`
 target return I64 42 through function-local forward/backward gotos and labels.
@@ -603,7 +731,7 @@ under issue #686. [Owned data pointer fields in IR](aggregate-pointer-fields.md)
 support integer and class pointers, pointer member arrays and updates while
 preserving bounds and invocation lifetimes. `examples/aggregate-pointer-fields.hc`
 prints `AB` and returns 42 with `--target=ir` in JIT and AOT mode. Native pointer
-fields, general aggregate copies and pointer returns still need implementation.
+fields now have native ownership checks, and owned reference returns preserve their original descriptors. General aggregate copies remain unfinished.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,
@@ -802,7 +930,7 @@ Semantic analysis still lacks general duplicate-declaration legality, complete t
 
 The bounded integer program path does type, lower and execute supported expressions, global/static initializers, local storage, direct calls, returns, loop breaks and conditions. Pointer aliases and automatic array elements retain checked object identity and invocation lifetimes. Integer switches now execute with either header delimiter, implicit and ranged cases, repeated defaults, and checked `start:`/`end:` regions through IR and native code. JIT/current-task scalar case expressions prepare at their original source callbacks; ordinary AOT nonconstant endpoints still fail with `HCRUN0006`. Bracketed dispatch outside its prepared table reports `HCSW0005`. Broader execution still needs full `Print` formatting and variadic promotion, assembly operand resolution and output-address validation, unused-label warnings, general floating switch selectors, exception unwinding, `SysTry`/`SysUntry`, and unsupported expression and storage forms. Source publication boundaries and explicit diagnostics remain part of each implemented slice.
 
-Definition backings and bases resolve to semantic header types or aggregate identities. Fixed-call target policy follows a backing chain for the narrow `PrsFunCall` raw-type comparison, but general backing collapse, whole-value conversion, and subinteger access are not implemented. A closed base contributes its size at offset zero, and the member index follows the resolved base chain; cycle handling outside closed layout and call-target policy remains incomplete. Member metadata expressions are not evaluated, indexed, or exposed through `MemberMetaData` and `MemberMetaFind`. A top-level aggregate definition may declare pointer, array, function-pointer, or comma-separated globals after its closing brace, and globals retain scalar or recursive braced initializer syntax. Callback globals and members have resolved recursive signatures. Parameter, local, global, and checked aggregate-member callback values participate in semantic indirect calls. Callback members also carry `MLF_FUN`, have pointer-sized layout, and retain their exact header in lookup entries. Member-call selection, slot binding, and return typing are implemented; default evaluation, storage reads, lowering, and execution remain unavailable. No aggregate declaration has runtime allocation, lowering, or execution. Aggregate initializer trees remain unevaluated; global callback initializer execution is covered by its [bounded consumer](global-callback-initializers.md); supported scalar declaration initializers execute through the integer program path. Closed aggregate-offset directives do affect layout, while symbol-dependent offset expressions remain explicit semantic failures. Nested named definitions, direct local callback initializers, automatic local braced initializers, and many other corpus declaration forms remain unavailable and fail with explicit diagnostics. Machine-code exception semantics and complete corpus parsing remain unfinished. Standalone instruction and directive byte output is implemented. General assembly label/import fixups and branch layout remain under #714, with live compiler expressions and source assembly loading and execution under #715.
+Definition backings and bases resolve to semantic header types or aggregate identities. Fixed-call target policy follows a backing chain for the narrow `PrsFunCall` raw-type comparison, but general backing collapse, whole-value conversion, and subinteger access are not implemented. A closed base contributes its size at offset zero, and the member index follows the resolved base chain; cycle handling outside closed layout and call-target policy remains incomplete. Member metadata expressions are not evaluated, indexed, or exposed through `MemberMetaData` and `MemberMetaFind`. A top-level aggregate definition may declare pointer, array, function-pointer, or comma-separated globals after its closing brace, and globals retain scalar or recursive braced initializer syntax. Callback globals and members have resolved recursive signatures. Parameter, local, global, and checked aggregate-member callback values participate in semantic indirect calls. Callback members also carry `MLF_FUN`, have pointer-sized layout, and retain their exact header in lookup entries. One-level member calls retain their selected header, fixed defaults and executable owner through IR and native execution; broader callback signatures remain bounded. Supported aggregate declarations allocate owned byte storage, and integer initializer trees follow their original cursor rules; global callback initializer execution is covered by its [bounded consumer](global-callback-initializers.md); supported scalar declaration initializers execute through the integer program path. Closed aggregate-offset directives do affect layout, while symbol-dependent offset expressions remain explicit semantic failures. Nested named definitions, direct local callback initializers, automatic local braced initializers, and many other corpus declaration forms remain unavailable and fail with explicit diagnostics. Machine-code exception semantics and complete corpus parsing remain unfinished. Standalone instruction and directive byte output is implemented. General assembly label/import fixups and branch layout remain under #714, with live compiler expressions and source assembly loading and execution under #715.
 
 The [checked lock path](lock-operations.md) retains lexical regions and executes
 supported integer memory updates atomically. It also preserves ordinary
@@ -962,3 +1090,90 @@ captures `target:1;A:1` with a target call that runs once.
 ## License and attribution
 
 New project code is licensed under the MIT License. TempleOS is retained as a pinned reference and is not covered by this project's license. The upstream credits call TempleOS public domain while also listing material with separate provenance or uncertain permission. [THIRD_PARTY_NOTICES.md](third-party-notices.md) records the narrow reference use and those caveats.
+
+Native temporary spill homes now use [control-flow liveness](native-value-liveness.md)
+to share space across disjoint block lifetimes. Loop backedges preserve overlapping
+values. Reference-dependent callable graphs keep permanent homes; general source
+and floating register allocation remain open under issue #703.
+
+[Parameter register values across control flow](register-variable-analysis.md#parameter-values-across-branches-and-loops)
+now cover bounded call-free branches and loops with dynamic statement updates.
+Selected narrow parameters retain full values across iterations; `noreg` still
+narrows each store. General source and floating allocation remain open.
+
+[Named calls and recursion](register-variable-analysis.md#values-held-across-named-calls)
+now preserve values selected by the bounded parameter proof. Recursive callees
+still apply their declared entry conversions. Callback, default-argument and
+variadic call paths remain outside this proof.
+
+[Automatic local values](register-variable-analysis.md#local-values-across-control-flow-and-calls)
+can also survive bounded loops and named calls. Locals need one original
+literal or parameter initializer in the entry block. Register capacity
+counts both parameters and locals; arbitrary local assignments remain unproved.
+
+[Register-bank accounting](register-variable-analysis.md#variable-register-bank-capacity)
+covers distinct RSI, RDI and R10 through R15 requests and larger mixed
+register/stack frames. It rejects uncertain automatic allocation pressure.
+
+[Compiler option snapshots](register-variable-analysis.md#compiler-option-snapshots)
+keep warnings, ECHO, TRACE and KEEP_PRIVATE independent of register values.
+Their original snapshots remain authenticated. NO_REG_VAR disables
+automatic selection while preserving supported explicit register requests.
+Each decision uses the original function definition, not the later live options.
+
+[Literal and unary loop updates](register-variable-analysis.md#literal-and-unary-loop-updates)
+retain selected narrow values through bounded constant updates and discarded
+prefix/postfix increment/decrement, including locals and named calls. Typed
+operators, operand bindings and source positions are checked before selection.
+General allocation remains open under #703.
+
+[Reassignment to selected variables](register-variable-analysis.md#reassignment-to-selected-variables)
+now preserves full integer values in parameters and initialized locals when the
+right-hand side is a direct member read or literal. Stack destinations still
+narrow. Computed assignments and general register allocation remain unproved.
+
+
+[Whole-function scored allocation](register-variable-analysis.md#whole-function-phase-qualified-allocation)
+now gives the bounded scalar callable grammar exact TempleOS member scores and
+physical homes across branches, loops, multiple returns, named calls and recursion.
+A source-phase ledger counts all surviving accesses once, including zero-trip and
+unreachable source statements before OptPass4 deletion. Narrow pressure, unused
+reservations, forced F64 competition and qualified numeric conversions use the
+existing eight-register allocator. IR and native execution share original call
+receipts. ECHO, TRACE and KEEP_PRIVATE are allocation-neutral with sealed option
+snapshots. Unsupported rewrites and unclassified option bits remain fail-closed;
+general pointer/member coverage and issue #703 remain open.
+
+
+[Owned member allocation](register-variable-analysis.md#owned-member-shapes-and-address-balances)
+adds source-authenticated primitive pointer shapes, Bool and uninitialized local
+membership. Pointer candidates count toward pressure but automatic R12/R13 homes
+remain nonpointer-only. Address formation keeps its original LEA balance,
+including `*(&x)`, and spills automatic/plain-reg members. Physical pointer homes
+retain checked private descriptors across copies, calls and recursion. Storage
+initialization, bounds and lifetime checks remain independent. Explicit requests
+without a proved supported physical home reject rather than silently using
+stack storage. Unnamed, dimensioned, aggregate and callback member allocation,
+duplicate/fixed register requests and general optimizer coverage remain open.
+
+### Allocation proof scaling
+
+Whole-function allocation no longer stops at 32 members, 64 blocks or 512
+instructions. Exact and conservative attempts share checked source-sized
+traversal work, with a separate 256-level proof nesting safeguard. Exhaustion
+is an explicit hosted resource error rather than a change to narrow-value
+storage semantics. Existing source-shape restrictions, mutation-sensitive
+validation and native quotas still apply. See
+[allocation pressure](allocation-pressure.md). General allocation and issue
+#703 remain open.
+
+### Native F64 comparisons
+
+Source-authenticated comparisons now distinguish binary64-word equality from
+ordered x87 templates. Direct conditions retain their original branch phase,
+including the differences from a separately stored Boolean. Direct public F64
+reads compared with positive zero preserve the source's signed-word rewrite
+for `<` and `>=`. Conversion and linked-expression precision remain explicit.
+This does not enable general comparison-result conversion, comparison chains,
+short circuit or unproved optimizer normalization. See
+[F64 comparisons](native-float-comparisons.md) for exact limits and evidence.

@@ -161,18 +161,18 @@ val evaluate :
     interpreter result. Configuration failures occur before parsing and host
     failures occur without interpreter fallback. Simultaneous semantic frame
     bytes default to 1,048,576 and active named calls to 128. The separate
-    physical native stack limit defaults to its hard maximum of 65,536 bytes and
-    includes compiler-private storage, return addresses and saved frame
-    pointers. Native output bytes and formatting/scan work are independently
-    bounded; both default to 1,048,576, and the byte limit may not exceed 16
-    MiB. Reached output and work are retained on success and checked execution
-    faults. PutChars commits each emitted byte, while Print publishes its draft
-    only after the complete dynamic format succeeds. Each execution owns fresh
-    global/static data and initialization flags, shared by entry and generated
-    calls. Persistent AOT objects without initializers start at zero; reached
-    JIT reads before assignment retain the hosted uninitialized-object fault.
-    Automatic scalar and array elements start uninitialized in both modes.
-    Prepared globals restore their initial values in both modes. *)
+    physical native stack limit defaults to 65,536 bytes, may be raised through
+    524,288 bytes, and includes compiler-private storage, return addresses and
+    saved frame pointers. Native output bytes and formatting/scan work are
+    independently bounded; both default to 1,048,576, and the byte limit may not
+    exceed 16 MiB. Reached output and work are retained on success and checked
+    execution faults. PutChars commits each emitted byte, while Print publishes
+    its draft only after the complete dynamic format succeeds. Each execution
+    owns fresh global/static data and initialization flags, shared by entry and
+    generated calls. Persistent AOT objects without initializers start at zero;
+    reached JIT reads before assignment retain the hosted uninitialized-object
+    fault. Automatic scalar and array elements start uninitialized in both
+    modes. Prepared globals restore their initial values in both modes. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val image : report -> Backend.X86_64_program.t option

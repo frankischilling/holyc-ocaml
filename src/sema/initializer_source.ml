@@ -59,6 +59,7 @@ let create source =
 
 type pending = {
   start : Frontend.Parser.global_initializer_start;
+  mutable preparation : Frontend.Parser.initializer_leaf_preparation option;
   mutable leaves_rev : leaf list;
   mutable finished : bool;
   mutable last_delimiter :
@@ -93,11 +94,41 @@ let begin_parser start =
     Ok
       {
         start;
+        preparation = None;
         leaves_rev = [];
         finished = false;
         last_delimiter = None;
         delimiters_since_leaf_rev = [];
       }
+
+let observe_parser_preparation pending
+    (receipt : Frontend.Parser.initializer_leaf_preparation) =
+  let index, predecessor =
+    match pending.leaves_rev with
+    | [] -> (0, None)
+    | previous :: _ -> (previous.index + 1, previous.receipt)
+  in
+  if
+    pending.finished
+    || Option.is_some pending.preparation
+    || (not (Frontend.Parser.initializer_leaf_preparation_is_current receipt))
+    || receipt.preparation_initializer != pending.start
+    || receipt.preparation_index <> index
+    || (not
+          (same_optional_identity predecessor receipt.preparation_predecessor))
+    || (not
+          (same_optional_identity pending.last_delimiter
+             receipt.preparation_delimiter_predecessor))
+    || not
+         (same_delimiters
+            (List.rev pending.delimiters_since_leaf_rev)
+            receipt.preparation_delimiters)
+  then
+    Error
+      "initializer preparation is foreign, repeated, delayed or out of order"
+  else (
+    pending.preparation <- Some receipt;
+    Ok ())
 
 let observe_parser_delimiter pending
     (receipt : Frontend.Parser.completed_initializer_delimiter) =
@@ -113,6 +144,7 @@ let observe_parser_delimiter pending
   in
   if
     pending.finished
+    || Option.is_some pending.preparation
     || (not (Frontend.Parser.initializer_delimiter_is_current receipt))
     || receipt.delimiter_initializer != pending.start
     || receipt.delimiter_index <> index
@@ -148,6 +180,13 @@ let observe_parser_leaf pending
     || (not (Frontend.Parser.initializer_leaf_is_current receipt))
     || receipt.leaf_initializer != pending.start
     || receipt.leaf_index <> index
+    || receipt.leaf_preparation.preparation_initializer != pending.start
+    || receipt.leaf_preparation.preparation_index <> index
+    || receipt.leaf_preparation.preparation_path <> receipt.leaf_path
+    || (not
+          (Option.fold ~none:true
+             ~some:(fun original -> original == receipt.leaf_preparation)
+             pending.preparation))
     || (not same_predecessor)
     || (not
           (same_optional_identity pending.last_delimiter
@@ -169,6 +208,7 @@ let observe_parser_leaf pending
           }
         in
         pending.leaves_rev <- leaf :: pending.leaves_rev;
+        pending.preparation <- None;
         pending.delimiters_since_leaf_rev <- [];
         Ok leaf
     | _ -> Error "initializer leaf is not an original scalar expression"
@@ -314,6 +354,11 @@ let leaf_path leaf = leaf.path
 let leaf_expression_ast leaf = leaf.expression
 let leaf_parser_receipt leaf = leaf.receipt
 
+let leaf_parser_preparation leaf =
+  Option.map
+    (fun receipt -> receipt.Frontend.Parser.leaf_preparation)
+    leaf.receipt
+
 let leaf_origin leaf =
   leaf.expression |> Frontend.Ast.expression_location |> origin_of_location
 
@@ -353,6 +398,43 @@ let expression_identifier_nodes source =
     | Frontend.Ast.Defined_expression _ -> reversed
   in
   List.rev (expression [] source)
+
+(* STR_CONST is marked not_const before optimization in CInit/OptPass012.
+   These are original expression nodes, not an inferred constant value. *)
+let rec expression_contains_string = function
+  | Frontend.Ast.String_literal _ -> true
+  | Frontend.Ast.Parenthesized_expression x ->
+      expression_contains_string x.grouped_expression
+  | Frontend.Ast.Prefix_expression x ->
+      expression_contains_string x.prefix_operand
+  | Frontend.Ast.Postfix_expression x ->
+      expression_contains_string x.postfix_operand
+  | Frontend.Ast.Postfix_cast_expression x ->
+      expression_contains_string x.cast_operand
+  | Frontend.Ast.Binary_expression x ->
+      expression_contains_string x.binary_left
+      || expression_contains_string x.binary_right
+  | Frontend.Ast.Call_expression x ->
+      expression_contains_string x.call_callee
+      || List.exists
+           (fun (arg : Frontend.Ast.call_argument) ->
+             match arg.call_argument_value with
+             | Frontend.Ast.Omitted_call_argument -> false
+             | Frontend.Ast.Provided_call_argument value ->
+                 expression_contains_string value)
+           x.call_arguments
+  | Frontend.Ast.Index_expression x ->
+      expression_contains_string x.index_base
+      || expression_contains_string x.index_value
+  | Frontend.Ast.Member_expression x -> expression_contains_string x.member_base
+  | Frontend.Ast.Identifier_expression _
+  | Frontend.Ast.Integer_literal _
+  | Frontend.Ast.Float_literal _
+  | Frontend.Ast.Character_literal _
+  | Frontend.Ast.Current_position_expression _
+  | Frontend.Ast.Sizeof_expression _
+  | Frontend.Ast.Offset_expression _
+  | Frontend.Ast.Defined_expression _ -> false
 
 let leaf_identifier_nodes leaf = expression_identifier_nodes leaf.expression
 

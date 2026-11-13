@@ -63,9 +63,14 @@ let invoke ?(target = "ir") ?(steps = 100_000) ?(preparation = 100_000) ~status
 let error report code =
   require (member "outcome" report = `String "error") "expected error outcome";
   require (member "final_value" report = `Null) "fault exposes a final value";
-  match member "diagnostics" report |> to_list with
-  | first :: _ -> require (member "code" first = `String code) "fault code"
-  | [] -> failwith "fault has no diagnostic"
+  match
+    member "diagnostics" report
+    |> to_list
+    |> List.find_opt (fun diagnostic ->
+        member "severity" diagnostic = `String "error")
+  with
+  | Some first -> require (member "code" first = `String code) "fault code"
+  | None -> failwith "fault has no error diagnostic"
 
 let () =
   require (Array.length Sys.argv = 4) "expected compiler, fixture and example";
@@ -132,6 +137,428 @@ let () =
       error
         (invoke ~target:"host-jit" ~status:1 compiler mode example)
         "HCPP0008";
+      let sources =
+        [
+          ( "#exe {I64 XR=7,CR=65,NR=0;I64 FR(I64 x){NR++;return x<<CR;}I64 \
+             IR(){return FR(XR);}I64 SR(I64 n=IR()){return \
+             n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}",
+            "14" );
+          ( "#exe {I64 XR=7,CR=65,NR=0;I64 FR(I64 x,I64 c){NR++;x<<=c;return \
+             x;}I64 IR(){return FR(XR,CR);}I64 SR(I64 n=IR()){return \
+             n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}",
+            "14" );
+          ( "#exe {I64 XR=-8,CR=65,NR=0;I64 FR(I64 x,I64 c){NR++;x>>=c;return \
+             x;}I64 IR(){return FR(XR,CR);}I64 SR(I64 n=IR()){return \
+             n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}",
+            "-4" );
+          ( "#exe {I64 NR=0;I64 FR(I8 x,I64 c){NR++;x>>=c;return x;}I64 \
+             IR(){return FR(-7,65);}I64 SR(I64 n=IR()){return \
+             n;}StreamPrint(\"%d;\",SR()+(NR!=1)*1000);}",
+            "-4" );
+          ( "#exe {I64 FR(U8 x,I64 c){x>>=c;return x;}I64 IR(){return \
+             FR(255,65);}I64 SR(I64 n=IR()){return \
+             n;}StreamPrint(\"%d;\",SR());}",
+            "127" );
+          ( "#exe {I64 F(I8 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(U8 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(255,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(I16 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(32767,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "65534" );
+          ( "#exe {I64 F(U16 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(65535,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "131070" );
+          ( "#exe {I64 F(I32 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(2147483647,1);}I64 S(I64 n=I()){return \
+             n;}StreamPrint(\"%d;\",S());}",
+            "4294967294" );
+          ( "#exe {I64 F(U32 x,I8 c){x<<=c;return x;}I64 I(){return \
+             F(4294967295,1);}I64 S(I64 n=I()){return \
+             n;}StreamPrint(\"%d;\",S());}",
+            "8589934590" );
+          ( "#exe {I64 F(I8 x){x++;return x;}I64 I(){return F(127);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "128" );
+          ( "#exe {I64 F(I8 x){--x;return x;}I64 I(){return F(-128);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-129" );
+          ( "#exe {I64 F(){I8 x=255;++x;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(){I8 x=255;x--;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(I8 x){return ++x;}I64 I(){return F(127);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "128" );
+          ( "#exe {I64 F(I8 x){return --x;}I64 I(){return F(-128);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-129" );
+          ( "#exe {I64 F(){I8 x=255;return ++x;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(){I8 x=255;return --x;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(I8 x){return x++;}I64 I(){return F(127);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(I8 x){return x--;}I64 I(){return F(-128);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-128" );
+          ( "#exe {I64 F(){I8 x=255;return x++;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(){I8 x=255;return x--;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(){I8 x=255;return x+=1;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(){I8 x=255;return x-=1;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(){I8 x=255;return x*=1;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(){I8 x=255;return x<<=1;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(){I8 x=255;return x>>=1;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(I8 x){return x+=1;}I64 I(){return F(127);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "128" );
+          ( "#exe {I64 F(I8 x){return x-=1;}I64 I(){return F(-128);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-129" );
+          ( "#exe {I64 F(U8 x){return x*=2;}I64 I(){return F(255);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(U8 x){return x<<=1;}I64 I(){return F(255);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(I8 x){return x>>=1;}I64 I(){return F(127);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "63" );
+          ( "#exe {U8 G=255;I64 ID(I64 x){return x;}I64 F(){return \
+             ID(G+=1);}StreamPrint(\"%d;\",F());}",
+            "0" );
+          ( "#exe {U8 G=0;I64 ID(I64 x){return x;}I64 F(){return \
+             ID(G-=1);}StreamPrint(\"%d;\",F());}",
+            "255" );
+          ( "#exe {U8 G=255;I64 F(){return (G+=1)-1;}StreamPrint(\"%d;\",F());}",
+            "-1" );
+          ( "#exe {U8 G=0;I64 F(){return (G-=1)-1;}StreamPrint(\"%d;\",F());}",
+            "254" );
+          ( "#exe {U8 G=255;I64 N=7;I64 F(){return \
+             (G+=1)-N;}StreamPrint(\"%d;\",F());}",
+            "-7" );
+          ( "#exe {U8 G=0;I64 N=7;I64 F(){return \
+             (G-=1)-N;}StreamPrint(\"%d;\",F());}",
+            "248" );
+          ( "#exe {U8 G=255;I64 F(){return (G+=1)*2;}StreamPrint(\"%d;\",F());}",
+            "0" );
+          ( "#exe {U8 G=0;I64 F(){return (G-=1)*2;}StreamPrint(\"%d;\",F());}",
+            "510" );
+          ( "#exe {U8 G=255;I64 N=7;I64 F(){return \
+             (G+=1)*N;}StreamPrint(\"%d;\",F());}",
+            "0" );
+          ( "#exe {U8 G=0;I64 N=7;I64 F(){return \
+             (G-=1)*N;}StreamPrint(\"%d;\",F());}",
+            "1785" );
+          ( "#exe {I64 F(I8 reg R12 x,I64 c){x<<=c;return \
+             x;}StreamPrint(\"%d;\",F(127,1));}",
+            "254" );
+          ( "#exe {I64 F(){U8 reg R15 x=255;x<<=1;return \
+             x;}StreamPrint(\"%d;\",F());}",
+            "510" );
+          ( "#exe {I64 F(I8 x,I64 reg R12 c){x<<=c;return \
+             x;}StreamPrint(\"%d;\",F(127,1));}",
+            "254" );
+          ( "#exe {I64 F(I64 a,I64 b,I8 x,I64 d,I64 e,I64 c){x<<=c;return \
+             x;}StreamPrint(\"%d;\",F(0,0,127,0,0,1));}",
+            "254" );
+          ( "#exe {I64 F(I8 x,I8 y,I64 c){x+=c;y+=c;return \
+             x+y;}StreamPrint(\"%d;\",F(127,127,1));}",
+            "256" );
+          ( "#exe {I64 F(I8 x,I8 y,I64 c,I64 d){x+=c;y+=d;return \
+             x+y;}StreamPrint(\"%d;\",F(127,127,1,2));}",
+            "257" );
+          ( "#exe {I64 F(I8 x,U8 y,I64 c){x+=c;y+=c;return \
+             x+y;}StreamPrint(\"%d;\",F(127,255,1));}",
+            "384" );
+          ( "#exe {I64 F(I8 x,U16 y,I64 c){x+=c;y+=c;return \
+             x+y;}StreamPrint(\"%d;\",F(127,65535,1));}",
+            "65664" );
+          ( "#exe {I64 F(I8 x,I8 y,I8 z,I64 c){x+=c;y+=c;z+=c;return \
+             x+y+z;}StreamPrint(\"%d;\",F(127,127,127,1));}",
+            "384" );
+          ( "#exe {I64 F(U8 x,U8 y,U8 z,I64 c,I64 d,I64 \
+             e){x+=c;y*=d;z<<=e;return \
+             x+y+z;}StreamPrint(\"%d;\",F(255,255,255,2,2,1));}",
+            "1277" );
+          ( "#exe {I64 F(I8 x,U16 y,I32 z,U32 w,I64 \
+             c){x+=c;y+=c;z+=c;w+=c;return \
+             x+y+z+w;}StreamPrint(\"%d;\",F(127,65535,2147483647,4294967295,1));}",
+            "6442516608" );
+          ( "#exe {I64 F(I8 x,U16 y,I32 z,U32 w,U8 v,I64 \
+             c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+             x+y+z+w+v;}StreamPrint(\"%d;\",F(127,65535,2147483647,4294967295,255,2));}",
+            "21474902389" );
+          ( "#exe {I64 F(I8 x,U16 y,I32 z,U32 w,I64 v,I64 \
+             c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+             x+y+z+w+v;}StreamPrint(\"%d;\",F(127,65535,2147483647,4294967295,42,2));}",
+            "21474902176" );
+          ( "#exe {I64 F(U8 x,U8 y,U8 z,I64 c){x*=c;y*=c;z*=c;return \
+             x+y+z;}StreamPrint(\"%d;\",F(255,255,255,2));}",
+            "1530" );
+          ( "#exe {I64 F(U8 x,U8 y,U8 z,U8 w,U8 v,I64 \
+             c){x+=c;y+=c;z+=c;w+=c;v+=c;return \
+             x+y+z+w+v;}StreamPrint(\"%d;\",F(255,255,255,255,255,1));}",
+            "1280" );
+          ( "#exe {I64 F(U8 x,U8 y,U8 z,U8 w,U8 v,I64 \
+             c){x*=c;y*=c;z*=c;w*=c;v*=c;return \
+             x+y+z+w+v;}StreamPrint(\"%d;\",F(255,255,255,255,255,2));}",
+            "2550" );
+          ( "#exe {I64 F(U8 x,U8 y,U8 z,U8 w,U8 v,I64 \
+             c){x+=c;y-=c;z*=c;w<<=c;v^=c;return \
+             x+y+z+w+v;}StreamPrint(\"%d;\",F(255,255,255,255,255,2));}",
+            "2293" );
+          ("#exe {U8 G=255;I64 F(){return G+=1;}StreamPrint(\"%d;\",F());}", "0");
+          ("#exe {U8 G=0;I64 F(){return G-=1;}StreamPrint(\"%d;\",F());}", "255");
+          ( "#exe {U8 G=255;I64 F(){return (G+=1)+1;}StreamPrint(\"%d;\",F());}",
+            "1" );
+          ( "#exe {U8 G=0;I64 F(){return (G-=1)+256;}StreamPrint(\"%d;\",F());}",
+            "511" );
+          ( "#exe {U8 G=255;I64 N=7;I64 F(){return \
+             (G+=1)+N;}StreamPrint(\"%d;\",F());}",
+            "7" );
+          ( "#exe {U8 G=0;I64 N=7;I64 F(){return \
+             (G-=1)+N;}StreamPrint(\"%d;\",F());}",
+            "262" );
+          ( "#exe {I64 F(){I8 x=255;x<<=0;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(){U8 x=256;x<<=0;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(){I8 x=127;x<<=1;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(){I8 x=255;x>>=1;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(){U8 x=256;x>>=1;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "128" );
+          ( "#exe {I64 F(){I8 x=255;return x;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(){U8 x=256;return x;}I64 I(){return F();}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(I8 x,I8 c){x+=c;return x;}I64 I(){return \
+             F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "128" );
+          ( "#exe {I64 F(U32 x,I8 c){x+=c;return x;}I64 I(){return \
+             F(4294967295,1);}I64 S(I64 n=I()){return \
+             n;}StreamPrint(\"%d;\",S());}",
+            "4294967296" );
+          ( "#exe {I64 F(){I8 x=255;x+=1;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(){U8 x=256;x+=1;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "257" );
+          ( "#exe {I64 F(I8 x,I8 c){x-=c;return x;}I64 I(){return \
+             F(-128,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-129" );
+          ( "#exe {I64 F(U8 x,I8 c){x-=c;return x;}I64 I(){return F(0,1);}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-1" );
+          ( "#exe {I64 F(){I8 x=255;x-=1;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(I8 x,I8 c){x*=c;return x;}I64 I(){return \
+             F(127,2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(U8 x,I8 c){x*=c;return x;}I64 I(){return \
+             F(255,2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(){I8 x=255;x*=2;return x;}I64 I(){return F();}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(){I8 x=255;x*=0x8000000000000000;return x;}I64 \
+             I(){return F();}I64 S(I64 n=I()){return \
+             n;}StreamPrint(\"%d;\",S());}",
+            "-9223372036854775808" );
+          ( "#exe {I64 F(I64 c){I8 x=255;return x;}I64 I(){return F(0);}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x/=c;return x;}I64 I(){return \
+             F(2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x%=c;return x;}I64 I(){return \
+             F(2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "1" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x<<=c;return x;}I64 I(){return \
+             F(1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x&=c;return x;}I64 I(){return \
+             F(255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x-=c;return x;}I64 I(){return \
+             F(1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x*=c;return x;}I64 I(){return \
+             F(3);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "765" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x|=c;return x;}I64 I(){return \
+             F(256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "511" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x^=c;return x;}I64 I(){return \
+             F(256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "511" );
+          ( "#exe {I64 F(I64 c){I8 x=255;x+=c;return x;}I64 I(){return \
+             F(255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "510" );
+          ( "#exe {I64 F(U8 c){I8 x=c;return x;}I64 I(){return F(255);}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(U8 c,I8 n){I8 x=c;x*=n;return x;}I64 I(){return \
+             F(255,3);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "765" );
+          ( "#exe {I64 F(I64 c,I8 n){I8 x=c;x/=n;return x;}I64 I(){return \
+             F(255,2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(I64 c,I8 n){I8 x=c;x%=n;return x;}I64 I(){return \
+             F(255,2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "1" );
+          ( "#exe {I64 F(I64 c,I64 n){I8 x=c;x&=n;return x;}I64 I(){return \
+             F(-1,255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(I64 c,I64 n){I8 x=c;x|=n;return x;}I64 I(){return \
+             F(255,256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "511" );
+          ( "#exe {I64 F(I64 c,I64 n){I8 x=c;x^=n;return x;}I64 I(){return \
+             F(255,256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "511" );
+          ( "#exe {I64 F(I64 c,I8 n){I8 x=c;x-=n;return x;}I64 I(){return \
+             F(255,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(I64 c,I8 n){I8 x=c;x>>=n;return x;}I64 I(){return \
+             F(255,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(I64 c,I8 n){I8 x=c;x*=n;return x;}I64 I(){return \
+             F(255,3);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "765" );
+          ( "#exe {I64 F(I64 c,I64 n){I8 x=c;x+=n;return x;}I64 I(){return \
+             F(255,256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "511" );
+          ( "#exe {I64 F(I64 c,I64 n){U8 x=c;x<<=n;return x;}I64 I(){return \
+             F(256,256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(I64 c,I8 n){I8 x=c;x+=n;return x;}I64 I(){return \
+             F(255,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(I64 c,I8 n){U8 x=c;x<<=n;return x;}I64 I(){return \
+             F(256,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "512" );
+          ( "#exe {I64 F(I64 c){I8 x=c;x-=1;return x;}I64 I(){return \
+             F(255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "254" );
+          ( "#exe {I64 F(I64 c){I8 x=c;x>>=1;return x;}I64 I(){return \
+             F(255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(I64 c){I8 x=c;x*=3;return x;}I64 I(){return \
+             F(255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "765" );
+          ( "#exe {I64 F(I64 c){I8 x=c;x+=1;return x;}I64 I(){return \
+             F(255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(I64 c){U8 x=c;x<<=1;return x;}I64 I(){return \
+             F(256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "512" );
+          ( "#exe {I64 F(I64 c){I8 x=c;return x;}I64 I(){return F(255);}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(I64 c){U8 x=c;return x;}I64 I(){return F(256);}I64 \
+             S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "256" );
+          ( "#exe {I64 F(I8 x,I8 c){x/=c;return x;}I64 I(){return \
+             F(-128,-1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "128" );
+          ( "#exe {I64 F(U8 x,I8 c){x/=c;return x;}I64 I(){return \
+             F(255,2);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "127" );
+          ( "#exe {I64 F(I8 x,I64 c){x|=c;return x;}I64 I(){return \
+             F(127,256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "383" );
+          ( "#exe {I64 F(I8 x,I64 c){x^=c;return x;}I64 I(){return \
+             F(127,256);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "383" );
+          ( "#exe {I64 F(I8 x,I64 c){x&=c;return x;}I64 I(){return \
+             F(-1,255);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "255" );
+          ( "#exe {I64 F(I8 x,I8 c){I8 *p=&x;*p<<=c;return x;}I64 I(){return \
+             F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+            "-2" );
+          ( "#exe {I64 NR=0;I64 F(I8 x,I64 c){I8 *p=&x;NR++;I64 \
+             a=(*p<<=c);return a*1000+x;}I64 I(){return F(127,65);}I64 S(I64 \
+             n=I()){return n;}StreamPrint(\"%d;\",S()+(NR!=1)*1000000);}",
+            "253998" );
+        ]
+      in
+      let sources =
+        ( "#exe {I64 F(I8 x,I8 c){x<<=c;c++;return x;}I64 I(){return \
+           F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}",
+          "254" )
+        :: sources
+      in
+      List.iter
+        (fun (variable, expected) ->
+          List.iter
+            (fun target ->
+              let baseline = invoke ~target ~status:0 compiler mode variable in
+              let steps = member "executed_steps" baseline |> to_int in
+              let preparation =
+                member "compiled_initializer_steps" baseline |> to_int
+              in
+              require
+                (member "final_value" baseline
+                |> member "value" = `String expected)
+                "retained variable shift result and single call";
+              let exact =
+                if preparation = 0 then
+                  invoke ~target ~steps ~status:0 compiler mode variable
+                else
+                  invoke ~target ~steps ~preparation ~status:0 compiler mode
+                    variable
+              in
+              require
+                (member "outcome" exact = `String "success")
+                "exact retained limits";
+              error
+                (invoke ~target ~steps:(steps - 1) ~status:1 compiler mode
+                   variable)
+                "HCIRVM0007";
+              if preparation > 1 then
+                error
+                  (invoke ~target ~preparation:(preparation - 1) ~status:1
+                     compiler mode variable)
+                  "HCIRVM0007")
+            [ "ir"; "host-jit-task" ])
+        sources;
+      error
+        (invoke ~target:"ir" ~status:1 compiler mode
+           "#exe {I64 F(I8 x,I8 c){x<<=c;x|=256;return x;}I64 I(){return \
+            F(127,1);}I64 S(I64 n=I()){return n;}StreamPrint(\"%d;\",S());}")
+        "HCRUN0006";
       let fault = member "hosted_fault_projection" fixture in
       error
         (invoke ~status:1 compiler mode
@@ -139,5 +566,5 @@ let () =
         (member "hosted_code" fault |> to_string))
     [ "jit"; "aot" ];
   print_endline
-    "38 prepared source projections and retained CLI work/fault boundaries \
+    "47 prepared source projections and retained CLI work/fault boundaries \
      passed."

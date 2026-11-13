@@ -232,7 +232,8 @@ let capture_authority_case expire =
                   (fun (word : Image.word) ->
                     match word.type_ with
                     | Image.I64 -> Task.Native_dispatch.I64 word.bits
-                    | U64 -> Task.Native_dispatch.U64 word.bits)
+                    | U64 -> Task.Native_dispatch.U64 word.bits
+                    | F64 -> Task.Native_dispatch.F64 word.bits)
                   result.final_value)));
     }
   in

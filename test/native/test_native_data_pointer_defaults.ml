@@ -80,7 +80,7 @@ let faults () =
   List.iter (fun (source, code) -> diagnostic code (run source)) Cases.faults
 
 let quotas () =
-  let text = "I64 F(U8 *p=\"(\"){return ++*p;}F();F();" in
+  let text = "I64 F(U8 *p=\"(\"){return ++(*p);}F();F();" in
   let baseline = run text in
   value 42L baseline;
   let code, ir =
@@ -234,7 +234,8 @@ let capture_authority () =
                   (fun (word : Image.word) ->
                     match word.type_ with
                     | Image.I64 -> Dispatch.I64 word.bits
-                    | U64 -> Dispatch.U64 word.bits)
+                    | U64 -> Dispatch.U64 word.bits
+                    | F64 -> Dispatch.F64 word.bits)
                   result.final_value)));
     }
   in

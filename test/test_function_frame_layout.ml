@@ -217,11 +217,12 @@ let fixed_parameters_and_variadic_slots () =
     (Frame.location_allocated_size argv);
   let gap = prepared |> layout |> fun frames -> frame_named frames "Gap" in
   Alcotest.(check (list string))
-    "unnamed fixed slot has no invented binding"
-    [ "named"; "tail"; "argc"; "argv" ]
+    "unnamed fixed slot owns its source member"
+    [ "named"; "_anon_"; "tail"; "argc"; "argv" ]
     (location_names gap);
   Alcotest.(check (list int64))
-    "unnamed slot still advances varargs cursor" [ 16L; 32L; 40L; 48L ]
+    "unnamed slot and variadic cursor retain source offsets"
+    [ 16L; 24L; 32L; 40L; 48L ]
     (locations gap |> List.map displacement)
 
 let local_size_alignment_classes () =

@@ -73,8 +73,9 @@ and aliases can change it before the read.
 An exact terminal U8 declaration leaf erases a compound's full-versus-narrow
 result difference. Thus `U8 H=(G+=10)` can be admitted even when an I64 sink
 would be rejected. The exemption does not pass through arbitrary arithmetic,
-assignment results or callees. A source-discarded memory update can similarly
-preserve storage effects without exposing its register result.
+assignment results or callees. A source-discarded memory update can similarly preserve storage effects. An
+original retained addressed left shift also preserves its full expression result
+while storing the low bytes; the source and destination proofs remain required.
 
 Bit updates need a separate check. Native discarded `|=256`, `^=256`, or
 `&=~256` can address a bit outside the byte. Apparent source uses can disappear

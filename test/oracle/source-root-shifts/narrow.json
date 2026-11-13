@@ -1,0 +1,18 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "642130354a8a014245574ba118c41f6d6cf68efb58167aada6a8c9808fdf36d7",
+  "capture_sha256": "3eeca7bcbb44791a9d707dc967b5e05678d82945f899fef369650851bfb67ec9",
+  "boot_iso_sha256": "ba04a8e0d925e1be237218eba91622e659b4cb7adcefaf2b1167563678a6e5e1",
+  "fields": {
+    "JIT_SIGNED": "-4",
+    "JIT_UNSIGNED": "124",
+    "JIT_DYN_SIGNED": "-4",
+    "JIT_DYN_UNSIGNED": "124",
+    "COMPILE_ERRORS": "0",
+    "AOT_SIGNED": "-4",
+    "AOT_UNSIGNED": "124",
+    "AOT_DYN_SIGNED": "-4",
+    "AOT_DYN_UNSIGNED": "124"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of narrow integer initializer shifts."
+}

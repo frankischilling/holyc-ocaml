@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "f8ff421c98ee93f159b97465778b954f4e9e7842189dc07e780feb18f25882b6",
+  "boot_payload_sha256": "546bcca36f884bfc09af92ef296b6c669c8f4c01f78ce733c134106739acd8e3",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "7a8037f4fdd00aca8349c4573a2fdfb501325a5b8d24a86bbd99b48a6ca439d4",
+  "boot_iso_sha256": "5666ab998822592198d88b3cdcf6d76565ff98527f60962b28bcf14e96c3e970",
+  "fields": {
+    "VALUE": "0",
+    "STORED": "0",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of a wide local returned through a divisor callee. The stored source omits trailing spaces used to pad the boot payload."
+}

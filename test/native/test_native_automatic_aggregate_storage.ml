@@ -94,74 +94,86 @@ let faults () =
 let quotas () =
   List.iter
     (fun mode ->
-      let baseline = value 42L "" (run mode Cases.quota_source) in
-      let steps = baseline.execution.executed_steps in
-      let fixture =
-        Native_scalar_fixture.compile ~mode ~path:"aggregate-quota.hc"
-          ~contents:Cases.quota_source ()
-        |> checked
-      in
-      let frame =
-        Holyc_lib__Driver.Integer_unit.functions fixture.unit_
-        |> List.map (fun (f : VM.function_definition) ->
-            Semantic_function_frame_layout.function_frame_size f.frame
-            |> Int64.to_int)
-        |> List.fold_left max 0
-      in
       ignore
-        (value 42L ""
-           (run ~max_frame_bytes:frame ~max_steps:steps mode Cases.quota_source));
-      let fault kind report =
-        match Native_program.native_outcome report with
-        | Some (P.Fault f) ->
-            Alcotest.(check bool)
-              "one below reaches native guard" true (f.kind = kind)
-        | _ -> Alcotest.fail "one below did not fault"
-      in
-      fault P.Frame_limit_exceeded
-        (run ~max_frame_bytes:(frame - 1) mode Cases.quota_source);
-      fault P.Step_limit_exceeded
-        (run ~max_steps:(steps - 1) mode Cases.quota_source))
+        (value 42L "" (run ~max_frame_bytes:1 mode Cases.empty_quota_source));
+      List.iter
+        (fun contents ->
+          let baseline = value 42L "" (run mode contents) in
+          let steps = baseline.execution.executed_steps in
+          let fixture =
+            Native_scalar_fixture.compile ~mode ~path:"aggregate-quota.hc"
+              ~contents ()
+            |> checked
+          in
+          let frame =
+            Holyc_lib__Driver.Integer_unit.functions fixture.unit_
+            |> List.map (fun (f : VM.function_definition) ->
+                Semantic_function_frame_layout.function_frame_size f.frame
+                |> Int64.to_int)
+            |> List.fold_left max 0
+          in
+          ignore
+            (value 42L ""
+               (run ~max_frame_bytes:frame ~max_steps:steps mode contents));
+          let fault kind report =
+            match Native_program.native_outcome report with
+            | Some (P.Fault f) ->
+                Alcotest.(check bool)
+                  "one below reaches native guard" true (f.kind = kind)
+            | _ -> Alcotest.fail "one below did not fault"
+          in
+          fault P.Frame_limit_exceeded
+            (run ~max_frame_bytes:(frame - 1) mode contents);
+          fault P.Step_limit_exceeded (run ~max_steps:(steps - 1) mode contents))
+        [ Cases.quota_source; Cases.initializer_quota_source ])
     modes
 
 let images () =
   List.iter
-    (fun mode ->
+    (fun contents ->
       List.iter
-        (fun status_abi ->
-          let compile ?max_stack_bytes ?max_code_bytes () =
-            let session, config, source = inputs mode Cases.quota_source in
-            Native_program.compile ?max_stack_bytes ?max_code_bytes ~status_abi
-              session ~config ~source
-          in
-          let image = (compile () |> checked).value in
-          let frame = P.frame_bytes image and code = P.code_bytes image in
-          ignore
-            (compile ~max_stack_bytes:frame ~max_code_bytes:code () |> checked);
-          Alcotest.(check bool)
-            "byte initialization metadata stack one below" true
-            (Result.is_error (compile ~max_stack_bytes:(frame - 1) ()));
-          Alcotest.(check bool)
-            "encoded image bytes one below" true
-            (Result.is_error (compile ~max_code_bytes:(code - 1) ()));
-          let host =
-            match Native_program_execution.platform () with
-            | Native_program_execution.Windows_x86_64 -> P.Windows_x64
-            | _ -> P.System_v_x64
-          in
-          if status_abi = host then
-            for _ = 1 to 2 do
-              match
-                Native_program_execution.execute ~max_steps:100_000 image
-              with
-              | Ok (P.Completed result) ->
-                  Alcotest.(check int64)
-                    "fresh object image" 42L
-                    (Option.get result.final_value).bits
-              | _ -> Alcotest.fail "native object image failed"
-            done)
-        [ P.Windows_x64; P.System_v_x64 ])
-    modes
+        (fun mode ->
+          List.iter
+            (fun status_abi ->
+              let compile ?max_stack_bytes ?max_code_bytes () =
+                let session, config, source = inputs mode contents in
+                Native_program.compile ?max_stack_bytes ?max_code_bytes
+                  ~status_abi session ~config ~source
+              in
+              let image = (compile () |> checked).value in
+              let frame = P.frame_bytes image and code = P.code_bytes image in
+              ignore
+                (compile ~max_stack_bytes:frame ~max_code_bytes:code ()
+                |> checked);
+              Alcotest.(check bool)
+                "byte initialization metadata stack one below" true
+                (Result.is_error (compile ~max_stack_bytes:(frame - 1) ()));
+              Alcotest.(check bool)
+                "encoded image bytes one below" true
+                (Result.is_error (compile ~max_code_bytes:(code - 1) ()));
+              let host =
+                match Native_program_execution.platform () with
+                | Native_program_execution.Windows_x86_64 -> P.Windows_x64
+                | _ -> P.System_v_x64
+              in
+              if status_abi = host then
+                for _ = 1 to 2 do
+                  match
+                    Native_program_execution.execute ~max_steps:100_000 image
+                  with
+                  | Ok (P.Completed result) ->
+                      Alcotest.(check int64)
+                        "fresh object image" 42L
+                        (Option.get result.final_value).bits
+                  | _ -> Alcotest.fail "native object image failed"
+                done)
+            [ P.Windows_x64; P.System_v_x64 ])
+        modes)
+    [
+      Cases.quota_source;
+      Cases.empty_quota_source;
+      Cases.initializer_quota_source;
+    ]
 
 let boundaries () =
   List.iter
@@ -173,16 +185,71 @@ let boundaries () =
             (Result.is_error (Native_program.outcome (run mode contents))))
         Cases.unsupported)
     modes;
-  let session, config, source = inputs Preprocessor.Jit Cases.quota_source in
-  let report =
-    Native_source_execution.evaluate session ~config ~source ~max_steps:100_000
-  in
-  let result = Native_source_execution.outcome report |> checked in
-  Alcotest.(check (option int64))
-    "original retained class owns its native frame" (Some 42L)
-    (Option.map
-       (fun word -> word.Native_source_execution.bits)
-       result.value.final_value)
+  List.iter
+    (fun contents ->
+      let session, config, source = inputs Preprocessor.Jit contents in
+      let report =
+        Native_source_execution.evaluate session ~config ~source
+          ~max_steps:100_000
+      in
+      let result = Native_source_execution.outcome report |> checked in
+      Alcotest.(check (option int64))
+        "original retained class owns its native frame" (Some 42L)
+        (Option.map
+           (fun word -> word.Native_source_execution.bits)
+           result.value.final_value))
+    [
+      Cases.quota_source;
+      Cases.empty_quota_source;
+      Cases.initializer_quota_source;
+    ]
+
+let empty_proofs () =
+  List.iter
+    (fun mode ->
+      let original, invalid =
+        Aggregate_member_fixture.empty_frame_controls mode
+      in
+      let compile definition =
+        P.compile_callable ~max_ir_instructions:4096 ~max_code_bytes:65_536
+          ~runtime_calls:(integer_program_runtime_calls original)
+          ~initialization:(integer_program_initialization original)
+          ~entry:(integer_program_entry original)
+          ~functions:[ definition ] ()
+      in
+      (match compile (Aggregate_member_fixture.first_definition original) with
+      | Ok image -> (
+          match Native_program_execution.execute ~max_steps:100_000 image with
+          | Ok (P.Completed value) ->
+              Alcotest.(check (option int64))
+                "original empty root image executes" (Some 42L)
+                (Option.map (fun word -> word.P.bits) value.final_value)
+          | _ -> Alcotest.fail "original empty root image failed")
+      | Error _ -> Alcotest.fail "original empty root image did not compile");
+      List.iter
+        (fun (name, definition) ->
+          Alcotest.(check bool) name true (Result.is_error (compile definition)))
+        invalid)
+    modes
+
+let source_case contents expected output () =
+  List.iter
+    (fun mode ->
+      let session, config, source = inputs mode contents in
+      let report =
+        Native_source_execution.evaluate ~max_code_bytes:524288 session ~config
+          ~source ~max_steps:100_000
+      in
+      let result = Native_source_execution.outcome report |> checked in
+      Alcotest.(check (option int64))
+        "original source frame word" (Some expected)
+        (Option.map
+           (fun word -> word.Native_source_execution.bits)
+           result.value.final_value);
+      Alcotest.(check string)
+        "source frame output" output
+        (Native_source_execution.output_bytes report))
+    modes
 
 let () =
   Alcotest.run "native automatic aggregate storage"
@@ -191,7 +258,13 @@ let () =
         List.map
           (fun (name, contents, expected, output) ->
             Alcotest.test_case name `Quick (case contents expected output))
-          (Cases.values @ Cases.view_matrix) );
+          (Cases.values @ Cases.view_matrix @ Cases.initializer_matrix) );
+      ( "source values",
+        List.map
+          (fun (name, contents, expected, output) ->
+            Alcotest.test_case name `Quick
+              (source_case contents expected output))
+          Cases.source_values );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, bounds and independent activations"
@@ -200,6 +273,8 @@ let () =
             quotas;
           Alcotest.test_case "both ABIs, exact image limits and fresh execution"
             `Quick images;
+          Alcotest.test_case "original empty frame root authority" `Quick
+            empty_proofs;
           Alcotest.test_case "metadata and numeric bits do not grant storage"
             `Quick boundaries;
         ] );

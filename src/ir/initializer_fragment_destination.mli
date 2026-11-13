@@ -19,3 +19,7 @@ val layout : t -> Integer_initializer_layout.entry
 val storage : t -> Integer_globals.storage_slot
 val reference : t -> Retained_global.t
 val span : t -> Common.Span.t
+val discards_value : t -> bool
+val requires_evaluation : t -> bool
+val stores_pointer : t -> bool
+val stores_same_f64 : t -> bool

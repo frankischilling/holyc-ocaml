@@ -96,7 +96,7 @@ let initializer_failure_settles_once () =
     (Option.is_some parsed.ast);
   Alcotest.(check bool) "original initializer leaf was reached" true !reached
 
-let fixture ?contents ?(statics = false) mode =
+let fixture ?contents ?(statics = false) ?(isolated = false) mode =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-initializer-authority.hc"
@@ -164,7 +164,8 @@ let fixture ?contents ?(statics = false) mode =
       declaration =
         Some
           (fun event ->
-            Result.bind (D.observe ledger event) (fun () ->
+            Result.bind (D.observe ~isolated_initializers:isolated ledger event)
+              (fun () ->
                 match event with
                 | Parser.Global_initializer_started receipt ->
                     Alcotest.(check bool)
@@ -187,6 +188,9 @@ let fixture ?contents ?(statics = false) mode =
                 | Parser.Global_initializer_leaf_completed receipt ->
                     check_suspended
                       ~during:(fun () ->
+                        reject "suspended parent cannot expose cursor metadata"
+                          (D.observed_global_initializer_destination ledger
+                             receipt);
                         reject "suspended parent cannot prepare its leaf"
                           (Preparation.prepare_initializer preparation ~session
                              ~ledger receipt))
@@ -198,6 +202,11 @@ let fixture ?contents ?(statics = false) mode =
                     Alcotest.(check bool)
                       "cloned global receipt" false
                       (Parser.initializer_leaf_is_current clone);
+                    reject "cloned global receipt cannot expose cursor metadata"
+                      (D.observed_global_initializer_destination ledger clone);
+                    ignore
+                      (D.observed_global_initializer_destination ledger receipt
+                      |> diagnostics);
                     reject "cloned global receipt cannot prepare"
                       (Preparation.prepare_initializer preparation ~session
                          ~ledger clone);
@@ -246,6 +255,11 @@ let fixture ?contents ?(statics = false) mode =
                     Alcotest.(check bool)
                       "cloned static receipt" false
                       (Parser.static_initializer_is_current clone);
+                    reject "cloned static receipt cannot expose cursor metadata"
+                      (D.observed_static_initializer_destination ledger clone);
+                    ignore
+                      (D.observed_static_initializer_destination ledger receipt
+                      |> diagnostics);
                     reject "cloned receipt cannot prepare"
                       (Preparation.prepare_static preparation ~session ~ledger
                          clone);
@@ -299,8 +313,12 @@ let fixture ?contents ?(statics = false) mode =
         "original static completed" true
         (Option.is_some
            (Parser.static_initializer_completed_declarator receipt));
+      reject "expired static cannot expose observed cursor metadata"
+        (D.observed_static_initializer_destination ledger receipt);
       reject "expired static cannot prepare"
-        (Preparation.prepare_static preparation ~session ~ledger receipt))
+        (Preparation.prepare_static preparation ~session ~ledger receipt);
+      reject "expired static cannot supply native cursor metadata"
+        (D.native_static_initializer_destination ledger receipt))
     (Preparation.static_initializers preparation);
   let ast = Option.get output.ast in
   let source_command = D.seal_source ledger ast |> diagnostics in
@@ -312,6 +330,8 @@ let fixture ?contents ?(statics = false) mode =
   in
   List.iter
     (fun receipt ->
+      reject "expired global cannot expose observed cursor metadata"
+        (D.observed_global_initializer_destination ledger receipt);
       reject "expired source callback"
         (D.native_initializer_fragment ledger ~runtime receipt);
       reject "expired source load callback"
@@ -489,6 +509,241 @@ let static_ownership ?contents () =
            ~max_initializer_steps:(steps - 1) ()))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let check_static_load_ownership contents =
+  let make () = fixture ~contents ~isolated:true Preprocessor.Aot in
+  let span, prepared, compile = make () in
+  let evidence = Preparation.static_initializers prepared in
+  let globals = Preparation.initializers prepared in
+  let completions = Preparation.static_completions prepared in
+  let unit_ =
+    compile ~native_initializers:globals ~native_static_initializers:evidence ()
+    |> diagnostics
+  in
+  let seal ?(static_completions = completions) unit_ =
+    proof ~static_completions span
+      (Preparation.initializer_completions prepared)
+      unit_
+  in
+  let sealed = seal unit_ |> checked in
+  Alcotest.(check int)
+    "two original static load leaves" 2
+    (List.filter Initializers.native_static_is_load evidence |> List.length);
+  List.iter
+    (fun status_abi ->
+      ignore
+        (emit ~global_initializers:sealed ~status_abi unit_
+        |> Result.map_error (fun _ -> "static load ABI encoding failed")
+        |> checked))
+    [ Image.Windows_x64; Image.System_v_x64 ];
+  reject "static load emission requires the sealed bundle" (emit unit_);
+  reject "static load completion cannot be omitted"
+    (seal ~static_completions:[] unit_);
+  reject "static load completions preserve original order"
+    (seal ~static_completions:(List.rev completions) unit_);
+  List.iter
+    (fun mutate ->
+      let _, fresh, compile = make () in
+      reject
+        "static load proofs reject missing, repeated, reordered and foreign \
+         leaves"
+        (compile
+           ~native_initializers:(Preparation.initializers fresh)
+           ~native_static_initializers:
+             (mutate (Preparation.static_initializers fresh))
+           ()))
+    [
+      (fun _ -> []);
+      List.tl;
+      (fun xs -> List.hd xs :: xs);
+      List.rev;
+      (fun _ -> evidence);
+    ];
+  let reconstructed =
+    compile ~native_initializers:globals
+      ~native_static_initializers:
+        (List.map (fun value -> Obj.obj (Obj.dup (Obj.repr value))) evidence)
+      ()
+    |> diagnostics
+  in
+  reject "copied load proof cannot replace an original completion"
+    (seal reconstructed);
+  let initialization = Unit.initialization unit_ in
+  let regions = Ir_global_initialization.static_regions initialization in
+  let region = List.hd regions in
+  let slot = Ir_global_initialization.static_slot region in
+  let description = Ir_global_initialization.describe_static region in
+  let globals = Unit.globals unit_ in
+  Alcotest.(check bool)
+    "original static address belongs to its load region" true
+    (Proof.owns_static_load_address sealed ~globals ~slot
+       ~instruction:description.first);
+  let other =
+    Ir_integer_globals.statics globals
+    |> List.find (fun other ->
+        Ir_integer_globals.static_frame other
+        != Ir_integer_globals.static_frame slot)
+  in
+  Alcotest.(check bool)
+    "another function's static is unavailable in this region" false
+    (Proof.owns_static_load_address sealed ~globals ~slot:other
+       ~instruction:description.first);
+  let outside =
+    let ending =
+      Ir_global_initialization.describe_static (List.hd (List.rev regions))
+    in
+    Ir_instruction_sequence.Instruction_id.of_int
+      (Ir_instruction_sequence.Instruction_id.to_int ending.last + 1)
+    |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "address permission ends with the original load region" false
+    (Proof.owns_static_load_address sealed ~globals ~slot ~instruction:outside)
+
+let static_load_ownership () =
+  List.iter check_static_load_ownership
+    [
+      "I64 calls=0;I64 Next(){return ++calls;}extern class Item;class Box{Item \
+       item;U8 tail;$$=8;};I64 F(){static Box object={Next(),42};static U8 \
+       n=object.tail;return n;}I64 G(){static U8 other=41;return other;}class \
+       Item{U16 value;};F();";
+      "I64 calls=0;I64 Next(){return ++calls;}class Box{U0 item;I64 tail;};I64 \
+       F(){static Box object={Next(),0x112233445566772a};static U8 \
+       n=object.tail;return n;}I64 G(){static U8 other=41;return other;}F();";
+    ]
+
+let pointer_load_ownership () =
+  let contents =
+    {|class Box{U8 tag;U8 *text;};Box first={7,"AB"},second={9,("CD"+1)};
+I64 F(){static Box saved={3,"EF"};return first.text[1]+second.text[0]+saved.text[1];}F();|}
+  in
+  let make () = fixture ~contents ~isolated:true Preprocessor.Aot in
+  let span, prepared, compile = make () in
+  let globals = Preparation.initializers prepared in
+  let statics = Preparation.static_initializers prepared in
+  let compile globals statics =
+    compile ~native_initializers:globals ~native_static_initializers:statics ()
+  in
+  let unit_ = compile globals statics |> diagnostics in
+  let seal unit_ =
+    proof
+      ~static_completions:(Preparation.static_completions prepared)
+      span
+      (Preparation.initializer_completions prepared)
+      unit_
+  in
+  let sealed = seal unit_ |> checked in
+  List.iter
+    (fun status_abi ->
+      ignore
+        (emit ~global_initializers:sealed ~status_abi unit_
+        |> Result.map_error (fun _ -> "pointer load ABI encoding failed")
+        |> checked))
+    [ Image.Windows_x64; Image.System_v_x64 ];
+  reject "pointer loads require original completion bundle" (emit unit_);
+  List.iter
+    (fun mutation ->
+      let change values =
+        match mutation with
+        | `Missing -> []
+        | `Reverse -> List.rev values
+        | `Repeat -> List.hd values :: values
+      in
+      reject "pointer global leaves retain original order and count"
+        (compile (change globals) statics);
+      reject "pointer static leaves retain original order and count"
+        (compile globals (change statics)))
+    [ `Missing; `Reverse; `Repeat ];
+  let copied =
+    compile (List.map (fun p -> Obj.obj (Obj.dup (Obj.repr p))) globals) statics
+    |> diagnostics
+  in
+  reject "copied pointer load evidence cannot replace original completion"
+    (seal copied);
+  let _, other, other_compile = make () in
+  let foreign =
+    other_compile
+      ~native_initializers:(Preparation.initializers other)
+      ~native_static_initializers:(Preparation.static_initializers other)
+      ()
+    |> diagnostics
+  in
+  reject "equal-source foreign pointer load bundle"
+    (emit ~global_initializers:sealed foreign)
+
+let empty_array_ownership () =
+  let contents =
+    {|U8 A[]="AB",B[]="CD";I64 Empty[]={};
+I64 F(){static U8 C[]="EF",D[]="GH";static I64 words[]={};
+return sizeof(A)+sizeof(B)+sizeof(C)+sizeof(D)+sizeof(Empty)+sizeof(words);}F();|}
+  in
+  List.iter
+    (fun mode ->
+      let make () = fixture ~contents ~isolated:true mode in
+      let span, prepared, compile = make () in
+      let globals = Preparation.initializers prepared in
+      let statics = Preparation.static_initializers prepared in
+      Alcotest.(check int)
+        "two original global empty copies" 2 (List.length globals);
+      Alcotest.(check int)
+        "two original static empty copies" 2 (List.length statics);
+      Alcotest.(check int)
+        "empty copies charge no invented work" 0
+        (Preparation.work prepared);
+      let compile globals statics =
+        compile ~native_initializers:globals ~native_static_initializers:statics
+          ()
+      in
+      let unit_ = compile globals statics |> diagnostics in
+      let seal ?(completions = Preparation.initializer_completions prepared)
+          ?(static_completions = Preparation.static_completions prepared) unit_
+          =
+        proof ~static_completions span completions unit_
+      in
+      let sealed = seal unit_ |> checked in
+      List.iter
+        (fun status_abi ->
+          ignore
+            (emit ~global_initializers:sealed ~status_abi unit_
+            |> Result.map_error (fun _ -> "empty array ABI encoding failed")
+            |> checked))
+        [ Image.Windows_x64; Image.System_v_x64 ];
+      reject "empty global copies still require their completion receipts"
+        (seal ~completions:[] unit_);
+      reject "empty static copies still require their completion receipts"
+        (seal ~static_completions:[] unit_);
+      List.iter
+        (fun mutation ->
+          let change values =
+            match mutation with
+            | `Missing -> []
+            | `Reverse -> List.rev values
+            | `Repeat -> List.hd values :: values
+          in
+          reject "empty global copy order and count"
+            (compile (change globals) statics);
+          reject "empty static copy order and count"
+            (compile globals (change statics)))
+        [ `Missing; `Reverse; `Repeat ];
+      let copied =
+        compile
+          (List.map (fun p -> Obj.obj (Obj.dup (Obj.repr p))) globals)
+          statics
+        |> diagnostics
+      in
+      reject "copied empty preparation cannot replace original completion"
+        (seal copied);
+      let _, other, other_compile = make () in
+      let foreign =
+        other_compile
+          ~native_initializers:(Preparation.initializers other)
+          ~native_static_initializers:(Preparation.static_initializers other)
+          ()
+        |> diagnostics
+      in
+      reject "foreign empty array bundle"
+        (emit ~global_initializers:sealed foreign))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let array_ownership () =
   let contents =
     "I16 G[2][2]={{40,0},{0,2}};I64 F(){static U8 \
@@ -644,23 +899,25 @@ let failed_preparation () =
            ("I64 A=40;I64 F(I64 n=1/0){return n;}42;", "HCIRVM0009");
            ("I64 A=40;I64 B=0&&(1/0);42;", "HCIRVM0009");
            ("I64 A=40;I64 B=1/0;I64 C=1<<2;42;", "HCIRVM0009");
-           ("I64 A=40;I64 B=A<<2;42;", "HCRUN0006");
+           ("I64 A=40;I64 F(I64 p){static I64 O=p<<2;return O;}42;", "HCRUN0006");
            ("I64 A=40;42;I64 B=2;", "HCRUN0001");
            ("I64 A=40;I64 F(){static I8 n=1/0;return n;}42;", "HCIRVM0009");
            ("I64 F(){static I8 n=40;return n;}I64 B=1/0;42;", "HCIRVM0009");
            ("I64 F(){return 1;static I8 n=1/0;}42;", "HCIRVM0009");
            ("I64 F(){static I8 n=40 junk;return n;}42;", "HCPARSE0102");
-           ("I64 A=40;I64 F(){static I8 n=A;return n;}42;", "HCRUN0006");
-           ( "I64 A=40;I64 H(){return 2;}I64 F(){static I8 n=H();return n;}42;",
-             "HCRUN0006" );
            ("I64 A=40;I64 F(){static I8 n={2};return n;}42;", "HCRUN0001");
            ("I64 A=40;I64 F(){static I8 n=\"a\";return n;}42;", "HCRUN0006");
-           ("I64 A=40;I64 F(){static I8 n=A<<2;return n;}42;", "HCRUN0006");
+           ("I64 A=40;I64 F(I64 p){static I8 n=p<<2;return n;}42;", "HCRUN0006");
            ("I64 A=40;42;I64 F(){static I8 n=2;return n;}", "HCRUN0001");
          ]
         @
         if mode = Preprocessor.Jit then
-          [ ("I64 A=40;I64 B=A;42;", "HCRUN0006") ]
+          [
+            ("I64 A=40;I64 B=A;42;", "HCRUN0006");
+            ("I64 A=40;I64 F(){static I8 n=A;return n;}42;", "HCRUN0006");
+            ( "I64 A=40;I64 H(){return 2;}I64 F(){static I8 n=H();return n;}42;",
+              "HCRUN0006" );
+          ]
         else []))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -760,6 +1017,55 @@ let () =
                 [ "U8"; "F64"; "U0"; "I64 ****" ]);
           Alcotest.test_case "static original preparation and bundle ownership"
             `Quick (fun () -> static_ownership ());
+          Alcotest.test_case "static load source, bundle and region ownership"
+            `Quick static_load_ownership;
+          Alcotest.test_case
+            "non-power static division roots retain original authority" `Quick
+            (fun () ->
+              List.iter check_static_load_ownership
+                [
+                  "I64 N=-7;I64 F(){static I64 A=N%3,B=N/3;return A+B+45;}I64 \
+                   G(){static I64 C=41;return C;}F();";
+                  "I64 N=-7;I64 F(){static I64 A=N%-3,B=N/-3;return \
+                   A+B+41;}I64 G(){static I64 C=41;return C;}F();";
+                  "I64 N=-7;I64 F(){static I64 A=N%-1,B=N/-1;return \
+                   A+B+35;}I64 G(){static I64 C=41;return C;}F();";
+                  "I64 N=-7;I64 F(){static I64 \
+                   A=N%(-9223372036854775807-1),B=N%(-9223372036854775807-1);return \
+                   A+B+56;}I64 G(){static I64 C=41;return C;}F();";
+                  "I64 N=-7;I64 Get(I64 n){return n;}I64 F(){static I64 \
+                   A=Get((-N)%-3),B=Get((-N)/-3);return A+B+43;}I64 G(){static \
+                   I64 C=41;return C;}F();";
+                ]);
+          Alcotest.test_case "static scoped shifts retain original authority"
+            `Quick (fun () ->
+              check_static_load_ownership
+                "I64 N=7,C=1;I64 Get(I64 n){return n;}I64 F(){static I64 \
+                 A=Get((-N)<<C),B=Get(Get(N>>C));return A+B+53;}I64 G(){static \
+                 I64 D=41;return D;}F();");
+          Alcotest.test_case "global root shifts retain original load authority"
+            `Quick (fun () ->
+              List.iter
+                (fun contents ->
+                  ownership ~modes:[ Preprocessor.Aot ] ~contents ())
+                [
+                  "I64 N=7;I64 O=N<<1;O;";
+                  "U8 U=1;I64 N=7;I64 Get(I64 n){return n;}I64 O=Get(U<<N);O;";
+                ]);
+          Alcotest.test_case
+            "non-power global division roots retain original load authority"
+            `Quick (fun () ->
+              List.iter
+                (fun contents ->
+                  ownership ~modes:[ Preprocessor.Aot ] ~contents ())
+                [
+                  "I64 N=-7;I64 A=N%3;I64 B=N/3;A+B+45;";
+                  "I64 N=-7;I64 A=N%-3;I64 B=N/-3;A+B+41;";
+                  "I64 N=-7;I64 A=N%-1;I64 B=N/-1;A+B+35;";
+                  "I64 N=-7;I64 A=N%2;I64 B=N%4;A+B+46;";
+                  "U64 N=7;U64 A=N/3;U64 B=N%3;A+B+39;";
+                  "I64 N=-7;I64 Get(I64 n){return n;}I64 A=Get(N%3);A+43;";
+                ]);
           Alcotest.test_case
             "folded global leaves retain original preparation authority" `Quick
             (fun () ->
@@ -773,6 +1079,10 @@ let () =
                   "I8 A=255<<1;I64 F(){static I8 n=1<<2;return ++n;}I64 \
                    G(){static I8 n=3<<1;return n;}F();F();"
                 ());
+          Alcotest.test_case "owned pointer load source and bundle ownership"
+            `Quick pointer_load_ownership;
+          Alcotest.test_case "empty arrays retain original zero-work ownership"
+            `Quick empty_array_ownership;
           Alcotest.test_case "numeric and copied array leaf ownership" `Quick
             array_ownership;
           Alcotest.test_case "prepared arrays publish before native entry"

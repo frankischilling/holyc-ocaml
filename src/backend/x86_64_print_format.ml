@@ -75,7 +75,10 @@ let quote_hex_value = quote_peek + 1
 let quote_hex_digits = quote_hex_value + 1
 let aux_value = quote_hex_digits + 1
 let packed_original = aux_value + 1
-let fixed_scratch_slots = packed_original + 1
+let saved_rsi = packed_original + 1
+let saved_rdi = saved_rsi + 1
+let saved_r10 = saved_rdi + 1
+let fixed_scratch_slots = saved_r10 + 1
 let flag_left = 1L
 let flag_zero = 2L
 let flag_comma = 4L
@@ -100,7 +103,8 @@ let argument_kind_tag = function
 
 let provider_scratch_slots = fixed_scratch_slots
 
-let emit_internal ?provider emitter (call : t) =
+let emit_internal ?provider ?(reference_guard = fun _ -> ()) emitter (call : t)
+    =
   let count = Array.length call.argument_kinds in
   let scratch_count = scratch_slots count in
   if
@@ -195,6 +199,7 @@ let emit_internal ?provider emitter (call : t) =
     out (E.Cmp_imm8 (E.Rax, 3));
     jump Equal pointer_fault;
     load E.Rdx current_pointer;
+    reference_guard E.Rdx;
     out (E.Load_indirect (E.Rax, E.Rdx, 16));
     out (E.Test E.Rax);
     jump Less bounds_fault;
@@ -1518,22 +1523,32 @@ let emit_internal ?provider emitter (call : t) =
       jump Equal (fault 28);
       store current_word E.Rax;
       store current_pointer E.R11;
+      store saved_r10 E.R10;
       store current_offset E.R9;
-      (* R10 holds the live remaining instruction allowance. Publish it before
-         the host callback and reload it after any admitted child execution. *)
+      (* Provider and unpinned frames may suspend a caller that owns RSI/RDI.
+         Dedicated slots keep these values out of the parser scratch state. *)
+      store saved_rsi E.Rsi;
+      store saved_rdi E.Rdi;
+      (* Publish executed work before the host callback. A child may reduce
+         allowance[2], so recompute remaining[35] from that updated allowance. *)
       out (E.Load_context (E.Rax, 16));
-      out (E.Binary (E.Sub, E.Rax, E.R10));
+      out (E.Callable_load_context (E.Rcx, 280));
+      out (E.Binary (E.Sub, E.Rax, E.Rcx));
       out (E.Store_context (24, E.Rax));
       load E.Rax draft_length;
       out (E.Store_context (160, E.Rax));
       out (E.Source_arguments emitter.status_abi);
       out (E.Call_stack (stage current_word));
+      load E.Rsi saved_rsi;
+      load E.Rdi saved_rdi;
       store current_kind E.Rax;
       load E.R11 current_pointer;
       load E.R9 current_offset;
-      out (E.Load_context (E.R10, 16));
+      out (E.Load_context (E.Rax, 16));
       out (E.Load_context (E.Rcx, 24));
-      out (E.Binary (E.Sub, E.R10, E.Rcx));
+      out (E.Binary (E.Sub, E.Rax, E.Rcx));
+      out (E.Callable_store_context (280, E.Rax));
+      load E.R10 saved_r10;
       out (E.Load_context (E.Rcx, 0));
       out (E.Test E.Rcx);
       jump Not_equal (fault 29);
@@ -1552,15 +1567,16 @@ let emit_internal ?provider emitter (call : t) =
     out (E.Binary (E.Add, E.Rcx, E.Rax));
     out (E.Store_context (written, E.Rcx)))
 
-let emit emitter call = emit_internal emitter call
+let emit ?reference_guard emitter call =
+  emit_internal ?reference_guard emitter call
 
-let emit_provider emitter (input : provider_input) =
+let emit_provider ?reference_guard emitter (input : provider_input) =
   if
     input.format_stage < 0 || input.count_stage < 0 || input.arguments_stage < 0
     || input.kinds_stage < 0 || input.scratch_stage < 0
     || input.scratch_stage > max_int - provider_scratch_slots
   then invalid_arg "native Print provider has invalid private input storage";
-  emit_internal ~provider:input emitter
+  emit_internal ~provider:input ?reference_guard emitter
     {
       target = input.target;
       format_stage = input.format_stage;

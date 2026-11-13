@@ -137,8 +137,8 @@ let declaration_fact ?namespace ~table ~declarations ~module_ ~record_heads
             Sema.Function_resolution.make_declaration_with_options
               ~compiler_option_mask ~function_ ~kind:ast.identity_kind)
 
-let declaration_facts ?namespace ~table ~record_heads ~compiler_option_mask
-    declarations functions module_ =
+let declaration_facts ?namespace ?compiler_options ~table ~record_heads
+    ~compiler_option_mask declarations functions module_ =
   match ast_declarations module_ with
   | Error _ as error -> error
   | Ok ast ->
@@ -148,9 +148,15 @@ let declaration_facts ?namespace ~table ~record_heads ~compiler_option_mask
         match (entries, functions, ast) with
         | [], [], [] -> Ok (List.rev facts_rev)
         | entry :: entry_rest, function_ :: function_rest, ast :: ast_rest -> (
+            let selected =
+              match compiler_options with
+              | None -> Ok compiler_option_mask
+              | Some options -> options ast.name
+            in
             match
-              declaration_fact ?namespace ~table ~record_heads ~declarations
-                ~module_ ~compiler_option_mask entry function_ ast
+              Result.bind selected (fun compiler_option_mask ->
+                  declaration_fact ?namespace ~table ~record_heads ~declarations
+                    ~module_ ~compiler_option_mask entry function_ ast)
             with
             | Error _ as error -> error
             | Ok fact ->
@@ -166,7 +172,7 @@ let semantic_mode = function
   | Frontend.Preprocessor.Jit -> Sema.Function_resolution.Jit
   | Frontend.Preprocessor.Aot -> Sema.Function_resolution.Aot
 
-let resolve ?namespace ?(previous = []) ?record_heads
+let resolve ?namespace ?compiler_options ?(previous = []) ?record_heads
     ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
     ~declarations ~functions ~compilation_mode module_ =
   let record_heads = Option.value record_heads ~default:previous in
@@ -178,8 +184,8 @@ let resolve ?namespace ?(previous = []) ?record_heads
     Error "semantic function identities require a module declaration collection"
   else
     match
-      declaration_facts ?namespace ~table ~record_heads ~compiler_option_mask
-        declarations functions module_
+      declaration_facts ?namespace ?compiler_options ~table ~record_heads
+        ~compiler_option_mask declarations functions module_
     with
     | Error _ as error -> error
     | Ok facts ->

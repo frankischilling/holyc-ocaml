@@ -5,6 +5,42 @@ type task_layout
 type task_snapshot
 type static_reservation
 type static_copy
+type static_initializer_copy
+
+val prepare_static_initializer_copy :
+  task_layout ->
+  Driver.Integer_task.Native_static_initializer.request ->
+  Ir.Integer_interpreter.native_static_initializer_copy ->
+  admitted_arena_bytes:int ->
+  (static_initializer_copy, string) result
+
+val check_static_initializer_copy :
+  static_initializer_copy ->
+  layout:task_layout ->
+  request:Driver.Integer_task.Native_static_initializer.request ->
+  token:Ir.Integer_interpreter.native_static_initializer_copy ->
+  (unit, string) result
+
+val static_initializer_copy_payload :
+  static_initializer_copy -> int * int * int * string
+
+type initializer_copy
+
+val prepare_initializer_copy :
+  task_layout ->
+  Driver.Integer_task.Native_dispatch.initializer_request ->
+  Ir.Integer_interpreter.native_initializer_copy ->
+  admitted_arena_bytes:int ->
+  (initializer_copy, string) result
+
+val check_initializer_copy :
+  initializer_copy ->
+  layout:task_layout ->
+  request:Driver.Integer_task.Native_dispatch.initializer_request ->
+  token:Ir.Integer_interpreter.native_initializer_copy ->
+  (unit, string) result
+
+val initializer_copy_payload : initializer_copy -> int * int * int * string
 
 val prepare_static_copy :
   task_layout ->
@@ -271,6 +307,7 @@ val source_slot : slot -> Ir.Integer_globals.storage_slot
 
 val owns_address :
   ?source_globals:Ir.Integer_globals.t ->
+  ?instruction:Ir.Instruction_sequence.Instruction_id.t ->
   slot ->
   Ir.Runtime_call_context.owner ->
   bool

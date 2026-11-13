@@ -113,7 +113,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
     ?native_dispatch ?native_static_allocation ?native_static_initializer
     ?native_static_copy ?native_default ?native_dimension ?native_switch_case
-    ?native_offset ?native_internal_binding session ~config ~source =
+    ?native_offset ?native_member_metadata ?native_internal_binding session
+    ~config ~source =
   let limits =
     {
       steps = max_steps;
@@ -183,6 +184,20 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
         else None
       in
       let is_jit = Option.is_none task_session in
+      let aot_invocation = ref None in
+      let* aot_preparation =
+        if is_jit then Ok None
+        else
+          Native_default_preparation.create ~compilation_mode:Aot ~max_steps
+            ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
+            ~max_call_depth ~max_output_bytes ~max_output_work
+            ~max_generated_bytes:
+              (Frontend.Preprocessor.Config.max_generated_bytes config)
+            ~max_initializer_steps session
+          |> Result.map Option.some
+          |> Result.map_error (fun message ->
+              [ Integer_source.diagnostic ~span "HCIRVM0001" message ])
+      in
       let saved_compiler =
         Option.map (fun _ -> Task.saved_compiler session ~ledger) task_session
       in
@@ -190,18 +205,33 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
         match !task with
         | Some task -> Ok task
         | None ->
+            let* () =
+              match task_session with
+              | None -> Ok ()
+              | Some _ -> (
+                  match !aot_invocation with
+                  | Some invocation ->
+                      Task_declarations.reserve_aot_peer ledger invocation
+                  | None ->
+                      Error
+                        [
+                          Integer_source.diagnostic ~span:directive "HCRUN0004"
+                            "AOT task has no original source invocation";
+                        ])
+            in
             let create =
               match task_session with
               | Some task_session ->
                   fun () ->
-                    Task.create ~compiler_positions ~max_steps ~max_switch_work
+                    let* state =
+                      Native_default_preparation.create_aot_peer
+                        (Option.get aot_preparation)
+                        ~parent:session ~child:task_session
+                        ~invocation:(Option.get !aot_invocation)
+                    in
+                    Task.create_aot_peer ~compiler_positions ~max_switch_work
                       ~switch_budget:(Task_declarations.switch_budget ledger)
-                      ~max_initializer_steps ~max_global_bytes
-                      ~max_literal_bytes ~max_frame_bytes ~max_call_depth
-                      ~max_output_bytes ~max_output_work
-                      ~max_generated_bytes:
-                        (Frontend.Preprocessor.Config.max_generated_bytes config)
-                      task_session
+                      ~state task_session
               | None ->
                   fun () ->
                     Task.adopt_source_for_activation ~max_steps
@@ -213,8 +243,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       ?native_dispatch ?native_static_allocation
                       ?native_static_initializer ?native_static_copy
                       ?native_default ?native_dimension ?native_switch_case
-                      ?native_offset ?native_internal_binding session ~source
-                      ~ledger
+                      ?native_offset ?native_member_metadata
+                      ?native_internal_binding session ~source ~ledger
             in
             let* retained =
               create ()
@@ -231,9 +261,29 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
             in
             Ok retained
       in
+      let checkpoint () =
+        match (aot_preparation, !task) with
+        | Some preparation, Some task ->
+            let work =
+              max
+                (Native_default_preparation.work preparation)
+                (Task.initializer_steps task)
+            in
+            let* () =
+              Native_default_preparation.synchronize_work preparation ~work
+                ~bytes:(Native_default_preparation.bytes preparation)
+              |> Result.map_error (fun message ->
+                  [ Integer_source.diagnostic ~span "HCIRVM0007" message ])
+            in
+            Task.synchronize_preparation_work task ~work
+            |> Result.map_error (fun message ->
+                [ Integer_source.diagnostic ~span "HCIRVM0007" message ])
+        | _ -> Ok ()
+      in
       let providers_installed = ref false in
       let execute_stream directive =
         let* retained = ensure_task directive in
+        let* () = checkpoint () in
         let* () =
           if !providers_installed then Ok ()
           else
@@ -252,6 +302,22 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
               (fun event ->
                 let* () = Task_declarations.observe_command ledger event in
                 let* () =
+                  match (task_session, event) with
+                  | Some task_session, Parser.Sequence_started context
+                    when Option.is_none (Parser.context_parent context) ->
+                      let fork =
+                        Option.get (Session.semantic_fork task_session)
+                      in
+                      let* invocation =
+                        Native_default_preparation.begin_aot_invocation
+                          (Option.get aot_preparation)
+                          ~parent:session ~ledger ~context ~fork
+                      in
+                      aot_invocation := Some invocation;
+                      Ok ()
+                  | _ -> Ok ()
+                in
+                let* () =
                   match (native_dispatch, !task, event) with
                   | Some _, None, Parser.Sequence_started context
                     when Option.is_none (Parser.context_parent context) ->
@@ -265,6 +331,11 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                     in
                     Task.execute_source task command |> Result.map ignore
                 | true, Some _, Parser.Sequence_completed receipt ->
+                    completed_sequence := Some receipt;
+                    Ok ()
+                | false, _, Parser.Sequence_completed receipt
+                  when Option.is_none
+                         (Parser.context_parent receipt.sequence_context) ->
                     completed_sequence := Some receipt;
                     Ok ()
                 | _ -> Ok ());
@@ -314,6 +385,7 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
           declaration =
             Some
               (fun event ->
+                let* () = checkpoint () in
                 let* deferred_dimension =
                   match (is_jit, !task, event) with
                   | true, None, Parser.Switch_case_preparing receipt
@@ -346,6 +418,15 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       in
                       let* _ = ensure_task receipt.phase_location.span in
                       Ok true
+                  | true, None, Parser.Aggregate_advanced receipt
+                    when Task_declarations.member_metadata_requires_runtime
+                           receipt ->
+                      let* () =
+                        Task_declarations.defer_source_runtime_member_metadata
+                          ledger ~phase:receipt event
+                      in
+                      let* _ = ensure_task receipt.phase_location.span in
+                      Ok true
                   | _ -> Ok false
                 in
                 if deferred_dimension then Ok ()
@@ -358,9 +439,37 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                            as phase) ) ->
                         let* task = ensure_task phase.phase_location.span in
                         Task.observe_source_offset task ledger event
-                    | _ -> Task_declarations.observe ledger event
+                    | _ ->
+                        Task_declarations.observe
+                          ~isolated_initializers:(not is_jit) ledger event
                   in
                   match (is_jit, !task, event) with
+                  | true, None, Parser.Global_initializer_started start
+                    when (Option.is_some
+                            start.initializer_owner.global_header
+                              .declaration_type_selection
+                         || start.initializer_owner.global_dimensions = []
+                            &&
+                            match
+                              start.initializer_owner.global_header
+                                .type_specifier
+                            with
+                            | Frontend.Ast.Primitive_type_specifier p ->
+                                p.primitive = Sema.Primitive_type.U0
+                            | _ -> false)
+                         && start.initializer_owner.global_pointer_layers = []
+                         && Option.is_none
+                              start.initializer_owner.global_function_pointer ->
+                      ensure_task start.initializer_equals.span
+                      |> Result.map ignore
+                  | true, None, Parser.Aggregate_declared receipt
+                    when Option.is_some receipt.aggregate_backing
+                         && Option.fold ~none:false
+                              ~some:(fun binding ->
+                                binding.Frontend.Ast.kind = Frontend.Ast.Extern)
+                              receipt.aggregate_header.binding ->
+                      ensure_task receipt.aggregate_name.location.span
+                      |> Result.map ignore
                   | true, None, Parser.Function_parameter_declared receipt
                     when Option.is_some receipt.parameter_default_equals ->
                       ensure_task
@@ -378,8 +487,16 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                          && Option.is_some receipt.allocation_initializer_equals
                          &&
                          match receipt.allocation_local.local_source with
-                         | Parser.Local_variable source ->
+                         | Parser.Local_variable source -> (
                              Option.is_some source.local_function_pointer
+                             || source.local_pointer_layers = []
+                                &&
+                                match source.local_type_specifier with
+                                | Frontend.Ast.Named_type_specifier _ -> true
+                                | Frontend.Ast.Primitive_type_specifier p ->
+                                    p.primitive = Sema.Primitive_type.U0
+                                    && source.local_array_dimensions = []
+                                | _ -> false)
                          | _ -> false ->
                       ensure_task
                         receipt.allocation_function.function_name.location.span
@@ -397,6 +514,67 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                           ensure_task receipt.callback_default_ast.location.span
                           |> Result.map ignore
                       | Lastclass_default _ -> Ok ())
+                  | false, _, Parser.Global_initializer_leaf_completed receipt
+                    ->
+                      let* () =
+                        Task_declarations
+                        .emit_aot_direct_call_initializer_warnings ledger
+                          receipt
+                      in
+                      (* A closed literal assigned to an unsupported F64 global
+                         cannot fault or run user code. Retain later parser
+                         warnings, then let the output compiler report the
+                         existing unsupported-type boundary. *)
+                      let publication =
+                        receipt.leaf_initializer.initializer_owner
+                      in
+                      let defer_unsupported_f64 =
+                        publication.global_pointer_layers = []
+                        && Option.is_none publication.global_function_pointer
+                        &&
+                        match
+                          ( publication.global_header.type_specifier,
+                            receipt.leaf_value )
+                        with
+                        | ( Frontend.Ast.Primitive_type_specifier primitive,
+                            Frontend.Ast.Scalar_initializer
+                              (Frontend.Ast.Integer_literal _) ) ->
+                            primitive.primitive = Sema.Primitive_type.F64
+                        | _ -> false
+                      in
+                      if defer_unsupported_f64 then Ok ()
+                      else
+                        Native_default_preparation.prepare_initializer
+                          (Option.get aot_preparation)
+                          ~session ~ledger receipt
+                  | false, _, Parser.Static_initializer_preparing receipt ->
+                      let* () =
+                        Task_declarations.emit_aot_direct_call_static_warnings
+                          ledger receipt
+                      in
+                      let preparation = Option.get aot_preparation in
+                      let work =
+                        Option.fold ~none:0 ~some:Task.initializer_steps !task
+                        |> max (Native_default_preparation.work preparation)
+                      in
+                      let* () =
+                        Native_default_preparation.synchronize_work preparation
+                          ~work
+                          ~bytes:(Native_default_preparation.bytes preparation)
+                        |> Result.map_error (fun message ->
+                            [
+                              Integer_source.diagnostic ~span "HCIRVM0007"
+                                message;
+                            ])
+                      in
+                      let result =
+                        Native_default_preparation.prepare_static preparation
+                          ~session ~ledger receipt
+                      in
+                      source_initializer_work :=
+                        Native_default_preparation.work preparation;
+                      let* () = checkpoint () in
+                      result
                   | false, _, Parser.Callback_default_completed receipt -> (
                       match receipt.callback_default_ast.value with
                       | Frontend.Ast.Expression_default _ ->
@@ -460,15 +638,44 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
             Task_declarations.seal_source ledger ast
             |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
           in
+          let* () = checkpoint () in
           (match !task with
             | None ->
-                Unit.compile_source_output ~source_command
-                  ~initializer_progress:(fun steps ->
-                    source_initializer_work := steps)
-                  ~max_initializer_steps session ~config parsed
+                let* checked =
+                  Unit.compile_source_output ~source_command
+                    ~initializer_progress:(fun steps ->
+                      source_initializer_work := steps)
+                    ?native_initializers:
+                      (Option.map Native_default_preparation.initializers
+                         aot_preparation)
+                    ?native_static_initializers:
+                      (Option.map Native_default_preparation.static_initializers
+                         aot_preparation)
+                    ~max_initializer_steps session ~config parsed
+                in
+                let* () =
+                  match aot_preparation with
+                  | None -> Ok ()
+                  | Some preparation ->
+                      Native_default_preparation.finish_unpaired_aot_output
+                        preparation
+                        ~sequence:(Option.get !completed_sequence)
+                        ~globals:(Unit.globals checked.value)
+                        ~initialization:(Unit.initialization checked.value)
+                        ~entry:(Unit.entry checked.value)
+                      |> Result.map_error (fun message ->
+                          [ Integer_source.message_diagnostic ~span message ])
+                in
+                Ok checked
             | Some task ->
-                Task.compile_isolated task ~source_command session ~config
-                  parsed)
+                Task.compile_isolated
+                  ?native_initializers:
+                    (Option.map Native_default_preparation.initializers
+                       aot_preparation)
+                  ?native_static_initializers:
+                    (Option.map Native_default_preparation.static_initializers
+                       aot_preparation)
+                  task ~source_command session ~config parsed)
           |> Result.map (fun checked ->
               { checked with Unit.value = Isolated checked.Unit.value })
   in
@@ -493,14 +700,16 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     ?max_output_bytes ?max_output_work ?native_dispatch
     ?native_static_allocation ?native_static_initializer ?native_static_copy
     ?native_default ?native_dimension ?native_switch_case ?native_offset
-    ?native_internal_binding session ~config ~source ~max_steps =
+    ?native_member_metadata ?native_internal_binding session ~config ~source
+    ~max_steps =
   let compilation =
     compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
       ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
       ?max_output_bytes ?max_output_work ?native_dispatch
       ?native_static_allocation ?native_static_initializer ?native_static_copy
       ?native_default ?native_dimension ?native_switch_case ?native_offset
-      ?native_internal_binding ~max_steps session ~config ~source
+      ?native_member_metadata ?native_internal_binding ~max_steps session
+      ~config ~source
   in
   let span = Integer_source.source_span source in
   let program_ =

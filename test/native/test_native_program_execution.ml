@@ -24,6 +24,7 @@ let execute ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
 let word_type_name = function
   | Program.I64 -> "I64"
   | Program.U64 -> "U64"
+  | Program.F64 -> "F64"
 
 let vm_type_name = function
   | VM.I64 -> "I64"
@@ -75,6 +76,39 @@ let compare_vm label ~max_steps graph =
         (label ^ " differential bits")
         expected.bits actual.bits
   | _ -> Alcotest.failf "%s: VM/native final-value presence differs" label
+
+let shared_home_liveness () =
+  List.iter
+    (fun (label, graph, bytes, expected) ->
+      let image =
+        Fixture.compile ~max_stack_bytes:bytes graph
+        |> require_ok Fixture.program_errors
+      in
+      for _ = 1 to 8 do
+        let result = execute label image |> completed label in
+        check_program_word
+          (label ^ " independent expected value")
+          "I64" expected result.final_value
+      done;
+      compare_vm label ~max_steps:1000 graph;
+      let fault = execute ~max_steps:1 label image |> faulted label in
+      Alcotest.(check string)
+        (label ^ " bounded cleanup")
+        "step-limit"
+        (Fixture.kind_name fault.kind);
+      let result = execute label image |> completed label in
+      check_program_word (label ^ " after fault") "I64" expected
+        result.final_value)
+    [
+      ("sequential homes", Fixture.sequential_shared_values 40, 8, 40L);
+      ( "reordered homes",
+        Fixture.sequential_shared_values ~reverse:true 40,
+        8,
+        40L );
+      ("backedge homes", Fixture.loop_shared_values (), 24, 0L);
+      ("diamond fallthrough", Fixture.diamond_shared_values 0L, 8, 42L);
+      ("diamond taken", Fixture.diamond_shared_values 1L, 8, 99L);
+    ]
 
 let basic_execution_and_meter () =
   let image = Fixture.image (Fixture.multiply_graph ()) in
@@ -352,6 +386,54 @@ let source_pre_entry_failure ?max_initializer_steps ?max_default_bytes ~mode
     "pre-entry failure has no native image" true
     (Option.is_none (Native_program.image report));
   (report, diagnostics)
+
+let source_member_metadata_budgets () =
+  List.iter
+    (fun mode ->
+      let simple = {|class B{I64 x data 40+2;};42;|} in
+      let report, success =
+        source_success_report ~max_initializer_steps:3 ~mode ~max_steps:1000
+          simple
+      in
+      check_program_word "metadata leaves entry word" "I64" 42L
+        success.execution.final_value;
+      Alcotest.(check int)
+        "native metadata reports its original numeric work" 3
+        (Native_program.preparation_steps report);
+      let report, errors =
+        source_pre_entry_failure ~max_initializer_steps:2 ~mode simple
+      in
+      Alcotest.(check int)
+        "failed metadata retains reached work" 2
+        (Native_program.preparation_steps report);
+      Alcotest.(check bool)
+        "metadata quota diagnosis" true
+        (List.exists (fun (d : Diagnostic.t) -> d.code = "HCIRVM0007") errors);
+      List.iter
+        (fun source ->
+          let report, _ =
+            source_success_report ~max_initializer_steps:6 ~mode ~max_steps:1000
+              source
+          in
+          Alcotest.(check int)
+            "metadata and initializer share one allowance" 6
+            (Native_program.preparation_steps report);
+          let report, errors =
+            source_pre_entry_failure ~max_initializer_steps:5 ~mode source
+          in
+          Alcotest.(check int)
+            "mixed failure retains reached work" 5
+            (Native_program.preparation_steps report);
+          Alcotest.(check bool)
+            "mixed quota diagnosis" true
+            (List.exists
+               (fun (d : Diagnostic.t) -> d.code = "HCIRVM0007")
+               errors))
+        [
+          {|class B{I64 x data 40+2;};I64 N=42;N;|};
+          {|I64 N=42;class B{I64 x data 40+2;};N;|};
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let integer_source_fault ?max_frame_bytes ?max_call_depth ~mode ~max_steps
     contents =
@@ -909,6 +991,48 @@ let source_parameter_default_limits_and_failures () =
         (Native_program.preparation_steps after_entry_report))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let register_call_fault_recovery () =
+  let sources =
+    [
+      ( "I64 F(I8 x,I64 n,I64 c,I64 one){x+=c;if(n){n-=one;return \
+         F(x,n,c,one)+x;}return x;}F(127,3,2,1);",
+        -240L );
+      ( "I64 F(I64 a,I64 n,I64 c,I64 one){I8 x=a;x+=c;if(n){n-=one;return \
+         F(x,n,c,one)+x;}return x;}F(127,3,2,1);",
+        528L );
+      ( "I64 F(I8 reg RSI x,I64 reg RDI n,I64 reg R10 c,I64 reg R11 one,I64 \
+         reg R12 a,I64 reg R13 b,I64 reg R14 d,I64 reg R15 \
+         e){x+=c;if(n){n-=one;return F(x,n,c,one,a,b,d,e)+x;}return \
+         x;}F(127,3,2,1,0,0,0,0);",
+        -240L );
+    ]
+  in
+  List.iter
+    (fun (source, expected) ->
+      List.iter
+        (fun mode ->
+          let unit_ = Fixture.integer_unit ~mode source in
+          let image =
+            Fixture.compile_callable unit_ |> require_ok Fixture.program_errors
+          in
+          let failed =
+            execute ~max_call_depth:3 "register recursion depth" image
+            |> faulted "register recursion depth"
+          in
+          Alcotest.(check string)
+            "register recursion one-below depth" "call-depth"
+            (Fixture.kind_name failed.kind);
+          for _ = 1 to 8 do
+            let result =
+              execute ~max_call_depth:4 "register recursion recovery" image
+              |> completed "register recursion recovery"
+            in
+            check_program_word "recursive values and live parent" "I64" expected
+              result.final_value
+          done)
+        [ Preprocessor.Jit; Preprocessor.Aot ])
+    sources
+
 let function_resource_limits_and_fault_recovery () =
   let recursion =
     "I64 Recur(I64 n){if(n)return Recur(n-1);return 42;}\nRecur(3);"
@@ -1075,8 +1199,16 @@ let uninitialized_automatic_locals_match_hosted_policy () =
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let physical_native_stack_is_bounded_independently () =
+  Alcotest.(check int)
+    "physical stack default is unchanged" 65536
+    Runtime.default_active_stack_bytes;
+  Alcotest.(check int)
+    "physical stack opt-in ceiling" 524288 Runtime.hard_max_active_stack_bytes;
   let root_only = "42;" in
-  let identity = "I64 Identity(I64 value){return value;}\nIdentity(42);" in
+  (* Match the stack-only Identity ABI byte golden. *)
+  let identity =
+    "I64 Identity(I64 noreg value){return value;}\nIdentity(42);"
+  in
   let recursive = "I64 Recur(){return Recur();}\nRecur();" in
   let healthy = "I64 Add(I64 a,I64 b){return a+b;}\nAdd(20,22);" in
   let identity_call_site mode =
@@ -1128,15 +1260,15 @@ let physical_native_stack_is_bounded_independently () =
                "root one-below fails before native entry" true (message <> "")
          | Ok _ -> Alcotest.fail "root one-below physical stack budget executed");
       let identity_image = source_image ~mode identity in
-      (* The independent callable byte golden has a 32-byte entry allocation:
-         return address + PUSH RBP + allocation = 48 bytes. Identity is frameless,
-         so its return address + PUSH RBP costs 16 more. This private convention is
-         shared by both host status ABIs, making the complete call require 64 bytes. *)
+      (* The independent callable byte golden has a 176-byte entry allocation
+         (the RBX context save adds eight bytes before 16-byte alignment) and
+         an unchanged 144-byte Identity allocation. Each return address +
+         PUSH RBP adds 16 bytes: 192 + 160 = 352 for the complete call. *)
       Alcotest.(check int)
-        "Identity entry physical charge matches byte golden" 48
+        "Identity entry physical charge matches byte golden" 192
         (Program.entry_stack_bytes identity_image);
       let exact_identity =
-        execute ~max_active_stack_bytes:64 ~max_steps:100
+        execute ~max_active_stack_bytes:352 ~max_steps:100
           "Identity exact physical stack budget" identity_image
         |> completed "Identity exact physical stack budget"
       in
@@ -1144,7 +1276,7 @@ let physical_native_stack_is_bounded_independently () =
         exact_identity.final_value;
       let expected_call_id, expected_call_span = identity_call_site mode in
       let one_below =
-        execute ~max_active_stack_bytes:63 ~max_steps:100
+        execute ~max_active_stack_bytes:351 ~max_steps:100
           "Identity one-below physical stack budget" identity_image
         |> faulted "Identity one-below physical stack budget"
       in
@@ -1162,7 +1294,7 @@ let physical_native_stack_is_bounded_independently () =
            (fun (span : Span.t) -> (span.start, span.stop))
            one_below.span);
       let reused_identity =
-        execute ~max_active_stack_bytes:64 ~max_steps:100
+        execute ~max_active_stack_bytes:352 ~max_steps:100
           "Identity healthy reuse after physical fault" identity_image
         |> completed "Identity healthy reuse after physical fault"
       in
@@ -1170,8 +1302,10 @@ let physical_native_stack_is_bounded_independently () =
         reused_identity.final_value;
       let recursive_image = source_image ~mode recursive in
       let root_bytes = Program.entry_stack_bytes recursive_image in
+      (* Admit one recursive activation, including its reference service home;
+         the next recursive call must fail inside Recur, rather than at entry. *)
       let allowance =
-        min Runtime.hard_max_active_stack_bytes (root_bytes + 32)
+        min Runtime.hard_max_active_stack_bytes (root_bytes + 176)
       in
       let outcome =
         execute ~max_frame_bytes:1 ~max_call_depth:10000
@@ -1717,6 +1851,8 @@ let () =
             [
               Alcotest.test_case "exact per-IR meter and VM differential" `Quick
                 basic_execution_and_meter;
+              Alcotest.test_case "shared homes reuse disjoint graph lifetimes"
+                `Quick shared_home_liveness;
               Alcotest.test_case "typed arithmetic fault metadata" `Quick
                 arithmetic_faults;
               Alcotest.test_case "closed source control flow in both modes"
@@ -1726,6 +1862,9 @@ let () =
                 skipped_and_eager_faults;
               Alcotest.test_case "source arithmetic faults map to VM semantics"
                 `Quick source_arithmetic_fault_mapping;
+              Alcotest.test_case
+                "source member metadata shares native preparation work" `Quick
+                source_member_metadata_budgets;
               Alcotest.test_case
                 "source functions locals calls recursion and argument order"
                 `Quick source_functions_and_locals_both_modes;
@@ -1740,6 +1879,9 @@ let () =
                 "source default work, bytes and failures are bounded before \
                  entry"
                 `Quick source_parameter_default_limits_and_failures;
+              Alcotest.test_case
+                "register values survive recursive fault cleanup" `Quick
+                register_call_fault_recovery;
               Alcotest.test_case
                 "function depth frame faults unwind and recover" `Quick
                 function_resource_limits_and_fault_recovery;

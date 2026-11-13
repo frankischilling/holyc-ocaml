@@ -609,9 +609,15 @@ let parameter_entries entries =
 let parameter_binding entry =
   match Sema.Function_collection.entry_parameter_index entry with
   | None -> Error "semantic function parameter has no signature slot"
-  | Some parameter_index ->
-      Sema.Function_type_resolution.make_parameter_binding ~parameter_index
-        ~symbol:(Sema.Function_collection.entry_symbol entry)
+  | Some parameter_index -> (
+      let symbol = Sema.Function_collection.entry_symbol entry in
+      match Sema.Function_collection.entry_parameter_source entry with
+      | Some source ->
+          Sema.Function_type_resolution.make_source_parameter_binding ~source
+            ~parameter_index ~symbol
+      | None ->
+          Sema.Function_type_resolution.make_parameter_binding ~parameter_index
+            ~symbol)
 
 let internal_i64 () =
   Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
@@ -688,7 +694,10 @@ let function_fact_with_types event ~return_type ~signature =
       | Ok variadic_bindings ->
           let make =
             match event.function_completed_header with
-            | None -> Sema.Function_type_resolution.make_function
+            | None ->
+                Sema.Function_type_resolution
+                .make_function_with_source_parameters
+                  event.function_ast.function_parameters
             | Some header ->
                 Sema.Function_type_resolution
                 .make_function_with_completed_header header

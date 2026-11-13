@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "ab5bfe6f14373586a9f82576ab40dc2c0cc6a1c644f0b37edbe400b087d3dd31",
+  "boot_payload_sha256": "c74f6d457af994e6f1a4c4632acce017dd0f589530aa44af05bc8e86af514b7a",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "9078590f9b09ae9ca75e74b7986808ae3f29aa1d2584d0213ca7f7e608142c90",
+  "boot_iso_sha256": "6f286f349b7b37ef66bcbf238a0240880748de0a15ff517f63d5fc4f2d19da73",
+  "fields": {
+    "J_S": "766",
+    "J_U": "1022",
+    "J_SN": "254",
+    "J_UN": "510",
+    "ERR": "0",
+    "A_S": "766",
+    "A_U": "1022",
+    "A_SN": "254",
+    "A_UN": "510"
+  },
+  "scope": "Repeated original JIT and compiled observations of two compound shifts, divisions or bitwise updates."
+}

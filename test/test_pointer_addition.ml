@@ -183,7 +183,6 @@ let rejected =
     "I64 F(){I64 a=42;return *(&a+&a);}F();";
     "I64 F(){I64 a=42;return *(&a+1.0);}F();";
     "I64 F(){I64 a=42;I64 *p=&a;p*=1;return a;}F();";
-    "I64 *Bad(){I64 a=42;return &a+0;}Bad();";
     "I64 a=42;I64 *p=&a+0;42;";
     "class C{I64 a;};I64 F(){C c;return *(&c+1);}F();";
     "I64 F(){I64 a=42;I64 *p=&a;I64 **q=&p;return **(q+0);}F();";

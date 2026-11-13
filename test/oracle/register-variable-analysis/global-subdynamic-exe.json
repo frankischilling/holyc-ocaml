@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "ccb1395444d9022a7917d24818bc40d4506890f04b1954e92acf0575ae34d1a9",
+  "boot_payload_sha256": "249a1004f559aae0c8ea524725be5fd975d8c6e73d521a01b1839f227ce5dd76",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "e53bbd7f1a0c0b548269d117be3cb1a02079efcd3ad896495d706c5f4e2c926e",
+  "boot_iso_sha256": "0cce91599937e7b31522151bacd7d2996533cd0bec444059cd819ec4fd6a427d",
+  "fields": {
+    "ADD": "-7",
+    "SUB": "248",
+    "ERR": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of subtracting a 64-bit global from a global literal compound update."
+}

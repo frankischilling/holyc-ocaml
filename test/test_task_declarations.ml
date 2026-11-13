@@ -3541,14 +3541,190 @@ let retained_aggregate_context () =
   reject "admitted commands cannot turn self completion into a child import"
     (Holyc_lib__Sema.Task_command_order.aggregate_import_prefix
        ~admitted:[ earlier ] ~scope:(C.scope declarations) ~imports earlier);
-  let session, _, ledger = runtime_setup () in
-  let output, _ = parse session ledger "class Box{I64 word;} attached;" in
+  let session, runtime, ledger = runtime_setup () in
+  let output, events = parse session ledger "class Box{I64 word;} attached;" in
   let attached = Test_parser.expect_ast output in
-  reject "metadata imports cannot admit attached aggregate storage"
-    (D.seal ledger attached)
+  let table = Session.semantic_symbols session in
+  let command = D.seal ledger attached |> expect in
+  let declarations = D.collection ~table ~ast:attached command |> expect in
+  Alcotest.(check (list string))
+    "attached declarations retain their source order" [ "Box"; "attached" ]
+    (C.entries declarations
+    |> List.map (fun entry -> C.entry_symbol entry |> Semantic_symbol.name));
+  let publication, completed =
+    List.find_map
+      (function
+        | Parser.Global_completed (publication, completed) ->
+            Some (publication, completed)
+        | _ -> None)
+      events
+    |> Option.get
+  in
+  let order = D.command_order ~runtime ~table ~ast:attached command |> expect in
+  let contains item_index declarator_index =
+    Holyc_lib__Sema.Task_command_order.contains_global order ~publication
+      ~completed ~item_index ~declarator_index
+  in
+  Alcotest.(check bool)
+    "attached root belongs to its original completed command" true
+    (contains 0 (Some 0));
+  Alcotest.(check bool)
+    "attached root cannot omit its source declarator index" false
+    (contains 0 None);
+  Alcotest.(check bool)
+    "attached root cannot borrow another source index" false
+    (contains 0 (Some 1));
+  reject "copied attached source cannot borrow its sealed declarations"
+    (D.collection ~table ~ast:(copy_module attached attached.items) command)
+
+let aot_initializer_warning_authority () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"aot-warning-authority.hc"
+      ~contents:
+        "I64 N=7;U8 U=7;I64 Get(){return 7;}I64 DefE(I64 n=(3+4)*1){return \
+         n;}I64 Def(I64 n=7){return n;}I64 Def2(I64 a=3,I64 b=4){return \
+         a+b;}I64 Def3(I64 a=3,I64 b=2,I64 c=2){return a+b+c;}I64 Many(I64 \
+         a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h){return \
+         a+b+c+d+e+f+g+h;}I64 Nine(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 \
+         g,I64 h,I64 i){return a+b+c+d+e+f+g+h+i;}I64 Arg(I64 n){return n;}I64 \
+         Tiny(U8 n){return n;}I64 Add(I64 a,I64 b){return a+b;}class Box{U0 \
+         empty;I64 value;};Box heap_probe={Get(),42};Box \
+         raw_heap_probe={N,42};Box cmp_heap_probe={N==7,42};Box \
+         object={Get(),42};Box rawglobal={N,42};Box rawexpr={N+1,42};Box \
+         rawcmp={N==7,42};Box callcmp={Arg(N<8),42};Box \
+         argument={Arg(7),42};Box pair={Add(3,4),42};Box named={Arg(N),42};Box \
+         small={Tiny(7),42};Box smallnamed={Tiny(N),42};Box \
+         sum={Arg(3+4),42};Box diff={Arg(8-1),42};Box neg={Arg(-7),42};Box \
+         sumN={Arg(N+0),42};Box negN={Arg(-N),42};Box uarg={Arg(U),42};Box \
+         narrow={Arg(U+0),42};Box both={Arg(N+U),42};Box \
+         nested={Arg((N+1)*2),42};Box doubleNeg={Arg(-(-N)),42};Box \
+         positive={Arg(+N),42};Box complement={Arg(~N),42};Box \
+         logical={Arg(!N),42};Box quotient={Arg(N/2),42};Box \
+         remainder={Arg(N%3),42};Box zerodiv={Arg(N/0),42};Box \
+         zeromod={Arg(N%0),42};Box nestedzero={Arg((N+1)/0),42};Box \
+         nestedneg={Arg((-N)/-1),42};Box \
+         minmod={Arg(N%(-9223372036854775807-1)),42};Box \
+         foldedzero={Arg(N/(1-1)),42};Box negdiv={Arg(N/-1),42};Box \
+         negmod={Arg(N%-3),42};Box defaultObject={Def(),42};Box \
+         defexpr={DefE(),42};Box def2={Def2(,4),42};Box \
+         defboth={Def2(),42};Box def3={Def3(,2,),42};Box \
+         many={Many(1,1,1,1,1,1,1,0),42};Box \
+         nine={Nine(1,1,1,1,1,1,1,1,-1),42};I64 F(){static Box \
+         x={Get(),42};return x.value;}I64 after;"
+  in
+  let ledger = D.create_source session ~source |> checked in
+  let foreign = D.create_source session ~source |> checked in
+  let counts = ref [] and retained = ref None and retained_static = ref None in
+  let observe event =
+    let ( let* ) = Result.bind in
+    let* () = D.observe ~isolated_initializers:true ledger event in
+    match event with
+    | Parser.Global_initializer_leaf_completed receipt ->
+        reject "foreign ledger rejects the current leaf"
+          (D.emit_aot_direct_call_initializer_warnings foreign receipt);
+        let copy : Parser.completed_initializer_leaf =
+          Obj.obj (Obj.dup (Obj.repr receipt))
+        in
+        reject "copied leaf is not original"
+          (D.emit_aot_direct_call_initializer_warnings ledger copy);
+        let context =
+          receipt.leaf_initializer.initializer_owner.global_header
+            .declaration_command
+            .command_context
+        in
+        let heap_probe =
+          (let name =
+             receipt.leaf_initializer.initializer_owner.global_name.spelling
+           in
+           name = "heap_probe" || name = "raw_heap_probe"
+           || name = "cmp_heap_probe")
+          && receipt.leaf_index = 0
+        in
+        if heap_probe then
+          ignore
+            (Parser.context_set_option context ~bit_index:35L true |> checked);
+        let* () = D.emit_aot_direct_call_initializer_warnings ledger receipt in
+        if heap_probe then
+          ignore
+            (Parser.context_set_option context ~bit_index:35L false |> checked);
+        reject "current leaf cannot emit twice"
+          (D.emit_aot_direct_call_initializer_warnings ledger receipt);
+        let context =
+          receipt.leaf_initializer.initializer_owner.global_header
+            .declaration_command
+            .command_context
+        in
+        counts := (Parser.context_warning_count context |> checked) :: !counts;
+        retained := Some receipt;
+        Ok ()
+    | Parser.Static_initializer_preparing receipt ->
+        reject "foreign static leaf rejected"
+          (D.emit_aot_direct_call_static_warnings foreign receipt);
+        let copy : Parser.static_initializer_preparation =
+          Obj.obj (Obj.dup (Obj.repr receipt))
+        in
+        reject "copied static leaf is not original"
+          (D.emit_aot_direct_call_static_warnings ledger copy);
+        let* () = D.emit_aot_direct_call_static_warnings ledger receipt in
+        reject "static leaf cannot emit twice"
+          (D.emit_aot_direct_call_static_warnings ledger receipt);
+        let context =
+          receipt.static_allocation.allocation_function.function_header
+            .declaration_command
+            .command_context
+        in
+        counts := (Parser.context_warning_count context |> checked) :: !counts;
+        retained_static := Some receipt;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = Some (D.observe_command ledger);
+      reference = Some (D.observe_reference ledger);
+      query = Some (D.observe_query ledger);
+      call = None;
+      implicit_output = None;
+      declaration = Some observe;
+      dimension_count = Some (D.grammar_dimension_count ledger);
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:Preprocessor.Aot () |> checked
+  in
+  let parsed =
+    Parser.parse ~commands ~sources:(Session.sources session)
+      ~symbols:(Session.symbols session)
+      ~definitions:(Session.definitions session)
+      ~config source
+  in
+  ignore (Test_parser.expect_ast parsed);
+  Alcotest.(check (list int64))
+    "heap option suppresses load warning; later leaves count"
+    ([ 0L; 0L; 0L; 0L; 0L; 0L; 0L; 0L ]
+    @ List.concat_map
+        (fun n -> [ Int64.of_int n; Int64.of_int n ])
+        (List.init 41 (fun n -> n + 1)))
+    (List.rev !counts);
+  Option.iter
+    (fun receipt ->
+      reject "expired leaf cannot emit"
+        (D.emit_aot_direct_call_initializer_warnings ledger receipt))
+    !retained;
+  Option.iter
+    (fun receipt ->
+      reject "expired static leaf cannot emit"
+        (D.emit_aot_direct_call_static_warnings ledger receipt))
+    !retained_static
 
 let tests =
   [
+    Alcotest.test_case "AOT initializer warning authority" `Quick
+      aot_initializer_warning_authority;
     Alcotest.test_case
       "retained classes import exact metadata and preserve command ownership"
       `Quick retained_aggregate_context;

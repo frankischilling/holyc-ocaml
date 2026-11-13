@@ -10,24 +10,16 @@ let origin_of_location (location : Frontend.Ast.location) =
 let origin (identifier : Frontend.Ast.identifier) =
   origin_of_location identifier.location
 
-let named_parameter parameter_index
-    (parameter : Frontend.Ast.function_parameter) =
-  match parameter.name with
-  | None -> Ok None
-  | Some name ->
-      Result.map
-        (fun binding -> Some binding)
-        (Sema.Function_collection.make_named_parameter ~name:name.spelling
-           ~origin:(origin name) ~parameter_index)
-
 let fixed_parameters parameters =
   let rec collect parameter_index bindings_rev = function
     | [] -> Ok (List.rev bindings_rev)
     | parameter :: rest -> (
-        match named_parameter parameter_index parameter with
+        match
+          Sema.Function_collection.make_source_parameter ~parameter_index
+            parameter
+        with
         | Error _ as error -> error
-        | Ok None -> collect (parameter_index + 1) bindings_rev rest
-        | Ok (Some binding) ->
+        | Ok binding ->
             collect (parameter_index + 1) (binding :: bindings_rev) rest)
   in
   collect 0 [] parameters

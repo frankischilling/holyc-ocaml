@@ -355,8 +355,8 @@ let callback_return_and_indirection () =
   let session = Session.create () in
   let ast =
     parse session ~path:"member-callbacks.HC"
-      "class Node {}; class Callbacks { I64 *(*invoke)(Node \
-       *node,I64=1,I64=lastclass,U8 *(*nested)(reg R10 noreg I64 \
+      "class Node {}; class Callbacks { I64 *(*invoke)(Node *node,I64 \
+       _anon_=1,I64 _anon_=lastclass,U8 *(*nested)(reg R10 noreg I64 \
        value=\"nested\",...),...); I64 (**chain)(I64 value); };"
   in
   let results = resolve session ast in
@@ -386,7 +386,7 @@ let callback_return_and_indirection () =
   in
   Alcotest.(check (list (option string)))
     "callback slots retain names and gaps"
-    [ Some "node"; None; None; Some "nested" ]
+    [ Some "node"; Some "_anon_"; Some "_anon_"; Some "nested" ]
     (signature |> Semantic_function_type_resolution.signature_parameters
     |> List.map Semantic_function_type_resolution.parameter_name);
   Alcotest.(check bool)
@@ -398,7 +398,7 @@ let callback_return_and_indirection () =
   in
   Alcotest.(check (list int64))
     "member callback parameters retain source-derived masks"
-    [ 0L; 0x21L; 0x23L; 0x8L ]
+    [ 0L; 0x1L; 0x3L; 0x8L ]
     (parameters
     |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   let node_type = List.nth parameters 0 |> parameter_type in

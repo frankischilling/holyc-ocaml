@@ -255,16 +255,16 @@ let intrinsic_shape opcode ~header ~arguments ~variadic_count_type
   Int64.equal variadic_count 0L
   && Option.is_none variadic_count_type
   && variadic_arguments = []
-  && Integer_intrinsic.result_matches opcode result_type
+  && Numeric_intrinsic.runtime_result_matches opcode result_type
   && Option.fold ~none:false
        ~some:(fun count -> List.length parameters = count)
-       (Integer_intrinsic.arity opcode)
+       (Numeric_intrinsic.runtime_arity opcode)
   && List.length arguments = List.length parameters
   && List.for_all2
        (fun (index, parameter) argument ->
          Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
-         && Integer_intrinsic.argument_matches opcode ~index
+         && Numeric_intrinsic.runtime_argument_matches opcode ~index
               (parameter_type parameter)
          &&
          match argument with
@@ -668,7 +668,7 @@ let lower ?frame ?globals ?lower_call ?optimize_shifts ?optimize_division
                     arguments )
                 with
                 | Records.Internal_operation, Some opcode, arguments
-                  when Integer_intrinsic.supports opcode
+                  when Numeric_intrinsic.runtime_supports opcode
                        && intrinsic_shape opcode
                             ~header:(Resolution.direct_active_header direct)
                             ~arguments ~variadic_count_type ~variadic_count
@@ -732,7 +732,7 @@ let lower_top_level ?frame ?globals ?lower_call ?optimize_shifts
                     arguments )
                 with
                 | Records.Internal_operation, Some opcode, arguments
-                  when Integer_intrinsic.supports opcode
+                  when Numeric_intrinsic.runtime_supports opcode
                        && intrinsic_shape opcode
                             ~header:(Result.top_level_direct_header typed)
                             ~arguments ~variadic_count_type ~variadic_count
@@ -1040,6 +1040,17 @@ let lower_callback ?frame ?globals ?lower_call ?optimize_shifts
           (Integer_globals.persistent_callback_storage globals pointer))
       globals
   in
+  let original_member_cell =
+    Option.fold ~none:false
+      ~some:(fun callee ->
+        Option.fold ~none:false
+          ~some:(fun lookup ->
+            Option.fold ~none:false ~some:(( == ) pointer)
+              (Sema.Aggregate_member_index.member_function_pointer
+                 (Sema.Aggregate_member_index.lookup_member lookup)))
+          (Result.result_member_lookup callee))
+      (Callback_source.callee call)
+  in
   let fixed = Callback_source.fixed_arguments call in
   let provided =
     List.filter_map
@@ -1056,7 +1067,8 @@ let lower_callback ?frame ?globals ?lower_call ?optimize_shifts
   let matches = Callback_source.matches_result call result in
   if
     (not matches)
-    || (not (original_frame_cell || original_global_cell))
+    || (not
+          (original_frame_cell || original_global_cell || original_member_cell))
     || List.length (Headers.function_pointer_indirection_origins pointer) <> 1
     || List.length provided <> List.length fixed
   then Ok Unsupported_call

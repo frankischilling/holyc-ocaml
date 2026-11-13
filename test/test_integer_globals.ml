@@ -175,11 +175,12 @@ let unsupported () =
         D.resolved ~compiler_option_mask:D.data_heap_mask prepared mode
       in
       let classified = D.classification prepared records in
-      let error =
-        F.first_error (Globals.create ~span:prepared.ast.span classified)
-      in
-      Alcotest.(check string)
-        "checked data-heap context is unsupported" "HCRUN0001" error.code)
+      let result = Globals.create ~span:prepared.ast.span classified in
+      if mode = Preprocessor.Aot then
+        Alcotest.(check string)
+          "AOT data-heap context remains unsupported" "HCRUN0001"
+          (F.first_error result).code
+      else ignore (F.checked result))
     modes
 
 let context_and_preflight () =

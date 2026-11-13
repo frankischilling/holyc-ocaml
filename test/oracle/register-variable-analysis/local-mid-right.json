@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "dcacb89d0ff21e20c1f75eeb21386e1152e421e83a6a86a30b799383361df03f",
+  "boot_payload_sha256": "2c4ad4c802aa05c9a8147232df5400792aa50b0553199cfbf151cee67d906830",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "e838dda7ca4071d2dc8f507fe80d12bb93cc0165e339d2b9d6eeea81adf2e351",
+  "boot_iso_sha256": "36c188150670c1cde148171c4a4646fa89d9e3c9c76d8bc87550b5ef148fd307",
+  "fields": {
+    "J_S": "32767",
+    "J_U": "32768",
+    "J_SN": "-1",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "32767",
+    "A_U": "32768",
+    "A_SN": "-1",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of right shifts on register and noreg locals. The stored source omits trailing spaces used to pad the boot payload."
+}

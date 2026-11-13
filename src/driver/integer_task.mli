@@ -16,7 +16,13 @@ type native_source_callback =
     does not grant machine, arena or budget entry. *)
 
 module Native_dispatch : sig
-  type word = I64 of int64 | U64 of int64
+  type word =
+    | I64 of int64
+    | U64 of int64
+    | F64 of int64
+        (** F64 carries exact IEEE-754 bits, not an integer interpreter value.
+        *)
+
   type capture = Unchanged | Captured of word option
   type initializer_request
   type command_request
@@ -41,6 +47,36 @@ module Native_dispatch : sig
 
   val initializer_program :
     initializer_request -> Ir.Initializer_fragment_program.t
+
+  val prepare_initializer_copy :
+    initializer_request ->
+    Ir.Initializer_fragment_program.t Ir.Native_scalar_capture.t ->
+    work:int ->
+    (Ir.Integer_interpreter.native_initializer_copy, string) result
+
+  val check_initializer_copy :
+    initializer_request ->
+    Ir.Integer_interpreter.native_initializer_copy ->
+    (unit, string) result
+
+  val initializer_copy_layout :
+    Ir.Integer_interpreter.native_initializer_copy ->
+    Ir.Integer_initializer_layout.entry
+
+  val initializer_copy_bytes :
+    Ir.Integer_interpreter.native_initializer_copy -> string
+
+  val claim_initializer_copy :
+    initializer_request ->
+    Ir.Integer_interpreter.native_initializer_copy ->
+    (unit, string) result
+
+  val finish_initializer_copy :
+    initializer_request ->
+    Ir.Integer_interpreter.native_initializer_copy ->
+    Ir.Integer_interpreter.native_initializer_copy
+    Ir.Native_initializer_copy_receipt.t ->
+    (unit, string) result
 
   val command_program : command_request -> Integer_unit.compiled
   val check_initializer_request : initializer_request -> (unit, string) result
@@ -191,6 +227,35 @@ module Native_static_initializer : sig
   type t = request -> (unit, Common.Diagnostic.t list) result
 
   val program : request -> Ir.Static_initializer_program.t
+  val initializer_remaining : request -> int
+  val record_steps : request -> int -> (unit, string) result
+
+  val prepare_copy :
+    request ->
+    Ir.Static_initializer_program.t Ir.Native_scalar_capture.t ->
+    work:int ->
+    (Ir.Integer_interpreter.native_static_initializer_copy, string) result
+
+  val check_copy :
+    request ->
+    Ir.Integer_interpreter.native_static_initializer_copy ->
+    (unit, string) result
+
+  val copy_bytes :
+    Ir.Integer_interpreter.native_static_initializer_copy -> string
+
+  val claim_copy :
+    request ->
+    Ir.Integer_interpreter.native_static_initializer_copy ->
+    (unit, string) result
+
+  val finish_copy :
+    request ->
+    Ir.Integer_interpreter.native_static_initializer_copy ->
+    Ir.Integer_interpreter.native_static_initializer_copy
+    Ir.Native_initializer_copy_receipt.t ->
+    (unit, string) result
+
   val generation : request -> Ir.Integer_interpreter.native_generation
   val source_callback : request -> native_source_callback option
   val check : request -> (unit, string) result
@@ -591,6 +656,76 @@ module Native_offset : sig
   val record_steps : request -> int -> (unit, string) result
 end
 
+module Native_member_metadata : sig
+  type request
+
+  type t =
+    request ->
+    ( Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  val program : request -> Ir.Member_metadata_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val initializer_remaining : request -> int
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+  (** Inspect original saved objects only while offered. Entry claims once in
+      the originating domain; native work can be recorded once after entry. The
+      request expires when its synchronous source callback returns. *)
+
+  val record_steps : request -> int -> (unit, string) result
+end
+
 module Native_static_copy : sig
   type request
   type t = request -> (unit, Common.Diagnostic.t list) result
@@ -610,6 +745,14 @@ type progress = private {
   switch_work : int;
 }
 
+val create_aot_peer :
+  ?compiler_positions:Sema.Compiler_record.compiler_positions ->
+  ?max_switch_work:int ->
+  ?switch_budget:Sema.Integer_switch_preparation.budget ->
+  state:Ir.Integer_interpreter.task_state ->
+  Session.t ->
+  (t, string) result
+
 val progress : t -> progress
 (** Immutable cumulative task observation, including dimension preparation and
     effects reached before a later parse, compile or execution failure. This is
@@ -621,6 +764,9 @@ val compiled_units : t -> Integer_unit.compiled list
     collection is not one isolated program. *)
 
 val compile_isolated :
+  ?native_initializers:Integer_initializers.native_preparation list ->
+  ?native_static_initializers:
+    Integer_initializers.native_static_preparation list ->
   t ->
   source_command:Task_declarations.source_command ->
   Session.t ->
@@ -663,6 +809,7 @@ val create :
   ?native_dimension:Native_dimension.t ->
   ?native_switch_case:Native_switch_case.t ->
   ?native_offset:Native_offset.t ->
+  ?native_member_metadata:Native_member_metadata.t ->
   ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
   (t, string) result
@@ -761,6 +908,7 @@ val adopt_source :
   ?native_dimension:Native_dimension.t ->
   ?native_switch_case:Native_switch_case.t ->
   ?native_offset:Native_offset.t ->
+  ?native_member_metadata:Native_member_metadata.t ->
   ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
   source:Common.Source_file.t ->
@@ -790,6 +938,7 @@ val adopt_source_for_activation :
   ?native_dimension:Native_dimension.t ->
   ?native_switch_case:Native_switch_case.t ->
   ?native_offset:Native_offset.t ->
+  ?native_member_metadata:Native_member_metadata.t ->
   ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
   source:Common.Source_file.t ->
@@ -858,8 +1007,9 @@ val execute_source :
     execution. *)
 
 val native_final_value : t -> Native_dispatch.word option
-(** Final word metadata from a successfully reached native source command. This
-    is not an interpreter execution receipt or native runtime counter. *)
+(** Final scalar metadata from a successfully reached native source command. F64
+    bits are available here rather than in integer interpreter progress or
+    results. This is not an execution receipt or native runtime counter. *)
 
 val run :
   t ->

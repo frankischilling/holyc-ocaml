@@ -41,7 +41,10 @@ let activate_source = Integer_task.activate_source
 let result = Integer_task.result
 let progress = Integer_task.progress
 let compiled_units = Integer_task.compiled_units
-let compile_isolated = Integer_task.compile_isolated
+
+let compile_isolated task ~source_command session ~config parsed =
+  Integer_task.compile_isolated task ~source_command session ~config parsed
+
 let execute_isolated = Integer_task.execute_isolated
 let frontend = Integer_task.frontend
 let admit_global = Integer_task.admit_global

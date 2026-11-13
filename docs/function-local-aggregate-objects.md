@@ -26,6 +26,13 @@ or a branch that never executes. The type enters the global compiler namespace.
 Each automatic object still belongs to its function invocation, so recursive
 calls have separate storage and initialization state.
 
+Scalar automatic initializers of integer-backed classes use the original
+backing prefix. They execute in source order each time the declaration is
+reached. The original allocation receipt authorizes the
+destination even when the right operand is a literal. Initialization writes the
+scalar prefix rather than copying the complete object; bounds and unknown-byte
+checks remain attached to the original root.
+
 An object keeps the exact class selected by its declaration. A later class with
 the same spelling does not change its members, element size or pointer stride.
 Retained JIT calls keep those original selections after subsequent declarations
@@ -37,6 +44,22 @@ the allocation event. Completing the selected forward during that lookahead can
 supply its layout. A completion reached after allocation cannot enlarge the
 earlier object. Member access and pointer arithmetic use their own original
 source positions; they do not borrow the final state of the function body.
+
+Original allocation receipts also admit forward and partial classes. A forward
+object keeps zero bytes after completion; a partial object keeps the bytes
+reached when its declaration allocated it. Later genuine allocations observe
+their own reached size. Frame construction checks the original function, local
+occurrence, type and namespace before using that saved extent. A completed
+layout from another source phase cannot replace it.
+
+Inherited member observations follow the selected canonical base chain at the
+member name. Completing a forward base can add reached fields without changing
+the child's previously allocated extent or member offsets. A new same-name base
+has a different identity and cannot retarget that chain. Every access still
+checks the original object bounds. The
+[original-layout example](../examples/original-automatic-layouts.hc) checks zero
+forward frames, later allocations, overlapping inherited fields, arrays and
+pointer calls, returning 42 with output A in both modes and targets.
 
 In outer AOT input, a `#exe` declaration belongs to the separate JIT task
 namespace. It cannot complete or replace the selected outer class. Tests retain
@@ -58,7 +81,8 @@ declaration replaces its name. A value conversion does not copy the whole object
 allocation and member-layout proofs in IR. Their ownership shadows retain the
 target's original allocation identity; overlapping scalar writes invalidate
 pointer ownership. Loading a field does not extend the target's lifetime.
-Native execution of these fields remains gated with `HCBACK0002`.
+Native source execution also retains owned targets through supported one-level
+integer and class pointer fields.
 
 The declaration-order evidence keeps the original function identity separate
 from the point where a layout became available. Member, pointer-stride and
@@ -78,15 +102,31 @@ gated. The pinned `PrsType` resets declaration mode to zero for that form, so
 `PrsVarLst` does not reach its automatic allocation branch. Parsing the form
 alone does not establish executable local storage.
 
-Completing a forward in a directive between a base operand and its member or
-index suffix also remains gated. The current proof records the original base
-reference; admitting a later completion at the suffix needs a separate parser
-receipt. This boundary is narrower than the pinned member lookup path.
+Member-name observations follow dot/arrow lookahead. A directive between the
+base operand and that name can complete the selected forward before lookup.
+Completion after the name cannot authorize the earlier member selection.
+Reached ordinary class bodies also supply direct and inherited member
+projections through their original placement metadata; see
+[class-body member reads](aggregate-initializers.md). Pointer arithmetic and
+index strides retain their separate original layout proofs.
 
-Persistent aggregate objects, general object copies, native data pointer fields,
-callback fields and class pointer returns retain their separate implementation
-boundaries. Runtime AOT layout expressions still require their relocation
-support. This feature is tracked by
+The same member-name snapshots support top-level execution during a class body.
+When a new ordinary definition reuses a spelling, member lookup still follows
+the operand's original class identity. Replacement-only fields cannot enter
+that object's layout.
+
+Reached callback fields also retain the original checked signature and return
+type, separately from pointer-sized physical storage. Functions can call them
+through direct or pointer access before the class body completes, including
+fully indexed member arrays and globals selected from an earlier source task.
+See the [class-body callback example](../examples/class-body-callback-fields.hc).
+Completion after the member name cannot authorize the earlier call.
+
+[Persistent class globals and statics](persistent-aggregates.md) now retain
+original byte roots, including function-local static classes. General object
+copies, extra callback indirection and wider pointer return domains retain
+their separate implementation boundaries. Runtime AOT layout expressions still
+require their relocation support. This feature is tracked by
 [issue #818](https://github.com/frankischilling/holyc-ocaml/issues/818)
 within the broader aggregate and compiler work.
 

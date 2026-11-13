@@ -100,7 +100,7 @@ let boundaries () =
        "U0 Make(){class Base{U8 a;};class Child:Base{U8 b;};}sizeof(Child)+40;");
   failure "HCSEMA0074" (run "I64 F(){I64 class C{I64 a;} value;return 42;}F();");
   List.iter (fun (code, text) -> failure code (run text)) Cases.object_failures;
-  failure "HCSEMA0046" (run Cases.suffix_completion_boundary)
+  failure "HCIRVM0012" (run Cases.suffix_completion_boundary)
 
 let object_effects () =
   let baseline = run Cases.object_effects in
