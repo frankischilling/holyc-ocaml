@@ -3596,9 +3596,11 @@ let aot_initializer_warning_authority () =
          sumN={Arg(N+0),42};Box negN={Arg(-N),42};Box uarg={Arg(U),42};Box \
          narrow={Arg(U+0),42};Box both={Arg(N+U),42};Box \
          nested={Arg((N+1)*2),42};Box doubleNeg={Arg(-(-N)),42};Box \
-         defaultObject={Def(),42};Box defexpr={DefE(),42};Box \
-         def2={Def2(,4),42};Box defboth={Def2(),42};Box \
-         def3={Def3(,2,),42};Box many={Many(1,1,1,1,1,1,1,0),42};Box \
+         positive={Arg(+N),42};Box complement={Arg(~N),42};Box \
+         logical={Arg(!N),42};Box defaultObject={Def(),42};Box \
+         defexpr={DefE(),42};Box def2={Def2(,4),42};Box \
+         defboth={Def2(),42};Box def3={Def3(,2,),42};Box \
+         many={Many(1,1,1,1,1,1,1,0),42};Box \
          nine={Nine(1,1,1,1,1,1,1,1,-1),42};I64 F(){static Box \
          x={Get(),42};return x.value;}I64 after;"
   in
@@ -3694,7 +3696,7 @@ let aot_initializer_warning_authority () =
     ([ 0L; 0L; 0L; 0L ]
     @ List.concat_map
         (fun n -> [ Int64.of_int n; Int64.of_int n ])
-        (List.init 24 (fun n -> n + 1)))
+        (List.init 27 (fun n -> n + 1)))
     (List.rev !counts);
   Option.iter
     (fun receipt ->

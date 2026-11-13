@@ -149,6 +149,54 @@ let direct_call_argument_warnings () =
         (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
     [ false; true ]
 
+(* Hosted source controls for unary arguments. These do not add native captures. *)
+let direct_call_unary_argument_warnings () =
+  let expressions = [ ("+N", 7L); ("~N", 4294967288L); ("!N", 0L) ] in
+  List.iter
+    (fun (expression, expected) ->
+      List.iter
+        (fun static ->
+          List.iter
+            (fun native ->
+              let declaration =
+                if static then
+                  "I64 F(){static Box object={Get(" ^ expression
+                  ^ "),42};return object.value;}F();"
+                else
+                  "Box object={Get(" ^ expression
+                  ^ "),42};I64 F(){return object.value;}F();"
+              in
+              let source =
+                "I64 N=7;I64 Get(I64 n){return n;}class Box{U0 empty;I64 \
+                 value;};" ^ declaration
+              in
+              let diagnostics, result, _ = run native Preprocessor.Aot source in
+              Alcotest.(check (option int64))
+                "unary load value" (Some expected) (Result.get_ok result);
+              Alcotest.(check (list string))
+                "unary load warning" [ "HCSEMA0080" ]
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ false; true ])
+        [ false; true ])
+    expressions;
+  List.iter
+    (fun (expression, expected) ->
+      List.iter
+        (fun native ->
+          let source =
+            "I64 Get(I64 n=" ^ expression
+            ^ "){return n;}class Box{U0 empty;I64 value;};Box \
+               object={Get(),42};object.value;"
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            "unary default load value" (Some expected) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "unary default load warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ false; true ])
+    [ ("+7", 7L); ("~7", 4294967288L); ("!7", 0L) ]
+
 let direct_call_two_argument_warnings () =
   let fields = fixture "warnings-two-arguments" in
   Alcotest.(check int)
@@ -1106,6 +1154,8 @@ let () =
             direct_call_warning_controls;
           Alcotest.test_case "direct literal argument warnings" `Quick
             direct_call_argument_warnings;
+          Alcotest.test_case "direct unary integer argument warnings" `Quick
+            direct_call_unary_argument_warnings;
           Alcotest.test_case "direct two literal argument warnings" `Quick
             direct_call_two_argument_warnings;
           Alcotest.test_case "direct global argument warnings" `Quick

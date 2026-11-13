@@ -349,9 +349,11 @@ unknown-byte faults and resource quotas are hosted policy.
 A U0 call can initialize a zero-byte member or empty aggregate. The call runs
 once and consumes no destination bytes. The next leaf keeps the same byte
 cursor. Global and static live JIT source tasks support this through IR and
-native execution. Nonconstant zero-byte AOT leaves require a different
-[load-time assignment](aot-zero-byte-initializers.md) and now reject explicitly.
-Isolated native JIT retains its existing closed-initializer boundary.
+native execution. Nonconstant AOT leaves use a different
+[load-time assignment](aot-zero-byte-initializers.md). Bounded integer-result
+leaves are supported when the complete store fits the original object. A U0
+call without an actual integer result still rejects. Isolated native JIT retains
+its existing closed-initializer boundary.
 
 The [example](../examples/void-aggregate-initializers.hc) prints `AA` and returns
 42 in live JIT. Its global and static calls each run once. Calling the containing function

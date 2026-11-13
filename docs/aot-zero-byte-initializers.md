@@ -71,11 +71,14 @@ completed nonzero numeric scalar globals supplied to nonzero numeric parameters.
 Nonzero numeric parameters can also use closed integer defaults, including
 omitted arguments between supplied values. The reference probes cover up to
 three such parameters.
-Expressions include bounded nesting of unary minus, addition, subtraction,
+Expressions include bounded nesting of unary plus, unary minus, bitwise and
+logical negation, addition, subtraction,
 multiplication, bitwise operations, and shifts of integer literals or completed
 integer scalar globals. Constant shift counts are limited to 0 through 63;
 completed integer scalar globals can also supply a shift count. The 64-argument bound is
-this path's verified coverage, not a claimed TempleOS limit.
+this path's verified coverage, not a claimed TempleOS limit. Unary plus,
+complement and logical negation have hosted source-authority tests; they are not
+additional native warning captures.
 The warning is counted at the original leaf callback, with single-use source
 authority. The compiler checks the current data-heap option before counting the
 load-assignment warning. `Compiler/OptPass012.HC` marks opcodes with the

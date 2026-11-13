@@ -5930,8 +5930,12 @@ let proven_direct_arguments ledger header arguments =
       | A.Parenthesized_expression { grouped_expression; _ } ->
           proven_numeric (fuel - 1) grouped_expression
       | A.Prefix_expression
-          { prefix_operator_kind = A.Unary_minus; prefix_operand; _ } ->
-          proven_numeric (fuel - 1) prefix_operand
+          {
+            prefix_operator_kind =
+              A.Unary_plus | A.Unary_minus | A.Bitwise_not | A.Logical_not;
+            prefix_operand;
+            _;
+          } -> proven_numeric (fuel - 1) prefix_operand
       | A.Binary_expression
           { binary_left; binary_operator_spec; binary_right; _ } -> (
           match binary_operator_spec.ic_name with
