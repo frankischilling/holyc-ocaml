@@ -1030,6 +1030,9 @@ let () =
                    A+B+41;}I64 G(){static I64 C=41;return C;}F();";
                   "I64 N=-7;I64 F(){static I64 A=N%-1,B=N/-1;return \
                    A+B+35;}I64 G(){static I64 C=41;return C;}F();";
+                  "I64 N=-7;I64 Get(I64 n){return n;}I64 F(){static I64 \
+                   A=Get((-N)%-3),B=Get((-N)/-3);return A+B+43;}I64 G(){static \
+                   I64 C=41;return C;}F();";
                 ]);
           Alcotest.test_case "global root shifts retain original load authority"
             `Quick (fun () ->

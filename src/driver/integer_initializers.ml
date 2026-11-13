@@ -776,33 +776,34 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                        single-block call scope; runtime call validation still
                        joins it to the checked argument and callee. *)
                     let push_scopes =
-                      match
-                        Ir.Block_graph.blocks (Ir.X87_stack.graph value_graph_)
-                      with
-                      | [ _ ] ->
-                          let rec scan depth pushed = function
-                            | [] -> if depth = 0 then pushed else []
-                            | (item : Seq.description) :: rest ->
-                                let depth =
-                                  match item.opcode with
-                                  | Ir.Opcode.Ic_call_start -> depth + 1
-                                  | Ic_call_end -> depth - 1
-                                  | _ -> depth
+                      let scan_block block =
+                        let rec scan depth pushed = function
+                          | [] -> if depth = 0 then pushed else []
+                          | (item : Seq.description) :: rest ->
+                              let depth =
+                                match item.opcode with
+                                | Ir.Opcode.Ic_call_start -> depth + 1
+                                | Ic_call_end -> depth - 1
+                                | _ -> depth
+                              in
+                              if depth < 0 then []
+                              else
+                                let pushed =
+                                  if
+                                    depth > 0
+                                    && Ir.Lock_semantics.clear_flag item.flags
+                                       = 0x2000L
+                                  then item :: pushed
+                                  else pushed
                                 in
-                                if depth < 0 then []
-                                else
-                                  let pushed =
-                                    if
-                                      depth > 0
-                                      && Ir.Lock_semantics.clear_flag item.flags
-                                         = 0x2000L
-                                    then item :: pushed
-                                    else pushed
-                                  in
-                                  scan depth pushed rest
-                          in
-                          scan 0 [] value_code
-                      | _ -> []
+                                scan depth pushed rest
+                        in
+                        Ir.Block_graph.instructions block
+                        |> Seq.instructions |> List.map Seq.description
+                        |> scan 0 []
+                      in
+                      Ir.Block_graph.blocks (Ir.X87_stack.graph value_graph_)
+                      |> List.concat_map scan_block
                     in
                     List.filter
                       (fun (item : Seq.description) ->

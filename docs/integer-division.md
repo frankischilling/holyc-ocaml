@@ -147,6 +147,8 @@ Signed remainder also accepts positive power-of-two immediates,
 including one, when the original operation remains `IC_MOD`. The source lowerer retains the original expression and applies its
 division normalization before the initializer guard accepts the surviving
 operation. For example, with `I64 N=-7`, `I64 A=N%3` stores `-1`.
+Call arguments can retain the original push flag when their complete call
+scope stays inside one checked block, even if the graph has later blocks.
 
 Hosted IR and native tests cover signed and unsigned values, global and static
 roots, array leaves, calls, effects, storage limits and execution budgets. The

@@ -11473,6 +11473,7 @@ source_native_fields = 38
 source_native_same_boot_repeats = 38
 source_compilation_fault_controls = 4
 initializer_root_boundary = "Source-owned nonconstant global and static roots admit zero and full-word non-power-of-two immediate divisors within the documented signed range, including reached -1 overflow, and retained signed remainder by positive full-word powers of two after original normalization. Hosted source and native tests cover reached zero faults and phase ordering. Other admitted divisors also have native ownership and quota tests. No new TempleOS initializer capture is claimed."
+initializer_call_scope = "Original source-owned call argument producers can retain their push flag when the complete balanced call scope is inside one graph block. Hosted tests cover multi-block static roots, nested calls, original ownership, quotas and both native ABIs. Cross-block call scopes are not admitted by this proof."
 remaining = ["unsealed/general division preparation and retained native source publication; original canonical retained shifts prepare under #793", "shared comparison-chain reductions and broader numeric/flagged domains", "broader differential coverage and native exception delivery"]
 
 [[feature]]

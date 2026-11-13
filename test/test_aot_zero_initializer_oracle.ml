@@ -261,13 +261,11 @@ let direct_call_division_argument_warnings () =
           let diagnostics, result, _ =
             run native Preprocessor.Aot (source "(-N)%-3")
           in
-          Alcotest.(check bool)
-            "unary numerator boundary" static (Result.is_error result);
-          Alcotest.(check bool)
-            "unary numerator warning" true
-            (List.exists
-               (fun (d : Diagnostic.t) -> d.code = "HCSEMA0080")
-               diagnostics);
+          Alcotest.(check (option int64))
+            "unary numerator value" (Some 4294967295L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "unary numerator warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
           List.iter
             (fun expression ->
               let diagnostics, result, _ =
@@ -279,7 +277,7 @@ let direct_call_division_argument_warnings () =
                 "warning precedes zero fault"
                 [ "HCSEMA0080"; "HCIRVM0009" ]
                 (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
-            [ "N/0"; "N%0"; "(N+1)/0" ])
+            [ "N/0"; "N%0"; "(N+1)/0"; "(-N)%0" ])
         [ false; true ])
     [ false; true ];
   List.iter
