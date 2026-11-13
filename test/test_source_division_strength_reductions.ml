@@ -231,6 +231,9 @@ let non_power_initializer_roots () =
       ( "signed global and static",
         "I64 N=-7;I64 A=N%3;I64 F(){static I64 B=N/3;return B;}A+F()+45;",
         42L );
+      ( "negative divisor static",
+        "I64 N=-7;I64 A=N%-3;I64 F(){static I64 B=N/-3;return B;}A+F()+41;",
+        42L );
       ("unsigned global", "U64 N=7;U64 A=N/3;U64 B=N%3;A+B+39;", 42L);
       ( "signed power remainder",
         "I64 N=-7;I64 A=N%2;I64 F(){static I64 B=N%4;return B;}A+F()+46;",

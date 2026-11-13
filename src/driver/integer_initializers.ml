@@ -824,7 +824,8 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                                      (Values.find_opt operand produced))
                                  [ left; right ]
                         (* Non-power divisors and signed remainder retain their
-                           original opcode. Narrow constants need separate evidence. *)
+                           original opcode. A full-word literal may be negated once;
+                           narrow constants need separate conversion evidence. *)
                         | (Ir.Opcode.Ic_div | Ic_mod), [ left; right ], None ->
                             scalar item
                             && (not (Ir.Lock_semantics.has_flag item.flags))
@@ -846,12 +847,51 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                                                type_))
                                         right.target_type
                                    &&
-                                   match (right.opcode, right.payload) with
-                                   | Ir.Opcode.Ic_imm_i64, Some (Seq.Integer n)
-                                     ->
-                                       n > 0L
+                                   let value =
+                                     match
+                                       ( right.opcode,
+                                         right.operands,
+                                         right.payload )
+                                     with
+                                     | ( Ir.Opcode.Ic_imm_i64,
+                                         [],
+                                         Some (Seq.Integer n) ) -> Some n
+                                     | ( Ir.Opcode.Ic_unary_minus,
+                                         [ operand ],
+                                         None ) ->
+                                         Option.bind
+                                           (Values.find_opt operand produced)
+                                           (fun (literal : Seq.description) ->
+                                             if literal.flags <> 0L then None
+                                             else
+                                               match
+                                                 ( literal.opcode,
+                                                   literal.payload,
+                                                   literal.target_type )
+                                               with
+                                               | ( Ir.Opcode.Ic_imm_i64,
+                                                   Some (Seq.Integer n),
+                                                   Some type_ )
+                                                 when n >= 2L
+                                                      && Option.fold ~none:false
+                                                           ~some:(fun scalar ->
+                                                             Ir
+                                                             .Integer_scalar_storage
+                                                             .byte_size scalar
+                                                             = 8)
+                                                           (Ir
+                                                            .Integer_scalar_storage
+                                                            .of_type type_) ->
+                                                   Some (Int64.neg n)
+                                               | _ -> None)
+                                     | _ -> None
+                                   in
+                                   Option.fold ~none:false
+                                     ~some:(fun n ->
+                                       n <> 0L && n <> -1L
                                        && (Int64.logand n (Int64.sub n 1L) <> 0L
-                                          || item.opcode = Ir.Opcode.Ic_mod
+                                          || n > 0L
+                                             && item.opcode = Ir.Opcode.Ic_mod
                                              && Option.fold ~none:false
                                                   ~some:(fun type_ ->
                                                     Option.fold ~none:false
@@ -862,8 +902,8 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                                                            .is_unsigned scalar))
                                                       (Ir.Integer_scalar_storage
                                                        .of_type type_))
-                                                  item.target_type)
-                                   | _ -> false)
+                                                  item.target_type))
+                                     value)
                                  (Values.find_opt right produced)
                         | _ -> false)
                       value_code

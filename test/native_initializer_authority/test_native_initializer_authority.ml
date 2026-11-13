@@ -1022,9 +1022,13 @@ let () =
           Alcotest.test_case
             "non-power static division roots retain original authority" `Quick
             (fun () ->
-              check_static_load_ownership
-                "I64 N=-7;I64 F(){static I64 A=N%3,B=N/3;return A+B+45;}I64 \
-                 G(){static I64 C=41;return C;}F();");
+              List.iter check_static_load_ownership
+                [
+                  "I64 N=-7;I64 F(){static I64 A=N%3,B=N/3;return A+B+45;}I64 \
+                   G(){static I64 C=41;return C;}F();";
+                  "I64 N=-7;I64 F(){static I64 A=N%-3,B=N/-3;return \
+                   A+B+41;}I64 G(){static I64 C=41;return C;}F();";
+                ]);
           Alcotest.test_case "global root shifts retain original load authority"
             `Quick (fun () ->
               List.iter
@@ -1042,6 +1046,7 @@ let () =
                   ownership ~modes:[ Preprocessor.Aot ] ~contents ())
                 [
                   "I64 N=-7;I64 A=N%3;I64 B=N/3;A+B+45;";
+                  "I64 N=-7;I64 A=N%-3;I64 B=N/-3;A+B+41;";
                   "I64 N=-7;I64 A=N%2;I64 B=N%4;A+B+46;";
                   "U64 N=7;U64 A=N/3;U64 B=N%3;A+B+39;";
                   "I64 N=-7;I64 Get(I64 n){return n;}I64 A=Get(N%3);A+43;";

@@ -11472,7 +11472,7 @@ source_native_fixture = "test/oracle/division-strength-reductions.json"
 source_native_fields = 38
 source_native_same_boot_repeats = 38
 source_compilation_fault_controls = 4
-initializer_root_boundary = "Source-owned nonconstant global and static roots admit full-word positive non-power-of-two immediate divisors and retained signed remainder by positive full-word powers of two after original normalization. Hosted source, native ABI, ownership and quota tests cover this boundary; no new TempleOS initializer capture is claimed."
+initializer_root_boundary = "Source-owned nonconstant global and static roots admit full-word non-power-of-two immediate divisors within the documented signed range and retained signed remainder by positive full-word powers of two after original normalization. Hosted source, native ABI, ownership and quota tests cover this boundary; no new TempleOS initializer capture is claimed."
 remaining = ["unsealed/general division preparation and retained native source publication; original canonical retained shifts prepare under #793", "shared comparison-chain reductions and broader numeric/flagged domains", "broader differential coverage and native exception delivery"]
 
 [[feature]]

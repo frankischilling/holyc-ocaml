@@ -111,6 +111,11 @@ let () =
         "10085",
         24 );
       ("I64 N=-7;I64 A=N%3;I64 B=N/3;A+B+45;", "42", 24);
+      ("I64 N=-7;I64 A=N%-3;I64 B=N/-3;A+B+41;", "42", 24);
+      ("I64 N=-7;I64 A=(++N)%-3;A+N+48;", "42", 16);
+      ("I64 N=-7;I64 Get(I64 n){return n;}I64 A=Get(N%-3);A+43;", "42", 16);
+      ("U64 N=7;U64 A=N/-3,B=N%-3;A+B+35;", "42", 24);
+      ("I64 N=0x8000000000000000;I64 A=N/-3;A;", "3074457345618258602", 16);
       ("I64 N=-7;I64 A=N%2;I64 B=N%4;A+B+46;", "42", 24);
       ("I64 N=-7;I64 Get(I64 n){return n;}I64 O=Get(N%2);O+43;", "42", 16);
       ("I64 N=-7;I64 A=N%2;U64 B=N%2(U64);I64 C=N%1;A+B+C+42;", "42", 32);
@@ -154,4 +159,9 @@ let () =
         (fun (target, mode) -> failure source target mode [] [ "HCRUN0006" ])
         cases)
     [ "N%0"; "N%-1"; "N%(3(U8))"; "N%(768(U8))" ];
+  List.iter
+    (fun (target, mode) ->
+      failure "I64 N=0x8000000000000000;I64 A=N/-1;A;" target mode []
+        [ "HCRUN0006" ])
+    cases;
   Printf.printf "Root initializer arithmetic CLI passed: %d reports\n" !reports
