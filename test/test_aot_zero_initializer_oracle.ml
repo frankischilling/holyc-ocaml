@@ -197,6 +197,77 @@ let direct_call_unary_argument_warnings () =
         [ false; true ])
     [ ("+7", 7L); ("~7", 4294967288L); ("!7", 0L) ]
 
+(* These arithmetic warning controls use hosted execution, not new captures. *)
+let direct_call_division_argument_warnings () =
+  List.iter
+    (fun static ->
+      List.iter
+        (fun native ->
+          let declaration expression =
+            if static then
+              "I64 F(){static Box object={Get(" ^ expression
+              ^ "),42};return object.value;}F();"
+            else
+              "Box object={Get(" ^ expression
+              ^ "),42};I64 F(){return object.value;}F();"
+          in
+          let source expression =
+            "I64 N=7;I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};"
+            ^ declaration expression
+          in
+          let diagnostics, result, _ =
+            run native Preprocessor.Aot (source "N/2")
+          in
+          Alcotest.(check (option int64))
+            "division load value" (Some 3L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "division warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
+          let diagnostics, result, _ =
+            run native Preprocessor.Aot (source "N%3")
+          in
+          Alcotest.(check bool)
+            "unresolved modulo execution stays rejected" true
+            (Result.is_error result);
+          Alcotest.(check bool)
+            "modulo source warning precedes rejection" true
+            (List.exists
+               (fun (d : Diagnostic.t) -> d.code = "HCSEMA0080")
+               diagnostics);
+          List.iter
+            (fun expression ->
+              let diagnostics, result, _ =
+                run native Preprocessor.Aot (source expression)
+              in
+              Alcotest.(check bool)
+                "unsupported arithmetic remains rejected" true
+                (Result.is_error result);
+              Alcotest.(check bool)
+                "unsafe divisor grants no warning authority" false
+                (List.exists
+                   (fun (d : Diagnostic.t) -> d.code = "HCSEMA0080")
+                   diagnostics))
+            [ "N/0"; "N/-1" ])
+        [ false; true ])
+    [ false; true ];
+  List.iter
+    (fun (expression, expected) ->
+      List.iter
+        (fun native ->
+          let source =
+            "I64 Get(I64 n=" ^ expression
+            ^ "){return n;}class Box{U0 empty;I64 value;};Box \
+               object={Get(),42};object.value;"
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check (option int64))
+            "division default load value" (Some expected) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "division default warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [ false; true ])
+    [ ("14/2", 7L); ("7%3", 1L) ]
+
 let direct_call_two_argument_warnings () =
   let fields = fixture "warnings-two-arguments" in
   Alcotest.(check int)
@@ -1156,6 +1227,8 @@ let () =
             direct_call_argument_warnings;
           Alcotest.test_case "direct unary integer argument warnings" `Quick
             direct_call_unary_argument_warnings;
+          Alcotest.test_case "direct division argument warnings" `Quick
+            direct_call_division_argument_warnings;
           Alcotest.test_case "direct two literal argument warnings" `Quick
             direct_call_two_argument_warnings;
           Alcotest.test_case "direct global argument warnings" `Quick

@@ -5942,6 +5942,15 @@ let proven_direct_arguments ledger header arguments =
           | "IC_ADD" | "IC_SUB" | "IC_MUL" | "IC_AND" | "IC_OR" | "IC_XOR" ->
               proven_numeric (fuel - 1) binary_left
               && proven_numeric (fuel - 1) binary_right
+          | "IC_DIV" | "IC_MOD" -> (
+              proven_numeric (fuel - 1) binary_left
+              &&
+              match binary_right with
+              | A.Integer_literal right -> (
+                  match right.literal_value with
+                  | A.Integer_value n -> n > 0L
+                  | _ -> false)
+              | _ -> false)
           | "IC_SHL" | "IC_SHR" -> (
               proven_numeric (fuel - 1) binary_left
               &&
