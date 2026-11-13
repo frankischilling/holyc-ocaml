@@ -159,7 +159,27 @@ let () =
       List.iter
         (fun (target, mode) -> failure source target mode [] [ "HCRUN0006" ])
         cases)
-    [ "N%0"; "N%(3(U8))"; "N%(768(U8))" ];
+    [ "N%(3(U8))"; "N%(768(U8))" ];
+  List.iter
+    (fun expression ->
+      let source = "I64 N=-7;I64 O=" ^ expression ^ ";O;" in
+      List.iter
+        (fun (target, mode) -> failure source target mode [] [ "HCIRVM0009" ])
+        cases)
+    [ "N/0"; "N%0" ];
+  List.iter
+    (fun source ->
+      List.iter
+        (fun (target, mode) -> failure source target mode [] [ "HCIRVM0009" ])
+        cases)
+    [
+      "U64 N=7;U64 O=N/0;O;";
+      "U64 N=7;U64 O=N%0;O;";
+      "I64 N=7;I64 F(){static I64 O=N/0;return O;}F();";
+      "I64 N=7;I64 F(){static I64 O=N%0;return O;}F();";
+      "I64 N=7;I64 O=(++N)/0;O;";
+      "I64 N=7;I64 Get(I64 n){return n;}I64 O=Get(N%0);O;";
+    ];
   List.iter
     (fun (target, mode) ->
       failure "I64 N=0x8000000000000000;I64 A=N/-1;A;" target mode []

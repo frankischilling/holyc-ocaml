@@ -823,9 +823,9 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                                    Option.fold ~none:false ~some:scalar
                                      (Values.find_opt operand produced))
                                  [ left; right ]
-                        (* Non-power divisors and signed remainder retain their
-                           original opcode. A full-word literal may be negated once;
-                           narrow constants need separate conversion evidence. *)
+                        (* Zero, non-power divisors, and signed remainder retain
+                           their original opcode. A full-word literal may be
+                           negated once; narrow constants need separate evidence. *)
                         | (Ir.Opcode.Ic_div | Ic_mod), [ left; right ], None ->
                             scalar item
                             && (not (Ir.Lock_semantics.has_flag item.flags))
@@ -888,21 +888,21 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                                    in
                                    Option.fold ~none:false
                                      ~some:(fun n ->
-                                       n <> 0L
-                                       && (Int64.logand n (Int64.sub n 1L) <> 0L
-                                          || n > 0L
-                                             && item.opcode = Ir.Opcode.Ic_mod
-                                             && Option.fold ~none:false
-                                                  ~some:(fun type_ ->
-                                                    Option.fold ~none:false
-                                                      ~some:(fun scalar ->
-                                                        not
-                                                          (Ir
-                                                           .Integer_scalar_storage
-                                                           .is_unsigned scalar))
-                                                      (Ir.Integer_scalar_storage
-                                                       .of_type type_))
-                                                  item.target_type))
+                                       n = 0L
+                                       || Int64.logand n (Int64.sub n 1L) <> 0L
+                                       || n > 0L
+                                          && item.opcode = Ir.Opcode.Ic_mod
+                                          && Option.fold ~none:false
+                                               ~some:(fun type_ ->
+                                                 Option.fold ~none:false
+                                                   ~some:(fun scalar ->
+                                                     not
+                                                       (Ir
+                                                        .Integer_scalar_storage
+                                                        .is_unsigned scalar))
+                                                   (Ir.Integer_scalar_storage
+                                                    .of_type type_))
+                                               item.target_type)
                                      value)
                                  (Values.find_opt right produced)
                         | _ -> false)

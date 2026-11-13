@@ -248,16 +248,18 @@ let direct_call_division_argument_warnings () =
               ("N/-3", 4294967294L);
               ("N%-3", 1L);
             ];
-          let diagnostics, result, _ =
-            run native Preprocessor.Aot (source "N/0")
-          in
-          Alcotest.(check bool)
-            "zero divisor remains rejected" true (Result.is_error result);
-          Alcotest.(check bool)
-            "zero divisor grants no warning authority" false
-            (List.exists
-               (fun (d : Diagnostic.t) -> d.code = "HCSEMA0080")
-               diagnostics))
+          List.iter
+            (fun expression ->
+              let diagnostics, result, _ =
+                run native Preprocessor.Aot (source expression)
+              in
+              Alcotest.(check bool)
+                "zero divisor faults" true (Result.is_error result);
+              Alcotest.(check (list string))
+                "warning precedes zero fault"
+                [ "HCSEMA0080"; "HCIRVM0009" ]
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+            [ "N/0"; "N%0" ])
         [ false; true ])
     [ false; true ];
   List.iter
@@ -335,6 +337,57 @@ let negative_one_source_fault_phases () =
         (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
       Alcotest.(check string) "default failure emits no output" "" output)
     [ false; true ]
+
+let zero_source_fault_phases () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun operator ->
+              let source =
+                "#exe{Print(\"A\");}I64 N=7;I64 A=N" ^ operator
+                ^ "0;#exe{Print(\"B\");}42;"
+              in
+              let diagnostics, result, output = run native mode source in
+              Alcotest.(check bool) "zero faults" true (Result.is_error result);
+              Alcotest.(check bool)
+                "zero diagnostic" true
+                (List.exists
+                   (fun (d : Diagnostic.t) -> d.code = "HCIRVM0009")
+                   diagnostics);
+              Alcotest.(check string)
+                "zero source phase effects"
+                (if mode = Preprocessor.Jit then "A" else "AB")
+                output)
+            [ "/"; "%" ])
+        [ false; true ])
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun native ->
+          List.iter
+            (fun body ->
+              let source =
+                "#exe{Print(\"A\");}" ^ body ^ "#exe{Print(\"B\");}42;"
+              in
+              let diagnostics, result, output = run native mode source in
+              Alcotest.(check bool)
+                "constant zero divisor fails in preparation" true
+                (Result.is_error result);
+              Alcotest.(check (list string))
+                "no later warning before constant fault" [ "HCIRVM0009" ]
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
+              Alcotest.(check string) "constant fault stops source" "A" output)
+            [
+              "I64 A=7/0;";
+              "I64 A=7%0;";
+              "I64 Get(I64 n=7/0){return n;}class Box{U0 empty;I64 value;};Box \
+               x={Get(),42};";
+            ])
+        [ false; true ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let direct_call_two_argument_warnings () =
   let fields = fixture "warnings-two-arguments" in
@@ -1299,6 +1352,8 @@ let () =
             direct_call_division_argument_warnings;
           Alcotest.test_case "negative one source fault phases" `Quick
             negative_one_source_fault_phases;
+          Alcotest.test_case "zero source fault phases" `Quick
+            zero_source_fault_phases;
           Alcotest.test_case "direct two literal argument warnings" `Quick
             direct_call_two_argument_warnings;
           Alcotest.test_case "direct global argument warnings" `Quick

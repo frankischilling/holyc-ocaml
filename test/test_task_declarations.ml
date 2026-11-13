@@ -3598,7 +3598,8 @@ let aot_initializer_warning_authority () =
          nested={Arg((N+1)*2),42};Box doubleNeg={Arg(-(-N)),42};Box \
          positive={Arg(+N),42};Box complement={Arg(~N),42};Box \
          logical={Arg(!N),42};Box quotient={Arg(N/2),42};Box \
-         remainder={Arg(N%3),42};Box negdiv={Arg(N/-1),42};Box \
+         remainder={Arg(N%3),42};Box zerodiv={Arg(N/0),42};Box \
+         zeromod={Arg(N%0),42};Box negdiv={Arg(N/-1),42};Box \
          negmod={Arg(N%-3),42};Box defaultObject={Def(),42};Box \
          defexpr={DefE(),42};Box def2={Def2(,4),42};Box \
          defboth={Def2(),42};Box def3={Def3(,2,),42};Box \
@@ -3698,7 +3699,7 @@ let aot_initializer_warning_authority () =
     ([ 0L; 0L; 0L; 0L ]
     @ List.concat_map
         (fun n -> [ Int64.of_int n; Int64.of_int n ])
-        (List.init 31 (fun n -> n + 1)))
+        (List.init 33 (fun n -> n + 1)))
     (List.rev !counts);
   Option.iter
     (fun receipt ->
