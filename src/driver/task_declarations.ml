@@ -5950,8 +5950,7 @@ let proven_direct_arguments ledger header arguments =
               | A.Integer_literal right -> (
                   match right.literal_value with
                   | A.Integer_value n ->
-                      n > 0L
-                      || (n = 0L && dynamic_numeric (fuel - 1) binary_left)
+                      n > 0L || dynamic_numeric (fuel - 1) binary_left
                   | _ -> false)
               | A.Prefix_expression
                   {
@@ -5963,7 +5962,12 @@ let proven_direct_arguments ledger header arguments =
                   | A.Integer_value n ->
                       n > 0L && dynamic_numeric (fuel - 1) binary_left
                   | _ -> false)
-              | _ -> false)
+              | denominator ->
+                  dynamic_numeric (fuel - 1) binary_left
+                  && Sema.Initializer_source.expression_identifier_nodes
+                       denominator
+                     = []
+                  && proven_numeric (fuel - 1) denominator)
           | "IC_SHL" | "IC_SHR" -> (
               proven_numeric (fuel - 1) binary_left
               &&

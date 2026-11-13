@@ -143,10 +143,11 @@ Public call and cast classes retain their operation-specific forwarding rules.
 Source-owned global and static initializer expressions accept nonconstant
 integer division and remainder by a positive, full-word, non-power-of-two
 immediate, zero, or by a full-word negative constant from -1 through -9223372036854775807.
-Signed remainder also accepts positive power-of-two immediates,
-including one, when the original operation remains `IC_MOD`. The source lowerer retains the original expression and applies its
-division normalization before the initializer guard accepts the surviving
-operation. For example, with `I64 N=-7`, `I64 A=N%3` stores `-1`.
+Signed remainder also accepts positive power-of-two immediates and the signed
+minimum divisor when the original operation remains `IC_MOD`. The source lowerer
+retains the original expression and applies division normalization before the
+initializer guard accepts the surviving operation. For example, with `I64 N=-7`,
+`I64 A=N%3` stores `-1`.
 Call arguments can retain the original push flag when their complete call
 scope stays inside one checked block, even if the graph has later blocks.
 
@@ -158,9 +159,8 @@ with a divisor of -1 faults when reached. In live JIT source execution, later
 source effects do not run after that fault; AOT load execution occurs after the
 source directives. A zero divisor also faults when reached. Hosted tests cover
 its JIT and AOT phase ordering; constant initializers fault during preparation.
-Narrow constants and the minimum signed divisor,
-other unproved remainder reductions, compound updates and transitive callee
-reductions retain their separate boundaries.
+Narrow constants, other unproved remainder reductions, compound updates and
+transitive callee reductions retain their separate boundaries.
 
 ## Observed fault phases
 

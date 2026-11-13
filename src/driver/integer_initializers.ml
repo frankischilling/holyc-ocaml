@@ -891,7 +891,7 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                                      ~some:(fun n ->
                                        n = 0L
                                        || Int64.logand n (Int64.sub n 1L) <> 0L
-                                       || n > 0L
+                                       || n <> 0L
                                           && item.opcode = Ir.Opcode.Ic_mod
                                           && Option.fold ~none:false
                                                ~some:(fun type_ ->

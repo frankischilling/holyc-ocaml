@@ -257,6 +257,7 @@ let direct_call_division_argument_warnings () =
               ("N/-3", 4294967294L);
               ("N%-3", 1L);
               ("(N+1)/-3", 4294967294L);
+              ("N%(-9223372036854775807-1)", 7L);
             ];
           let diagnostics, result, _ =
             run native Preprocessor.Aot (source "(-N)%-3")
@@ -277,7 +278,7 @@ let direct_call_division_argument_warnings () =
                 "warning precedes zero fault"
                 [ "HCSEMA0080"; "HCIRVM0009" ]
                 (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
-            [ "N/0"; "N%0"; "(N+1)/0"; "(-N)%0" ])
+            [ "N/0"; "N%0"; "(N+1)/0"; "(-N)%0"; "N/(1-1)" ])
         [ false; true ])
     [ false; true ];
   List.iter
@@ -301,16 +302,22 @@ let direct_call_division_argument_warnings () =
 let nested_constant_fault_precedes_warning () =
   List.iter
     (fun native ->
-      let source =
-        "I64 N=7;I64 Get(I64 n){return n;}class Box{U0 empty;I64 value;};Box \
-         x={Get((N+((-9223372036854775807-1)/-1))/-3),42};x.value;"
-      in
-      let diagnostics, result, _ = run native Preprocessor.Aot source in
-      Alcotest.(check bool)
-        "nested constant fault" true (Result.is_error result);
-      Alcotest.(check (list string))
-        "constant fault precedes later warning" [ "HCIRL0007" ]
-        (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+      List.iter
+        (fun expression ->
+          let source =
+            "I64 N=7;I64 Get(I64 n){return n;}class Box{U0 empty;I64 \
+             value;};Box x={Get(" ^ expression ^ "),42};x.value;"
+          in
+          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          Alcotest.(check bool)
+            "nested constant fault" true (Result.is_error result);
+          Alcotest.(check (list string))
+            "constant fault precedes later warning" [ "HCIRL0007" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics))
+        [
+          "(N+((-9223372036854775807-1)/-1))/-3";
+          "N/((-9223372036854775807-1)/-1)";
+        ])
     [ false; true ]
 
 let negative_one_source_fault_phases () =
