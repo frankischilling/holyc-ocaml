@@ -106,6 +106,26 @@ let () =
         "-69908",
         34 );
       ("U8 U=1;I64 N=7;I64 Get(I64 n){return n;}I64 O=Get(U<<N);O;", "128", 17);
+      ( "I64 N=7,C=1;I64 Get(I64 n){return n;}I64 F(){static I64 \
+         A=Get((-N)<<C);return A;}F()+56;",
+        "42",
+        24 );
+      ( "I64 N=7;I64 Get(I64 n){return n;}I64 F(){static I64 \
+         A=Get((-N)<<1);return A;}F()+56;",
+        "42",
+        16 );
+      ( "I64 N=7,C=65;I64 Get(I64 n){return n;}I64 F(){static I64 \
+         A=Get((-N)>>C);return A;}F()+46;",
+        "42",
+        24 );
+      ( "U64 N=16,C=1;U64 Get(U64 n){return n;}I64 F(){static U64 \
+         A=Get(N>>C);return A;}F()+34;",
+        "42",
+        24 );
+      ( "I64 N=7,C=1;I64 Get(I64 n){return n;}I64 F(){static I64 \
+         A=Get(Get((-N)<<C));return A;}F()+56;",
+        "42",
+        24 );
       ( "I64 N=3,C=1;I64 Pair(I64 a,I64 b){return a*100+b;}I64 \
          R=Pair((++N)<<C,(++N)<<C);R*10+N;",
         "10085",

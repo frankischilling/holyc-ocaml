@@ -45,6 +45,10 @@ must have supported non-pointer scalar integer types. The instruction identity
 must be the one selected from that graph. Unsupported or unproved shifts remain
 outside this path.
 
+The call scope can occupy one block of a larger graph. Hosted tests cover signed
+and unsigned static shifts, nested calls, both native ABIs and exact resource
+limits. These cases do not add TempleOS runtime captures.
+
 The IR and live native-task paths cover both source modes; native AOT source
 also covers this case. Standalone native JIT initializers with source references
 remain outside the existing native closed-initializer path. A global shift used

@@ -1034,6 +1034,12 @@ let () =
                    A=Get((-N)%-3),B=Get((-N)/-3);return A+B+43;}I64 G(){static \
                    I64 C=41;return C;}F();";
                 ]);
+          Alcotest.test_case "static scoped shifts retain original authority"
+            `Quick (fun () ->
+              check_static_load_ownership
+                "I64 N=7,C=1;I64 Get(I64 n){return n;}I64 F(){static I64 \
+                 A=Get((-N)<<C),B=Get(Get(N>>C));return A+B+53;}I64 G(){static \
+                 I64 D=41;return D;}F();");
           Alcotest.test_case "global root shifts retain original load authority"
             `Quick (fun () ->
               List.iter
