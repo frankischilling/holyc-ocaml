@@ -670,6 +670,7 @@ type live = {
 }
 
 type static_snapshot = {
+  static_owner : static_snapshot option ref;
   static_allocation : Sema.Compiler_record.automatic_aggregate_allocation;
   static_table : Sema.Symbol_table.t;
   static_parent : Sema.Symbol_table.scope;
@@ -711,8 +712,10 @@ let begin_static_snapshot ~table ~parent ~allocation ~dimensions =
       |> Result.map_error (fun _ ->
           "HCRUN0006: static metadata has no supported original shape")
     in
-    Ok
+    let owner = ref None in
+    let snapshot =
       {
+        static_owner = owner;
         static_allocation = allocation;
         static_table = table;
         static_parent = parent;
@@ -724,16 +727,25 @@ let begin_static_snapshot ~table ~parent ~allocation ~dimensions =
         static_reached = [];
         static_completed = None;
       }
+    in
+    owner := Some snapshot;
+    Ok snapshot
+
+let static_snapshot_is_original value =
+  Option.fold ~none:false ~some:(( == ) value) !(value.static_owner)
 
 let static_snapshot_receipt value =
   Sema.Compiler_record.automatic_aggregate_source value.static_allocation
+
+let static_snapshot_shape value = value.static_shape
 
 let observe_static_snapshot_delimiter value receipt =
   let prior =
     List.nth_opt value.static_reached 0 |> Option.map (fun (r, _, _, _, _) -> r)
   in
   if
-    Option.is_some value.static_completed
+    (not (static_snapshot_is_original value))
+    || Option.is_some value.static_completed
     || Option.is_some value.static_preparing
     || (not (Frontend.Parser.static_initializer_delimiter_is_current receipt))
     || receipt.Frontend.Parser.static_delimiter_start.static_start_allocation
@@ -761,7 +773,8 @@ let observe_static_snapshot_delimiter value receipt =
 
 let prepare_static_snapshot_expression value receipt =
   if
-    Option.is_some value.static_completed
+    (not (static_snapshot_is_original value))
+    || Option.is_some value.static_completed
     || Option.is_some value.static_preparing
     || (not (Frontend.Parser.static_leaf_preparation_is_current receipt))
     || receipt.Frontend.Parser.static_expression_start.static_start_allocation
@@ -783,7 +796,8 @@ let prepare_static_snapshot_leaf value receipt =
     List.nth_opt value.static_reached 0 |> Option.map (fun (r, _, _, _, _) -> r)
   in
   if
-    Option.is_some value.static_completed
+    (not (static_snapshot_is_original value))
+    || Option.is_some value.static_completed
     || (not (Frontend.Parser.static_initializer_is_current receipt))
     || receipt.Frontend.Parser.static_allocation
        != static_snapshot_receipt value
@@ -818,7 +832,8 @@ let complete_static_snapshot value receipt =
     List.nth_opt value.static_reached 0 |> Option.map (fun (r, _, _, _, _) -> r)
   in
   if
-    Option.is_some value.static_completed
+    (not (static_snapshot_is_original value))
+    || Option.is_some value.static_completed
     || Option.is_some value.static_preparing
     || (not (Frontend.Parser.static_initializer_completion_is_current receipt))
     || receipt.Frontend.Parser.static_completed_start.static_start_allocation
@@ -831,7 +846,8 @@ let complete_static_snapshot value receipt =
 
 let static_snapshot_leaf_destination value receipt =
   if
-    (not (Frontend.Parser.static_initializer_is_current receipt))
+    (not (static_snapshot_is_original value))
+    || (not (Frontend.Parser.static_initializer_is_current receipt))
     || receipt.Frontend.Parser.static_allocation
        != static_snapshot_receipt value
   then invalid "static cursor read requires its original current leaf"
@@ -843,27 +859,29 @@ let static_snapshot_leaf_destination value receipt =
 
 let static_snapshot_matches value ~frame ~location =
   let module Frame = Sema.Function_frame_layout in
-  match
-    ( Sema.Symbol_table.parent (Frame.function_scope frame),
-      value.static_completed )
-  with
-  | Some parent, Some local
-    when parent == value.static_parent
-         && Frame.location_kind location = Frame.Static_local
-         && Option.fold ~none:false ~some:(( == ) location)
-              (Frame.find_location frame (Frame.location_symbol location))
-         && local.Frontend.Ast.local_name
-            == Sema.Compiler_record.automatic_aggregate_local_name
-                 value.static_allocation ->
-      Result.is_ok
-        (Sema.Compiler_record.validate_automatic_aggregate
-           ~table:value.static_table ~parent
-           ~function_symbol:(Frame.function_symbol frame)
-           ~local_symbol:(Frame.location_symbol location)
-           ~local_name:local.local_name
-           ~checked_type:(Frame.location_checked_type location)
-           value.static_allocation)
-  | _ -> false
+  if not (static_snapshot_is_original value) then false
+  else
+    match
+      ( Sema.Symbol_table.parent (Frame.function_scope frame),
+        value.static_completed )
+    with
+    | Some parent, Some local
+      when parent == value.static_parent
+           && Frame.location_kind location = Frame.Static_local
+           && Option.fold ~none:false ~some:(( == ) location)
+                (Frame.find_location frame (Frame.location_symbol location))
+           && local.Frontend.Ast.local_name
+              == Sema.Compiler_record.automatic_aggregate_local_name
+                   value.static_allocation ->
+        Result.is_ok
+          (Sema.Compiler_record.validate_automatic_aggregate
+             ~table:value.static_table ~parent
+             ~function_symbol:(Frame.function_symbol frame)
+             ~local_symbol:(Frame.location_symbol location)
+             ~local_name:local.local_name
+             ~checked_type:(Frame.location_checked_type location)
+             value.static_allocation)
+    | _ -> false
 
 let static_snapshot_layout value ~frame ~location ~shape ~source =
   if

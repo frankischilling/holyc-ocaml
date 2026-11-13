@@ -301,6 +301,29 @@ let isolated_snapshots () =
       reject "static cursor completion is once-only"
         (Layout.complete_static_snapshot snapshot receipt))
     !completions;
+  let module Unit = Holyc_lib__Driver.Integer_unit in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:Preprocessor.Aot () |> checked
+  in
+  let compiled =
+    Unit.compile_source_output ~source_command:command
+      ~max_initializer_steps:10000 session ~config parsed
+    |> expect
+  in
+  let own_slot =
+    Unit.globals compiled.value |> Ir_integer_globals.statics |> List.hd
+  in
+  let own_frame = Ir_integer_globals.static_frame own_slot
+  and own_location = Ir_integer_globals.static_location own_slot in
+  Alcotest.(check bool)
+    "original snapshot joins original frame" true
+    (Layout.static_snapshot_matches snapshot ~frame:own_frame
+       ~location:own_location);
+  let cloned_snapshot = Obj.obj (Obj.dup (Obj.repr snapshot)) in
+  Alcotest.(check bool)
+    "copied snapshot cannot join original frame" false
+    (Layout.static_snapshot_matches cloned_snapshot ~frame:own_frame
+       ~location:own_location);
   let foreign = Test_integer_globals.compile ~mode:Preprocessor.Aot text in
   let globals = integer_program_globals foreign in
   let slot = Ir_integer_globals.statics globals |> List.hd in

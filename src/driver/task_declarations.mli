@@ -937,6 +937,16 @@ val observe :
   t ->
   Frontend.Parser.declaration_event ->
   (unit, Common.Diagnostic.t list) result
+
+val begin_aot_invocation :
+  t ->
+  context:Frontend.Parser.command_context ->
+  fork:Sema.Symbol_table.empty_fork ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  (Sema.Aot_invocation.t, Common.Diagnostic.t list) result
+
+val reserve_aot_peer :
+  t -> Sema.Aot_invocation.t -> (unit, Common.Diagnostic.t list) result
 (** Assign semantic identity at parser publication and retain exact completion
     witnesses. Reject foreign source/environment owners, replay and phase
     errors. This does not type an initializer or admit runtime
@@ -1146,6 +1156,13 @@ val native_load_static_initializer_source :
     its checked load-time region. Attempts are consumed once in the original
     ledger and invocation; this supplies no prepared value or execution proof.
 *)
+
+val native_static_initializer_snapshot :
+  t ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( Ir.Integer_initializer_layout.static_snapshot option,
+    Common.Diagnostic.t list )
+  result
 
 val native_static_initializer_destination :
   t ->

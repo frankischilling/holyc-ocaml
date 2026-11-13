@@ -53,8 +53,10 @@ type command_context = {
   context_stream_locals : Symbol_visibility.Environment.local_snapshot option;
   mutable context_active : bool;
   mutable context_event_count : int;
+  mutable context_aot_invocation_claimed : bool;
   context_compiler_position : compiler_position_state;
   mutable context_accepted_ast : Ast.module_ option;
+  mutable context_accepted_sequence : completed_sequence option;
   context_observation_id : int;
   context_stack : command_position ref list ref;
   mutable context_position : command_position ref option;
@@ -78,6 +80,12 @@ and command_position =
   | Before_first_command of command_context
   | Reading_command of command_start
   | Awaiting_resume of completed_command
+
+and completed_sequence = {
+  sequence_context : command_context;
+  sequence_commands : completed_command list;
+  sequence_ast : Ast.module_;
+}
 
 and compiler_exception = {
   exception_owner : compiler_exception option ref;
@@ -211,12 +219,6 @@ let suspension_enclosing_context suspension =
         then Ok enclosing
         else Error "saved compiler tables have an advanced or closed parent"
     | _ -> Error "saved compiler tables lack their original enclosing position"
-
-type completed_sequence = {
-  sequence_context : command_context;
-  sequence_commands : completed_command list;
-  sequence_ast : Ast.module_;
-}
 
 type command_event =
   | Sequence_started of command_context
@@ -534,9 +536,12 @@ let context_parent_in_environment context ~environment =
   else parent context (List.tl !(context.context_stack))
 
 let sequence_accepted sequence =
-  match sequence.sequence_context.context_accepted_ast with
-  | Some ast -> ast == sequence.sequence_ast
-  | None -> false
+  let context = sequence.sequence_context in
+  Option.fold ~none:false ~some:(( == ) sequence)
+    context.context_accepted_sequence
+  && Option.fold ~none:false
+       ~some:(( == ) sequence.sequence_ast)
+       context.context_accepted_ast
 
 type named_aggregate_selection = {
   type_specifier : Ast.type_specifier;
@@ -1827,6 +1832,24 @@ let context_command_events_match context ~events_rev =
       List.length original = List.length events_rev
       && List.for_all2 ( == ) original events_rev)
     (Context_observations.find_opt context_observations context)
+
+(* Reserve the original root start for a single AOT invocation. *)
+let claim_aot_invocation context ~events_rev =
+  let original_start =
+    match events_rev with
+    | [ Sequence_started original ] -> original == context
+    | _ -> false
+  in
+  if
+    context.context_aot_invocation_claimed || (not original_start)
+    || context.context_mode <> Preprocessor.Aot
+    || Option.is_some context.context_parent
+    || (not (context_has_focus context))
+    || not (context_is_current context ~observed_events:1)
+  then Error "AOT invocation requires the original live root start"
+  else (
+    context.context_aot_invocation_claimed <- true;
+    Ok ())
 
 type command_sink = {
   lexical_lookup :
@@ -13253,8 +13276,10 @@ let make_command_context ?stream_opener ?saved_locals cursor =
       context_stream = Option.is_some stream_opener;
       context_stream_locals = saved_locals;
       context_accepted_ast = None;
+      context_accepted_sequence = None;
       context_active = true;
       context_event_count = 0;
+      context_aot_invocation_claimed = false;
       context_compiler_position =
         (match saved_stack with
         | [] -> { position_source = None; next_position = 0 }
@@ -13433,14 +13458,16 @@ let read_commands ?input_suspension ?commands ?stream_opener ?saved_locals
             done;
             let ast = make_module (List.rev !items_rev) in
             if not (has_error !(cursor.diagnostics_rev)) then (
-              notify
-                (Sequence_completed
-                   {
-                     sequence_context = context;
-                     sequence_commands = List.rev !completed_rev;
-                     sequence_ast = ast;
-                   });
+              let sequence =
+                {
+                  sequence_context = context;
+                  sequence_commands = List.rev !completed_rev;
+                  sequence_ast = ast;
+                }
+              in
+              notify (Sequence_completed sequence);
               context.context_accepted_ast <- Some ast;
+              context.context_accepted_sequence <- Some sequence;
               succeeded := true);
             ast))
   with Stop_compiler aborted ->

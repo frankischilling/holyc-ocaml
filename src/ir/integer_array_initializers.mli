@@ -37,6 +37,7 @@ val create_retained :
   ('root t, string) result
 
 val entries : 'root t -> 'root entry list
+val scalar : 'root t -> Integer_scalar_storage.t
 val root : 'root entry -> 'root
 val destination : 'root entry -> Integer_initializer_layout.entry
 val prepared : 'root entry -> (payload * int) option

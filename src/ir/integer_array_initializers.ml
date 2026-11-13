@@ -15,6 +15,7 @@ type 'root t = {
 }
 
 let entries initializers = initializers.entries
+let scalar initializers = initializers.scalar
 let root entry = entry.root
 let destination entry = entry.destination
 let prepared entry = entry.prepared

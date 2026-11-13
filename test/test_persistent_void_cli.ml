@@ -161,7 +161,11 @@ let () =
           if mode = "aot" then
             List.iter
               (fun (_, source) ->
-                rejected ~code:"HCRUN0006" target mode source [])
+                if
+                  source
+                  = "I64 F(){static U0 x=42;return 21+sizeof(x);}F()+F();"
+                then ignore (success target mode source [])
+                else rejected ~code:"HCRUN0006" target mode source [])
               initialized)
         [ "jit"; "aot" ];
       if target <> "host-jit" then (

@@ -51,6 +51,7 @@ val lower_complete :
   ?globals:Integer_globals.t ->
   ?records:Sema.Function_record_classification.t ->
   ?labels:Sema.Label_resolution.resolved_function ->
+  ?source_static_frame:bool ->
   ?top_calls:Sema.Top_level_function_call_target_classification.t list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
   ?callback_calls:Sema.Function_call_expression_result.indirect_call list ->

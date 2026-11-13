@@ -16,6 +16,8 @@ val begin_static_snapshot :
 val static_snapshot_receipt :
   static_snapshot -> Frontend.Parser.function_local_allocation
 
+val static_snapshot_shape : static_snapshot -> Integer_storage_shape.t
+
 val observe_static_snapshot_delimiter :
   static_snapshot ->
   Frontend.Parser.completed_static_initializer_delimiter ->

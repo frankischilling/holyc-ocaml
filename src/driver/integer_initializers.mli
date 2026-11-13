@@ -57,6 +57,7 @@ type native_static_preparation
 type native_preparation
 
 val prepare_native :
+  runtime:Ir.Integer_interpreter.task_state ->
   scalar:Sema.Initializer_type.scalar option ->
   authority:Sema.Initializer_fragment.authority ->
   typed:Sema.Function_call_expression_result.top_level_t ->
@@ -72,6 +73,13 @@ val prepare_native :
 
 val native_leaf : native_preparation -> Sema.Initializer_source.leaf
 val native_steps : native_preparation -> int
+
+val native_execution :
+  native_preparation -> Ir.Integer_interpreter.constant_execution option
+
+val native_copy_execution :
+  native_preparation -> Ir.Integer_interpreter.copy_execution option
+
 val native_is_load : native_preparation -> bool
 val native_evidence : t -> native_preparation list
 
@@ -200,6 +208,8 @@ val prepare_member_metadata :
   (classification * int, Common.Diagnostic.t list) result
 
 val prepare_native_static :
+  static_snapshot:Ir.Integer_initializer_layout.static_snapshot option ->
+  runtime:Ir.Integer_interpreter.task_state ->
   scalar:Sema.Initializer_type.scalar option ->
   fragment:Sema.Static_initializer_fragment.t ->
   typed:Sema.Function_call_expression_result.top_level_t ->
@@ -221,6 +231,14 @@ val prepare_native_static_load :
   (native_static_preparation, Common.Diagnostic.t list) result
 (** Retain a current AOT leaf and selected cursor for a checked static load-time
     region. No prepared payload or successful execution is claimed. *)
+
+val native_static_steps : native_static_preparation -> int
+
+val native_static_execution :
+  native_static_preparation -> Ir.Integer_interpreter.constant_execution option
+
+val native_static_copy_execution :
+  native_static_preparation -> Ir.Integer_interpreter.copy_execution option
 
 val native_static_is_load : native_static_preparation -> bool
 

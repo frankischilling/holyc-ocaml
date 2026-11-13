@@ -327,16 +327,6 @@ let create ~initializer_snapshots ~allocations ~span ~mode ~start ~frames
                         remaining
                     in
                     let* () =
-                      if
-                        Shape.is_storage_free shape
-                        && mode = Resolution.Aot && owned <> []
-                      then
-                        invalid ~at ~code:"HCRUN0006"
-                          "U0 scalar static initializers require the live JIT \
-                           source path"
-                      else Ok ()
-                    in
-                    let* () =
                       List.fold_left
                         (fun checked root ->
                           let* () = checked in

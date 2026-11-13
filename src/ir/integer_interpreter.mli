@@ -624,6 +624,21 @@ val create_compiler_namespace_task :
     require their own synchronous machine bridge. *)
 
 val task_shares_resources : task_state -> task_state -> bool
+val task_has_aot_invocation : task_state -> bool
+val task_same_source_invocation : task_state -> task_state -> bool
+
+val begin_aot_invocation :
+  task_state ->
+  context:Frontend.Parser.command_context ->
+  events_rev:Frontend.Parser.command_event list ->
+  namespace:Sema.Declaration_collection.namespace ->
+  fork:Sema.Symbol_table.empty_fork ->
+  (Sema.Aot_invocation.t, string) result
+
+val create_aot_peer_state :
+  task_state -> invocation:Sema.Aot_invocation.t -> (task_state, string) result
+
+val claim_aot_consumer : task_state -> (unit, string) result
 (** Physical shared-counter/buffer identity, without source or storage
     authority. *)
 
@@ -1101,6 +1116,34 @@ val execute_task_program :
 
 val reference_commit : string
 
+type constant_execution
+
+type constant_source =
+  | Global_constant of
+      Sema.Initializer_fragment.authority
+      * Sema.Function_call_expression_result.top_level_root_result
+  | Static_constant of
+      Sema.Static_initializer_fragment.t
+      * Sema.Function_call_expression_result.top_level_root_result
+
+val execute_constant_receipt :
+  max_steps:int -> X87_stack.t -> (constant_execution, error list) result
+
+val execute_task_constant_receipt :
+  ?static_snapshot:Integer_initializer_layout.static_snapshot ->
+  task_state ->
+  max_steps:int ->
+  source:constant_source ->
+  globals:Integer_globals.t ->
+  lowered:Integer_program_lowering.t ->
+  (constant_execution, error list) result
+
+val constant_receipt_graph : constant_execution -> X87_stack.t
+val constant_receipt_result : constant_execution -> t
+val constant_receipt_owned_by : task_state -> constant_execution -> bool
+val constant_receipt_before : constant_execution -> int option
+val constant_receipt_consumed : constant_execution -> bool
+
 val execute_constant_preparation :
   max_steps:int -> X87_stack.t -> (t, error list) result
 (** Check and evaluate a closed pure constant graph with one byte of frame
@@ -1265,9 +1308,44 @@ val execute_isolated_program_in_task :
     Success reports cumulative instructions/preparation and the actual outer
     result. Active streams and replayed output images reject before effects. *)
 
+type copy_execution
+
+val execute_aot_global_copy :
+  task_state ->
+  before:int ->
+  authority:Sema.Initializer_fragment.authority ->
+  root:Sema.Function_call_expression_result.top_level_root_result ->
+  globals:Integer_globals.t ->
+  (copy_execution, string) result
+
+val execute_aot_static_copy :
+  ?static_snapshot:Integer_initializer_layout.static_snapshot ->
+  task_state ->
+  before:int ->
+  fragment:Sema.Static_initializer_fragment.t ->
+  root:Sema.Function_call_expression_result.top_level_root_result ->
+  globals:Integer_globals.t ->
+  (copy_execution, string) result
+
+val aot_copy_steps : copy_execution -> int
+
+val finish_unpaired_aot_output :
+  task_state ->
+  sequence:Frontend.Parser.completed_sequence ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  entry:X87_stack.t ->
+  receipts:constant_execution list ->
+  copies:copy_execution list ->
+  (unit, string) result
+
 type isolated_preparation
 
-val begin_isolated_preparation : task_state -> isolated_preparation
+val begin_isolated_preparation :
+  ?receipts:constant_execution list ->
+  ?copies:copy_execution list ->
+  task_state ->
+  isolated_preparation
 
 val record_isolated_preparation :
   task_state -> isolated_preparation -> steps:int -> unit

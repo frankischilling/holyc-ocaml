@@ -1532,6 +1532,46 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             compiler_tasks = ref [];
           }))
 
+(* A source-authorized AOT peer may acquire its driver exactly once. *)
+let create_aot_peer ?compiler_positions ?max_switch_work ?switch_budget ~state
+    session =
+  let session = Session.task_frontend session in
+  if not (VM.task_owns_table state (Session.semantic_symbols session)) then
+    Error "AOT peer state has another semantic table"
+  else
+    let ( let* ) = Result.bind in
+    let* () = VM.claim_aot_consumer state in
+    let config =
+      match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
+      | Ok config -> config
+      | Error message -> invalid_arg message
+    in
+    Task_declarations.create ?compiler_positions ?max_switch_work ?switch_budget
+      ~runtime:state session
+    |> Result.map (fun declarations ->
+        {
+          session;
+          config;
+          state;
+          declarations;
+          identity = ref ();
+          native_dispatch = None;
+          native_static_allocation = None;
+          native_static_initializer = None;
+          native_static_copy = None;
+          native_default = None;
+          native_dimension = None;
+          native_switch_case = None;
+          native_offset = None;
+          native_member_metadata = None;
+          native_internal_binding = None;
+          commands = [];
+          compiled_rev = ref [];
+          compiler_diagnostics_rev = ref [];
+          compiler_exceptions_rev = ref [];
+          compiler_tasks = ref [];
+        })
+
 let frontend task = task.session
 let compiler_diagnostics task = List.rev !(task.compiler_diagnostics_rev)
 let compiler_exceptions task = List.rev !(task.compiler_exceptions_rev)
@@ -2749,11 +2789,13 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
 let observe_initializer task event = observe_initializer_internal task event
 let compiled_units task = List.rev !(task.compiled_rev)
 
-let compile_isolated task ~source_command session ~config parsed =
+let compile_isolated ?native_initializers ?native_static_initializers task
+    ~source_command session ~config parsed =
   match task.native_dispatch with
   | None ->
       Integer_unit.compile_source_in_task_budget ~task:task.state
-        ~source_command session ~config parsed
+        ?native_initializers ?native_static_initializers ~source_command session
+        ~config parsed
   | Some _ ->
       let span = (Option.get parsed.Frontend.Parser.ast).span in
       Error

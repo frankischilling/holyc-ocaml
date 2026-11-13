@@ -1265,6 +1265,51 @@ let observe_command ledger event =
       record_activation_event ledger (Sema.Source_activation.Command event))
     (observe_command ledger event)
 
+let aot_command_events ledger context =
+  List.filter
+    (fun event ->
+      let owner =
+        match event with
+        | Parser.Sequence_started c | Parser.Sequence_aborted c -> c
+        | Parser.Command_started start -> start.command_context
+        | Parser.Command_completed receipt | Parser.Command_resumed receipt ->
+            receipt.command_start.command_context
+        | Parser.Sequence_completed receipt -> receipt.sequence_context
+      in
+      owner == context)
+    ledger.source_events_rev
+
+let begin_aot_invocation ledger ~context ~fork ~runtime =
+  protect (fun () ->
+      let span = context_span context in
+      (match ledger.authority with
+      | Source_compilation original
+        when original == Parser.context_source context -> ()
+      | _ -> fail span "AOT invocation requires its original source ledger");
+      if not (VM.task_owns_table runtime ledger.table) then
+        fail span "AOT preparation task belongs to another semantic table";
+      ignore (active_sequence ledger context);
+      let invocation =
+        VM.begin_aot_invocation runtime ~context
+          ~events_rev:(aot_command_events ledger context)
+          ~namespace:ledger.namespace ~fork
+        |> checked span
+      in
+      invocation)
+
+let reserve_aot_peer ledger invocation =
+  protect (fun () ->
+      let context = Sema.Aot_invocation.context invocation in
+      let span = context_span context in
+      if not (Sema.Aot_invocation.owns_namespace invocation ledger.namespace)
+      then fail span "AOT invocation belongs to another source namespace";
+      ignore (active_sequence ledger context);
+      let fork = Sema.Aot_invocation.fork invocation in
+      Sema.Aot_invocation.claim_peer invocation
+        ~parent:(Sema.Symbol_table.fork_parent fork)
+        ~child:(Sema.Symbol_table.fork_child fork)
+      |> checked span)
+
 let validate_command ledger (header : Parser.declaration_header) =
   let start = header.declaration_command in
   let sequence = active_sequence ledger start.command_context in
@@ -3286,7 +3331,10 @@ let observe ?offset_runtime ?metadata_work_limit
                   match (ledger.authority, phase.phase_step) with
                   | Source_compilation _, Parser.Aggregate_offset_reached _ -> (
                       match ledger.source_defaults_runtime with
-                      | Some previous when previous != runtime ->
+                      | Some previous
+                        when not
+                               (VM.task_same_source_invocation previous runtime)
+                        ->
                           fail phase.phase_location.span
                             "source preparation belongs to another directive \
                              task"
@@ -5497,7 +5545,7 @@ let native_initializer_source ledger ~runtime ~closed receipt =
       if not (VM.task_owns_table runtime ledger.table) then
         fail span "native initializer has another semantic table";
       (match ledger.source_defaults_runtime with
-      | Some prior when prior != runtime ->
+      | Some prior when not (VM.task_same_source_invocation prior runtime) ->
           fail span "native initializer has another invocation budget"
       | _ -> ());
       if List.exists (( == ) leaf) ledger.native_initializer_attempts then
@@ -5696,7 +5744,7 @@ let native_static_initializer_source ~load ledger ~runtime
       if not (VM.task_owns_table runtime ledger.table) then
         fail span "native static initializer has another semantic table";
       (match ledger.source_defaults_runtime with
-      | Some prior when prior != runtime ->
+      | Some prior when not (VM.task_same_source_invocation prior runtime) ->
           fail span "native static initializer has another invocation budget"
       | _ -> ());
       if
@@ -6079,6 +6127,20 @@ let native_static_initializer_destination ledger receipt =
              Ir.Integer_initializer_layout.static_snapshot_receipt snapshot
              == receipt.Parser.static_allocation)
            ledger.isolated_static_snapshots))
+
+let native_static_initializer_snapshot ledger receipt =
+  protect (fun () ->
+      let span = (Parser.static_initializer_leaf_location receipt).span in
+      if
+        (not (Parser.static_initializer_is_current receipt))
+        || not (List.exists (( == ) receipt) ledger.native_static_attempts)
+      then
+        fail span "native static snapshot requires its original attempted leaf";
+      List.find_opt
+        (fun snapshot ->
+          Ir.Integer_initializer_layout.static_snapshot_receipt snapshot
+          == receipt.Parser.static_allocation)
+        ledger.isolated_static_snapshots)
 
 let initializer_declaration ledger (start : Parser.global_initializer_start) =
   protect (fun () ->
@@ -7295,7 +7357,7 @@ let begin_source_default_with_owner owner ledger ~runtime receipt =
           ledger.source_default_attempts
       then fail span "output default preparation was already attempted";
       (match ledger.source_defaults_runtime with
-      | Some prior when prior != runtime ->
+      | Some prior when not (VM.task_same_source_invocation prior runtime) ->
           fail span "output defaults have another invocation budget"
       | _ -> ());
       let assigned = find ledger receipt.default_function.function_name in
@@ -8973,7 +9035,7 @@ let begin_source_callback_default_with_owner owner ledger ~runtime receipt =
           ledger.source_callback_attempts
       then fail span "anonymous output default already attempted";
       (match ledger.source_defaults_runtime with
-      | Some prior when prior != runtime ->
+      | Some prior when not (VM.task_same_source_invocation prior runtime) ->
           fail span "anonymous defaults have another invocation budget"
       | _ -> ());
       let rec predecessor = function

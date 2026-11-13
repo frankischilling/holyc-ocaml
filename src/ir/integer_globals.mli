@@ -146,6 +146,11 @@ val fragment_context :
   task_view -> Sema.Initializer_fragment.t -> (t, string) result
 
 val is_initializer_fragment : t -> bool
+val native_global_initializer_fragment : t -> Sema.Initializer_fragment.t option
+
+val native_static_initializer_fragment :
+  t -> Sema.Static_initializer_fragment.t option
+
 val default_context : task_view -> Sema.Default_fragment.t -> (t, string) result
 val is_default_fragment : t -> bool
 val is_isolated_default : t -> bool

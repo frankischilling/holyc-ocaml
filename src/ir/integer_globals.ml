@@ -76,6 +76,8 @@ type task_view = {
 
 type fragment_kind =
   | Initializer_context
+  | Native_global_initializer_context of Sema.Initializer_fragment.t
+  | Native_static_initializer_context of Sema.Static_initializer_fragment.t
   | Default_context
   | Internal_binding_context
   | Dimension_context
@@ -265,7 +267,22 @@ let is_member_metadata_fragment globals =
   globals.fragment_kind_ = Some Member_metadata_context
 
 let is_initializer_fragment globals =
-  globals.fragment_kind_ = Some Initializer_context
+  match globals.fragment_kind_ with
+  | Some
+      ( Initializer_context
+      | Native_global_initializer_context _
+      | Native_static_initializer_context _ ) -> true
+  | _ -> false
+
+let native_global_initializer_fragment globals =
+  match globals.fragment_kind_ with
+  | Some (Native_global_initializer_context fragment) -> Some fragment
+  | _ -> None
+
+let native_static_initializer_fragment globals =
+  match globals.fragment_kind_ with
+  | Some (Native_static_initializer_context fragment) -> Some fragment
+  | _ -> None
 
 let isolated_default_context mode =
   Ok
@@ -329,7 +346,10 @@ let native_initializer_context fragment =
     in
     Result.map
       (fun context ->
-        { context with fragment_kind_ = Some Initializer_context })
+        {
+          context with
+          fragment_kind_ = Some (Native_global_initializer_context fragment);
+        })
       (isolated_default_context mode)
 
 let native_static_initializer_context fragment =
@@ -346,7 +366,10 @@ let native_static_initializer_context fragment =
     in
     Result.map
       (fun context ->
-        { context with fragment_kind_ = Some Initializer_context })
+        {
+          context with
+          fragment_kind_ = Some (Native_static_initializer_context fragment);
+        })
       (isolated_default_context mode)
 
 let with_native_source_defaults globals defaults =

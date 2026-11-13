@@ -53,9 +53,12 @@ semantics.
 
 U0 calls without an actual scalar result, reference values without an integer
 word, out-of-bounds store windows, and unresolved constant/preparation phases
-still reject explicitly. No machine-register value is invented. Scalar U0 AOT
-root initializers and the separate globals-on-data-heap path remain unsupported.
-General AOT assignment warnings and emitted-byte equality are not claimed.
+still reject explicitly. No machine-register value is invented. Supported closed
+integer initializers of scalar U0 statics run at their source declaration; see
+[persistent U0 declarations](persistent-void-declarations.md). Scalar U0 global
+root initializers, nonconstant U0 static roots and the separate
+globals-on-data-heap path remain unsupported. General AOT assignment warnings
+and emitted-byte equality are not claimed.
 
 The warning probe observes the compiler counter in successive `#exe` blocks.
 A constant U0 copy adds no warning, an integer load assignment adds one, a U0

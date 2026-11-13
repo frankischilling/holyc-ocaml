@@ -15,6 +15,7 @@ type static_completion = {
 }
 
 type t = {
+  owner_session : Session.t;
   compilation_mode : Frontend.Preprocessor.compilation_mode;
   table : Sema.Symbol_table.t;
   state : VM.task_state;
@@ -32,9 +33,22 @@ type t = {
 }
 
 let ( let* ) = Result.bind
+let task_state value = value.state
 let work value = VM.task_initializer_steps value.state
 let bytes value = value.saved_bytes
 let remaining_work value = VM.task_initializer_remaining value.state
+
+let check_execution value ~before = function
+  | None -> Ok ()
+  | Some receipt ->
+      let result = VM.constant_receipt_result receipt in
+      if
+        VM.constant_receipt_owned_by value.state receipt
+        && VM.constant_receipt_before receipt = Some before
+        && (not (VM.constant_receipt_consumed receipt))
+        && work value = before + VM.executed_steps result
+      then Ok ()
+      else Error "constant evaluation belongs to another preparation attempt"
 
 let synchronize_work value ~work ~bytes =
   let before = VM.task_initializer_steps value.state in
@@ -55,16 +69,23 @@ let initializer_preparation completion = completion.preparation
 let initializers value =
   List.map initializer_preparation (initializer_completions value)
 
-let create ~compilation_mode ~max_initializer_steps
-    ?(max_default_bytes = 65_536) session =
+let create ?max_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
+    ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
+    ~compilation_mode ~max_initializer_steps ?(max_default_bytes = 65_536)
+    session =
   if max_initializer_steps <= 0 || max_default_bytes <= 0 then
     Error
       "max_initializer_steps and max_default_bytes must be greater than zero"
   else
     let table = Session.semantic_symbols session in
-    let* state = VM.create_task_state ~max_initializer_steps ~table () in
+    let* state =
+      VM.create_task_state ?max_steps ?max_global_bytes ?max_literal_bytes
+        ?max_frame_bytes ?max_call_depth ?max_output_bytes ?max_output_work
+        ?max_generated_bytes ~max_initializer_steps ~table ()
+    in
     Ok
       {
+        owner_session = session;
         compilation_mode;
         table;
         state;
@@ -78,6 +99,59 @@ let create ~compilation_mode ~max_initializer_steps
         initializers_rev = [];
         statics_rev = [];
       }
+
+let create_aot_peer value ~parent ~child ~invocation =
+  if
+    value.compilation_mode <> Frontend.Preprocessor.Aot
+    || value.owner_session != parent
+    || not (Session.is_direct_fork ~parent child)
+  then Error "AOT task must be the original compiler session's direct fork"
+  else
+    match Session.semantic_fork child with
+    | Some fork when fork == Sema.Aot_invocation.fork invocation ->
+        VM.create_aot_peer_state value.state ~invocation
+    | Some _ -> Error "AOT invocation has another semantic-table fork"
+    | None -> Error "AOT task has no original semantic-table fork"
+
+let begin_aot_invocation value ~parent ~ledger ~context ~fork =
+  if
+    value.compilation_mode <> Frontend.Preprocessor.Aot
+    || value.owner_session != parent
+  then
+    Error
+      [
+        Common.Diagnostic.make ~code:"HCRUN0004"
+          ~severity:Common.Diagnostic.Error
+          ~message:"AOT preparation belongs to another source session"
+          ~primary:
+            (Common.Span.unsafe_make
+               ~source:(Common.Source_file.id (Parser.context_source context))
+               ~start:0 ~stop:0)
+          ();
+      ]
+  else
+    Task_declarations.begin_aot_invocation ledger ~context ~fork
+      ~runtime:value.state
+
+let finish_unpaired_aot_output value ~sequence ~globals ~initialization ~entry =
+  let globals_evidence = initializers value in
+  let static_evidence =
+    List.map
+      (fun completion -> completion.static_preparation)
+      (List.rev value.statics_rev)
+  in
+  let receipts =
+    List.filter_map Integer_initializers.native_execution globals_evidence
+    @ List.filter_map Integer_initializers.native_static_execution
+        static_evidence
+  in
+  let copies =
+    List.filter_map Integer_initializers.native_copy_execution globals_evidence
+    @ List.filter_map Integer_initializers.native_static_copy_execution
+        static_evidence
+  in
+  VM.finish_unpaired_aot_output value.state ~sequence ~globals ~initialization
+    ~entry ~receipts ~copies
 
 let scalar_integer primitive =
   Option.is_some (Common.Primitive_type.integer_storage_info primitive)
@@ -351,6 +425,13 @@ let literal_pointer_load destination initial =
       && Sema.Initializer_source.expression_contains_string expression
   | _ -> false
 
+let compound_string_expression initial =
+  match initial with
+  | Ast.Scalar_initializer (Ast.String_literal _) -> false
+  | Ast.Scalar_initializer expression ->
+      Sema.Initializer_source.expression_contains_string expression
+  | _ -> false
+
 let prepare_initializer value ~session ~ledger receipt =
   let span = receipt.Parser.leaf_initializer.initializer_equals.span in
   let diagnose result =
@@ -388,7 +469,9 @@ let prepare_initializer value ~session ~ledger receipt =
   in
   if
     value.compilation_mode = Frontend.Preprocessor.Aot
-    && (has_references || literal_pointer_load observed receipt.leaf_value)
+    && (has_references
+       || literal_pointer_load observed receipt.leaf_value
+       || compound_string_expression receipt.leaf_value)
   then (
     let* declaration, leaf =
       Task_declarations.native_load_initializer_source ledger
@@ -436,11 +519,16 @@ let prepare_initializer value ~session ~ledger receipt =
     in
     let before = work value in
     let* prepared =
-      Integer_initializers.prepare_native ~scalar ~authority ~typed ~cell_offset
-        ~byte_offset ~operation
+      Integer_initializers.prepare_native ~runtime:value.state ~scalar
+        ~authority ~typed ~cell_offset ~byte_offset ~operation
         ~on_progress:(fun steps ->
           VM.record_task_preparation value.state ~before ~steps)
         ~max_steps:(VM.task_initializer_limit value.state - before)
+    in
+    let* () =
+      check_execution value ~before
+        (Integer_initializers.native_execution prepared)
+      |> diagnose
     in
     value.initializers_rev <-
       { preparation = prepared } :: value.initializers_rev;
@@ -489,7 +577,8 @@ let prepare_static value ~session ~ledger receipt =
   if
     value.compilation_mode = Frontend.Preprocessor.Aot
     && (has_references
-       || literal_pointer_load observed receipt.static_leaf_value)
+       || literal_pointer_load observed receipt.static_leaf_value
+       || compound_string_expression receipt.static_leaf_value)
   then (
     let* source =
       Task_declarations.native_load_static_initializer_source ledger
@@ -551,13 +640,22 @@ let prepare_static value ~session ~ledger receipt =
     let* typed =
       Initializer_fragment_typing.prepare_static context fragment |> diagnose
     in
+    let* static_snapshot =
+      Task_declarations.native_static_initializer_snapshot ledger receipt
+    in
     let before = work value in
     let* static_preparation =
-      Integer_initializers.prepare_native_static ~scalar ~fragment ~typed
-        ~cell_offset ~byte_offset ~operation
+      Integer_initializers.prepare_native_static ~static_snapshot
+        ~runtime:value.state ~scalar ~fragment ~typed ~cell_offset ~byte_offset
+        ~operation
         ~on_progress:(fun steps ->
           VM.record_task_preparation value.state ~before ~steps)
         ~max_steps:(VM.task_initializer_limit value.state - before)
+    in
+    let* () =
+      check_execution value ~before
+        (Integer_initializers.native_static_execution static_preparation)
+      |> diagnose
     in
     value.statics_rev <- { static_preparation } :: value.statics_rev;
     Ok ()

@@ -16,6 +16,26 @@ module Offset = Ir.Offset_fragment_destination
 module Metadata = Ir.Member_metadata_fragment_destination
 module Runtime = Ir.Runtime_call_context
 
+let result_origin_hash value =
+  match Typed.result_origin value with
+  | Symbol.Source_location location ->
+      Hashtbl.hash (location.span.start, location.span.stop)
+  | _ -> 0
+
+module Global_root_table = Hashtbl.Make (struct
+  type t = Typed.top_level_root_result
+
+  let equal left right = left == right
+  let hash root = result_origin_hash (Typed.top_level_root_value root)
+end)
+
+module Static_root_table = Hashtbl.Make (struct
+  type t = Typed.initializer_result
+
+  let equal left right = left == right
+  let hash root = result_origin_hash (Typed.initializer_value root)
+end)
+
 let initializer_value_type declaration =
   match
     (Sema.Compiler_record.declared_global_source declaration)
@@ -41,6 +61,7 @@ type 'a prepared_item = {
   root_ : 'a;
   value_graph_ : Ir.X87_stack.t;
   default_constant_ : VM.default_constant option;
+  execution_ : VM.constant_execution option;
   classification_ : classification;
   steps : int;
 }
@@ -67,6 +88,9 @@ type native_preparation = {
   native_payload : Arrays.payload option;
   native_destination : native_destination;
   native_steps : int;
+  native_execution : VM.constant_execution option;
+  native_copy_execution : VM.copy_execution option;
+  native_graph : Ir.X87_stack.t option;
 }
 
 type native_static_source =
@@ -78,6 +102,9 @@ type native_static_preparation = {
   static_payload : Arrays.payload option;
   static_destination : native_destination;
   static_steps : int;
+  static_execution : VM.constant_execution option;
+  static_copy_execution : VM.copy_execution option;
+  static_graph : Ir.X87_stack.t option;
 }
 
 type owner =
@@ -145,10 +172,11 @@ let value_instructions graph =
       | Ir.Opcode.Ic_end_exp | Ic_end -> false
       | _ -> true)
 
-let prepare_internal ?fragment ?default ?default_execution ?internal_binding
-    ?dimension ?switch_case ?offset ?member_metadata ?native_global
-    ?native_static ?(already_prepared = []) ?(statics_prepared = [])
-    ?(function_calls = []) ?(callback_calls = []) ?(top_callback_calls = [])
+let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
+    ?native_authority ?static_snapshot ?internal_binding ?dimension ?switch_case
+    ?offset ?member_metadata ?native_global ?native_static
+    ?(already_prepared = []) ?(statics_prepared = []) ?(function_calls = [])
+    ?(callback_calls = []) ?(top_callback_calls = [])
     ?(allow_zero_budget = false) ?(check_only = false)
     ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
     ~max_steps ~span ~globals ~top_calls ~functions () =
@@ -500,7 +528,26 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
           let notes =
             match symbol with
             | None ->
-                if Option.is_some member_metadata then
+                if
+                  match root_ with
+                  | Native_static _ -> true
+                  | _ -> false
+                then
+                  match root_ with
+                  | Native_static (fragment, _, _) -> (
+                      let receipt =
+                        Sema.Static_initializer_fragment.receipt fragment
+                      in
+                      match
+                        receipt.Frontend.Parser.static_allocation
+                          .allocation_local
+                          .local_source
+                      with
+                      | Frontend.Parser.Local_variable local ->
+                          [ "initializer=" ^ local.local_name.spelling ]
+                      | _ -> [])
+                  | _ -> []
+                else if Option.is_some member_metadata then
                   [ "member-metadata=runtime-expression" ]
                 else if Option.is_some offset then
                   [ "aggregate-offset=runtime-expression" ]
@@ -559,9 +606,15 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   reversed rest
           | Some Layout.Scalar_store | None ->
               let* value_lowered =
+                let source_static_frame =
+                  match (root_, constant_runtime) with
+                  | Native_static _, Some runtime ->
+                      VM.task_has_aot_invocation runtime
+                  | _ -> false
+                in
                 Ir.Integer_program_lowering.lower_complete ?frame ~globals
-                  ~top_calls ~function_calls ~callback_calls ~top_callback_calls
-                  ~span:at
+                  ~source_static_frame ~top_calls ~function_calls
+                  ~callback_calls ~top_callback_calls ~span:at
                   [ Ir.Integer_program_lowering.Expression value ]
                 |> Result.map_error (fun errors ->
                     match root_ with
@@ -591,6 +644,16 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
               in
               let value_graph_ =
                 Ir.Integer_program_lowering.graph value_lowered
+              in
+              let* () =
+                match root_ with
+                | (Native_global _ | Native_static _)
+                  when not
+                         (Ir.Integer_program_lowering.owns_expression
+                            value_lowered ~globals ~value) ->
+                    invalid ~at ~notes "HCRUN0004"
+                      "constant preparation lost its original expression graph"
+                | _ -> Ok ()
               in
               let value_code = value_instructions value_graph_ in
               (* Checked internal calls keep their runtime scopes until the
@@ -1213,6 +1276,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                      root_;
                      value_graph_;
                      default_constant_ = None;
+                     execution_ = None;
                      classification_ = Scheduled;
                      steps = 0;
                    }
@@ -1251,7 +1315,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                            ()))
                     result
                 in
-                let* default_constant_, bits, steps =
+                let* default_constant_, execution_, bits, steps =
                   match (root_, default_execution) with
                   | Default destination, Some (runtime, authority) ->
                       VM.prepare_default_constant runtime ~authority
@@ -1260,20 +1324,46 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                       |> diagnose
                       |> Result.map (fun proof ->
                           ( Some proof,
+                            None,
                             VM.default_constant_bits proof,
                             VM.default_constant_steps proof ))
                   | _ -> (
-                      let* result =
-                        VM.execute_constant_preparation
-                          ~max_steps:(max_steps - total) value_graph_
+                      let* receipt =
+                        (match constant_runtime with
+                          | None ->
+                              VM.execute_constant_receipt
+                                ~max_steps:(max_steps - total) value_graph_
+                          | Some runtime ->
+                              let source =
+                                match (root_, native_authority) with
+                                | ( Native_global (fragment, root, _),
+                                    Some authority )
+                                  when Sema.Initializer_fragment
+                                       .authorized_fragment authority
+                                       == fragment ->
+                                    VM.Global_constant (authority, root)
+                                | Native_static (fragment, root, _), _ ->
+                                    VM.Static_constant (fragment, root)
+                                | _ ->
+                                    invalid_arg
+                                      "constant runtime has another source"
+                              in
+                              VM.execute_task_constant_receipt ?static_snapshot
+                                runtime ~max_steps:(max_steps - total) ~source
+                                ~globals ~lowered:value_lowered)
                         |> diagnose
                       in
+                      let result = VM.constant_receipt_result receipt in
                       match VM.final_value result with
                       | None ->
                           invalid ~at ~notes "HCRUN0004"
                             "constant initializer preparation produced no word"
                       | Some word ->
-                          Ok (None, word.bits, VM.executed_steps result))
+                          Ok
+                            ( None,
+                              Some receipt,
+                              word.bits,
+                              VM.executed_steps result ))
                 in
                 collect (total + steps)
                   ((root_, Arrays.Word bits, steps) :: updates)
@@ -1281,6 +1371,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                      root_;
                      value_graph_;
                      default_constant_;
+                     execution_;
                      classification_ = Prepared_constant bits;
                      steps;
                    }
@@ -1325,6 +1416,8 @@ let native_is_load value =
   | Native_closed _ -> false
 
 let native_steps value = value.native_steps
+let native_execution value = value.native_execution
+let native_copy_execution value = value.native_copy_execution
 let native_evidence value = value.native_evidence_
 
 let same_destination destination entry =
@@ -1356,21 +1449,23 @@ let prepare_native_load ~scalar ~declaration ~leaf ~cell_offset ~byte_offset
          && operation = Layout.Scalar_store
          && cell_offset >= 0 && byte_offset >= 0
          && (Sema.Initializer_source.leaf_identifier_nodes leaf <> []
-            || Option.is_some (Ir.Initializer_value.pointer_destination scalar)
-               && Sema.Initializer_source.expression_contains_string
-                    (Sema.Initializer_source.leaf_expression_ast leaf)) ->
+            || Sema.Initializer_source.expression_contains_string
+                 (Sema.Initializer_source.leaf_expression_ast leaf)) ->
       Ok
         {
           native_source = Native_load (declaration, leaf);
           native_payload = None;
           native_destination = { cell_offset; byte_offset; operation; scalar };
           native_steps = 0;
+          native_execution = None;
+          native_copy_execution = None;
+          native_graph = None;
         }
   | _ ->
       invalid "native load initializer requires its current original AOT leaf"
 
-let prepare_native ~scalar:destination_scalar ~authority ~typed ~cell_offset
-    ~byte_offset ~operation ~on_progress ~max_steps =
+let prepare_native ~runtime ~scalar:destination_scalar ~authority ~typed
+    ~cell_offset ~byte_offset ~operation ~on_progress ~max_steps =
   let fragment = Sema.Initializer_fragment.authorized_fragment authority in
   let leaf = Sema.Initializer_fragment.leaf fragment in
   let destination =
@@ -1452,9 +1547,11 @@ let prepare_native ~scalar:destination_scalar ~authority ~typed ~cell_offset
             ~severity:Common.Diagnostic.Error ~message ~primary:span ();
         ])
   in
+  let copy_before = VM.task_initializer_steps runtime in
   let* prepared =
     prepare_internal
       ~native_global:(fragment, root, destination)
+      ~constant_runtime:runtime ~native_authority:authority
       ~allow_zero_budget:true ~on_progress ~max_steps ~span ~globals
       ~top_calls:[] ~functions:[] ()
   in
@@ -1463,6 +1560,8 @@ let prepare_native ~scalar:destination_scalar ~authority ~typed ~cell_offset
         {
           classification_ = Prepared_constant native_bits;
           steps = native_steps;
+          execution_ = Some native_execution;
+          value_graph_ = native_graph;
           _;
         };
       ],
@@ -1473,19 +1572,40 @@ let prepare_native ~scalar:destination_scalar ~authority ~typed ~cell_offset
           native_payload = Some (Arrays.Word native_bits);
           native_destination = destination;
           native_steps;
+          native_execution = Some native_execution;
+          native_copy_execution = None;
+          native_graph = Some native_graph;
         }
   | [], [ (Native_global (original, source_root, saved), bytes, native_steps) ]
     when original == fragment && source_root == root && saved = destination ->
+      let* native_copy_execution =
+        if not (VM.task_has_aot_invocation runtime) then Ok None
+        else
+          VM.execute_aot_global_copy runtime ~before:copy_before ~authority
+            ~root ~globals
+          |> Result.map Option.some
+          |> Result.map_error (fun message ->
+              [
+                Common.Diagnostic.make ~code:"HCRUN0004"
+                  ~severity:Common.Diagnostic.Error ~message ~primary:span ();
+              ])
+      in
       Ok
         {
           native_source = Native_closed fragment;
           native_payload = Some (Arrays.Bytes bytes);
           native_destination = destination;
           native_steps;
+          native_execution = None;
+          native_copy_execution;
+          native_graph = None;
         }
   | _ -> invalid "native initializer requires checked constant preparation"
 
 let native_static_evidence value = value.static_evidence_
+let native_static_steps value = value.static_steps
+let native_static_execution value = value.static_execution
+let native_static_copy_execution value = value.static_copy_execution
 
 let native_static_receipt value =
   match value.static_source with
@@ -1512,6 +1632,9 @@ let prepare_native_static_load ~source ~scalar ~cell_offset ~byte_offset
         static_payload = None;
         static_destination = { cell_offset; byte_offset; operation; scalar };
         static_steps = 0;
+        static_execution = None;
+        static_copy_execution = None;
+        static_graph = None;
       }
   else
     Error
@@ -1524,8 +1647,9 @@ let prepare_native_static_load ~source ~scalar ~cell_offset ~byte_offset
             (Frontend.Parser.static_initializer_leaf_location receipt).span ();
       ]
 
-let prepare_native_static ~scalar:destination_scalar ~fragment ~typed
-    ~cell_offset ~byte_offset ~operation ~on_progress ~max_steps =
+let prepare_native_static ~static_snapshot ~runtime ~scalar:destination_scalar
+    ~fragment ~typed ~cell_offset ~byte_offset ~operation ~on_progress
+    ~max_steps =
   let module Fragment = Sema.Static_initializer_fragment in
   let expression = Fragment.expression fragment in
   let destination =
@@ -1591,17 +1715,20 @@ let prepare_native_static ~scalar:destination_scalar ~fragment ~typed
             ~severity:Common.Diagnostic.Error ~message ~primary:span ();
         ])
   in
+  let copy_before = VM.task_initializer_steps runtime in
   let* prepared =
     prepare_internal
       ~native_static:(fragment, root, destination)
-      ~allow_zero_budget:true ~on_progress ~max_steps ~span ~globals
-      ~top_calls:[] ~functions:[] ()
+      ?static_snapshot ~constant_runtime:runtime ~allow_zero_budget:true
+      ~on_progress ~max_steps ~span ~globals ~top_calls:[] ~functions:[] ()
   in
   match (prepared.native_items_, prepared.copies_) with
   | ( [
         {
           classification_ = Prepared_constant static_bits;
           steps = static_steps;
+          execution_ = Some static_execution;
+          value_graph_ = static_graph;
           _;
         };
       ],
@@ -1612,18 +1739,49 @@ let prepare_native_static ~scalar:destination_scalar ~fragment ~typed
           static_payload = Some (Arrays.Word static_bits);
           static_destination = destination;
           static_steps;
+          static_execution = Some static_execution;
+          static_copy_execution = None;
+          static_graph = Some static_graph;
         }
   | [], [ (Native_static (original, source_root, saved), bytes, static_steps) ]
     when original == fragment && source_root == root && saved = destination ->
+      let* static_copy_execution =
+        if not (VM.task_has_aot_invocation runtime) then Ok None
+        else
+          VM.execute_aot_static_copy ?static_snapshot runtime
+            ~before:copy_before ~fragment ~root ~globals
+          |> Result.map Option.some
+          |> Result.map_error (fun message ->
+              [
+                Common.Diagnostic.make ~code:"HCRUN0004"
+                  ~severity:Common.Diagnostic.Error ~message ~primary:span ();
+              ])
+      in
       Ok
         {
           static_source = Static_closed fragment;
           static_payload = Some (Arrays.Bytes bytes);
           static_destination = destination;
           static_steps;
+          static_execution = None;
+          static_copy_execution;
+          static_graph = None;
         }
   | _ ->
       invalid "native static initializer requires checked constant preparation"
+
+let execution_matches payload steps execution graph =
+  match (payload, execution, graph) with
+  | Some (Arrays.Word bits), Some receipt, Some graph ->
+      let result = VM.constant_receipt_result receipt in
+      VM.constant_receipt_graph receipt == graph
+      && VM.executed_steps result = steps
+      && Option.fold ~none:false
+           ~some:(fun word -> word.VM.bits = bits)
+           (VM.final_value result)
+  | Some (Arrays.Bytes _), None, None -> true
+  | None, None, None -> steps = 0
+  | _ -> false
 
 let native_static_values ~span globals evidence =
   let module Fragment = Sema.Static_initializer_fragment in
@@ -1649,6 +1807,11 @@ let native_static_values ~span globals evidence =
     match (expected, evidence) with
     | [], [] ->
         Ok (List.rev roots, List.rev scalar_values, List.rev array_values)
+    | (_, _) :: _, proof :: _
+      when not
+             (execution_matches proof.static_payload proof.static_steps
+                proof.static_execution proof.static_graph) ->
+        invalid "native static evidence lacks its actual evaluation"
     | (slot, root) :: rest, proof :: tail -> (
         let receipt = native_static_receipt proof in
         let publication, type_, expression =
@@ -1816,6 +1979,11 @@ let native_values ~span globals evidence =
     match (expected, evidence) with
     | [], [] ->
         Ok (List.rev roots, List.rev scalar_values, List.rev array_values)
+    | (_, _) :: _, proof :: _
+      when not
+             (execution_matches proof.native_payload proof.native_steps
+                proof.native_execution proof.native_graph) ->
+        invalid "native initializer evidence lacks its actual evaluation"
     | (slot, root) :: rest, proof :: tail -> (
         let declaration = native_declaration proof in
         if
@@ -2046,9 +2214,95 @@ let prepare ?native_preparations ?native_static_preparations ?function_calls
       ~max_steps:(max_steps - imported_steps)
       ~span ~globals ~top_calls ~functions ()
   in
+  let global_roots =
+    Globals.slots prepared.globals_ |> List.concat_map Globals.slot_initializers
+  in
+  let existing_globals =
+    Global_root_table.create (List.length prepared.items_)
+  in
+  List.iter
+    (fun item -> Global_root_table.replace existing_globals item.root_ item)
+    prepared.items_;
+  let imported_globals = Global_root_table.create (List.length evidence) in
+  if List.length global_roots = List.length evidence then
+    List.iter2
+      (fun root proof -> Global_root_table.replace imported_globals root proof)
+      global_roots evidence;
+  let items_ =
+    global_roots
+    |> List.filter_map (fun root ->
+        match Global_root_table.find_opt existing_globals root with
+        | Some item -> Some item
+        | None ->
+            Option.bind (Global_root_table.find_opt imported_globals root)
+              (fun proof ->
+                match
+                  ( proof.native_payload,
+                    proof.native_execution,
+                    proof.native_graph )
+                with
+                | Some (Arrays.Word bits), Some execution, Some graph ->
+                    Some
+                      {
+                        root_ = root;
+                        value_graph_ = graph;
+                        default_constant_ = None;
+                        execution_ = Some execution;
+                        classification_ = Prepared_constant bits;
+                        steps = proof.native_steps;
+                      }
+                | _ -> None))
+  in
+  let static_roots =
+    Globals.statics prepared.globals_
+    |> List.concat_map (fun slot ->
+        List.map (fun root -> (slot, root)) (Globals.static_initializers slot))
+  in
+  let existing_statics =
+    Static_root_table.create (List.length prepared.static_items_)
+  in
+  List.iter
+    (fun item ->
+      Static_root_table.replace existing_statics (snd item.root_) item)
+    prepared.static_items_;
+  let imported_statics =
+    Static_root_table.create (List.length static_evidence)
+  in
+  if List.length static_roots = List.length static_evidence then
+    List.iter2
+      (fun (_, root) proof ->
+        Static_root_table.replace imported_statics root proof)
+      static_roots static_evidence;
+  let static_items_ =
+    static_roots
+    |> List.filter_map (fun (slot, root) ->
+        match Static_root_table.find_opt existing_statics root with
+        | Some item -> Some { item with root_ = (slot, root) }
+        | None ->
+            Option.bind (Static_root_table.find_opt imported_statics root)
+              (fun proof ->
+                match
+                  ( proof.static_payload,
+                    proof.static_execution,
+                    proof.static_graph )
+                with
+                | Some (Arrays.Word bits), Some execution, Some graph ->
+                    Some
+                      {
+                        root_ = (slot, root);
+                        value_graph_ = graph;
+                        default_constant_ = None;
+                        execution_ = Some execution;
+                        classification_ = Prepared_constant bits;
+                        steps = proof.static_steps;
+                      }
+                | _ -> None))
+  in
   Ok
     {
       prepared with
+      items_;
+      static_items_;
       native_evidence_ = evidence;
       static_evidence_ = static_evidence;
       steps = prepared.steps + imported_steps;

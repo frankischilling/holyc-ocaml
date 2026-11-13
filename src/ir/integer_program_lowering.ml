@@ -132,9 +132,9 @@ let span_of_result fallback result =
   | Sema.Symbol.Source_location location -> location.span
   | _ -> fallback
 
-let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
-    ?(function_calls = []) ?(callback_calls = []) ?(top_callback_calls = [])
-    ~span statements =
+let lower_complete ?frame ?globals ?records ?labels
+    ?(source_static_frame = false) ?(top_calls = []) ?(function_calls = [])
+    ?(callback_calls = []) ?(top_callback_calls = []) ~span statements =
   try
     let instruction_count = ref 0
     and value_count = ref 0
@@ -183,7 +183,22 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     let entry = block () in
     exception_blocks :=
       Int_map.add (Sequence.Block_id.to_int entry) [] !exception_blocks;
-    let leave = Option.map (fun _ -> block ()) frame in
+    (* A source-time AOT static expression belongs to a function even before
+       its complete frame is available. Give its closed value graph the same
+       function exit shape as the eventual framed initializer. *)
+    let source_static =
+      match (source_static_frame, frame, globals, statements) with
+      | true, None, Some globals, [ Expression _ ] ->
+          Integer_globals.native_static_initializer_fragment globals
+          |> Option.fold ~none:false ~some:(fun fragment ->
+              Sema.Outer_environment.compilation_mode
+                (Sema.Static_initializer_fragment.environment fragment)
+              = Sema.Outer_environment.Aot)
+      | _ -> false
+    in
+    let leave =
+      if Option.is_some frame || source_static then Some (block ()) else None
+    in
     let label_lowering =
       match (frame, labels) with
       | None, None -> None

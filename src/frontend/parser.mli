@@ -179,6 +179,9 @@ val context_command_events_match :
 (** Compare the complete lifecycle journal with the original physical parser
     events. [None] means no original source journal was recorded. *)
 
+val claim_aot_invocation :
+  command_context -> events_rev:command_event list -> (unit, string) result
+
 val context_sources : command_context -> Common.Source_manager.t
 val context_source : command_context -> Common.Source_file.t
 val context_environment : command_context -> Symbol_visibility.Environment.t
@@ -233,6 +236,8 @@ val context_parent_in_environment :
     Intermediate saved-compiler inputs may use different tables. Every link must
     retain its live parser position and event count; inactive, advanced or
     unrelated contexts cannot connect declaration sequences. *)
+
+val context_has_focus : command_context -> bool
 
 val context_is_current : command_context -> observed_events:int -> bool
 (** The parser still owns this live context and has issued exactly this many

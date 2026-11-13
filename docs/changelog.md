@@ -11,6 +11,11 @@ for native observations, execution checks and the separate AOT boundary.
 
 ## Unreleased
 
+- Evaluate supported closed integer initializers of AOT scalar U0 statics at
+  their source declaration. Preserve earlier directive effects and stop before
+  later directives if preparation fails. See
+  [persistent U0 declarations](persistent-void-declarations.md).
+
 - Reconstruct the source optimizer phases for grouped, computed and full
   multidimensional local-array indices. Keep surviving scalar reads, dimension
   strides and address events separate from algebraic index values. See

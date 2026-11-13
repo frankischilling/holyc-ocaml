@@ -1517,7 +1517,8 @@ let compile_source_output ?initializer_progress ?native_initializers
       ~max_initializer_steps:(max_initializer_steps - offset_work)
       session ~config parsed
 
-let compile_source_in_task_budget ~task ~source_command session ~config parsed =
+let compile_source_in_task_budget ?native_initializers
+    ?native_static_initializers ~task ~source_command session ~config parsed =
   let module VM = Ir.Integer_interpreter in
   let* () =
     VM.settle_isolated_aggregate_offsets task
@@ -1539,13 +1540,56 @@ let compile_source_in_task_budget ~task ~source_command session ~config parsed =
             ~span:(Option.get parsed.Frontend.Parser.ast).span message;
         ])
   in
-  let preparation = VM.begin_isolated_preparation task in
+  let imported_steps =
+    Option.value native_initializers ~default:[]
+    |> List.fold_left
+         (fun n value -> n + Integer_initializers.native_steps value)
+         0
+  in
+  let imported_steps =
+    Option.value native_static_initializers ~default:[]
+    |> List.fold_left
+         (fun n value -> n + Integer_initializers.native_static_steps value)
+         imported_steps
+  in
+  let receipts =
+    List.filter_map Integer_initializers.native_execution
+      (Option.value native_initializers ~default:[])
+    @ List.filter_map Integer_initializers.native_static_execution
+        (Option.value native_static_initializers ~default:[])
+  in
+  let copies =
+    List.filter_map Integer_initializers.native_copy_execution
+      (Option.value native_initializers ~default:[])
+    @ List.filter_map Integer_initializers.native_static_copy_execution
+        (Option.value native_static_initializers ~default:[])
+  in
+  let receipt_steps =
+    List.fold_left
+      (fun total receipt ->
+        total + VM.executed_steps (VM.constant_receipt_result receipt))
+      0 receipts
+    + List.fold_left (fun total copy -> total + VM.aot_copy_steps copy) 0 copies
+  in
+  let* () =
+    if imported_steps = receipt_steps then Ok ()
+    else
+      Error
+        [
+          Integer_source.message_diagnostic
+            ~span:(Option.get parsed.Frontend.Parser.ast).span
+            "AOT source initialization lacks its actual copy execution";
+        ]
+  in
+  let preparation = VM.begin_isolated_preparation ~receipts ~copies task in
   let compiled =
-    compile_parsed_with_limit ~source_command
-      ~allow_zero_initializer_budget:true
-      ~max_initializer_steps:(VM.task_initializer_remaining task)
+    compile_parsed_with_limit ~source_command ?native_initializers
+      ?native_static_initializers ~allow_zero_initializer_budget:true
+      ~max_initializer_steps:
+        (VM.task_initializer_remaining task + imported_steps)
       ~initializer_progress:(fun steps ->
-        VM.record_isolated_preparation task preparation ~steps)
+        VM.record_isolated_preparation task preparation
+          ~steps:(steps + imported_steps))
       session ~config parsed
   in
   match compiled with

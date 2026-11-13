@@ -745,6 +745,14 @@ type progress = private {
   switch_work : int;
 }
 
+val create_aot_peer :
+  ?compiler_positions:Sema.Compiler_record.compiler_positions ->
+  ?max_switch_work:int ->
+  ?switch_budget:Sema.Integer_switch_preparation.budget ->
+  state:Ir.Integer_interpreter.task_state ->
+  Session.t ->
+  (t, string) result
+
 val progress : t -> progress
 (** Immutable cumulative task observation, including dimension preparation and
     effects reached before a later parse, compile or execution failure. This is
@@ -756,6 +764,9 @@ val compiled_units : t -> Integer_unit.compiled list
     collection is not one isolated program. *)
 
 val compile_isolated :
+  ?native_initializers:Integer_initializers.native_preparation list ->
+  ?native_static_initializers:
+    Integer_initializers.native_static_preparation list ->
   t ->
   source_command:Task_declarations.source_command ->
   Session.t ->

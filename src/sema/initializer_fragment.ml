@@ -14,7 +14,10 @@ let environment fragment = fragment.environment_
 let references fragment = fragment.references_
 let queries fragment = fragment.queries_
 
-type authority = { authorized_fragment : t }
+type authority = {
+  authorized_fragment : t;
+  authorized_namespace : Declaration_collection.namespace;
+}
 
 let authorize ?activation ~namespace fragment =
   if
@@ -31,12 +34,13 @@ let authorize ?activation ~namespace fragment =
                 ~some:(fun a -> Source_activation.owns_namespace a namespace)
                 activation
               && Source_activation.initializer_leaf activation receipt ->
-        Ok { authorized_fragment = fragment }
+        Ok { authorized_fragment = fragment; authorized_namespace = namespace }
     | _ ->
         Error
           "initializer execution authority requires its original current leaf"
 
 let authorized_fragment authority = authority.authorized_fragment
+let authorized_namespace authority = authority.authorized_namespace
 
 let create_with_mode ~native ~table ~declaration ~leaf ~environment ~references
     ~queries =

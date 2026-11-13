@@ -613,8 +613,8 @@ let validate_initializer_queries input queries =
              "global initializer queries do not match their original source \
               reads")
 
-let resolve_events table publications visible next_occurrence next_query events
-    =
+let resolve_events ~static_owner table publications visible next_occurrence
+    next_query events =
   let resolution name =
     match String_map.find_opt name visible with
     | Some publication -> Module_binding publication
@@ -694,11 +694,21 @@ let resolve_events table publications visible next_occurrence next_query events
                    ~name:source.name ~origin:source.origin selection
                 |> Result.map_error invalid_input)
                 (fun () ->
-                  if Query_selection.is_local selection then
+                  if not (Query_selection.is_local selection) then Ok ()
+                  else if
+                    Option.fold ~none:false
+                      ~some:(fun fragment ->
+                        Static_initializer_fragment.is_current fragment
+                        && List.exists (( == ) selection)
+                             (Static_initializer_fragment.queries fragment)
+                        && source.role = Query_selection.Sizeof_root
+                        && Option.is_some (Query_selection.sizeof selection))
+                      static_owner
+                  then Ok ()
+                  else
                     Error
                       (invalid_input
-                         "selected local query has no top-level source binding")
-                  else Ok ())
+                         "selected local query has no top-level source binding"))
         in
         match checked with
         | Error _ as error -> error
@@ -750,8 +760,9 @@ let resolve_validated table all_publications inputs =
                           .publication_declaration_index))
               all_publications
           in
-          resolve_events table selected_publications visible next_occurrence
-            next_query input.events
+          resolve_events ~static_owner:input.static_owner table
+            selected_publications visible next_occurrence next_query
+            input.events
         with
         | Error _ as error -> error
         | Ok (next_occurrence, next_query, occurrences, queries) -> (
