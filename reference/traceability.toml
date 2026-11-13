@@ -11455,8 +11455,8 @@ excluded = ["F64 division", "compound assignments", "division strength reduction
 id = "HC-OPT-DIVISION-FAULT-PHASE-ORACLE"
 description = "Verified full-word integer source division/remainder folding, literal-divisor and scalar compound reductions preserve recorded classes, effects and fault phases."
 sources = ["Compiler/OptPass012.HC:193-226,403-455,838-854", "Compiler/OptLib.HC:96-179,196-225", "Compiler/BackA.HC:355-440,573-600", "Compiler/OptPass789A.HC:524-534,676-687", "Kernel/KInts.HC:150-164", "Kernel/KExcept.HC:throw", "Adam/ADbg.HC:254-272"]
-implementation = ["src/ir/expression_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/runtime_call_context.ml"]
-tests = ["test/oracle/integer-division.json", "test/oracle/division-strength-reductions.json", "test/test_ir_integer_division.ml", "test/division_strength_reduction_cases.ml", "test/test_source_division_strength_reductions.ml", "test/native/test_source_division_execution.ml", "test/test_division_strength_reduction_cli.ml", "test/dune", "test/native/dune"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/runtime_call_context.ml", "src/driver/integer_initializers.ml"]
+tests = ["test/oracle/integer-division.json", "test/oracle/division-strength-reductions.json", "test/test_ir_integer_division.ml", "test/division_strength_reduction_cases.ml", "test/test_source_division_strength_reductions.ml", "test/native/test_source_division_execution.ml", "test/test_division_strength_reduction_cli.ml", "test/test_root_shift_initializer_cli.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "test/dune", "test/native/dune"]
 documentation = ["docs/integer-division.md", "docs/optimizer.md", "docs/compatibility.md", "docs/oracle-fixtures.md", "docs/testing.md", "docs/reference-source-map.md"]
 status = "partial"
 issue = 585
@@ -11472,6 +11472,7 @@ source_native_fixture = "test/oracle/division-strength-reductions.json"
 source_native_fields = 38
 source_native_same_boot_repeats = 38
 source_compilation_fault_controls = 4
+initializer_root_boundary = "Source-owned nonconstant global and static roots admit full-word positive non-power-of-two immediate divisors after original normalization. Hosted source, native ABI, ownership and quota tests cover this boundary; no new TempleOS initializer capture is claimed."
 remaining = ["unsealed/general division preparation and retained native source publication; original canonical retained shifts prepare under #793", "shared comparison-chain reductions and broader numeric/flagged domains", "broader differential coverage and native exception delivery"]
 
 [[feature]]

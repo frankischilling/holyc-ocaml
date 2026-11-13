@@ -740,9 +740,9 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                 | _ -> Ok ()
               in
               (* This graph is freshly lowered from the exact retained global
-                 or static root, or live fragment. It may authorize scalar integer
-                 shifts whose original operand producers belong to that graph. *)
-              let root_shifts =
+                 or static root, or live fragment. Scalar shifts and bounded
+                 unreduced divisions require original producers in that graph. *)
+              let root_arithmetic =
                 match root_ with
                 | (Global _ | Fragment _ | Static _)
                   when match (root_, frame) with
@@ -823,6 +823,36 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                                    Option.fold ~none:false ~some:scalar
                                      (Values.find_opt operand produced))
                                  [ left; right ]
+                        (* The original optimizer leaves non-power divisors intact.
+                           Narrow constants require separate conversion evidence. *)
+                        | (Ir.Opcode.Ic_div | Ic_mod), [ left; right ], None ->
+                            scalar item
+                            && (not (Ir.Lock_semantics.has_flag item.flags))
+                            && Option.fold ~none:false
+                                 ~some:(fun (left : Seq.description) ->
+                                   left.flags = 0L && scalar left)
+                                 (Values.find_opt left produced)
+                            && Option.fold ~none:false
+                                 ~some:(fun (right : Seq.description) ->
+                                   right.flags = 0L
+                                   && Option.fold ~none:false
+                                        ~some:(fun type_ ->
+                                          Option.fold ~none:false
+                                            ~some:(fun scalar ->
+                                              Ir.Integer_scalar_storage
+                                              .byte_size scalar
+                                              = 8)
+                                            (Ir.Integer_scalar_storage.of_type
+                                               type_))
+                                        right.target_type
+                                   &&
+                                   match (right.opcode, right.payload) with
+                                   | Ir.Opcode.Ic_imm_i64, Some (Seq.Integer n)
+                                     ->
+                                       n > 1L
+                                       && Int64.logand n (Int64.sub n 1L) <> 0L
+                                   | _ -> false)
+                                 (Values.find_opt right produced)
                         | _ -> false)
                       value_code
                 | _ -> []
@@ -872,7 +902,7 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                             | Ic_shr_equ ),
                             _ ) ->
                             not
-                              (List.exists (( == ) item) root_shifts
+                              (List.exists (( == ) item) root_arithmetic
                               || Option.fold ~none:false
                                    ~some:(fun shifts ->
                                      Runtime.is_original_preparation_shift
@@ -882,6 +912,7 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                             [ _; right ] )
                           when not constant ->
                             known right
+                            && (not (List.exists (( == ) item) root_arithmetic))
                             && not
                                  (Option.fold ~none:false
                                     ~some:(fun divisions ->

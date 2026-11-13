@@ -1019,6 +1019,12 @@ let () =
             `Quick (fun () -> static_ownership ());
           Alcotest.test_case "static load source, bundle and region ownership"
             `Quick static_load_ownership;
+          Alcotest.test_case
+            "non-power static division roots retain original authority" `Quick
+            (fun () ->
+              check_static_load_ownership
+                "I64 N=-7;I64 F(){static I64 A=N%3,B=N/3;return A+B+45;}I64 \
+                 G(){static I64 C=41;return C;}F();");
           Alcotest.test_case "global root shifts retain original load authority"
             `Quick (fun () ->
               List.iter
@@ -1027,6 +1033,17 @@ let () =
                 [
                   "I64 N=7;I64 O=N<<1;O;";
                   "U8 U=1;I64 N=7;I64 Get(I64 n){return n;}I64 O=Get(U<<N);O;";
+                ]);
+          Alcotest.test_case
+            "non-power global division roots retain original load authority"
+            `Quick (fun () ->
+              List.iter
+                (fun contents ->
+                  ownership ~modes:[ Preprocessor.Aot ] ~contents ())
+                [
+                  "I64 N=-7;I64 A=N%3;I64 B=N/3;A+B+45;";
+                  "U64 N=7;U64 A=N/3;U64 B=N%3;A+B+39;";
+                  "I64 N=-7;I64 Get(I64 n){return n;}I64 A=Get(N%3);A+43;";
                 ]);
           Alcotest.test_case
             "folded global leaves retain original preparation authority" `Quick

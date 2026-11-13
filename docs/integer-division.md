@@ -138,6 +138,21 @@ its signed dividend class: `(x/2(U64))<0` returns `0`. The optimizer keeps that
 early decision separately from the surviving operation's computation class.
 Public call and cast classes retain their operation-specific forwarding rules.
 
+## Initializer roots
+
+Source-owned global and static initializer expressions accept nonconstant
+integer division and remainder by a positive, full-word, non-power-of-two
+immediate. The source lowerer retains the original expression and applies its
+division normalization before the initializer guard accepts the surviving
+operation. For example, with `I64 N=-7`, `I64 A=N%3` stores `-1`.
+
+Hosted IR and native tests cover signed and unsigned values, global and static
+roots, array leaves, calls, effects, storage limits and execution budgets. The
+existing original fixture establishes the ordinary optimizer behavior; these
+initializer-root cases are not new TempleOS runtime captures. Narrow or
+nonpositive constants, power-of-two remainder, compound updates and transitive
+callee reductions retain their separate boundaries.
+
 ## Observed fault phases
 
 Both raw operations raised TempleOS `DivZero` for a zero divisor and for

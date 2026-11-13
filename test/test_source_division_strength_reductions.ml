@@ -225,6 +225,27 @@ let preparation () =
        (fun w -> w.VM.bits)
        (Integer_task.progress task).runtime.final_value)
 
+let non_power_initializer_roots () =
+  let cases =
+    [
+      ( "signed global and static",
+        "I64 N=-7;I64 A=N%3;I64 F(){static I64 B=N/3;return B;}A+F()+45;",
+        42L );
+      ("unsigned global", "U64 N=7;U64 A=N/3;U64 B=N%3;A+B+39;", 42L);
+      ("multiple leaves", "I64 N=-7;I64 A[2]={N/3,N%3};A[0]+A[1]+45;", 42L);
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, expected) ->
+          let _, execution = success mode source in
+          Alcotest.(check (option int64))
+            label (Some expected)
+            (Option.map (fun w -> w.VM.bits) (VM.final_value execution)))
+        cases)
+    modes
+
 let authority () =
   List.iter
     (fun mode ->
@@ -279,6 +300,8 @@ let tests =
   [
     Alcotest.test_case "38 repeated native fields and source contexts" `Quick
       values;
+    Alcotest.test_case "source-owned non-power initializer roots" `Quick
+      non_power_initializer_roots;
     Alcotest.test_case "literal, compound and following comparison shapes"
       `Quick shapes;
     Alcotest.test_case "compilation and reached arithmetic fault phases" `Quick

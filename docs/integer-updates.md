@@ -62,8 +62,9 @@ This is raw hosted IR arithmetic. Compound optimizer parity remains tracked by #
 division and remainder by powers of two. Signed `G%=2` may become a mask in
 TempleOS and differ from raw signed remainder. The initializer guard rejects
 compound shifts and known-constant divisor `/=` or `%=` with HCRUN0006, including
-transitive callees, as it already does for ordinary arithmetic. Dynamic scalar
-divisors remain in the accepted runtime domain. Multiplication's power-of-two
+transitive callees. Ordinary source-owned initializer roots separately accept
+positive full-word non-power-of-two immediate divisors. Dynamic scalar divisors
+remain in the accepted runtime domain. Multiplication's power-of-two
 rewrite preserves the same 64-bit result within this scalar scope.
 
 [U8 updates](integer-byte-updates.md) extend this word contract with distinct

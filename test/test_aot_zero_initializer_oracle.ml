@@ -226,14 +226,11 @@ let direct_call_division_argument_warnings () =
           let diagnostics, result, _ =
             run native Preprocessor.Aot (source "N%3")
           in
-          Alcotest.(check bool)
-            "unresolved modulo execution stays rejected" true
-            (Result.is_error result);
-          Alcotest.(check bool)
-            "modulo source warning precedes rejection" true
-            (List.exists
-               (fun (d : Diagnostic.t) -> d.code = "HCSEMA0080")
-               diagnostics);
+          Alcotest.(check (option int64))
+            "modulo load value" (Some 1L) (Result.get_ok result);
+          Alcotest.(check (list string))
+            "modulo source warning" [ "HCSEMA0080" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
           List.iter
             (fun expression ->
               let diagnostics, result, _ =

@@ -110,6 +110,8 @@ let () =
          R=Pair((++N)<<C,(++N)<<C);R*10+N;",
         "10085",
         24 );
+      ("I64 N=-7;I64 A=N%3;I64 B=N/3;A+B+45;", "42", 24);
+      ("I64 N=7;I64 A=(++N)%3;A+N+32;", "42", 16);
     ]
   in
   List.iter
@@ -142,4 +144,11 @@ let () =
             [ "HCIRVM0016"; "HCBACK0001" ])
         cases)
     sources;
-  Printf.printf "Root initializer shift CLI passed: %d reports\n" !reports
+  List.iter
+    (fun expression ->
+      let source = "I64 N=-7;I64 O=" ^ expression ^ ";O;" in
+      List.iter
+        (fun (target, mode) -> failure source target mode [] [ "HCRUN0006" ])
+        cases)
+    [ "N%0"; "N%-1"; "N%2"; "N%(3(U8))"; "N%(768(U8))" ];
+  Printf.printf "Root initializer arithmetic CLI passed: %d reports\n" !reports
