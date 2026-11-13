@@ -82,7 +82,8 @@ complement, logical negation, division and remainder have hosted source-authorit
 tests; they are not additional native warning captures. Warning coverage does
 not imply that every admitted arithmetic expression can execute. Nonconstant
 source-root division and remainder by positive full-word non-power-of-two
-immediates are supported; see [integer division](integer-division.md).
+immediates, and signed remainder by positive full-word powers of two, are
+supported; see [integer division](integer-division.md).
 The warning is counted at the original leaf callback, with single-use source
 authority. The compiler checks the current data-heap option before counting the
 load-assignment warning. `Compiler/OptPass012.HC` marks opcodes with the

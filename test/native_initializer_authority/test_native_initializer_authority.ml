@@ -1042,6 +1042,7 @@ let () =
                   ownership ~modes:[ Preprocessor.Aot ] ~contents ())
                 [
                   "I64 N=-7;I64 A=N%3;I64 B=N/3;A+B+45;";
+                  "I64 N=-7;I64 A=N%2;I64 B=N%4;A+B+46;";
                   "U64 N=7;U64 A=N/3;U64 B=N%3;A+B+39;";
                   "I64 N=-7;I64 Get(I64 n){return n;}I64 A=Get(N%3);A+43;";
                 ]);

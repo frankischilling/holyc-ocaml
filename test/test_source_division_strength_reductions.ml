@@ -232,6 +232,9 @@ let non_power_initializer_roots () =
         "I64 N=-7;I64 A=N%3;I64 F(){static I64 B=N/3;return B;}A+F()+45;",
         42L );
       ("unsigned global", "U64 N=7;U64 A=N/3;U64 B=N%3;A+B+39;", 42L);
+      ( "signed power remainder",
+        "I64 N=-7;I64 A=N%2;I64 F(){static I64 B=N%4;return B;}A+F()+46;",
+        42L );
       ("multiple leaves", "I64 N=-7;I64 A[2]={N/3,N%3};A[0]+A[1]+45;", 42L);
     ]
   in

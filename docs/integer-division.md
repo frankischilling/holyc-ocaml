@@ -142,7 +142,8 @@ Public call and cast classes retain their operation-specific forwarding rules.
 
 Source-owned global and static initializer expressions accept nonconstant
 integer division and remainder by a positive, full-word, non-power-of-two
-immediate. The source lowerer retains the original expression and applies its
+immediate. Signed remainder also accepts positive power-of-two immediates,
+including one, when the original operation remains `IC_MOD`. The source lowerer retains the original expression and applies its
 division normalization before the initializer guard accepts the surviving
 operation. For example, with `I64 N=-7`, `I64 A=N%3` stores `-1`.
 
@@ -150,8 +151,8 @@ Hosted IR and native tests cover signed and unsigned values, global and static
 roots, array leaves, calls, effects, storage limits and execution budgets. The
 existing original fixture establishes the ordinary optimizer behavior; these
 initializer-root cases are not new TempleOS runtime captures. Narrow or
-nonpositive constants, power-of-two remainder, compound updates and transitive
-callee reductions retain their separate boundaries.
+nonpositive constants, other unproved remainder reductions, compound updates
+and transitive callee reductions retain their separate boundaries.
 
 ## Observed fault phases
 
