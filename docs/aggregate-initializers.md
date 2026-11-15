@@ -386,8 +386,8 @@ class size. `PrsVar.HC:209-246` preserves global/static traversal.
 ## Native JIT F64 leaves
 
 In the native source-task JIT path, an F64 expression can initialize an F64
-member of a global aggregate. The original leaf executes in the live task, then
-its eight result bytes are copied to the reached member. The decoded native
+member of a global or static aggregate. The original leaf executes in the live
+task, then its eight result bytes are copied to the reached member. The decoded native
 result must be F64 and belong to the original initializer image. Copy completion
 retains the source, arena, work count and single-use capture.
 
@@ -397,8 +397,24 @@ work limit. They also compile the checked initializer for both private x86-64
 ABIs and reject copied, foreign and replayed capture evidence. These tests do
 not add a TempleOS runtime capture. `Compiler/PrsVar.HC:90-112` calls the
 initializer and copies the selected width when the result and destination are
-both F64. The interpreter, isolated native path, AOT preparation, static F64
-leaves and F64/integer conversions remain outside this slice.
+both F64. `PrsStaticInit` at `PrsVar.HC:215-246` reaches the same recursive
+consumer during declaration parsing. Static leaves run even in unused functions;
+calls reuse their prepared bytes and retain subsequent mutations. Packed fields
+and fixed arrays use their original sequential byte cursor. Each floating copy
+charges eight bytes in addition to its actual expression work. A failed later
+leaf preserves earlier output and stops later directives.
+
+The [static F64 example](../examples/native-static-f64-leaves.hc) prints `A`
+once and returns 42. Run it with:
+
+```sh
+holyc run --target=host-jit-task --mode=jit --code-byte-limit=524288 examples/native-static-f64-leaves.hc
+```
+
+The static capture checks the actual decoded F64 result, original image, arena,
+domain and recorded work before its single-use copy. Tests cover collection and
+compaction between execution and copy. The interpreter, isolated native path,
+AOT preparation and F64/integer conversions remain outside this slice.
 
 ## Owned data-pointer leaves
 

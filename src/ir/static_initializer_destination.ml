@@ -47,13 +47,17 @@ let stores_pointer value =
   Initializer_value.stores_pointer ~scalar:value.scalar_
     (Typed.top_level_root_value value.root_)
 
+let stores_same_f64 value =
+  Initializer_value.same_f64 ~scalar:value.scalar_
+    (Typed.top_level_root_value value.root_)
+
 let requires_settlement t =
   Option.fold ~none:false
     ~some:Integer_initializer_layout.stream_preparation_requires_settlement
     t.preparation_
 
 let requires_evaluation t =
-  requires_settlement t || discards_value t
+  requires_settlement t || discards_value t || stores_same_f64 t
   || Integer_storage_shape.is_storage_free
        (Integer_static_allocation.shape t.allocation_)
 
@@ -151,6 +155,7 @@ let create ~allocation ~task_view ~cursor typed =
           Initializer_value.discards ~scalar:scalar_ value
           || Initializer_value.discards_reference ~scalar:scalar_ value
           || Initializer_value.stores_pointer ~scalar:scalar_ value
+          || Initializer_value.same_f64 ~scalar:scalar_ value
         then Ok ()
         else if
           Typed.result_array_rank value = 0

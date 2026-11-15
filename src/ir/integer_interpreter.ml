@@ -4214,7 +4214,18 @@ let prepare_native_static_initializer_copy task program capture ~work =
         Option.get (Static_initializer_destination.scalar destination)
       in
       match bits with
-      | Some bits -> Integer_initializer_layout.word_bytes scalar bits
+      | Some bits ->
+          if
+            Static_initializer_destination.stores_same_f64 destination
+            && Initializer_value.same_f64 ~scalar:(Some scalar)
+                 (Sema.Function_call_expression_result.top_level_root_value
+                    (Static_initializer_destination.root destination))
+          then
+            Ok
+              (String.init 8 (fun i ->
+                   Int64.shift_right_logical bits (8 * i)
+                   |> Int64.logand 255L |> Int64.to_int |> Char.chr))
+          else Integer_initializer_layout.word_bytes scalar bits
       | None
         when Static_initializer_destination.discards_value destination
              && Sema.Initializer_type.scalar_byte_size scalar = 0 -> Ok ""

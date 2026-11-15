@@ -3003,6 +3003,142 @@ let floating_initializer_authority () =
   rejected "expired source cannot reuse floating copy"
     (Dispatch.check_initializer_copy request token)
 
+let floating_static_initializer_authority () =
+  let module Request = Task.Native_static_initializer in
+  let session, config, source =
+    inputs
+      "class Box{F64 x;};I64 F(){static Box b={1.5};return (&b)(U8*)[6];}F();"
+  in
+  let layout = Image.create_task_layout ~max_global_bytes:64 |> compiled in
+  let arena =
+    Runtime.create_task_arena ~max_arena_bytes:1024 layout |> checked
+  in
+  let foreign_layout =
+    Image.create_task_layout ~max_global_bytes:64 |> compiled
+  in
+  let foreign_arena =
+    Runtime.create_task_arena ~max_arena_bytes:1024 foreign_layout |> checked
+  in
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
+  let saved = ref None in
+  let execute image =
+    let retained = Runtime.retain_task_fragment arena image |> checked in
+    Fun.protect
+      ~finally:(fun () -> Runtime.release retained |> checked)
+      (fun () ->
+        let before = (Runtime.budget_progress budget).executed_steps in
+        let report = Runtime.execute_retained_budget_report budget retained in
+        let result = completed report in
+        let work = (Runtime.budget_progress budget).executed_steps - before in
+        (report, result, work))
+  in
+  let dispatch : Dispatch.t =
+    {
+      execute_initializer = (fun _ -> Alcotest.fail "no global leaf expected");
+      execute_command =
+        (fun request ->
+          compile_command_both_abis layout request;
+          let image =
+            Image.compile_task_command ~status_abi:(host_status_abi ()) ~layout
+              request
+            |> compiled
+          in
+          let report, result, _ = execute image in
+          Ok
+            (if Runtime.value_captured report then
+               Dispatch.Captured
+                 (Option.map
+                    (fun (word : Image.word) ->
+                      match word.type_ with
+                      | Image.I64 -> Dispatch.I64 word.bits
+                      | U64 -> Dispatch.U64 word.bits
+                      | F64 -> Dispatch.F64 word.bits)
+                    result.final_value)
+             else Dispatch.Unchanged));
+    }
+  in
+  let allocate request =
+    Runtime.allocate_task_static arena request |> checked;
+    Ok ()
+  in
+  let initialize request =
+    List.iter
+      (fun status_abi ->
+        Image.compile_task_static_initializer ~status_abi ~layout request
+        |> compiled |> ignore)
+      [ Image.Windows_x64; Image.System_v_x64 ];
+    let image =
+      Image.compile_task_static_initializer ~status_abi:(host_status_abi ())
+        ~layout request
+      |> compiled
+    in
+    let _, result, work = execute image in
+    Alcotest.(check bool)
+      "static native capture reports actual F64" true
+      (match result.final_value with
+      | Some word ->
+          word.type_ = Image.F64 && word.bits = 0x3ff8_0000_0000_0000L
+      | None -> false);
+    let capture =
+      Runtime.finish_task_static_initializer arena image |> checked
+    in
+    rejected "static capture cannot be taken twice"
+      (Runtime.finish_task_static_initializer arena image);
+    rejected "unrecorded work cannot authorize floating copy"
+      (Request.prepare_copy request capture ~work);
+    Request.record_steps request work |> checked;
+    rejected "wrong work cannot consume static capture"
+      (Request.prepare_copy request capture ~work:(work + 1));
+    let program = Request.program request in
+    let copied_program = Obj.obj (Obj.dup (Obj.repr program)) in
+    rejected "copied static program cannot consume capture"
+      (Holyc_lib__Ir.Native_scalar_capture.consume_value capture
+         ~program:copied_program ~work);
+    rejected "foreign domain cannot consume static capture"
+      (Domain.join
+         (Domain.spawn (fun () -> Request.prepare_copy request capture ~work)));
+    Gc.full_major ();
+    Gc.compact ();
+    let token = Request.prepare_copy request capture ~work |> checked in
+    Alcotest.(check string)
+      "original static F64 bytes" "\000\000\000\000\000\000\248\063"
+      (Request.copy_bytes token);
+    rejected "static capture cannot be consumed twice"
+      (Request.prepare_copy request capture ~work);
+    let duplicate = Obj.obj (Obj.dup (Obj.repr token)) in
+    rejected "copied static token cannot authorize copy"
+      (Request.check_copy request duplicate);
+    rejected "foreign arena cannot receive static floating copy"
+      (Runtime.copy_task_static_initializer foreign_arena request token);
+    let receipt =
+      Runtime.copy_task_static_initializer arena request token |> checked
+    in
+    rejected "static floating copy cannot replay"
+      (Runtime.copy_task_static_initializer arena request token);
+    Request.finish_copy request token receipt |> checked;
+    rejected "static copy completion cannot replay"
+      (Request.finish_copy request token receipt);
+    saved := Some (request, token);
+    Ok ()
+  in
+  let report =
+    Fun.protect
+      ~finally:(fun () ->
+        Runtime.release_task_arena arena |> checked;
+        Runtime.release_task_arena foreign_arena |> checked)
+      (fun () ->
+        Source.run ~native_dispatch:dispatch ~native_static_allocation:allocate
+          ~native_static_initializer:initialize session ~config ~source
+          ~max_steps:100_000)
+  in
+  Source.outcome report |> Result.map_error describe |> checked |> ignore;
+  Alcotest.(check bool)
+    "static copy reaches original function" true
+    (Source.native_final_value report = Some (Dispatch.I64 248L));
+  let request, token = Option.get !saved in
+  rejected "expired static request cannot reuse copy"
+    (Request.check_copy request token)
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -3093,6 +3229,8 @@ let () =
             native_nested_default_source_authority;
           Alcotest.test_case "floating leaf capture and copy authority" `Quick
             floating_initializer_authority;
+          Alcotest.test_case "static floating capture and copy authority" `Quick
+            floating_static_initializer_authority;
           Alcotest.test_case "zero-byte reference evaluation and copy authority"
             `Quick zero_reference_initializer_authority;
         ] );

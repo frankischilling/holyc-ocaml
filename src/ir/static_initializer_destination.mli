@@ -30,3 +30,4 @@ val storage : t -> Integer_globals.storage_slot
 val discards_value : t -> bool
 val requires_evaluation : t -> bool
 val stores_pointer : t -> bool
+val stores_same_f64 : t -> bool

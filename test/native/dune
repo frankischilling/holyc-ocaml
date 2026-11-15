@@ -1316,13 +1316,15 @@
  (alias native-tests)
  (deps
   ../../examples/native-source-initializers.hc
-  ../../examples/native-source-arrays.hc)
+  ../../examples/native-source-arrays.hc
+  ../../examples/native-static-f64-leaves.hc)
  (action
   (run
    %{exe:test_native_source_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-source-initializers.hc}
-   %{dep:../../examples/native-source-arrays.hc})))
+   %{dep:../../examples/native-source-arrays.hc}
+   %{dep:../../examples/native-static-f64-leaves.hc})))
 
 (executable
  (name test_native_source_functions)

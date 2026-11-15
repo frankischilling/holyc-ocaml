@@ -209,7 +209,9 @@ type scalar_capture =
       * Domain.id
       * Image.word option
   | Static_initializer_capture of
-      Ir.Static_initializer_program.t Ir.Native_scalar_capture.t * Domain.id
+      Ir.Static_initializer_program.t Ir.Native_scalar_capture.t
+      * Domain.id
+      * Image.word option
 
 type task_arena = {
   layout_ : Task_storage.task_layout;
@@ -644,7 +646,7 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                   Option.map
                                     (fun value ->
                                       Static_initializer_capture
-                                        (value, Domain.self ()))
+                                        (value, Domain.self (), None))
                                     capture;
                                 report)
                         | None, Some _ ->
@@ -811,6 +813,12 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                             | Initializer_capture
                                                 (capture, domain, _) ->
                                                 Initializer_capture
+                                                  ( capture,
+                                                    domain,
+                                                    completed.final_value )
+                                            | Static_initializer_capture
+                                                (capture, domain, _) ->
+                                                Static_initializer_capture
                                                   ( capture,
                                                     domain,
                                                     completed.final_value )
@@ -1209,11 +1217,18 @@ let finish_task_static_initializer ?scope arena image =
           reached )
       with
       | ( Some snapshot,
-          Some _,
-          Some (entered, Static_initializer_capture (capture, domain)) )
+          Some program,
+          Some (entered, Static_initializer_capture (capture, domain, result)) )
         when (not (Atomic.get arena.arena_revoked_))
              && domain = Domain.self ()
              && entered == image
+             && ((not
+                    (Ir.Static_initializer_destination.stores_same_f64
+                       (Ir.Static_initializer_program.destination program)))
+                ||
+                match result with
+                | Some word -> word.Image.type_ = Image.F64
+                | None -> false)
              && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
              && Atomic.compare_and_set arena.scalar_capture_ reached None ->
           Ok capture

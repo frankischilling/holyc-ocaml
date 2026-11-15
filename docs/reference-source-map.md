@@ -1,5 +1,16 @@
 # Reference source map
 
+F64 aggregate initializer leaves follow `PrsVarInit` and `PrsVarInit2`
+(`Compiler/PrsVar.HC:1-204`). `LexExpression2Bin`
+(`Compiler/PrsExp.HC:1117-1133`) emits the original return-value fragment;
+`PrsVarInit` calls it and copies the selected width after its numeric conversion
+branch. `PrsGlblInit` and `PrsStaticInit` (`PrsVar.HC:206-246`) share that
+consumer. The static declaration branch (`PrsVar.HC:536-587`) prepares it before
+the function is published. Native JIT tasks support same-class eight-byte F64
+leaves in globals and statics, including packed fields and fixed arrays. Hosted
+capture ownership and work limits remain separate from these source rules.
+See [aggregate initializers](aggregate-initializers.md).
+
 Assignment observations follow complete `PrsExpression2`
 (`Compiler/PrsExp.HC:65-263`), including dereference-class selection before the
 operator and the internal lvalue gate after its lookahead. `ICAdd`
