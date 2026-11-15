@@ -2651,3 +2651,10 @@ preparation begins.
 Authority tests compile the original initializer bundle for both
 private ABIs before checking foreign receipts and altered typed stores. See
 [AOT F64 load initializers](native-f64-storage.md#aot-load-initializers).
+
+The native scalar F64 CLI suite also checks all five option-dependent builtin
+constants with `No_builtin_const` enabled at original compilation. Cases retain
+exact binary64 payloads through both arithmetic operand positions, ordered
+conditions and a later option reset. Default and explicitly disabled options
+retain rejection; zero and one retain their original rules. These are pinned
+source-derived expectations, without a new TempleOS runtime capture.

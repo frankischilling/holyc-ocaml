@@ -2775,6 +2775,14 @@ and the retained host safeguards.
 
 ### F64 comparison consumers
 
+`BackLib.HC:423-442` checks zero and one before `OPTf_NO_BUILTIN_CONST`.
+When that option is enabled, the other five builtin constants use the memory
+load paths in `BackFA.HC:339-467`. The native floating plan admits those stored
+binary64 loads only with authenticated original function options and rechecks
+that dependency during retained emission. Native source-task tests cover both
+operand positions, ordered conditions and original option timing. See
+[stored F64 constants](native-f64.md#stored-constants-under-no_builtin_const).
+
 `OptPass789A.HC:567-595` separates integer-word equality from ordered x87
 comparison. `OptPass3.HC:216-221,372-377`, `BackFA.HC:519-546` and the three
 comparison families in `Templates.HC` retain asymmetric extended producers.

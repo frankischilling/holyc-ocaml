@@ -492,6 +492,7 @@ let prepare ?source ?runtime ?owner graph =
   in
   let intrinsics = ref I.empty in
   let canonical_consumer = ref false in
+  let option_consumer = ref false in
   let arithmetic_arguments = ref [] in
   List.iter
     (fun block ->
@@ -847,9 +848,19 @@ let prepare ?source ?runtime ?owner graph =
           | 0x3ff71547652b82feL
           | 0x3fd34413509f79ffL
           | 0x3fe62e42fefa39efL ) ->
-          fail d
-            "native F64 arithmetic builtin constants require original \
-             compiler-option evidence";
+          if
+            authenticated
+            && Option.fold ~none:false
+                 ~some:(fun s ->
+                   Sema.Compiler_option.is_enabled
+                     ~mask:(Ir.Function_body.compiler_options s.body)
+                     Sema.Compiler_option.No_builtin_const)
+                 source
+          then option_consumer := true
+          else
+            fail d
+              "native F64 arithmetic builtin constants require original \
+               compiler-option evidence";
           Bits
       | _ -> Bits
   in
@@ -1821,7 +1832,7 @@ let prepare ?source ?runtime ?owner graph =
                 current_regions = regions
                 && I.equal ( == ) current_comparisons comparison_sources)
             && (I.is_empty !conversions && I.is_empty !comparisons
-                && not !canonical_consumer
+                && (not !canonical_consumer) && not !option_consumer
                || authentic_source ())
             && (I.is_empty !intrinsics || runtime_valid ())
       in

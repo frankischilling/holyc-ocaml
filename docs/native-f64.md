@@ -131,6 +131,33 @@ images containing x87 instructions reject before native mapping or execution on
 those builds. Capability follows emitted instructions, not just the final return
 type, so an integer-returning function cannot hide unsupported floating work.
 
+## Stored constants under `No_builtin_const`
+
+Native source tasks honor `OPTf_NO_BUILTIN_CONST` (bit 36) for the five
+option-dependent constants: pi, log2(10), log2(e), log10(2) and ln(2).
+With the option enabled at original function compilation, arithmetic and ordered
+comparisons load the literal's stored binary64 word. The default builtin x87
+loads for these constants remain unsupported. Zero and one keep their existing
+special load and identity rules under either option value.
+
+```c
+#exe { Option(36,1); }
+F64 AddPi(F64 x) { return x+3.141592653589793; }
+AddPi(0.0);
+```
+
+Run this source with `holyc run --target=host-jit-task`. Both outer source modes
+are supported. The isolated `host-jit` command retains its existing `#exe`
+boundary. A retained function uses its original compilation options. Directives
+reached while reading beyond its closing brace can still affect compilation;
+place a subsequent declaration before a directive intended for later functions.
+
+The load plan requires the original function, frame, runtime graph and option
+snapshot. A raw graph or numeric option bits alone cannot authorize this path.
+Retained plans recheck that source evidence before emission. The source rule is
+`Compiler/BackLib.HC:423-442`, with memory loads selected by
+`Compiler/BackFA.HC:339-467`, at the pinned reference revision.
+
 ## Numeric conversions
 
 [Scalar numeric conversions](native-f64-conversions.md) cover checked fixed

@@ -839,6 +839,53 @@ let capability mode =
     (Image.code compiled <> Bytes.to_string exported)
     "exported code copy changed opaque image"
 
+let builtin_constant_options mode target =
+  let constants =
+    [
+      ("pi", "3.141592653589793", 0x400921fb54442d18L);
+      ("log2_10", "3.321928094887362", 0x400a934f0979a371L);
+      ("log2_e", "1.4426950408889634", 0x3ff71547652b82feL);
+      ("log10_2", "0.3010299956639812", 0x3fd34413509f79ffL);
+      ("loge_2", "0.6931471805599453", 0x3fe62e42fefa39efL);
+    ]
+  in
+  List.iter
+    (fun (name, literal, bits) ->
+      List.iter
+        (fun expression ->
+          let label = name ^ " stored constant " ^ expression in
+          let source =
+            "#exe{Option(36,1);}F64 F(F64 x){return " ^ expression
+            ^ ";}I64 marker;#exe{Option(36,0);}F(0.0);"
+          in
+          invoke ~target ~mode label source |> successful label bits)
+        [ "x+" ^ literal; literal ^ "+x" ];
+      let label = name ^ " ordered stored constant" in
+      let report =
+        invoke ~target ~mode label
+          ("#exe{Option(36,1);}I64 F(F64 x){if(x<" ^ literal
+         ^ ")return 42;return 0;}F(0.0);")
+      in
+      require
+        (member "bits" (member "final_value" report)
+        = `String "0x000000000000002a")
+        (label ^ ": wrong comparison");
+      List.iter
+        (fun prefix ->
+          let label = name ^ " default builtin remains unavailable" in
+          invoke ~status:1 ~target ~mode label
+            (prefix ^ "F64 F(F64 x){return x+" ^ literal ^ ";}F(0.0);")
+          |> rejected label)
+        [ ""; "#exe{Option(36,1);Option(36,0);}" ])
+    constants;
+  List.iter
+    (fun (expression, bits) ->
+      let label = "builtin option preserves " ^ expression in
+      invoke ~target ~mode label
+        ("#exe{Option(36,1);}F64 F(F64 x){return " ^ expression ^ ";}F(1.5);")
+      |> successful label bits)
+    [ ("x+0.0", 0x3ff8000000000000L); ("x/1.0", 0x3ff8000000000000L) ]
+
 let () =
   List.iter
     (fun mode ->
@@ -877,6 +924,8 @@ let () =
         in
         List.iter
           (fun target ->
+            if has_x87 && target = "host-jit-task" then
+              builtin_constant_options mode target;
             if has_x87 then
               invoke ~target ~mode "maintained example" (read example_path)
               |> successful "maintained example" 0x400e000000000000L;
