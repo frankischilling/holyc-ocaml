@@ -2170,6 +2170,12 @@ initialization and bounds, private metadata allocation caps and recursive quota
 failures followed by same-image recovery. Both image ABIs compile locally; the
 Windows and Linux CI jobs execute their host ABI through `@native-tests`.
 
+`test/native/test_native_global_cli.ml` also checks unused scalar and array F64
+globals with exact eight- and sixteen-byte allowances and one-below failures.
+Both source modes allocate this unused storage in the integer interpreter. Native
+assignment/read results remain F64, while the integer interpreter rejects the
+actual floating instruction stream before executing any steps.
+
 Native callback-word default tests cover full 64-bit values, narrow/F64/U0 and
 pointer callback return classes, named and indirect selection, unused/explicit
 proof requirements, multiple lanes, sparse omission, owned overrides, copies,

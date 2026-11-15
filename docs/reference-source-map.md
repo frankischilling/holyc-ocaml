@@ -30,6 +30,10 @@ scalar/array copy consumer and static declaration preparation. The native task
 uses those same-class F64 copies for global/static scalars and fixed arrays in
 JIT. AOT zero images and unknown JIT bytes remain distinct; AOT and isolated
 floating initializer preparation remain unsupported.
+Unused F64 declarations still allocate their full extent. The public global CLI
+checks eight- and sixteen-byte limits independently of floating execution;
+native assignment/read execution and the integer interpreter's earlier floating
+instruction rejection remain separate controls.
 
 F64 aggregate initializer leaves follow `PrsVarInit` and `PrsVarInit2`
 (`Compiler/PrsVar.HC:1-204`). `LexExpression2Bin`

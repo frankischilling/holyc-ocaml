@@ -138,9 +138,13 @@ separate source preparation and ownership checks. Defaults still prepare closed 
 empty fragment at their original declaration boundary; admitting globals does
 not authorize a default to read them. Full memory/runtime support, object/BIN
 output, loader acceptance and bootstrap remain open.
-Initializers must precede executable top-level statements. Floating values,
-pointer-valued initializers and unresolved initializer shift-optimizer behavior
-also reject.
+Initializers must precede executable top-level statements. Supported F64 globals
+and statics retain their eight-byte scalar or fixed-array storage and execute
+native assignments and reads in both source modes. Floating declaration
+preparation follows the separate [F64 storage boundary](native-f64-storage.md).
+The integer interpreter can retain unused F64 storage without admitting floating
+instructions. Pointer-valued initializers and unresolved initializer
+shift-optimizer behavior remain outside this path.
 
 ## Source evidence and verification
 
@@ -165,5 +169,8 @@ one-below preparation quotas, both ABI encodings and failure before entry.
 `test/native/test_native_global_execution.ml` covers all widths, shared calls,
 recursive faults, fresh images, updates and exact resource boundaries.
 `test/native/test_native_global_cli.ml` exercises the maintained source fixture,
-reports, both modes, unknown reads and rejected neighbors. These tests provide
+reports, both modes, unknown reads and rejected neighbors. Its floating controls
+check exact eight- and sixteen-byte allocation limits, one-below rejection,
+native F64 assignment/read results and the separate IR instruction preflight.
+These tests provide
 hosted interpreter/native evidence; they add no TempleOS oracle capture.
