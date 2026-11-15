@@ -901,8 +901,8 @@ let rejected_sources =
       "I64 F(Bool i){I64 scratch[2][3];scratch[(i)][0]=42;return \
        scratch[0][0];}F(0);",
       "HCRUN0003" );
-    ( "F64 array storage remains unsupported",
-      "I64 F(){F64 scratch[2][3];return 42;}F();",
+    ( "F64 pointer-array storage remains unsupported",
+      "I64 F(){F64 *scratch[2][3];return 42;}F();",
       "HCRUN0001" );
     ( "mixed array-read float arithmetic remains unsupported",
       "F64 F(F64 reg x){I64 scratch[2][3];scratch[0][0]=42;return \

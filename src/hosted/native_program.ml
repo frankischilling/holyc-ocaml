@@ -281,7 +281,6 @@ let function_source_error (definition : Ast.function_definition) =
           not
             (scalar_word_type parameter.type_specifier
             || scalar_f64_type parameter.type_specifier
-               && parameter.pointer_layers = []
             || named_pointer parameter.type_specifier parameter.pointer_layers
             || (parameter.pointer_layers = []
                &&
@@ -343,8 +342,9 @@ let local_source_error (declaration : Ast.local_declaration) =
          && (not is_static)
          && List.for_all
               (fun (local : Ast.local_declarator) ->
-                local.local_pointer_layers = []
-                && local.local_array_dimensions = []
+                List.length local.local_pointer_layers <= 1
+                && (local.local_pointer_layers = []
+                   || local.local_array_dimensions = [])
                 && Option.is_none local.local_function_pointer)
               declaration.local_declarators
       || storage_free_void || aggregate_object

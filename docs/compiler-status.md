@@ -1,5 +1,11 @@
 # Compiler status and implementation notes
 
+[Native F64 storage](native-f64-storage.md) now connects automatic floating
+arrays, packed members and one-level owned pointers to native loads and stores.
+Fixed pointer arguments borrow the original allocation across calls. Both source
+modes retain hosted initialization, extent and activation checks. The integer
+interpreter and standalone floating globals/statics remain outside this slice.
+
 [Local-index normalization](local-index-normalization.md) extends array-bearing
 register allocation to bounded pure computed indices and full multidimensional
 chains. Receipts retain parser SIZEOF timing, whole-function optimization and

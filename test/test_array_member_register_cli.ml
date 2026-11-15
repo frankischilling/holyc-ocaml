@@ -340,7 +340,7 @@ let weighted_source type_ qualifier dimensions accesses result =
     type_ qualifier dimensions accesses (weighted 6) result (args 6)
 
 let unused type_ qualifier expected =
-  case ~parameters:(entries expected)
+  case ~parameters:(entries expected) ~native_only:(type_ = "F64")
     ~large:(type_ = "I64" || type_ = "F64")
     (type_ ^ " " ^ qualifier ^ " unused complete-member array")
     (weighted_source type_ qualifier "[5000]" "" "")
@@ -354,7 +354,7 @@ let initial_cases =
         unused type_ "" general;
         unused type_ "reg" pressure;
       ])
-    [ "I64" ]
+    [ "I64"; "F64" ]
   @ List.map
       (fun type_ -> unused type_ "reg" pressure)
       [ "Bool"; "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "U64" ]
@@ -743,12 +743,6 @@ let rejected_sources =
        x+scratch[0];}F(1.5);",
       "HCBACK0002" );
   ]
-  @ List.map
-      (fun qualifier ->
-        ( "unsupported F64 array " ^ qualifier,
-          weighted_source "F64" qualifier "[5000]" "" "",
-          "HCRUN0001" ))
-      [ "noreg"; ""; "reg" ]
 
 let rejected_source mode (label, source, code) =
   match compile mode source with

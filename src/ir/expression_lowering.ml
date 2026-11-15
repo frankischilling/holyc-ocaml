@@ -420,7 +420,9 @@ let checked_frame_word result =
 
 let scalar_pointer_type type_ =
   match Type.dereference type_ with
-  | Ok pointee -> Option.is_some (Integer_scalar_storage.of_type pointee)
+  | Ok pointee ->
+      Option.is_some (Integer_scalar_storage.of_type pointee)
+      || Type.is_f64 pointee
   | Error _ -> false
 
 let data_pointer_type type_ =
@@ -441,7 +443,8 @@ let array_pointer_type type_ =
        (Type.dereference type_ |> Result.to_option)
 
 let storage_element_size type_ =
-  if
+  if Type.is_f64 type_ then Some 8L
+  else if
     callback_word_type type_
     || Aggregate_member_projection.pointer_member_type type_
   then Some 8L
@@ -765,9 +768,11 @@ let checked_integer_or_pointer_type result =
   | Some type_ -> (
       match (Semantic_result.result_class result, Type.base type_) with
       | Semantic_result.Integer_result, Type.Primitive (_, primitive)
-        when (Sema.Primitive_type.info primitive).category
-             <> Sema.Primitive_type.Floating
-             && not (Sema.Primitive_type.is_zero_sized primitive) ->
+        when Type.pointer_depth type_ = 1
+             && Sema.Primitive_type.equal primitive Sema.Primitive_type.F64
+             || (Sema.Primitive_type.info primitive).category
+                <> Sema.Primitive_type.Floating
+                && not (Sema.Primitive_type.is_zero_sized primitive) ->
           Ok (Checked_type type_)
       | Semantic_result.Integer_result, (Type.Primitive _ | Type.Aggregate _)
       | ( (Semantic_result.F64_result | Semantic_result.Unresolved_actual_class),
@@ -1599,6 +1604,25 @@ let validate_numeric_unary result opcode operand =
             (checked_numeric_unary_types result opcode operand))
 
 let validate_pointer_unary result opcode operand =
+  let floating_access =
+    Semantic_result.result_array_rank operand = 0
+    && Semantic_result.result_array_rank result = 0
+    &&
+    match
+      ( opcode,
+        Semantic_result.result_storage_type operand,
+        Semantic_result.result_value_type result )
+    with
+    | Opcode.Ic_addr, Some type_, Some pointer ->
+        Type.is_f64 type_
+        && Semantic_result.result_category operand = Semantic_result.Lvalue
+        && scalar_pointer_type pointer
+    | Opcode.Ic_deref, Some pointer, Some type_ ->
+        Type.is_f64 type_
+        && Option.fold ~none:false ~some:Type.is_f64
+             (Type.dereference pointer |> Result.to_option)
+    | _ -> false
+  in
   let aggregate_address =
     opcode = Opcode.Ic_addr
     && Semantic_result.result_array_rank operand = 0
@@ -1613,7 +1637,7 @@ let validate_pointer_unary result opcode operand =
       | None -> false)
     && Option.is_none (Semantic_result.result_callback_pointer operand)
   in
-  if aggregate_address then
+  if aggregate_address || floating_access then
     Result.map
       (fun () -> true)
       (checked_pointer_unary_types result opcode operand)
@@ -3039,7 +3063,7 @@ let plan ?frame ?globals ~allow_calls root =
                                   | _ -> unsupported := true
                                 else
                                   match
-                                    ( checked_frame_integer result,
+                                    ( checked_frame_value result,
                                       checked_frame_value operand )
                                   with
                                   | Ok (Checked_type _), Ok (Checked_type type_)

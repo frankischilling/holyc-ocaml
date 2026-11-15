@@ -19,6 +19,7 @@ let pointer_member_type type_ =
   match Type.dereference type_ with
   | Ok pointee ->
       Option.is_some (Integer_scalar_storage.of_type pointee)
+      || Type.is_f64 pointee
       || Automatic_aggregate_storage.aggregate_pointer type_
   | Error _ -> false
 
@@ -26,6 +27,7 @@ let supported_member_type type_ =
   pointer_member_type type_
   || Type.pointer_depth type_ = 0
      && (Option.is_some (Integer_scalar_storage.of_type type_)
+        || Type.is_f64 type_
         ||
         match Type.base type_ with
         | Type.Aggregate _ -> true

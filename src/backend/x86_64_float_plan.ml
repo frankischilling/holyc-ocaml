@@ -106,12 +106,7 @@ type t = {
   valid : unit -> bool;
 }
 
-let is_f64 type_ =
-  Sema.Type.pointer_depth type_ = 0
-  &&
-  match Sema.Type.base type_ with
-  | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> true
-  | _ -> false
+let is_f64 = Sema.Type.is_f64
 
 let integer_type type_ =
   Sema.Type.pointer_depth type_ = 0
@@ -866,15 +861,6 @@ let prepare ?source ?runtime ?owner graph =
           let target_float =
             Option.fold ~none:false ~some:is_f64 d.target_type
           in
-          (match (d.opcode, d.target_type) with
-          | (O.Ic_addr | Ic_holyc_typecast), Some type_
-            when Sema.Type.pointer_depth type_ > 0
-                 &&
-                 match Sema.Type.base type_ with
-                 | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> true
-                 | _ -> false ->
-              fail d "native F64 pointer values are unsupported"
-          | _ -> ());
           let touches_float =
             target_float || List.exists float_value d.operands
           in

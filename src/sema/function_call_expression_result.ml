@@ -1999,7 +1999,7 @@ let scalar_pointer_integer_arithmetic_type left right =
           match Type.base pointee with
           | Type.Primitive (_, primitive)
             when Option.is_some (Primitive_type.integer_storage_info primitive)
-            -> Some pointer
+                 || Type.is_f64 pointee -> Some pointer
           | Type.Aggregate _ -> Some pointer
           | _ -> None)
       | _ -> None)
@@ -2024,6 +2024,7 @@ let scalar_pointer_difference left right =
           match Type.base pointee with
           | Type.Primitive (_, primitive) ->
               Option.is_some (Primitive_type.integer_storage_info primitive)
+              || Type.is_f64 pointee
           | Type.Aggregate _ -> true)
       | _ -> false)
   | _ -> false

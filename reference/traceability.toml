@@ -15500,3 +15500,15 @@ status = "partial"
 issue = 703
 verification = "Original source, types, graph, branch roles, options and owners authenticate separate value/condition predicates, conversion placement and asymmetric extended producers. Equality compares materialized binary64 words. Ordered comparisons consume their x87 owners and preserve pinned carry/zero behavior; source-fused condition discriminators retain existing hosted step sites. Exact public F64 direct reads against positive zero retain the source signed-word rewrite. Score proofs count original reads independently. Source-derived CLI matrices, fresh/saved mutation checks, quotas, recovery and controlled architectural instruction tests exercise the distinct contracts."
 evidence_limit = "No general F64 comparison-result conversion, nested/chained comparisons, short circuit, unproved condition-wrapper normalization, computed zero normalization or mixed integer/positive-zero phase support. Option-sensitive fused builtin loads and other existing source-shape limits remain explicit. Public NaNs come from real arithmetic; arbitrary payload and signaling-NaN checks are lower-level architecture evidence, not public source execution or new TempleOS captures. Compound updates and complete issue 703 remain open."
+
+[[feature]]
+id = "HC-NATIVE-F64-STORAGE"
+description = "Native automatic F64 arrays, packed fields and one-level owned pointer transport."
+sources = ["Compiler/PrsExp.HC:15-63,960-1115", "Compiler/OptLib.HC:484-506", "Compiler/OptPass012.HC:1259-1265", "Compiler/OptPass789A.HC:461-468,606-608", "Compiler/BackLib.HC:445-710", "Compiler/BackC.HC:159-211"]
+implementation = ["src/sema/type.ml", "src/sema/function_call_expression_result.ml", "src/ir/aggregate_member_projection.ml", "src/ir/expression_lowering.ml", "src/ir/integer_storage_shape.ml", "src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_native_f64_cli.ml", "test/test_local_index_register_cli.ml", "test/test_array_member_register_cli.ml", "examples/native-f64-storage.hc"]
+documentation = ["docs/native-f64-storage.md", "docs/native-f64.md", "docs/compiler-status.md", "docs/reference-source-map.md"]
+status = "partial"
+issue = 703
+verification = "Public native CLI cases cover exact binary64 words, negative zero, packed and multidimensional storage, address-taking without a pointee read, saved offsets, pointer fields, fixed arguments, recursive borrowing, scaled pointer arithmetic and same-object difference in both source modes and both native targets. Exact/one-below instruction limits and hosted faults retain accounting, initialization, bounds and retired-owner checks."
+evidence_limit = "Source-derived expectations, not new TempleOS runtime captures. The integer interpreter, pointer arrays, deeper pointers, general floating updates and standalone F64 global/static storage remain outside this increment. No new extended-precision linking authority."

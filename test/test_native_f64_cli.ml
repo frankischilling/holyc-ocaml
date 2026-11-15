@@ -177,14 +177,102 @@ let copy_cases =
         Int64.min_int ))
     [ "x*1.0"; "1.0*x"; "x/1.0"; "x+0.0"; "0.0+x"; "x-0.0" ]
 
+(* PrsUnaryModifier scales subscripts by the selected class size; ICDeref and
+   ICAssign transport RT_F64 with eight-byte ICMov operands. These expectations
+   are source-derived, not new TempleOS runtime captures. *)
+let storage_cases =
+  [
+    ( "address without reading an uninitialized pointee",
+      "F64 F(){F64 x;F64 *p=&x;*p=1.5;return x;}F();",
+      0x3ff8000000000000L );
+    ( "pointer parameter",
+      "F64 Read(F64 *p){return *p;}F64 F(){F64 x=1.5;return Read(&x);}F();",
+      0x3ff8000000000000L );
+    ( "array arithmetic",
+      "F64 F(){F64 x[2];x[0]=1.5;x[1]=2.25;return x[0]+x[1];}F();",
+      0x400e000000000000L );
+    ( "multidimensional array",
+      "F64 F(){F64 x[2][3];x[1][2]=3.75;return x[1][2];}F();",
+      0x400e000000000000L );
+    ( "saved pointer keeps its original element",
+      "F64 F(){F64 x[2];x[0]=1.5;x[1]=2.25;I64 i=0;F64 *p=&x[i];i=1;return \
+       *p;}F();",
+      0x3ff8000000000000L );
+    ( "packed member pointer",
+      "class Box{U8 tag;F64 x;};F64 F(){Box b;b.tag=7;F64 \
+       *p=&b.x;*p=1.5;return b.x;}F();",
+      0x3ff8000000000000L );
+    ( "packed member array",
+      "class Box{U8 tag;F64 x[2];U8 tail;};F64 F(){Box \
+       b;b.tag=7;b.tail=9;b.x[0]=1.5;b.x[1]=2.25;return b.x[1];}F();",
+      0x4002000000000000L );
+    ( "owned floating pointer field",
+      "class Box{F64 *p;};F64 F(){F64 x;Box b;b.p=&x;*b.p=1.5;return x;}F();",
+      0x3ff8000000000000L );
+    ( "array negative zero transport",
+      "F64 F(F64 x){F64 a[2];a[1]=x;return a[1];}F(-0.0);",
+      Int64.min_int );
+    ( "recursive borrowed pointer",
+      "F64 Read(I64 n,F64 *p){if(n)return Read(n-1,p);return *p;}F64 F(){F64 \
+       x=1.5;return Read(3,&x);}F();",
+      0x3ff8000000000000L );
+    ( "pointer addition scales by eight bytes",
+      "F64 F(){F64 x[2];x[0]=1.5;x[1]=2.25;F64 *p=&x[0];return *(p+1);}F();",
+      0x4002000000000000L );
+    ( "pointer subtraction scales by eight bytes",
+      "F64 F(){F64 x[2];x[0]=1.5;x[1]=2.25;F64 *p=&x[1];return *(p-1);}F();",
+      0x3ff8000000000000L );
+    ( "raw packed union transport preserves signaling NaN",
+      "union Box{F64 value;U64 bits;};F64 F(){Box \
+       b;b.bits=0x7ff0000000000042;return b.value;}F();",
+      0x7ff0000000000042L );
+  ]
+
+let storage_faults =
+  [
+    ( "uninitialized array leaf",
+      "F64 F(){F64 x[2];return x[0];}F();",
+      "HCIRVM0012" );
+    ( "one-past array write",
+      "F64 F(){F64 x[2];x[2]=1.5;return 42.0;}F();",
+      "HCIRVM0019" );
+    ( "retired local pointer",
+      "F64 *Bad(){F64 x=1.5;return &x;}F64 F(){F64 *p=Bad();return *p;}F();",
+      "HCIRVM0018" );
+    ( "one-past pointer dereference",
+      "F64 F(){F64 x[2];F64 *p=&x[0];return *(p+2);}F();",
+      "HCIRVM0019" );
+    ( "difference between separate floating objects",
+      "I64 F(){F64 x[2];F64 y[2];F64 *p=&x[0];F64 *q=&y[0];return q-p;}F();",
+      "HCIRVM0018" );
+    ( "restored floating pointer bits do not restore ownership",
+      "union Box{F64 *p;U64 bits;};F64 F(){F64 x=1.5;Box b;b.p=&x;U64 \
+       old=b.bits;b.bits=old;return *b.p;}F();",
+      "HCIRVM0018" );
+    ( "floating pointer union cannot change pointee type",
+      "union Box{F64 *p;I64 *q;};I64 F(){F64 x=1.5;Box b;b.p=&x;return \
+       *b.q;}F();",
+      "HCIRVM0018" );
+  ]
+
+let storage_word_cases =
+  [
+    ( "same-object pointer difference",
+      "I64 F(){F64 x[3];F64 *p=&x[0];F64 *q=&x[2];return q-p;}F();",
+      2L );
+    ( "one-past formation and reverse difference",
+      "I64 F(){F64 x[3];F64 *p=&x[0];F64 *q=p+3;return p-q;}F();",
+      -3L );
+  ]
+
 let excluded =
   [
     ( "unproved literal reassociation",
       "F64 F(F64 a){return (a+0.5)+0.5;}F(1.0);" );
     ("remainder", "F64 F(F64 a,F64 b){return a%b;}F(1.0,2.0);");
     ("compound update", "F64 F(F64 x){x+=1.0;return x;}F(1.0);");
-    ("pointer", "F64 F(F64 *x){return *x;}42;");
-    ("array", "F64 F(){F64 x[2];return 1.0;}42;");
+    ("deeper pointer", "F64 F(F64 **x){return **x;}42;");
+    ("pointer array", "F64 F(){F64 *x[2];return 1.0;}42;");
     ("global", "F64 x=1.0;42;");
     ("static", "F64 F(){static F64 x=1.0;return x;}42;");
     ("default", "F64 F(F64 x=1.0){return x;}42;");
@@ -280,8 +368,8 @@ let retained mode =
         |> fault Image.Frame_limit_exceeded);
       ignore (run steps |> completed 0x400e000000000000L))
 
-let cli_step_quota mode target =
-  let source = "F64 Add(F64 a,F64 b){return a+b;}Add(1.5,2.25);" in
+let cli_step_quota ?(source = "F64 Add(F64 a,F64 b){return a+b;}Add(1.5,2.25);")
+    mode target =
   let baseline = invoke ~target ~mode "step baseline" source in
   successful "step baseline" 0x400e000000000000L baseline;
   let steps = baseline |> member "executed_steps" |> to_int in
@@ -349,7 +437,7 @@ let () =
       if native then (
         let has_x87 = Native_execution.x87_supported () in
         let admitted =
-          if has_x87 then cases @ copy_cases
+          if has_x87 then cases @ copy_cases @ storage_cases
           else
             List.filter
               (fun (name, _, _) ->
@@ -370,6 +458,16 @@ let () =
             if has_x87 then
               invoke ~target ~mode "maintained example" (read example_path)
               |> successful "maintained example" 0x400e000000000000L;
+            (if has_x87 then
+               let path =
+                 if Sys.file_exists "examples/native-f64-storage.hc" then
+                   "examples/native-f64-storage.hc"
+                 else "../examples/native-f64-storage.hc"
+               in
+               invoke ~target ~mode "maintained floating storage example"
+                 (read path)
+               |> successful "maintained floating storage example"
+                    0x400e000000000000L);
             List.iter
               (fun (label, source, expected) ->
                 let report = invoke ~target ~mode label source in
@@ -386,6 +484,26 @@ let () =
                    = `String "inf")
                     "infinity must be JSON string inf")
               admitted;
+            List.iter
+              (fun (label, source, code) ->
+                let report = invoke ~status:1 ~target ~mode label source in
+                rejected label report;
+                require
+                  (report |> member "diagnostics" |> to_list
+                  |> List.exists (fun d -> member "code" d = `String code))
+                  (label ^ ": wrong storage fault"))
+              storage_faults;
+            List.iter
+              (fun (label, source, expected) ->
+                let report = invoke ~target ~mode label source in
+                require
+                  (member "outcome" report = `String "success"
+                  && report |> member "final_value" |> member "type"
+                     = `String "i64"
+                  && report |> member "final_value" |> member "bits"
+                     = `String (Printf.sprintf "0x%016Lx" expected))
+                  (label ^ ": wrong pointer difference"))
+              storage_word_cases;
             if has_x87 then
               let report =
                 invoke ~target ~mode "NaN rendering"
@@ -408,7 +526,13 @@ let () =
           targets;
         if has_x87 then (
           retained mode;
-          List.iter (cli_step_quota mode) targets)))
+          List.iter (cli_step_quota mode) targets;
+          List.iter
+            (cli_step_quota
+               ~source:
+                 "F64 F(){F64 x[2];x[0]=1.5;x[1]=2.25;return x[0]+x[1];}F();"
+               mode)
+            targets)))
     modes;
   Printf.printf "native scalar F64: %d CLI reports (%s)\n" !count
     (if native then "native" else "admission")

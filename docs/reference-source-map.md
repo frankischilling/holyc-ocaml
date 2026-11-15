@@ -1,5 +1,14 @@
 # Reference source map
 
+Native F64 storage follows member/stride production in `PrsUnaryModifier`
+(`Compiler/PrsExp.HC:960-1115`) and dispatch in
+`Compiler/OptPass789A.HC:461-468,606-608`. `ICDeref`
+(`Compiler/BackLib.HC:693-710`) and `ICAssign`
+(`Compiler/BackC.HC:159-211`) consume the selected pointed-to type through
+`ICMov` (`Compiler/BackLib.HC:445-691`). Same-class F64 memory operations
+transport eight raw bytes. See [native F64 storage](native-f64-storage.md) for
+the hosted ownership boundary and supported consumers.
+
 F64 aggregate initializer leaves follow `PrsVarInit` and `PrsVarInit2`
 (`Compiler/PrsVar.HC:1-204`). `LexExpression2Bin`
 (`Compiler/PrsExp.HC:1117-1133`) emits the original return-value fragment;

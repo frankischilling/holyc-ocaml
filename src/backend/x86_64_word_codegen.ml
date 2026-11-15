@@ -205,7 +205,8 @@ let pointer_field_identity type_ =
         | Primitive.U32 -> 7
         | Primitive.I64 -> 8
         | Primitive.U64 -> 9
-        | Primitive.I0 | Primitive.U0 | Primitive.F64 -> assert false
+        | Primitive.F64 -> 10
+        | Primitive.I0 | Primitive.U0 -> assert false
       in
       Int64.of_int
         (if
@@ -6172,8 +6173,6 @@ let source_slot_scalar ?span label type_ =
     | Ok _ when Ir.Automatic_aggregate_storage.aggregate_pointer type_ ->
         { word_type = U64; byte_size = 8 }
     | Ok pointee ->
-        if X86_64_float_plan.is_f64 pointee then
-          reject ?span "HCBACK0002" "native F64 pointers are unsupported";
         ignore (source_scalar ?span label pointee);
         { word_type = U64; byte_size = 8 }
     | Error message -> reject ?span "HCBACK0002" message
@@ -6722,19 +6721,11 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           (bytes, bytes)
         else if counts = [] then (1, scalar.byte_size)
         else
-          let shape_type =
-            if Option.is_some callback then
-              Type.make_primitive ~form:Type.Public_spelling
-                ~primitive:Primitive.I64 ~pointer_depth:0
-              |> Result.get_ok
-            else type_
-          in
           match
-            Ir.Integer_storage_shape.create ~type_:shape_type ~dimensions:counts
+            Ir.Integer_storage_shape.geometry ~element_size:scalar.byte_size
+              ~dimensions:counts
           with
-          | Ok shape ->
-              ( Ir.Integer_storage_shape.element_count shape,
-                Ir.Integer_storage_shape.byte_size shape )
+          | Ok (elements, bytes, _) -> (elements, bytes)
           | Error _ ->
               reject ?span "HCBACK0002"
                 "native automatic array extent is invalid or overflows"
@@ -11073,18 +11064,6 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
               unsupported description
                 "opcode is outside the native callable source subset"
         in
-        (match operation with
-        | Load_reference_value (_, result)
-        | Load_indexed_object_value (_, result)
-          when X86_64_float_plan.is_f64 result.declared_type ->
-            unsupported raw
-              "native F64 indirect and aggregate storage is unsupported"
-        | Store_reference_value (_, input, _)
-        | Store_indexed_object_value (_, input, _)
-          when X86_64_float_plan.is_f64 input.declared_type ->
-            unsupported raw
-              "native F64 indirect and aggregate storage is unsupported"
-        | _ -> ());
         let locked = prepare_lock ~lock_validation raw operation in
         (match operation with
         | Load_immediate (value, 0L) ->

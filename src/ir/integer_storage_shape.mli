@@ -1,6 +1,13 @@
 type t
 type error = Unsupported_type | Invalid_extent | Overflow
 
+val geometry :
+  element_size:int ->
+  dimensions:int64 list ->
+  (int * int * int64 list, error) result
+(** Checked element count, byte extent and strides. This arithmetic supplies no
+    scalar classification, object identity or allocation authority. *)
+
 val create : type_:Sema.Type.t -> dimensions:int64 list -> (t, error) result
 val dimensions : t -> int64 list
 val strides : t -> int64 list

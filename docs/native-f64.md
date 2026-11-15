@@ -74,6 +74,11 @@ constant is loaded first.
 
 ## Storage and host state
 
+[Automatic floating storage](native-f64-storage.md) supports F64 arrays, packed
+members and one-level owned pointers, including fixed pointer parameters and
+borrowed recursive calls. Binary64 stores materialize their values; these memory
+operations do not grant an extended-precision link.
+
 Ordinary F64 locals stay in their checked stack slots. A separate authenticated
 mixed-scalar proof admits supported explicit variable-register requests and
 plain `reg` when its exact placement or stack selection is proved. GPR homes
@@ -128,7 +133,7 @@ Unproved conversion normalization, comparison chains, floating short circuit,
 constant-only comparisons without a normalization proof, comparison results
 converted to F64, arithmetic-wrapped comparison conditions, remainder, power,
 shifts, compound updates, increment/decrement, other floating intrinsics, variadic F64
-arguments, `%f`, F64 pointers, arrays, aggregate fields, globals, statics,
+arguments, `%f`, deeper F64 pointers, pointer arrays, standalone F64 globals/statics,
 parameter defaults and callback invocation signatures remain unsupported. Mixed
 functions containing F64 also reject narrow integer frame members unless their
 register or stack selection has an authenticated allocation proof; `noreg` alone

@@ -44,15 +44,13 @@ let padded_byte_size shape =
   if shape.byte_size > Int.max_int - 7 then None
   else Some ((shape.byte_size + 7) land lnot 7)
 
-let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
-    ~dimensions =
-  if width < 0 || (width = 0 && Option.is_none aggregate_owner) then
-    Error Unsupported_type
+let geometry ~element_size ~dimensions =
+  if element_size < 0 then Error Invalid_extent
   else
     let ( let* ) = Result.bind in
     let limit = Int64.of_int Int.max_int in
     let rec collect = function
-      | [] -> Ok (1L, Int64.of_int width, [])
+      | [] -> Ok (1L, Int64.of_int element_size, [])
       | count :: rest ->
           if count < 0L then Error Invalid_extent
           else
@@ -68,18 +66,27 @@ let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
                   bytes :: strides )
     in
     let* elements, bytes, strides = collect dimensions in
+    Ok (Int64.to_int elements, Int64.to_int bytes, strides)
+
+let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
+    ~dimensions =
+  if width < 0 || (width = 0 && Option.is_none aggregate_owner) then
+    Error Unsupported_type
+  else
+    let ( let* ) = Result.bind in
+    let* elements, bytes, strides = geometry ~element_size:width ~dimensions in
     let cells = if Option.is_some aggregate_owner then bytes else elements in
-    if cells > Int64.of_int Sys.max_array_length then Error Overflow
+    if cells > Sys.max_array_length then Error Overflow
     else
       Ok
         {
           scalar;
           dimensions;
           strides;
-          element_count = Int64.to_int elements;
-          byte_size = Int64.to_int bytes;
+          element_count = elements;
+          byte_size = bytes;
           element_size = width;
-          cell_count = Int64.to_int cells;
+          cell_count = cells;
           aggregate_owner;
           initializer_type;
           storage_free = false;

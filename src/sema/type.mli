@@ -17,6 +17,7 @@ val make_primitive :
 val make_aggregate : symbol:Symbol.t -> pointer_depth:int -> (t, string) result
 val base : t -> base
 val pointer_depth : t -> int
+val is_f64 : t -> bool
 
 val equal : t -> t -> bool
 (** Compare checked type identity, including primitive spelling form, aggregate

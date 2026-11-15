@@ -5877,13 +5877,13 @@
 
 (rule
  (alias runtest)
- (deps ../examples/native-scalar-f64.hc)
+ (deps ../examples/native-scalar-f64.hc ../examples/native-f64-storage.hc)
  (action
   (run %{exe:test_native_f64_cli.exe} %{exe:../bin/holyc.exe})))
 
 (rule
  (alias native-tests)
- (deps ../examples/native-scalar-f64.hc)
+ (deps ../examples/native-scalar-f64.hc ../examples/native-f64-storage.hc)
  (action
   (run %{exe:test_native_f64_cli.exe} %{exe:../bin/holyc.exe} --native)))
 
