@@ -2766,6 +2766,7 @@ let check_zero_reference_initializer_authority contents =
             let capture =
               Runtime.finish_task_initializer arena image |> checked
             in
+            Dispatch.record_initializer_steps request work |> checked;
             let scalar =
               Program.destination program
               |> Destination.layout
@@ -2934,6 +2935,15 @@ let floating_initializer_authority () =
             in
             rejected "capture cannot be taken twice"
               (Runtime.finish_task_initializer arena image);
+            rejected "unrecorded floating work cannot authorize a copy"
+              (Dispatch.prepare_initializer_copy request capture ~work);
+            rejected "foreign domain cannot record initializer work"
+              (Domain.join
+                 (Domain.spawn (fun () ->
+                      Dispatch.record_initializer_steps request work)));
+            Dispatch.record_initializer_steps request work |> checked;
+            rejected "initializer expression work cannot be recorded twice"
+              (Dispatch.record_initializer_steps request work);
             let copied_program = Obj.obj (Obj.dup (Obj.repr program)) in
             rejected "copied program cannot consume original floating result"
               (Holyc_lib__Ir.Native_scalar_capture.consume_value capture

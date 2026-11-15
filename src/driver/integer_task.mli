@@ -48,6 +48,15 @@ module Native_dispatch : sig
   val initializer_program :
     initializer_request -> Ir.Initializer_fragment_program.t
 
+  val initializer_remaining : initializer_request -> int
+
+  val record_initializer_steps :
+    initializer_request -> int -> (unit, string) result
+  (** Record reached scalar-evaluation work once after native entry, including
+      failed execution. A successful copy also requires its original C capture
+      with the same work count; recording a number grants no result authority.
+  *)
+
   val prepare_initializer_copy :
     initializer_request ->
     Ir.Initializer_fragment_program.t Ir.Native_scalar_capture.t ->

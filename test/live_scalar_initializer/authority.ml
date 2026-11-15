@@ -77,6 +77,7 @@ I64 F(){return object.item.value-256;}F();|}
           ignore (execute image);
           let work = (Runtime.budget_progress budget).executed_steps - before in
           if Program.is_scalar_evaluation program then (
+            Dispatch.record_initializer_steps request work |> checked;
             reject "foreign image cannot remove the original scalar capture"
               (Runtime.finish_task_initializer arena
                  (Obj.obj (Obj.dup (Obj.repr image))));

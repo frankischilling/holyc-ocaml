@@ -55,6 +55,7 @@ module Native_dispatch = struct
     initializer_compiler_options_handler : VM.compiler_options option;
     initializer_domain : Domain.id;
     initializer_state : entry_state Atomic.t;
+    mutable initializer_accounted_steps : int option;
   }
 
   type command_request = {
@@ -78,6 +79,29 @@ module Native_dispatch = struct
   let initializer_generation request = request.initializer_generation_
   let command_generation request = request.command_generation_
   let initializer_program request = request.initializer_program_
+
+  let initializer_remaining request =
+    VM.task_initializer_remaining request.initializer_task
+
+  let record_initializer_steps request steps =
+    if
+      Domain.self () <> request.initializer_domain
+      || Atomic.get request.initializer_state <> Entered
+      || Option.is_some request.initializer_accounted_steps
+      || steps < 0
+      || not
+           (Ir.Initializer_fragment_program.is_scalar_evaluation
+              request.initializer_program_)
+    then Error "initializer work has another request or was already recorded"
+    else
+      let before = VM.task_initializer_steps request.initializer_task in
+      let available = VM.task_initializer_remaining request.initializer_task in
+      VM.record_task_preparation request.initializer_task ~before
+        ~steps:(min steps available);
+      request.initializer_accounted_steps <- Some steps;
+      if steps <= available then Ok ()
+      else Error "HCIRVM0007: native initializer work limit was exhausted"
+
   let command_program request = request.command_program_
   let owns_domain expected = Domain.self () = expected
 
@@ -264,6 +288,7 @@ module Native_dispatch = struct
       initializer_compiler_options_handler = compiler_options;
       initializer_domain = Domain.self ();
       initializer_state = Atomic.make Offered;
+      initializer_accounted_steps = None;
     }
 
   let command_parameter_default request ~globals ~header ~parameter prepared =
@@ -297,7 +322,8 @@ module Native_dispatch = struct
   let prepare_initializer_copy request capture ~work =
     if
       (not (owns_domain request.initializer_domain))
-      || not (initializer_entered request)
+      || (not (initializer_entered request))
+      || request.initializer_accounted_steps <> Some work
     then Error "native initializer copy requires its entered original request"
     else
       VM.prepare_native_initializer_copy request.initializer_task

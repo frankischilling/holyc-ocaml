@@ -416,6 +416,14 @@ domain and recorded work before its single-use copy. Tests cover collection and
 compaction between execution and copy. The interpreter, isolated native path,
 AOT preparation and F64/integer conversions remain outside this slice.
 
+Global scalar-copy expressions reserve the remaining initializer allowance
+before native execution. Reached expression work is recorded once on success or
+fault; the subsequent copy consumes the same allowance. A global `1.5` leaf
+therefore needs three checked native instruction steps and eight copy bytes.
+An allowance of 11 succeeds; 10 fails before copying, and an allowance exhausted
+by an earlier leaf cannot admit effects in the next leaf. This accounting is a
+hosted resource contract. It does not describe TempleOS instruction counts.
+
 ## Owned data-pointer leaves
 
 Global and static aggregate initializers can store checked integer or class

@@ -624,27 +624,45 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       request)
               in
               let before = (Native.budget_progress budget).executed_steps in
-              let* _completed, _ = execute ~arena Initializer image in
+              let dynamic =
+                Ir.Initializer_fragment_program.is_scalar_evaluation
+                  (Dispatch.initializer_program request)
+              in
+              let initializer_span =
+                Dispatch.initializer_program request
+                |> Ir.Initializer_fragment_program.destination
+                |> Ir.Initializer_fragment_destination.span
+              in
+              let diagnose result =
+                Result.map_error
+                  (fun message ->
+                    [
+                      Driver.Integer_source.message_diagnostic
+                        ~span:initializer_span message;
+                    ])
+                  result
+              in
+              let outcome =
+                if not dynamic then execute ~arena Initializer image
+                else
+                  with_initializer_execution ~span:initializer_span
+                    ~remaining:(fun () ->
+                      Dispatch.initializer_remaining request)
+                    image
+                    (fun () -> execute ~arena Initializer image)
+              in
               let reached =
                 (Native.budget_progress budget).executed_steps - before
               in
-              if
-                not
-                  (Ir.Initializer_fragment_program.is_scalar_evaluation
-                     (Dispatch.initializer_program request))
-              then Ok ()
+              let* () =
+                if (not dynamic) || (reached = 0 && Result.is_error outcome)
+                then Ok ()
+                else
+                  Dispatch.record_initializer_steps request reached |> diagnose
+              in
+              let* _completed, _ = outcome in
+              if not dynamic then Ok ()
               else
-                let diagnose result =
-                  Result.map_error
-                    (fun message ->
-                      let span =
-                        Dispatch.initializer_program request
-                        |> Ir.Initializer_fragment_program.destination
-                        |> Ir.Initializer_fragment_destination.span
-                      in
-                      [ Driver.Integer_source.message_diagnostic ~span message ])
-                    result
-                in
                 let* capture =
                   Native.finish_task_initializer ?scope:(current_scope ()) arena
                     image
