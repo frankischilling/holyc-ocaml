@@ -219,14 +219,15 @@ fully indexed array cells, including their canceled dereferences. Numeric
 results can supply integer consumers while retaining the checked storage type
 on the original update instruction.
 
-Native member storage, JIT owned-code/effectful callback initializers,
-arithmetic on owned code, effectful/owned-code
-callback defaults,
+General effectful callback initializers, arithmetic on owned code,
+effectful/owned-code callback defaults,
 pointer/owned-code variadic tails, retained publication after same-name
 replacement, unresolved extern slots and live task linking remain unfinished in
 [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801). Ordinary
-word storage and return paths still need ownership-preserving consumers. General
-F64, aggregate and mixed-value execution remains in #688. The IR callback
+word storage and return paths still need ownership-preserving consumers.
+Fixed F64 signatures use the
+[floating callback path](native-f64.md#fixed-callback-calls).
+Broader F64 and aggregate execution remains in #688. The IR callback
 consumer has a broader admitted domain; see [global callbacks](global-callbacks.md).
 HolyC ABI exports, RET-imm execution, interrupt entry and the full compiler remain
 unfinished.

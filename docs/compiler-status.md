@@ -1,5 +1,11 @@
 # Compiler status and implementation notes
 
+[Fixed F64 callbacks](native-f64.md#fixed-callback-calls) now transport floating
+arguments and results through owned callback slots, fields, arrays and parameters
+on both native targets. Original callee snapshots, signatures and executable
+ownership remain checked. F64 defaults, variadic F64 arguments and new linked
+precision regions across calls remain outside this support.
+
 [Native F64 storage](native-f64-storage.md) now connects automatic floating
 arrays, packed members and one-level owned pointers to native loads and stores.
 Fixed pointer arguments borrow the original allocation across calls. Both source

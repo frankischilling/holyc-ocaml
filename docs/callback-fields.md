@@ -23,6 +23,9 @@ already selected for that call. Its original header supplies fixed defaults,
 parameter transport, variadic count and cleanup. Integer and Bool returns and
 U0 effects follow the existing callback execution paths. A stored body must
 match the selected field's signature; a mismatch reports `HCIRVM0014`.
+Native fields also support fixed F64 arguments and results through the
+[floating callback path](native-f64.md#fixed-callback-calls). The integer
+interpreter's floating execution remains unsupported.
 
 The visible field occupies eight bytes, independently of the callback's return
 metadata. A separate ownership shadow retains the original executable body or
@@ -71,7 +74,7 @@ Source evidence uses TempleOS commit
 
 The invalid-memory and executable-ownership checks are hosted policy. These
 tests add no TempleOS runtime capture or machine-byte parity evidence. Extra
-callback indirection, callback pointer returns, F64 execution and wider ABI
+callback indirection, callback pointer returns and wider ABI
 families keep their existing boundaries. Local callbacks still require a
 declaration followed by assignment under the current parser boundary. Full
 aggregate and compiler acceptance remain under #686 and #682.

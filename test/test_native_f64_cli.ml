@@ -257,10 +257,18 @@ let storage_faults =
       "class Box{I64 *p;};F64 value;I64 F(){Box *b=(&value)(Box*);I64 \
        x=42;b->p=&x;F64 saved=value;value=1.5;value=saved;return *b->p;}F();",
       "HCIRVM0018" );
+    ( "floating writes cannot restore callback ownership",
+      "class Box{F64 (*p)(F64 x);};F64 Id(F64 x){return x;}F64 Run(){Box \
+       b;b.p=&Id;F64 *alias=(&b)(F64*);F64 \
+       saved=*alias;*alias=1.5;*alias=saved;return b.p(1.5);}Run();",
+      "HCIRVM0024" );
   ]
 
 let storage_word_cases =
   [
+    ( "integer callback with floating argument",
+      "I64 Answer(F64 x){return 42;}I64 (*f)(F64 x);f=&Answer;f(1.5);",
+      42L );
     ( "same-object pointer difference",
       "I64 F(){F64 x[3];F64 *p=&x[0];F64 *q=&x[2];return q-p;}F();",
       2L );
@@ -303,6 +311,77 @@ let persistent_jit_cases =
     ( "saved function retains original floating global",
       "F64 value=1.5;F64 Read(){return value;}F64 value=2.25;Read();",
       0x3ff8000000000000L );
+    ( "live floating callback initializer",
+      "F64 Id(F64 x){return x;}F64 (*f)(F64 x)=&Id;f(1.5);",
+      0x3ff8000000000000L );
+    ( "live floating static callback initializer",
+      "F64 Id(F64 x){return x;}F64 Run(){static F64 (*f)(F64 x)=&Id;return \
+       f(1.5);}Run();",
+      0x3ff8000000000000L );
+  ]
+
+let callback_cases =
+  [
+    ( "floating callback without arguments",
+      "F64 Value(){return 1.5;}F64 (*f)();f=&Value;f();",
+      0x3ff8000000000000L );
+    ( "floating callback with saved integer default",
+      "F64 Value(I64 x){return 1.5;}F64 (*f)(I64 x=42);f=&Value;f();",
+      0x3ff8000000000000L );
+    ( "void callback transports floating argument",
+      "U0 Accept(F64 x){}F64 Run(){U0 (*f)(F64 x);f=&Accept;f(1.5);return \
+       2.25;}Run();",
+      0x4002000000000000L );
+    ( "floating callback borrows original pointer",
+      "F64 Read(F64 *p){return *p;}F64 Run(){F64 x=1.5;F64 (*f)(F64 \
+       *p);f=&Read;return f(&x);}Run();",
+      0x3ff8000000000000L );
+    ( "floating callback materialized result",
+      "F64 Id(F64 x){return x;}F64 Run(){F64 (*f)(F64 x);f=&Id;F64 \
+       saved=f(1.5);return saved+2.25;}Run();",
+      0x400e000000000000L );
+    ( "floating callback argument and result",
+      "F64 Id(F64 x){return x;}F64 (*f)(F64 x);f=&Id;f(1.5);",
+      0x3ff8000000000000L );
+    ( "floating callback arithmetic",
+      "F64 Add(F64 a,F64 b){return a+b;}F64 (*f)(F64 a,F64 \
+       b);f=&Add;f(1.5,2.25);",
+      0x400e000000000000L );
+    ( "floating callback fixed mixed arguments",
+      "F64 Add(F64 a,I64 b){return a+b;}F64 (*f)(F64 a,I64 b);f=&Add;f(1.5,2);",
+      0x400c000000000000L );
+    ( "floating callback automatic slot",
+      "F64 Id(F64 x){return x;}F64 Run(){F64 (*f)(F64 x);f=&Id;return \
+       f(1.5);}Run();",
+      0x3ff8000000000000L );
+    ( "floating callback static slot",
+      "F64 Id(F64 x){return x;}F64 Run(){static F64 (*f)(F64 x);f=&Id;return \
+       f(1.5);}Run();",
+      0x3ff8000000000000L );
+    ( "floating callback field",
+      "F64 Id(F64 x){return x;}class Box{F64 (*f)(F64 x);};F64 Run(){Box \
+       b;b.f=&Id;return b.f(1.5);}Run();",
+      0x3ff8000000000000L );
+    ( "floating callback array",
+      "F64 Id(F64 x){return x;}F64 (*f)(F64 x)[2];f[1]=&Id;f[1](1.5);",
+      0x3ff8000000000000L );
+    ( "floating callback argument forwarding",
+      "F64 Id(F64 x){return x;}F64 Apply(F64 (*f)(F64 x),F64 value){return \
+       f(value);}Apply(&Id,1.5);",
+      0x3ff8000000000000L );
+    ( "floating callback preserves signaling NaN",
+      "F64 Id(F64 x){return x;}F64 Run(){F64 \
+       x;(&x)(U64*)[0]=0x7ff0000000000042;F64 (*f)(F64 x);f=&Id;return \
+       f(x);}Run();",
+      0x7ff0000000000042L );
+    ( "floating callback snapshots callee before arguments",
+      "F64 First(F64 x){return x;}F64 Second(F64 x){return x+2.25;}F64 \
+       (*p)(F64 x);F64 Switch(){p=&Second;return 1.5;}p=&First;p(Switch());",
+      0x3ff8000000000000L );
+    ( "floating callback recursion",
+      "F64 (*p)(F64 x,I64 n);F64 Next(F64 x,I64 n){if(n)return p(x,n-1);return \
+       x;}p=&Next;p(1.5,3);",
+      0x3ff8000000000000L );
   ]
 
 let excluded =
@@ -316,8 +395,9 @@ let excluded =
     ("global pointer", "F64 *x;42;");
     ("static pointer", "F64 F(){static F64 *x;return 1.0;}42;");
     ("default", "F64 F(F64 x=1.0){return x;}42;");
-    ( "callback invocation",
-      "F64 Id(F64 x){return x;}F64 (*f)(F64 x)=&Id;f(1.0);" );
+    ( "floating variadic callback argument",
+      "I64 First(I64 x,...){return x;}I64 (*f)(I64 x,...);f=&First;f(42,1.0);"
+    );
     ("unsupported fixed register", "F64 F(){F64 reg RAX x=1.0;return x;}42;");
     ("float format", "extern U0 Print(U8 *fmt,...);Print(\"%f\",1.0);");
     ("shift", "F64 F(F64 x){return x<<1;}F(1.0);");
@@ -438,6 +518,25 @@ let retained_persistent mode =
       ignore (run (steps - 1) |> fault Image.Step_limit_exceeded);
       ignore (run steps |> completed 0x4002000000000000L))
 
+let retained_callback mode =
+  let compiled =
+    image mode "F64 Id(F64 x){return x;}F64 (*f)(F64 x);f=&Id;f(1.5);"
+  in
+  let retained = Runtime.retain compiled |> checked in
+  Fun.protect
+    ~finally:(fun () -> Runtime.release retained |> checked)
+    (fun () ->
+      let run steps =
+        Runtime.execute_retained_report ~max_steps:steps retained
+      in
+      let steps = run 100000 |> completed 0x3ff8000000000000L in
+      for _ = 1 to 3 do
+        Gc.compact ();
+        ignore (run steps |> completed 0x3ff8000000000000L)
+      done;
+      ignore (run (steps - 1) |> fault Image.Step_limit_exceeded);
+      ignore (run steps |> completed 0x3ff8000000000000L))
+
 let persistent_limits mode target =
   let source = "F64 value;value=1.5;value;" in
   invoke ~target ~mode
@@ -495,6 +594,12 @@ let capability mode =
   require
     (not (Image.requires_x87 persistent))
     "persistent F64 bit transport must not invent x87 use";
+  let callback =
+    image mode "F64 Id(F64 x){return x;}F64 (*f)(F64 x);f=&Id;f(1.5);"
+  in
+  require
+    (not (Image.requires_x87 callback))
+    "fixed F64 callback transport must not invent x87 use";
   let source =
     Bytes.of_string
       "U0 Consume(F64 x){}I64 F(F64 a,F64 b){Consume(a+b);return \
@@ -532,7 +637,9 @@ let () =
       if native then (
         let has_x87 = Native_execution.x87_supported () in
         let admitted =
-          if has_x87 then cases @ copy_cases @ storage_cases @ persistent_cases
+          if has_x87 then
+            cases @ copy_cases @ storage_cases @ persistent_cases
+            @ callback_cases
           else
             List.filter
               (fun (name, _, _) ->
@@ -562,6 +669,16 @@ let () =
                invoke ~target ~mode "maintained floating storage example"
                  (read path)
                |> successful "maintained floating storage example"
+                    0x400e000000000000L);
+            (if has_x87 then
+               let path =
+                 if Sys.file_exists "examples/native-f64-callbacks.hc" then
+                   "examples/native-f64-callbacks.hc"
+                 else "../examples/native-f64-callbacks.hc"
+               in
+               invoke ~target ~mode "maintained floating callback example"
+                 (read path)
+               |> successful "maintained floating callback example"
                     0x400e000000000000L);
             List.iter
               (fun (label, source, expected) ->
@@ -705,8 +822,16 @@ let () =
         if has_x87 then (
           retained mode;
           retained_persistent mode;
+          retained_callback mode;
           List.iter (persistent_limits mode) targets;
           List.iter (cli_step_quota mode) targets;
+          List.iter
+            (cli_step_quota
+               ~source:
+                 "F64 Add(F64 a,F64 b){return a+b;}F64 (*f)(F64 a,F64 \
+                  b);f=&Add;f(1.5,2.25);"
+               mode)
+            targets;
           List.iter
             (cli_step_quota
                ~source:

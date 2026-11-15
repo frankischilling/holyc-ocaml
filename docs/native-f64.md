@@ -72,6 +72,31 @@ an unnecessary x87 operation. Other arithmetic uses the source's memory-operand
 orientation, including reversed subtraction and division when a right builtin
 constant is loaded first.
 
+## Fixed callback calls
+
+Both native targets support fixed F64 callback parameters and results in JIT
+and AOT source modes. Global, static, automatic, array and member callback slots
+retain the selected header and original executable owner. Mixed integer/F64
+parameters, U0 returns, saved integer defaults and borrowed F64 pointer arguments
+use the existing checked callback path. F64 defaults and variadic F64 arguments
+remain unsupported.
+
+The [callback example](../examples/native-f64-callbacks.hc) passes an owned
+two-argument callback to `Apply` and returns F64 3.75. The callee is captured
+before argument effects. Signature matching, frame and instruction limits,
+retained mappings and overlapping-write checks still apply. Restoring address
+bytes through an F64 view cannot restore executable ownership. Pure F64
+transport preserves signaling-NaN words and requires no x87 operation; arithmetic
+uses the original callee's floating plan. This does not authorize new precision
+links across calls or change isolated declaration-initializer restrictions.
+
+`PrsFunCall` at `Compiler/PrsExp.HC:383-591` saves the original indirect callee,
+converts fixed arguments according to their selected classes, and emits
+`IC_PUSH_REGS`, `IC_CALL_INDIRECT` and cleanup with the return class.
+`Compiler/OptPass789A.HC:723-730,779-785` emits the indirect call and transports
+the return word through RAX. These are source-derived expectations; the tests
+add no independent TempleOS runtime capture.
+
 ## Storage and host state
 
 [Automatic floating storage](native-f64-storage.md) supports F64 arrays, packed
@@ -137,14 +162,12 @@ constant-only comparisons without a normalization proof, comparison results
 converted to F64, arithmetic-wrapped comparison conditions, remainder, power,
 shifts, compound updates, increment/decrement, other floating intrinsics,
 variadic F64 arguments, `%f`, deeper F64 pointers, pointer arrays, AOT/isolated
-F64 initializer preparation, parameter defaults and callback invocation
-signatures remain unsupported. Mixed
+F64 initializer preparation and F64 parameter defaults remain unsupported. Mixed
 functions containing F64 also reject narrow integer frame members unless their
 register or stack selection has an authenticated allocation proof; `noreg` alone
 does not supply that proof. I64/U64
-control variables do not have this width-dependent ambiguity. An unused callback
-header may still declare F64: its existing word-storage support does not admit
-invocation of that signature. A nested source callback requiring an I64 result
+control variables do not have this width-dependent ambiguity. A nested source
+callback requiring an I64 result
 rejects a final F64 value rather than reinterpreting its bits.
 
 Unsupported definitions are preflighted even when unreachable. These boundaries

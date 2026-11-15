@@ -15524,3 +15524,15 @@ status = "partial"
 issue = 690
 verification = "Public native source cases cover persistent scalar/array assignments, owned byte views, source-task JIT declaration copies, static lifetime, saved global selection, AOT zero images, unread JIT bytes and exact/one-below logical global and initializer limits. Retained native mappings preserve writes across compaction and fault recovery; ordinary executions use separate arenas. Allocation cursor units remain separate from the original F64 value type."
 evidence_limit = "Source-derived expectations, not new TempleOS runtime captures. No floating execution through the integer interpreter, F64/integer initializer conversions, AOT or isolated native floating initializer preparation, persistent F64 pointer slots or new x87 linking authority."
+
+[[feature]]
+id = "HC-NATIVE-F64-CALLBACKS"
+description = "Fixed F64 arguments and results use original owned native callback scopes."
+sources = ["Compiler/PrsExp.HC:383-591", "Compiler/OptPass789A.HC:723-730,779-785", "Compiler/PrsVar.HC:285-372", "Compiler/PrsStmt.HC:62-140"]
+implementation = ["src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_native_f64_cli.ml", "examples/native-f64-callbacks.hc"]
+documentation = ["docs/native-f64.md", "docs/callback-fields.md", "docs/native-local-callbacks.md", "docs/native-source-tasks.md", "docs/compiler-status.md", "docs/reference-source-map.md"]
+status = "partial"
+issue = 688
+verification = "Public native source calls cover fixed F64 and mixed integer parameters, no-argument and U0 returns, saved integer defaults, global/static/automatic/array/member slots, borrowed F64 pointers, callback parameter forwarding, callee snapshots before argument effects and recursive calls in both source modes and both native targets. Exact signaling-NaN transport requires no x87 operation. Retained callbacks survive compaction and recover after exact step faults. Restoring callback bytes through floating stores does not restore executable ownership."
+evidence_limit = "Source-derived expectations, not new TempleOS runtime captures. No interpreter F64 execution, F64 parameter defaults, variadic F64 arguments, new extended-precision links across calls, broader ABI qualification or relaxation of isolated initializer restrictions. Original callback scopes, signatures, code owners and native budgets remain required."

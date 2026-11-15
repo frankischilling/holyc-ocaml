@@ -362,8 +362,10 @@ initialization and bounds checks. Code, IR, runtime, frame and call-depth limits
 include these guards. `examples/native-source-callback-updates.hc` exercises all
 four scalar destinations and returns 42 in IR and native source-task execution.
 
-F64 and aggregate callback execution, member cells and the exported ABI remain
-outside this supported native slice. Static callback leaves and joined extern
+Fixed F64 callbacks now use the
+[floating callback path](native-f64.md#fixed-callback-calls), including supported
+[member cells](callback-fields.md). Aggregate callback execution and the exported
+ABI remain unfinished. Static callback leaves and joined extern
 calls are tested natively; the isolated IR path still rejects some of these
 source-session consumers. No new TempleOS native oracle capture is claimed.
 

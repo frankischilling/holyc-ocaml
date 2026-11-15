@@ -6039,10 +6039,6 @@ let callable_argument_types ?(allow_pointer_tail = false) description
 
 let callable_callback_arguments description (callback : Runtime.callback_call)
     argument_types =
-  if
-    X86_64_float_plan.is_f64 callback.callback_return_type
-    || Array.exists X86_64_float_plan.is_f64 argument_types
-  then unsupported description "native F64 callback signatures are unsupported";
   let parameters =
     callback.callback_pointer |> Headers.function_pointer_signature
     |> Headers.signature_parameters |> Array.of_list

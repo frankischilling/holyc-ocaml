@@ -1,5 +1,14 @@
 # Reference source map
 
+Fixed F64 callback calls follow `PrsFunCall`
+(`Compiler/PrsExp.HC:383-591`): capture the original callee before arguments,
+convert fixed values using their selected classes, preserve the return class
+on `IC_PUSH_REGS`/`IC_CALL_INDIRECT`, and retain the original cleanup path.
+`Compiler/OptPass789A.HC:723-730,779-785` performs the indirect call and RAX
+return-word transport. The native backend consumes its existing authenticated
+callback scope without adding floating precision links. See
+[fixed floating callbacks](native-f64.md#fixed-callback-calls).
+
 Native F64 storage follows member/stride production in `PrsUnaryModifier`
 (`Compiler/PrsExp.HC:960-1115`) and dispatch in
 `Compiler/OptPass789A.HC:461-468,606-608`. `ICDeref`

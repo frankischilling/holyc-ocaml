@@ -1032,6 +1032,10 @@ let prepare ?source ?runtime ?owner graph =
                 | Ic_deref
                 | Ic_assign
                 | Ic_call
+                (* The callable backend checks the original callback scope;
+                   saving and calling its raw words grants no x87 link. *)
+                | Ic_push_regs
+                | Ic_call_indirect
                 | Ic_call_indirect2
                 | Ic_add_rsp
                 | Ic_add_rsp1
