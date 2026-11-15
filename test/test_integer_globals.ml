@@ -28,7 +28,12 @@ let source_gate () =
       let result = F.checked (run ~mode "I64 G;") in
       Alcotest.(check bool)
         "declaration alone supplies no expression value" true
-        (VM.final_value result.value = None))
+        (VM.final_value result.value = None);
+      (* F64 storage is shared with the native backend. An unused declaration
+         does not require floating execution through the integer interpreter. *)
+      List.iter
+        (fun text -> ignore (run ~mode text |> F.expect 42L))
+        [ "F64 G;42;"; "F64 G[2];42;" ])
     modes
 
 let source_contexts () =
@@ -130,6 +135,8 @@ let limits () =
         [
           (run ~mode ~max_global_bytes:7 source, "HCIRVM0016");
           (run ~mode ~max_global_bytes:8 "I64 A,B;42;", "HCIRVM0016");
+          (run ~mode ~max_global_bytes:7 "F64 G;42;", "HCIRVM0016");
+          (run ~mode ~max_global_bytes:15 "F64 G[2];42;", "HCIRVM0016");
           (run ~mode ~max_frame_bytes:7 source, "HCIRVM0011");
           (run ~mode ~max_steps:(steps - 1) source, "HCIRVM0007");
           (run ~mode ~max_global_bytes:0 "@invalid", "HCIRVM0001");
@@ -137,7 +144,9 @@ let limits () =
         ];
       ignore
         (run ~mode ~max_global_bytes:16 "I64 A,B;A=20;B=22;(A+B);"
-        |> F.expect 42L))
+        |> F.expect 42L);
+      ignore (run ~mode ~max_global_bytes:8 "F64 G;42;" |> F.expect 42L);
+      ignore (run ~mode ~max_global_bytes:16 "F64 G[2];42;" |> F.expect 42L))
     modes
 
 let unsupported () =
@@ -150,7 +159,7 @@ let unsupported () =
           "I64 G=Missing();42;";
           "I64 G=1/0;42;";
           "I0 G;42;";
-          "F64 G;42;";
+          "F64 G;G;";
           "I64 *G;42;";
           "extern I64 G;42;";
           "import I64 G;42;";
