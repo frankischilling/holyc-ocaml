@@ -131,8 +131,9 @@ all earlier step limits around linked producers, comparisons and branches,
 then rerun the same image after every fault. Separate architectural tests load
 raw qNaN/sNaN payloads into FCOMIP and check flags and an empty x87 stack; those
 are lower-level instruction tests, not HolyC source execution. Arbitrary NaN
-payload and signaling-NaN source execution remain unqualified because the
-public source subset does not provide a raw-F64 injection path.
+payload and signaling-NaN source comparisons are not qualified by these
+architectural tests; source-level raw-word transport is covered separately by
+the native scalar F64 tests.
 
 The original `<` and `>=` operators have one additional source rule.
 `OptLib.HC:141-160` changes a direct PUBLIC F64 frame read compared with a direct
@@ -153,8 +154,21 @@ rejected. Removing the integer identity before branch fusion can change the
 NaN predicate; ordinary arithmetic consuming a comparison value is a different
 source context.
 
+Fixed callback signatures can transport F64 arguments and results for these
+comparisons. `PrsFunCall` saves the callee before argument effects and retains
+the selected parameter and return classes; `OptPass789A.HC:779-785` transports
+the result through RAX. Arguments and results cross the call as materialized
+words, without extending an x87 link across the call. Tests cover signed-zero
+equality, unordered branches and rounded callback words passed to a separate
+comparison function at the boundary `2^53+1`. Direct comparisons of callback
+results, including the tested local materialization in the same caller, still
+lack a source normalization proof and remain rejected.
+Callback declaration initializers work in AOT and live JIT source tasks;
+isolated JIT compilation retains its closed-expression initializer restriction.
+F64 saved defaults and variadic F64 callback arguments remain unsupported.
+
 Constant-only comparisons without a normalization proof, comparison results
 converted to F64, floating comparison chains, short circuit, floating globals,
-floating callback signatures, compound updates, suffix bitcasts and other unproved source shapes
+compound updates, suffix bitcasts and other unproved source shapes
 remain outside this increment. This does not claim complete TempleOS optimizer
 parity, full floating storage, exported ABI support or bootstrap closure.

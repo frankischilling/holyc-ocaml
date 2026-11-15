@@ -394,9 +394,41 @@ let example =
             "examples/native-float-comparisons.hc"
           else "../examples/native-float-comparisons.hc")
 
+(* PrsFunCall saves the indirect target before its arguments and transports
+   fixed F64 slots as words. OptPass789A:779-785 materializes return words in
+   RAX; an indirect call therefore cannot extend an x87 comparison link. *)
+let callback_cases =
+  [
+    ( "floating callback comparison",
+      "I64 F(F64 a,F64 b){return a<b;}I64 (*p)(F64 a,F64 b);p=&F;p(1.0,2.0);",
+      1L );
+    ( "floating callback signed zero equality",
+      "I64 F(F64 a,F64 b){return a==b;}I64 (*p)(F64 a,F64 b);p=&F;p(0.0,-0.0);",
+      0L );
+    ( "floating callback unordered branch",
+      nan
+      ^ "I64 F(F64 a,F64 b){if(a<b)return 1;return 0;}I64 (*p)(F64 a,F64 \
+         b);p=&F;p(N(0.0,0.0),1.0);",
+      0L );
+    ( "floating callback materializes arguments",
+      "F64 Id(F64 x){return x;}I64 Compare(F64 a,F64 b){return a>b;}I64 \
+       Run(F64 a,F64 b){F64 (*p)(F64 x);p=&Id;F64 t=p(a+b);return \
+       Compare(t,a);}Run(9007199254740992.0,1.0);",
+      0L );
+    ( "floating callback materializes results",
+      "F64 Add(F64 a,F64 b){return a+b;}I64 Compare(F64 a,F64 b){return \
+       a>b;}I64 Run(F64 a,F64 b){F64 (*p)(F64 a,F64 b);p=&Add;F64 \
+       t=p(a,b);return Compare(t,a);}Run(9007199254740992.0,1.0);",
+      0L );
+  ]
+
+let callback_initializer =
+  "I64 F(F64 a,F64 b){return a<b;}I64 (*p)(F64 a,F64 b)=&F;p(1.0,2.0);"
+
 let cases =
   scalar_cases @ context_cases @ precision_cases @ register_cases
   @ mixed_nan_cases @ equality_condition_cases @ signed_zero_normalization_cases
+  @ callback_cases
   @ [ ("maintained example", read example, 1L) ]
 
 let excluded =
@@ -418,8 +450,19 @@ let excluded =
     ("short circuit", "I64 F(F64 a,F64 b){return a<b&&b>a;}F(1.0,2.0);");
     ("floating global", "F64 G=1.0;I64 F(F64 x){return x<G;}F(0.0);");
     ("compound update", "I64 F(F64 a,F64 b){a+=b;return a>b;}F(1.0,2.0);");
-    ( "floating callback",
-      "I64 F(F64 a,F64 b){return a<b;}I64 (*p)(F64 a,F64 b)=&F;p(1.0,2.0);" );
+    ( "floating callback default",
+      "I64 F(F64 a){return a<0.0;}I64 (*p)(F64 a=1.0);p=&F;p();" );
+    ( "floating variadic callback argument",
+      "I64 F(I64 a,...){return a;}I64 (*p)(I64 a,...);p=&F;p(42,1.0);" );
+    ( "unproved comparison of callback argument materialization",
+      "F64 Id(F64 x){return x;}I64 Run(F64 a,F64 b){F64 (*p)(F64 \
+       x);p=&Id;return p(a+b)>a;}Run(9007199254740992.0,1.0);" );
+    ( "unproved comparison of callback result",
+      "F64 Add(F64 a,F64 b){return a+b;}I64 Run(F64 a,F64 b){F64 (*p)(F64 \
+       a,F64 b);p=&Add;return p(a,b)>a;}Run(9007199254740992.0,1.0);" );
+    ( "unproved local comparison after callback",
+      "F64 Id(F64 x){return x;}I64 Run(F64 a,F64 b){F64 (*p)(F64 x);p=&Id;F64 \
+       t=p(a+b);return t>a;}Run(9007199254740992.0,1.0);" );
     ("suffix bitcast", "I64 F(F64 a){return a==0x7ff8000000000042(F64);}F(1.0);");
     ( "unproved condition add-zero wrapper",
       "I64 F(F64 a,F64 b){if((a<b)+0)return 1;return 0;}F(1.0,2.0);" );
@@ -578,6 +621,15 @@ let () =
           invoke ~status:1 ~target:"ir" ~mode "IR exclusion"
             (expression "a<b" "1.0,2.0")
           |> rejected "IR exclusion");
+      check (mode ^ " callback initializer admission") (fun () ->
+          match compile mode callback_initializer with
+          | Error [ diagnostic ] when mode = "jit" ->
+              require
+                (diagnostic.code = "HCRUN0006")
+                "isolated JIT initializer needs its closed expression domain"
+          | Ok _ when mode = "aot" -> ()
+          | Error diagnostics -> failwith (diagnostic_text diagnostics)
+          | Ok _ -> failwith "isolated JIT callback initializer was admitted");
       if native && Native_execution.x87_supported () then
         check (mode ^ " retained recovery") (fun () -> retained mode);
       List.iter
@@ -590,6 +642,17 @@ let () =
                   invoke ~status:1 ~target ~mode label source |> rejected label))
             excluded;
           if native && Native_execution.x87_supported () then (
+            check
+              (mode ^ target ^ " callback initializer")
+              (fun () ->
+                if mode = "jit" && target = "host-jit" then
+                  invoke ~status:1 ~target ~mode "callback initializer"
+                    callback_initializer
+                  |> rejected "callback initializer"
+                else
+                  invoke ~target ~mode "callback initializer"
+                    callback_initializer
+                  |> successful "callback initializer" 1L);
             List.iter
               (fun (label, source, expected) ->
                 check

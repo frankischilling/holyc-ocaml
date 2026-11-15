@@ -612,6 +612,10 @@ The CLI runs `examples/callback-updates.hc` through both targets. See
 return metadata is independent of its eight-byte cell. Native and fresh public
 IR runs cover automatic/static cells, arrays and fixed-parameter transfers;
 checked-batch IR supplies the native work comparison. Both image ABIs compile.
+The same suite admits unused static F64 storage and executes fixed F64 callback
+results natively. Integer interpretation retains its F64 call preflight gate.
+Native calls reject null executable ownership and mismatched return signatures
+at the reached call; the mismatch test preserves earlier argument output.
 The maintained CLI example `native-callback-return-storage.hc` returns 42 and
 prints `A` in both source modes, including exact and one-below runtime limits.
 

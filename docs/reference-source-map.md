@@ -8,6 +8,11 @@ on `IC_PUSH_REGS`/`IC_CALL_INDIRECT`, and retain the original cleanup path.
 return-word transport. The native backend consumes its existing authenticated
 callback scope without adding floating precision links. See
 [fixed floating callbacks](native-f64.md#fixed-callback-calls).
+Comparison regressions retain the distinct value/branch predicates and compare
+materialized callback words through a separate checked comparison function.
+Direct callback-result comparisons still lack a source normalization proof;
+numeric targets and mismatched signatures retain their
+reached native faults.
 
 Native F64 storage follows member/stride production in `PrsUnaryModifier`
 (`Compiler/PrsExp.HC:960-1115`) and dispatch in
