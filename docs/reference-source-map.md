@@ -9,6 +9,14 @@ Native F64 storage follows member/stride production in `PrsUnaryModifier`
 transport eight raw bytes. See [native F64 storage](native-f64-storage.md) for
 the hosted ownership boundary and supported consumers.
 
+Standalone F64 roots retain their original declaration and extent.
+`Compiler/PrsStmt.HC:350-463` allocates, fills and publishes global storage before
+reaching `PrsGlblInit`. `Compiler/PrsVar.HC:1-246,536-587` supplies the shared
+scalar/array copy consumer and static declaration preparation. The native task
+uses those same-class F64 copies for global/static scalars and fixed arrays in
+JIT. AOT zero images and unknown JIT bytes remain distinct; AOT and isolated
+floating initializer preparation remain unsupported.
+
 F64 aggregate initializer leaves follow `PrsVarInit` and `PrsVarInit2`
 (`Compiler/PrsVar.HC:1-204`). `LexExpression2Bin`
 (`Compiler/PrsExp.HC:1117-1133`) emits the original return-value fragment;

@@ -9,6 +9,7 @@ type t = {
   aggregate_owner : (Sema.Symbol.t * Sema.Type.t) option;
   initializer_type : Sema.Initializer_type.t option;
   storage_free : bool;
+  byte_leaves : bool;
 }
 
 type error = Unsupported_type | Invalid_extent | Overflow
@@ -23,7 +24,7 @@ let cell_count shape = shape.cell_count
 let initializer_type shape = shape.initializer_type
 let is_aggregate shape = Option.is_some shape.aggregate_owner
 let is_storage_free shape = shape.storage_free
-let has_byte_leaves shape = is_aggregate shape || is_storage_free shape
+let has_byte_leaves shape = shape.byte_leaves
 
 let is_void_scalar type_ =
   Sema.Type.pointer_depth type_ = 0
@@ -69,13 +70,13 @@ let geometry ~element_size ~dimensions =
     Ok (Int64.to_int elements, Int64.to_int bytes, strides)
 
 let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
-    ~dimensions =
+    ~byte_leaves ~dimensions =
   if width < 0 || (width = 0 && Option.is_none aggregate_owner) then
     Error Unsupported_type
   else
     let ( let* ) = Result.bind in
     let* elements, bytes, strides = geometry ~element_size:width ~dimensions in
-    let cells = if Option.is_some aggregate_owner then bytes else elements in
+    let cells = if byte_leaves then bytes else elements in
     if cells > Sys.max_array_length then Error Overflow
     else
       Ok
@@ -90,6 +91,7 @@ let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
           aggregate_owner;
           initializer_type;
           storage_free = false;
+          byte_leaves;
         }
 
 let create ~type_ ~dimensions =
@@ -107,9 +109,17 @@ let create ~type_ ~dimensions =
         cell_count = 0;
         aggregate_owner = None;
         storage_free = true;
+        byte_leaves = true;
         initializer_type =
           Sema.Initializer_type.of_type type_ |> Result.to_option;
       }
+  else if Sema.Type.is_f64 type_ then
+    (* U8 describes allocation and initialization cursor units only. The original
+       initializer type retains F64; this is not an integer scalar value. *)
+    create_with_scalar ~width:8 ~scalar:Automatic_aggregate_storage.byte_scalar
+      ~aggregate_owner:None ~byte_leaves:true
+      ~initializer_type:(Sema.Initializer_type.of_type type_ |> Result.to_option)
+      ~dimensions
   else
     match
       ( Integer_scalar_storage.public_byte_size type_,
@@ -117,6 +127,7 @@ let create ~type_ ~dimensions =
     with
     | Some width, Some scalar ->
         create_with_scalar ~width ~scalar ~aggregate_owner:None
+          ~byte_leaves:false
           ~initializer_type:
             (Sema.Initializer_type.of_type type_ |> Result.to_option)
           ~dimensions
@@ -130,7 +141,7 @@ let aggregate_shape ~initializer_type ~symbol ~type_ ~element_size ~dimensions =
       ~width:(Int64.to_int element_size)
       ~scalar:Automatic_aggregate_storage.byte_scalar
       ~aggregate_owner:(Some (symbol, type_))
-      ~initializer_type ~dimensions
+      ~byte_leaves:true ~initializer_type ~dimensions
 
 let create_initializer_aggregate ~allocation ~dimensions () =
   let type_ = Sema.Compiler_record.automatic_aggregate_type allocation in

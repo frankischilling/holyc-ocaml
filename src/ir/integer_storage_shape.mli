@@ -13,7 +13,11 @@ val dimensions : t -> int64 list
 val strides : t -> int64 list
 val element_count : t -> int
 val byte_size : t -> int
+
 val scalar : t -> Integer_scalar_storage.t
+(** Physical cell unit. Byte-addressed aggregates and F64 objects use U8 cells;
+    their original initializer type retains the declared value type. *)
+
 val element_size : t -> int
 val cell_count : t -> int
 val initializer_type : t -> Sema.Initializer_type.t option
@@ -25,7 +29,7 @@ val is_storage_free : t -> bool
 
 val has_byte_leaves : t -> bool
 (** Initializer leaves retain their exact byte widths instead of an integer cell
-    width. Both class storage and scalar U0 use this traversal. *)
+    width. Class storage, F64 storage and scalar U0 use this traversal. *)
 
 val is_void_scalar : Sema.Type.t -> bool
 

@@ -6182,10 +6182,12 @@ let source_slot_scalar ?span label type_ =
 
 let arena_access slot =
   let scalar = Global_storage.scalar slot in
+  let floating = Type.is_f64 (Global_storage.type_ slot) in
   {
     arena_offset = Global_storage.data_offset slot;
-    arena_bytes = Scalar.byte_size scalar;
-    arena_word = (if Scalar.is_unsigned scalar then U64 else I64);
+    arena_bytes = (if floating then 8 else Scalar.byte_size scalar);
+    arena_word =
+      (if floating then F64 else if Scalar.is_unsigned scalar then U64 else I64);
     arena_extent_bytes = Global_storage.extent_bytes slot;
     initialized_flag_offset = Global_storage.flag_offset slot;
   }

@@ -319,6 +319,9 @@ val code_owner_offset : slot -> int option
 
 (* Private image-local ownership words, one per callback element. *)
 val scalar : slot -> Ir.Integer_scalar_storage.t
+(** Physical cell unit, not the declared value type. Byte-addressed aggregate
+    and F64 storage uses U8; [type_] retains the source value type. *)
+
 val dimensions : slot -> int64 list
 val strides : slot -> int64 list
 val element_count : slot -> int

@@ -2236,6 +2236,25 @@ let prepare ?native_preparations ?native_static_preparations ?function_calls
     ?callback_calls ?top_callback_calls ?allow_zero_budget
     ?retained_function_source ?on_progress ~max_steps ~span ~globals ~top_calls
     ~functions () =
+  let* () =
+    if
+      Option.is_some native_preparations
+      && List.exists
+           (fun slot ->
+             Sema.Type.is_f64 (Globals.slot_type slot)
+             && Globals.slot_initializers slot <> [])
+           (Globals.slots globals)
+    then
+      Error
+        [
+          Common.Diagnostic.make ~code:"HCRUN0001"
+            ~severity:Common.Diagnostic.Error
+            ~message:
+              "isolated F64 declaration initializer preparation is unsupported"
+            ~primary:span ();
+        ]
+    else Ok ()
+  in
   let evidence = Option.value native_preparations ~default:[] in
   let static_evidence = Option.value native_static_preparations ~default:[] in
   let* imported_steps =

@@ -253,6 +253,10 @@ let storage_faults =
       "union Box{F64 *p;I64 *q;};I64 F(){F64 x=1.5;Box b;b.p=&x;return \
        *b.q;}F();",
       "HCIRVM0018" );
+    ( "floating global writes invalidate overlapped pointer ownership",
+      "class Box{I64 *p;};F64 value;I64 F(){Box *b=(&value)(Box*);I64 \
+       x=42;b->p=&x;F64 saved=value;value=1.5;value=saved;return *b->p;}F();",
+      "HCIRVM0018" );
   ]
 
 let storage_word_cases =
@@ -265,6 +269,42 @@ let storage_word_cases =
       -3L );
   ]
 
+let persistent_cases =
+  [
+    ( "persistent scalar assignment",
+      "F64 value;value=1.5;value;",
+      0x3ff8000000000000L );
+    ( "persistent array assignment",
+      "F64 values[2];values[0]=1.5;values[1]=2.25;values[0]+values[1];",
+      0x400e000000000000L );
+    ( "persistent scalar address",
+      "F64 value;F64 F(){F64 *p=&value;*p=1.5;return value;}F();",
+      0x3ff8000000000000L );
+    ( "static scalar retains prior writes",
+      "F64 F(I64 set){static F64 x;if(set)x=1.5;return x;}F(1);F(0);",
+      0x3ff8000000000000L );
+    ( "persistent byte view preserves signaling NaN",
+      "F64 value;(&value)(U64*)[0]=0x7ff0000000000042;value;",
+      0x7ff0000000000042L );
+  ]
+
+let persistent_jit_cases =
+  [
+    ("live scalar initializer", "F64 value=1.5;value;", 0x3ff8000000000000L);
+    ( "live array initializer",
+      "F64 values[2]={1.5,2.25};values[0]+values[1];",
+      0x400e000000000000L );
+    ( "live static initializer",
+      "F64 F(){static F64 x=1.5;return x;}F();",
+      0x3ff8000000000000L );
+    ( "live static array initializer",
+      "F64 F(){static F64 x[2]={1.5,2.25};return x[0]+x[1];}F();",
+      0x400e000000000000L );
+    ( "saved function retains original floating global",
+      "F64 value=1.5;F64 Read(){return value;}F64 value=2.25;Read();",
+      0x3ff8000000000000L );
+  ]
+
 let excluded =
   [
     ( "unproved literal reassociation",
@@ -273,8 +313,8 @@ let excluded =
     ("compound update", "F64 F(F64 x){x+=1.0;return x;}F(1.0);");
     ("deeper pointer", "F64 F(F64 **x){return **x;}42;");
     ("pointer array", "F64 F(){F64 *x[2];return 1.0;}42;");
-    ("global", "F64 x=1.0;42;");
-    ("static", "F64 F(){static F64 x=1.0;return x;}42;");
+    ("global pointer", "F64 *x;42;");
+    ("static pointer", "F64 F(){static F64 *x;return 1.0;}42;");
     ("default", "F64 F(F64 x=1.0){return x;}42;");
     ( "callback invocation",
       "F64 Id(F64 x){return x;}F64 (*f)(F64 x)=&Id;f(1.0);" );
@@ -327,6 +367,7 @@ let fault expected report =
 
 let retained mode =
   let source = "F64 Add(F64 a,F64 b){F64 y=a+b;return y;}Add(1.5,2.25);" in
+  let expected = 0x400e000000000000L and frame = 24 in
   let compiled = image mode source in
   let ir = Image.ir_instructions compiled
   and code = Image.code_bytes compiled in
@@ -350,23 +391,73 @@ let retained mode =
         Runtime.execute_retained_report ?max_frame_bytes ~max_steps:steps
           retained
       in
-      let steps = run 100000 |> completed 0x400e000000000000L in
+      let steps = run 100000 |> completed expected in
       for _ = 1 to 3 do
-        ignore (run steps |> completed 0x400e000000000000L)
+        Gc.compact ();
+        ignore (run steps |> completed expected)
       done;
       let exhausted = run (steps - 1) |> fault Image.Step_limit_exceeded in
       require
         (exhausted.executed_steps = steps - 1 && Option.is_some exhausted.span)
         "step fault lost exact charge/source site";
-      ignore (run steps |> completed 0x400e000000000000L);
+      ignore (run steps |> completed expected);
       (* Two eight-byte F64 parameters and one eight-byte F64 local.
          This quota is source frame storage, not the machine spill frame. *)
-      let frame = 24 in
-      ignore (run ~max_frame_bytes:frame steps |> completed 0x400e000000000000L);
+      ignore (run ~max_frame_bytes:frame steps |> completed expected);
       ignore
         (run ~max_frame_bytes:(frame - 1) steps
         |> fault Image.Frame_limit_exceeded);
-      ignore (run steps |> completed 0x400e000000000000L))
+      ignore (run steps |> completed expected))
+
+let retained_persistent mode =
+  let compiled =
+    image mode
+      "I64 seen=0;F64 value;F64 F(){if(seen)return value;value=1.5;seen=1;F64 \
+       saved=value;value=2.25;return saved;}F();"
+  in
+  (* Ordinary executions have fresh arenas; an explicitly retained image keeps
+     its original words and byte initialization state across activations. *)
+  for _ = 1 to 2 do
+    ignore
+      (Runtime.execute_report ~max_steps:100000 compiled
+      |> completed 0x3ff8000000000000L)
+  done;
+  let retained = Runtime.retain compiled |> checked in
+  Fun.protect
+    ~finally:(fun () -> Runtime.release retained |> checked)
+    (fun () ->
+      let run steps =
+        Runtime.execute_retained_report ~max_steps:steps retained
+      in
+      ignore (run 100000 |> completed 0x3ff8000000000000L);
+      let steps = run 100000 |> completed 0x4002000000000000L in
+      for _ = 1 to 3 do
+        Gc.compact ();
+        ignore (run steps |> completed 0x4002000000000000L)
+      done;
+      ignore (run (steps - 1) |> fault Image.Step_limit_exceeded);
+      ignore (run steps |> completed 0x4002000000000000L))
+
+let persistent_limits mode target =
+  let source = "F64 value;value=1.5;value;" in
+  invoke ~target ~mode
+    ~options:[ "--global-byte-limit=8" ]
+    "exact persistent extent" source
+  |> successful "exact persistent extent" 0x3ff8000000000000L;
+  invoke ~status:1 ~target ~mode
+    ~options:[ "--global-byte-limit=7" ]
+    "one-below persistent extent" source
+  |> rejected "one-below persistent extent";
+  if mode = "jit" && target = "host-jit-task" then (
+    let source = "F64 value=1.5;value;" in
+    invoke ~target ~mode
+      ~options:[ "--initializer-step-limit=11" ]
+      "exact floating copy allowance" source
+    |> successful "exact floating copy allowance" 0x3ff8000000000000L;
+    invoke ~status:1 ~target ~mode
+      ~options:[ "--initializer-step-limit=10" ]
+      "one-below floating copy allowance" source
+    |> rejected "one-below floating copy allowance")
 
 let cli_step_quota ?(source = "F64 Add(F64 a,F64 b){return a+b;}Add(1.5,2.25);")
     mode target =
@@ -400,6 +491,10 @@ let capability mode =
   require
     (not (Image.requires_x87 pure))
     "raw F64 transport must not invent x87 use";
+  let persistent = image mode "F64 value;value=1.5;value;" in
+  require
+    (not (Image.requires_x87 persistent))
+    "persistent F64 bit transport must not invent x87 use";
   let source =
     Bytes.of_string
       "U0 Consume(F64 x){}I64 F(F64 a,F64 b){Consume(a+b);return \
@@ -437,7 +532,7 @@ let () =
       if native then (
         let has_x87 = Native_execution.x87_supported () in
         let admitted =
-          if has_x87 then cases @ copy_cases @ storage_cases
+          if has_x87 then cases @ copy_cases @ storage_cases @ persistent_cases
           else
             List.filter
               (fun (name, _, _) ->
@@ -504,6 +599,89 @@ let () =
                      = `String (Printf.sprintf "0x%016Lx" expected))
                   (label ^ ": wrong pointer difference"))
               storage_word_cases;
+            if has_x87 && target = "host-jit-task" && mode = "jit" then (
+              List.iter
+                (fun (label, source, bits) ->
+                  invoke ~target ~mode label source |> successful label bits)
+                persistent_jit_cases;
+              let path =
+                if Sys.file_exists "examples/native-persistent-f64.hc" then
+                  "examples/native-persistent-f64.hc"
+                else "../examples/native-persistent-f64.hc"
+              in
+              let report =
+                invoke ~target ~mode "persistent floating example" (read path)
+              in
+              successful "persistent floating example" 0x400e000000000000L
+                report;
+              require
+                (member "output_hex" report = `String "41")
+                "persistent static preparation must print A once";
+              let unused =
+                invoke ~target ~mode "unused floating static initializer"
+                  "extern U0 Print(U8 *fmt,...);F64 \
+                   Setup(){Print(\"A\");return 1.5;}F64 Unused(){static F64 \
+                   value=Setup();return value;}42;"
+              in
+              require
+                (member "outcome" unused = `String "success"
+                && member "output_hex" unused = `String "41"
+                && unused |> member "final_value" |> member "bits"
+                   = `String "0x000000000000002a")
+                "unused floating static must initialize before publication";
+              List.iter
+                (fun declaration ->
+                  let source =
+                    "extern U0 Print(U8 *fmt,...);F64 \
+                     Good(){Print(\"A\");return 1.5;}F64 \
+                     Fail(){Print(\"B\");I64 z=0;I64 q=7/z;return 2.25;}"
+                    ^ declaration
+                  in
+                  let report =
+                    invoke ~status:1 ~target ~mode
+                      "late floating initializer fault" source
+                  in
+                  rejected "late floating initializer fault" report;
+                  require
+                    (member "output_hex" report = `String "4142"
+                    && member "compiled_initializer_steps" report |> to_int > 8
+                    && member "diagnostics" report
+                       |> to_list
+                       |> List.exists (fun d ->
+                           member "code" d = `String "HCIRVM0009"))
+                    "late floating initializer fault lost prior effects or work")
+                [
+                  "F64 values[2]={Good(),Fail()};Print(\"C\");42;";
+                  "F64 Unused(){static F64 values[2]={Good(),Fail()};return \
+                   values[0];}Print(\"C\");42;";
+                ]);
+            List.iter
+              (fun source ->
+                if mode = "jit" then (
+                  let report =
+                    invoke ~status:1 ~target ~mode "persistent unread bytes"
+                      source
+                  in
+                  rejected "persistent unread bytes" report;
+                  require
+                    (report |> member "diagnostics" |> to_list
+                    |> List.exists (fun d ->
+                        member "code" d = `String "HCIRVM0012"))
+                    "persistent unread bytes lost the initialization guard")
+                else
+                  invoke ~target ~mode "AOT persistent zero image" source
+                  |> successful "AOT persistent zero image" 0L)
+              [ "F64 value;value;"; "F64 value;(&value)(U8*)[0]=0;value;" ];
+            if target <> "host-jit-task" || mode <> "jit" then
+              List.iter
+                (fun source ->
+                  invoke ~status:1 ~target ~mode
+                    "floating preparation remains separate" source
+                  |> rejected "floating preparation remains separate")
+                [
+                  "F64 value=1.5;value;";
+                  "F64 F(){static F64 value=1.5;return value;}F();";
+                ];
             if has_x87 then
               let report =
                 invoke ~target ~mode "NaN rendering"
@@ -526,6 +704,8 @@ let () =
           targets;
         if has_x87 then (
           retained mode;
+          retained_persistent mode;
+          List.iter (persistent_limits mode) targets;
           List.iter (cli_step_quota mode) targets;
           List.iter
             (cli_step_quota

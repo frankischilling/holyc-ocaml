@@ -339,10 +339,10 @@ let local_source_error (declaration : Ast.local_declaration) =
     not
       (scalar_word_type declaration.local_type_specifier
       || scalar_f64_type declaration.local_type_specifier
-         && (not is_static)
          && List.for_all
               (fun (local : Ast.local_declarator) ->
                 List.length local.local_pointer_layers <= 1
+                && ((not is_static) || local.local_pointer_layers = [])
                 && (local.local_pointer_layers = []
                    || local.local_array_dimensions = [])
                 && Option.is_none local.local_function_pointer)
@@ -414,6 +414,7 @@ let global_source_error ~span ~modifiers ~binding ~type_specifier
   else if
     not
       (scalar_word_type type_specifier
+      || scalar_f64_type type_specifier
       || (void_return_type type_specifier && array_dimensions = [])
       || Option.is_some function_pointer
       ||

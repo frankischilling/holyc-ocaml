@@ -386,7 +386,8 @@ class size. `PrsVar.HC:209-246` preserves global/static traversal.
 ## Native JIT F64 leaves
 
 In the native source-task JIT path, an F64 expression can initialize an F64
-member of a global or static aggregate. The original leaf executes in the live
+global, static local, fixed array element or member of a global/static aggregate.
+The original leaf executes in the live
 task, then its eight result bytes are copied to the reached member. The decoded native
 result must be F64 and belong to the original initializer image. Copy completion
 retains the source, arena, work count and single-use capture.
@@ -415,6 +416,9 @@ The static capture checks the actual decoded F64 result, original image, arena,
 domain and recorded work before its single-use copy. Tests cover collection and
 compaction between execution and copy. The interpreter, isolated native path,
 AOT preparation and F64/integer conversions remain outside this slice.
+Standalone F64 roots use the same original scalar-copy receipts and byte cursor;
+see [persistent F64 storage](native-f64-storage.md#persistent-storage) for storage
+policies, retained execution and the remaining preparation boundaries.
 
 Global scalar-copy expressions reserve the remaining initializer allowance
 before native execution. Reached expression work is recorded once on success or

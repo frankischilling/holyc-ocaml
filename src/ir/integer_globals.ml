@@ -1008,6 +1008,7 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
             "global declaration initializer execution is not implemented"
         else if
           Option.is_none (Scalar.public_byte_size shape_type)
+          && (not (Type.is_f64 shape_type))
           && (not
                 (Shape.is_void_scalar shape_type
                 && Global.global_array_dimensions global = []))

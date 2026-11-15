@@ -827,7 +827,7 @@ let direct_call_global_type_warnings () =
               (Result.is_error result);
             Alcotest.(check (list string))
               "F64 boundary and reached warnings"
-              (if native then [ "HCRUN0001" ] else [ "HCSEMA0080"; "HCRUN0001" ])
+              (if native then [ "HCRUN0006" ] else [ "HCSEMA0080"; "HCRUN0001" ])
               codes)
           else (
             Alcotest.(check (option int64))

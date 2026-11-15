@@ -286,7 +286,8 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let* total = checked in
         if
           Globals.storage_dimensions storage = []
-          && not (Shape.is_aggregate (Globals.storage_shape storage))
+          && (not (Shape.is_aggregate (Globals.storage_shape storage)))
+          && not (Sema.Type.is_f64 (Globals.storage_type storage))
         then Ok total
         else
           let elements = Globals.storage_cell_count storage in
@@ -919,7 +920,10 @@ let append_task_globals layout ~globals =
               let strides = Shape.strides shape in
               let element_count = Shape.cell_count shape in
               let extent_bytes = Shape.byte_size shape in
-              let is_array = dimensions <> [] || Shape.is_aggregate shape in
+              let is_array =
+                dimensions <> [] || Shape.is_aggregate shape
+                || Sema.Type.is_f64 type_
+              in
               let* () =
                 if
                   strides <> Globals.storage_strides storage

@@ -15512,3 +15512,15 @@ status = "partial"
 issue = 703
 verification = "Public native CLI cases cover exact binary64 words, negative zero, packed and multidimensional storage, address-taking without a pointee read, saved offsets, pointer fields, fixed arguments, recursive borrowing, scaled pointer arithmetic and same-object difference in both source modes and both native targets. Exact/one-below instruction limits and hosted faults retain accounting, initialization, bounds and retired-owner checks."
 evidence_limit = "Source-derived expectations, not new TempleOS runtime captures. The integer interpreter, pointer arrays, deeper pointers, general floating updates and standalone F64 global/static storage remain outside this increment. No new extended-precision linking authority."
+
+[[feature]]
+id = "HC-NATIVE-PERSISTENT-F64"
+description = "Byte-addressed standalone F64 globals/statics and live native JIT scalar/array initialization."
+sources = ["Compiler/PrsVar.HC:1-246,536-587", "Compiler/PrsStmt.HC:350-463", "Compiler/BackLib.HC:445-710"]
+implementation = ["src/ir/integer_storage_shape.ml", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml", "src/sema/static_initializer_fragment.ml", "src/driver/integer_initializers.ml", "src/hosted/native_program.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_native_f64_cli.ml", "test/test_aot_zero_initializer_oracle.ml", "examples/native-persistent-f64.hc"]
+documentation = ["docs/native-f64-storage.md", "docs/native-f64.md", "docs/aggregate-initializers.md", "docs/compiler-status.md", "docs/reference-source-map.md"]
+status = "partial"
+issue = 690
+verification = "Public native source cases cover persistent scalar/array assignments, owned byte views, source-task JIT declaration copies, static lifetime, saved global selection, AOT zero images, unread JIT bytes and exact/one-below logical global and initializer limits. Retained native mappings preserve writes across compaction and fault recovery; ordinary executions use separate arenas. Allocation cursor units remain separate from the original F64 value type."
+evidence_limit = "Source-derived expectations, not new TempleOS runtime captures. No floating execution through the integer interpreter, F64/integer initializer conversions, AOT or isolated native floating initializer preparation, persistent F64 pointer slots or new x87 linking authority."

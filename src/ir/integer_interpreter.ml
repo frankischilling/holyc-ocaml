@@ -12176,7 +12176,10 @@ let storage_word slot bits =
     | None when Integer_globals.storage_is_callback slot -> I64
     | None
       when Integer_storage_shape.is_aggregate
-             (Integer_globals.storage_shape slot) -> U64
+             (Integer_globals.storage_shape slot)
+           || Sema.Type.is_f64 (Integer_globals.storage_type slot)
+              && Integer_storage_shape.has_byte_leaves
+                   (Integer_globals.storage_shape slot) -> U64
     | None -> assert false
   in
   { type_; bits = Scalar.normalize physical bits }

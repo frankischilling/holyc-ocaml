@@ -52,7 +52,9 @@ let run ?(fault = false) ?steps source expected target mode =
                     Unix.create_process compiler args Unix.stdin out_fd err_fd)
               in
               let _, status = Unix.waitpid [] pid in
-              require (read errors = "") "unexpected stderr";
+              let stderr = read errors in
+              require (stderr = "")
+                (target ^ " " ^ mode ^ ": unexpected stderr: " ^ stderr);
               let result = Yojson.Safe.from_string (read output) in
               require
                 (status = Unix.WEXITED (if fault then 1 else 0)
