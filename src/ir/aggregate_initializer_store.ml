@@ -18,6 +18,14 @@ let next_value_id t = t.next_value_
 
 type operation = Copy | Load_assignment
 
+let direct_destination operation scalar =
+  match Initializer_value.pointer_destination (Some scalar) with
+  | Some _ as type_ -> type_
+  | None -> (
+      match operation with
+      | Load_assignment -> Initializer_value.floating_destination (Some scalar)
+      | Copy -> None)
+
 let byte_size operation scalar =
   match operation with
   | Copy -> Leaf.scalar_byte_size scalar
@@ -34,7 +42,7 @@ let byte_size operation scalar =
 
 let instruction_count ?(operation = Copy) scalar =
   let count = byte_size operation scalar in
-  if Option.is_some (Initializer_value.pointer_destination (Some scalar)) then 9
+  if Option.is_some (direct_destination operation scalar) then 9
   else if operation = Load_assignment then 10
   else if count = 0 then 3
   else 2 + (7 * count)
@@ -47,30 +55,37 @@ let lower_for_operation ~operation ~scalar ~byte_offset ~root_type ~root ~word
   let instruction = ref (Sequence.Instruction_id.to_int instruction_id)
   and value = ref (Sequence.Value_id.to_int value_id) in
   let count = byte_size operation scalar in
-  let* () =
+  let floating_load =
+    operation = Load_assignment
+    && Option.is_some (Initializer_value.floating_destination (Some scalar))
+  in
+  let root_valid =
+    Type.pointer_depth root_type = 0
+    &&
     match Type.base root_type with
-    | Type.Aggregate _
-      when Type.pointer_depth root_type = 0
-           && byte_offset >= 0
-           && byte_offset <= Int.max_int - count
-           && count >= 0 && count <= 8
-           && (Result.is_ok
-                 (Integer_initializer_layout.normalized_word scalar 0L)
-              || Option.is_some
-                   (Initializer_value.pointer_destination (Some scalar))) ->
-        Ok ()
-    | _ ->
-        Error
-          [
-            {
-              Sequence.code = "HCIRL0004";
-              message =
-                "aggregate initializer store requires its original integer \
-                 leaf and nominal class root";
-              instruction_id = None;
-              span;
-            };
-          ]
+    | Type.Aggregate _ -> true
+    | _ -> floating_load && Type.is_f64 root_type
+  in
+  let* () =
+    if
+      root_valid && byte_offset >= 0
+      && byte_offset <= Int.max_int - count
+      && count >= 0 && count <= 8
+      && (Result.is_ok (Integer_initializer_layout.normalized_word scalar 0L)
+         || Option.is_some (direct_destination operation scalar))
+    then Ok ()
+    else
+      Error
+        [
+          {
+            Sequence.code = "HCIRL0004";
+            message =
+              "initializer store requires its original scalar leaf and \
+               compatible storage root";
+            instruction_id = None;
+            span;
+          };
+        ]
   in
   let byte_type =
     Type.make_primitive ~form:Type.Public_spelling
@@ -123,10 +138,10 @@ let lower_for_operation ~operation ~scalar ~byte_offset ~root_type ~root ~word
       (Some (Sequence.Integer 1L))
   in
   let* result_, type_ =
-    match Initializer_value.pointer_destination (Some scalar) with
+    match direct_destination operation scalar with
     | Some field_type ->
-        (* Store an owned reference once. Splitting its address into bytes would
-           discard the allocation and activation identity kept by pointer stores. *)
+        (* A typed store preserves owned references and transports an F64 word
+           without inserting an integer conversion. *)
         let* stride =
           emit Opcode.Ic_imm_i64 [] byte_pointer (Some (Sequence.Integer 1L))
         in

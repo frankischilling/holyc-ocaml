@@ -732,7 +732,12 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                       | None, Some (scalar, byte_offset)
                         when Option.is_some
                                (Initializer_value.pointer_destination
-                                  (Some scalar)) -> (
+                                  (Some scalar))
+                             || aggregate_operation
+                                = Aggregate_initializer_store.Load_assignment
+                                && Option.is_some
+                                     (Initializer_value.floating_destination
+                                        (Some scalar)) -> (
                           let rec take count reversed suffix =
                             match (count, reversed) with
                             | 0, _ -> Some suffix
@@ -749,7 +754,13 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                           with
                           | Some (first :: _ as suffix), [ _; word ]
                             when Initializer_value.stores_pointer
-                                   ~scalar:(Some scalar) original_value -> (
+                                   ~scalar:(Some scalar) original_value
+                                 || aggregate_operation
+                                    = Aggregate_initializer_store
+                                      .Load_assignment
+                                    && Initializer_value.same_f64
+                                         ~scalar:(Some scalar) original_value
+                            -> (
                               match first.result with
                               | Some result -> (
                                   match
@@ -792,7 +803,9 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                              && not
                                   (Initializer_value.has_integer_word
                                      original_value) -> false
-                      | None, Some (scalar, byte_offset) -> (
+                      | None, Some (scalar, byte_offset)
+                        when Typed.result_class original_value
+                             <> Typed.F64_result -> (
                           let count =
                             Aggregate_initializer_store.instruction_count
                               ~operation:aggregate_operation scalar
@@ -829,6 +842,7 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                                   | Error _ -> false)
                               | _ -> false)
                           | _ -> false)
+                      | None, Some _ -> false
                       | None, None -> (
                           store.opcode = Opcode.Ic_assign
                           && Lock_semantics.clear_flag store.flags = 0L

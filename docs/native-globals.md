@@ -47,13 +47,14 @@ duplicate, reordered or foreign evidence rejects. Ordinary batch preparation
 and caller-supplied initial bits cannot supply this certificate. Preparation
 faults occur before native entry and retain earlier declaration work.
 
-In AOT mode, original reference-bearing integer or callback leaves can retain
-their checked load-time regions instead of a prepared value. Generated code
-executes their stores and direct or indirect calls against zeroed global
-storage. Their output, calls and faults use the runtime meter. Exact original
-source and destination receipts join every scheduled region to the complete
-bundle. See [global callback initializers](global-callback-initializers.md) and
-`examples/native-aot-callback-initializers.hc`.
+In AOT mode, original reference-bearing integer, callback or same-class F64
+leaves can retain their checked load-time regions instead of a prepared value.
+Generated code executes their stores and direct or indirect calls against
+zeroed global storage. Their output, calls and faults use the runtime meter.
+Exact original source and destination receipts join every scheduled region to
+the complete bundle. See
+[global callback initializers](global-callback-initializers.md) and
+[AOT F64 load initializers](native-f64-storage.md#aot-load-initializers).
 
 `X86_64_global_storage` seals the original initialization/entry bundle, exact
 global symbol objects, declared types, slots and address opcodes. JIT uses the
@@ -131,17 +132,21 @@ Global and static payloads count toward the global-byte quota, not `--default-by
 The native API tests compare exact runtime meters with fresh isolated checked
 interpreter execution; public source tests independently check values.
 
-Aggregate initializers, persistent pointers, aliases and extern/import/data-heap
-storage remain unsupported by this isolated path. Nonempty aggregate storage
+Persistent pointers, aliases and extern/import/data-heap storage remain
+unsupported by this isolated path. See [aggregate initializers](aggregate-initializers.md)
+for supported leaves and preparation boundaries. Nonempty aggregate storage
 uses [its original byte roots](persistent-aggregates.md). Retained tasks have
-separate source preparation and ownership checks. Defaults still prepare closed numeric expressions in a separate
-empty fragment at their original declaration boundary; admitting globals does
+separate source preparation and ownership checks. Defaults still prepare closed
+numeric expressions in a separate empty fragment at their original declaration
+boundary; admitting globals does
 not authorize a default to read them. Full memory/runtime support, object/BIN
 output, loader acceptance and bootstrap remain open.
-Initializers must precede executable top-level statements. Supported F64 globals
-and statics retain their eight-byte scalar or fixed-array storage and execute
-native assignments and reads in both source modes. Floating declaration
-preparation follows the separate [F64 storage boundary](native-f64-storage.md).
+Nonconstant AOT load initializers retain their order among executable top-level
+statements. Later constant or byte-copy preparation still rejects before it
+begins. Supported F64 globals and statics retain their eight-byte scalar or
+fixed-array storage and execute native assignments and reads in both source
+modes. Floating declaration preparation follows the separate
+[F64 storage boundary](native-f64-storage.md).
 The integer interpreter can retain unused F64 storage without admitting floating
 instructions. Pointer-valued initializers and unresolved initializer
 shift-optimizer behavior remain outside this path.

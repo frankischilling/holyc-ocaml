@@ -12,8 +12,10 @@ Fixed pointer arguments borrow the original allocation across calls. Both source
 modes retain hosted initialization, extent and activation checks. The integer
 interpreter's floating execution remains outside this slice. Standalone globals
 and static locals now have byte-addressed F64 storage; live declaration
-initializers require native source-task JIT. AOT and isolated floating
-preparation remain unfinished.
+initializers execute in native source-task JIT. Original nonconstant same-class
+F64 leaves also run as AOT load assignments on both native targets, including
+fixed arrays and packed aggregates. Closed AOT and isolated floating preparation
+remain unfinished.
 
 [Local-index normalization](local-index-normalization.md) extends array-bearing
 register allocation to bounded pure computed indices and full multidimensional

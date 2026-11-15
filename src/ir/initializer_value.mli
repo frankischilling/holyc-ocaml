@@ -1,5 +1,8 @@
 val is_void : Sema.Function_call_expression_result.expression_result -> bool
 
+val floating_destination :
+  Sema.Initializer_type.scalar option -> Sema.Type.t option
+
 val same_f64 :
   scalar:Sema.Initializer_type.scalar option ->
   Sema.Function_call_expression_result.expression_result ->

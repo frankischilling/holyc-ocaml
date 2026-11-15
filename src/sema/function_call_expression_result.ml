@@ -5708,10 +5708,21 @@ let type_initializer table members policies ~before_item_index state source =
       | Error _ as error -> error
       | Ok (value, state) -> (
           let initializer_conversion =
-            select_return_conversion
-              (forwarded_class policies ~before_item_index
-                 initializer_target_type)
-              value.result_class
+            if
+              Local_type_resolution.local_storage local
+              = Local_type_resolution.Static
+              && Option.is_some
+                   (Function_call_resolution.initializer_leaf source)
+            then
+              (* PrsVarInit compiles the original expression before its reached
+                 scalar copy or load assignment selects a conversion. The
+                 enclosing declaration class is not the leaf destination. *)
+              No_intrinsic_conversion
+            else
+              select_return_conversion
+                (forwarded_class policies ~before_item_index
+                   initializer_target_type)
+                value.result_class
           in
           match set_intrinsic_conversion state value initializer_conversion with
           | Error _ as error -> error

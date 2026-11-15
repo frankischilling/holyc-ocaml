@@ -6022,6 +6022,12 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
           Result.is_ok (Integer_initializer_layout.normalized_word scalar 0L)
     in
     let target_is_callback = callback && callback_word_type target_type in
+    let floating_assignment =
+      aggregate_operation = Aggregate_initializer_store.Load_assignment
+      && Initializer_value.same_f64
+           ~scalar:(Option.map fst aggregate_destination)
+           value
+    in
     let* value_type =
       checked_frame_value value |> Result.map_error (fun error -> [ error ])
     in
@@ -6030,7 +6036,11 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
       when Initializer_value.stores_pointer
              ~scalar:(Option.map fst aggregate_destination)
              value
-           || (target_is_word && Type.pointer_depth value_type = 0)
+           || floating_assignment
+           || target_is_word
+              && Type.pointer_depth value_type = 0
+              && (Option.is_none aggregate_destination
+                 || not (Type.is_f64 value_type))
            || target_is_callback
               && (Type.pointer_depth value_type = 0
                  || Semantic_result.result_is_callback_storage value

@@ -2236,14 +2236,26 @@ let prepare ?native_preparations ?native_static_preparations ?function_calls
     ?callback_calls ?top_callback_calls ?allow_zero_budget
     ?retained_function_source ?on_progress ~max_steps ~span ~globals ~top_calls
     ~functions () =
+  (* Integer_source_execution defers these unsupported literal leaves until
+     parsing has retained later warnings. Original nonconstant F64 loads still
+     require the complete preparation evidence checked below. *)
+  let deferred_f64_literal slot =
+    Sema.Type.is_f64 (Globals.slot_type slot)
+    && List.exists
+         (fun root ->
+           Option.fold ~none:false
+             ~some:(fun leaf ->
+               match Sema.Initializer_source.leaf_expression_ast leaf with
+               | Frontend.Ast.Integer_literal _ -> true
+               | _ -> false)
+             (Typed.top_level_root_source root
+             |> Sema.Top_level_expression_tree.root_initializer_leaf))
+         (Globals.slot_initializers slot)
+  in
   let* () =
     if
       Option.is_some native_preparations
-      && List.exists
-           (fun slot ->
-             Sema.Type.is_f64 (Globals.slot_type slot)
-             && Globals.slot_initializers slot <> [])
-           (Globals.slots globals)
+      && List.exists deferred_f64_literal (Globals.slots globals)
     then
       Error
         [

@@ -432,7 +432,7 @@ let compound_string_expression initial =
       Sema.Initializer_source.expression_contains_string expression
   | _ -> false
 
-let prepare_initializer value ~session ~ledger receipt =
+let prepare_initializer ?(require_load = false) value ~session ~ledger receipt =
   let span = receipt.Parser.leaf_initializer.initializer_equals.span in
   let diagnose result =
     Result.map_error
@@ -489,6 +489,11 @@ let prepare_initializer value ~session ~ledger receipt =
     value.initializers_rev <-
       { preparation = prepared } :: value.initializers_rev;
     Ok ())
+  else if require_load then
+    diagnose
+      (Error
+         "HCRUN0001: native initializers must precede executable top-level \
+          statements")
   else
     let* authority =
       Task_declarations.native_initializer_fragment ledger ~runtime:value.state
@@ -540,7 +545,7 @@ let static_preparation completion = completion.static_preparation
 let static_initializers value =
   List.map static_preparation (static_completions value)
 
-let prepare_static value ~session ~ledger receipt =
+let prepare_static ?(require_load = false) value ~session ~ledger receipt =
   let span = (Parser.static_initializer_leaf_location receipt).span in
   let diagnose result =
     Result.map_error
@@ -612,6 +617,11 @@ let prepare_static value ~session ~ledger receipt =
     in
     value.statics_rev <- { static_preparation } :: value.statics_rev;
     Ok ())
+  else if require_load then
+    diagnose
+      (Error
+         "HCRUN0001: native static initializers must precede executable \
+          top-level statements")
   else
     let* fragment =
       Task_declarations.native_static_initializer_fragment ledger

@@ -2639,3 +2639,15 @@ options, graphs and branches. Raw signaling/arbitrary-payload NaN probes use a
 separate controlled instruction harness and do not claim public source coverage.
 See [F64 comparisons](native-float-comparisons.md) and
 `examples/native-float-comparisons.hc`.
+
+Native F64 initializer tests exercise original nonconstant AOT scalar, fixed
+array, multidimensional and packed aggregate leaves on both native targets.
+They check exact binary64 payloads, source order across globals, unused statics
+and ordinary top-level effects, storage reuse, prior effects after faults and
+exact runtime limits with zero compile-time preparation work. Closed constants,
+numeric conversions, enclosing call frames and data-heap option phases retain
+separate rejection controls. Late constant and byte-copy leaves reject before
+preparation begins.
+Authority tests compile the original initializer bundle for both
+private ABIs before checking foreign receipts and altered typed stores. See
+[AOT F64 load initializers](native-f64-storage.md#aot-load-initializers).

@@ -320,6 +320,63 @@ let persistent_jit_cases =
       0x3ff8000000000000L );
   ]
 
+(* PrsVarInit schedules nonconstant AOT leaves as IET_MAIN assignments, and
+   PrsStaticInit queues them while parsing the function, including unused bodies.
+   Every leaf here has an original reference; closed F64 preparation is separate. *)
+let aot_initializer_cases =
+  [
+    ( "AOT floating function-result initializer",
+      "F64 Value(){return 1.5;}F64 value=Value();value;",
+      0x3ff8000000000000L,
+      "" );
+    ( "AOT floating fixed array initializers",
+      "F64 Id(F64 x){return x;}F64 \
+       values[2]={Id(1.5),Id(2.25)};values[0]+values[1];",
+      0x400e000000000000L,
+      "" );
+    ( "AOT floating multidimensional initializer order",
+      "F64 Id(F64 x){return x;}F64 \
+       values[2][2]={{Id(1.5),Id(2.25)},{Id(3.5),Id(3.75)}};values[0][1]+values[1][0];",
+      0x4017000000000000L,
+      "" );
+    ( "AOT floating static multidimensional initializers",
+      "F64 Id(F64 x){return x;}F64 Read(){static F64 \
+       values[2][2]={{Id(1.5),Id(2.25)},{Id(3.5),Id(3.75)}};return \
+       values[0][1]+values[1][0];}Read();",
+      0x4017000000000000L,
+      "" );
+    ( "AOT packed floating member array preserves neighbors",
+      "extern U0 PutChars(U64 ch);I64 Mark(I64 x){return x;}F64 Id(F64 \
+       x){return x;}class Box{U8 tag;F64 values[2];U8 tail;};Box \
+       box={Mark(65),{Id(1.5),Id(2.25)},Mark(66)};PutChars(box.tag);PutChars(box.tail);box.values[0]+box.values[1];",
+      0x400e000000000000L,
+      "4142" );
+    ( "AOT packed floating static preserves neighbors and storage",
+      "extern U0 PutChars(U64 ch);I64 Mark(I64 x){return x;}F64 Id(F64 \
+       x){return x;}class Box{U8 tag;F64 value;U8 tail;};F64 Read(){static Box \
+       box={Mark(65),Id(1.5),Mark(66)};PutChars(box.tag);PutChars(box.tail);return \
+       box.value;}Read();Read();",
+      0x3ff8000000000000L,
+      "41424142" );
+    ( "AOT floating initializer preserves negative zero",
+      "F64 Id(F64 x){return x;}F64 value=Id(-0.0);value;",
+      Int64.min_int,
+      "" );
+    ( "AOT floating static initializer preserves signaling NaN",
+      "F64 Bits(){F64 x;(&x)(U64*)[0]=0x7ff0000000000042;return x;}F64 \
+       Read(){static F64 value=Bits();return value;}Read();",
+      0x7ff0000000000042L,
+      "" );
+    ( "AOT floating globals and unused statics execute once in source order",
+      "extern U0 PutChars(U64 ch);F64 Value(U64 ch,F64 x){PutChars(ch);return \
+       x;}F64 first=Value('A',1.5);PutChars('X');F64 Read(){static F64 \
+       saved=Value('B',2.25);return saved;}F64 Unused(){static F64 \
+       values[2]={Value('C',3.0),Value('D',4.0)};return values[0];}F64 \
+       last=Value('E',3.75);PutChars('F');Read();Read();last;",
+      0x400e000000000000L,
+      "41584243444546" );
+  ]
+
 let callback_cases =
   [
     ( "floating callback without arguments",
@@ -585,6 +642,169 @@ let cli_step_quota ?(source = "F64 Add(F64 a,F64 b){return a+b;}Add(1.5,2.25);")
         | _ -> false))
     "CLI fault lost source location"
 
+let aot_initializers target =
+  let mode = "aot" in
+  let has_code report code =
+    report |> member "diagnostics" |> to_list
+    |> List.exists (fun d -> member "code" d = `String code)
+  in
+  let check_success label bits output report =
+    successful label bits report;
+    require
+      (member "output_hex" report = `String output
+      && member "compiled_initializer_steps" report = `Int 0)
+      (label ^ ": load-time effects or preparation charge changed")
+  in
+  List.iter
+    (fun (label, source, bits, output) ->
+      invoke ~target ~mode label source |> check_success label bits output)
+    aot_initializer_cases;
+  let path =
+    if Sys.file_exists "examples/native-aot-f64-initializers.hc" then
+      "examples/native-aot-f64-initializers.hc"
+    else "../examples/native-aot-f64-initializers.hc"
+  in
+  invoke ~target ~mode "AOT floating initializer example" (read path)
+  |> check_success "AOT floating initializer example" 0x400e000000000000L "41";
+  List.iter
+    (fun declaration ->
+      let source =
+        "extern U0 Print(U8 *fmt,...);F64 Good(){Print(\"A\");return 1.5;}F64 \
+         Fail(){Print(\"B\");I64 z=0;I64 q=7/z;return 2.25;}" ^ declaration
+      in
+      let label = "AOT floating initializer fault preserves earlier effects" in
+      let report = invoke ~status:1 ~target ~mode label source in
+      rejected label report;
+      require
+        (has_code report "HCIRVM0009"
+        && member "final_value" report = `Null
+        && member "output_hex" report = `String "4142"
+        && member "compiled_initializer_steps" report = `Int 0
+        && report |> member "executed_steps" |> to_int > 0)
+        (label ^ ": lost load-time work, output or the reached fault"))
+    [
+      "F64 values[2]={Good(),Fail()};Print(\"C\");42;";
+      "F64 Unused(){static F64 values[2]={Good(),Fail()};return \
+       values[0];}Print(\"C\");42;";
+    ];
+  let label = "AOT floating static initializer cannot borrow a call frame" in
+  let report =
+    invoke ~status:1 ~target ~mode label
+      "F64 Read(F64 argument){static F64 value=argument;return \
+       value;}Read(1.5);"
+  in
+  rejected label report;
+  require
+    (has_code report "HCRUN0006" && member "output_hex" report = `String "")
+    (label ^ ": original frame boundary changed");
+  List.iter
+    (fun (label, source) ->
+      let report = invoke ~status:1 ~target ~mode label source in
+      rejected label report;
+      require
+        (member "final_value" report = `Null
+        && member "output_hex" report = `String "")
+        (label ^ ": unsupported conversion published a value"))
+    [
+      ( "AOT F64 initializer cannot reinterpret an integer call result",
+        "I64 Value(){return 42;}F64 value=Value();value;" );
+      ( "AOT integer initializer cannot reinterpret an F64 call result",
+        "F64 Value(){return 1.5;}I64 value=Value();value;" );
+      ( "AOT integer member initializer cannot reinterpret an F64 call result",
+        "F64 Value(){return 1.5;}class Box{I64 value;};Box \
+         box={Value()};box.value;" );
+      ( "AOT F64 static initializer cannot reinterpret an integer call result",
+        "I64 Value(){return 42;}F64 Read(){static F64 value=Value();return \
+         value;}Read();" );
+      ( "AOT F64 static member cannot reinterpret an integer call result",
+        "I64 Value(){return 42;}class Box{F64 value;};F64 Read(){static Box \
+         box={Value()};return box.value;}Read();" );
+      ( "AOT integer static initializer cannot reinterpret an F64 call result",
+        "F64 Value(){return 1.5;}I64 Read(){static I64 value=Value();return \
+         value;}Read();" );
+      ( "AOT integer static member cannot reinterpret an F64 call result",
+        "F64 Value(){return 1.5;}class Box{I64 value;};I64 Read(){static Box \
+         box={Value()};return box.value;}Read();" );
+    ];
+  List.iter
+    (fun (label, declaration) ->
+      let report =
+        invoke ~status:1 ~target ~mode label
+          ("extern U0 PutChars(U64 ch);PutChars('X');" ^ declaration)
+      in
+      rejected label report;
+      require
+        (has_code report "HCRUN0001"
+        && member "final_value" report = `Null
+        && member "output_hex" report = `String ""
+        && member "compiled_initializer_steps" report = `Int 0)
+        (label ^ ": late compile-time preparation crossed the load-only gate"))
+    [
+      ( "AOT late closed global retains its preparation boundary",
+        "I64 value=42;value;" );
+      ( "AOT late closed static retains its preparation boundary",
+        "I64 Read(){static I64 value=42;return value;}Read();" );
+      ( "AOT late global byte copy retains its preparation boundary",
+        "U8 bytes[2]=\"A\";bytes[0];" );
+      ( "AOT late static byte copy retains its preparation boundary",
+        "I64 Read(){static U8 bytes[2]=\"A\";return bytes[0];}Read();" );
+    ];
+  if target = "host-jit-task" then
+    List.iter
+      (fun (label, source, code) ->
+        let report = invoke ~status:1 ~target ~mode label source in
+        rejected label report;
+        require
+          (has_code report code && member "output_hex" report = `String "41")
+          (label ^ ": wrong option phase or later effects executed"))
+      [
+        ( "AOT data-heap floating global rejects before initializer lookahead",
+          "#exe{Print(\"A\");Option(35,1);}F64 Value(){return 1.5;}F64 \
+           value=#exe{Print(\"B\");}Value();value;",
+          "HCEVAL0003" );
+        ( "AOT floating static keeps the data-heap compile-phase boundary",
+          "#exe{Print(\"A\");Option(35,1);}F64 Value(){return 1.5;}F64 \
+           Read(){static F64 value=Value();#exe{Print(\"B\");}return \
+           value;}Read();",
+          "HCRUN0006" );
+      ];
+  let source =
+    "extern U0 PutChars(U64 ch);F64 Value(){PutChars('A');return 3.75;}F64 \
+     value=Value();value;"
+  in
+  let baseline =
+    invoke ~target ~mode
+      ~options:[ "--initializer-step-limit=1" ]
+      "AOT floating load runtime budget" source
+  in
+  check_success "AOT floating load runtime budget" 0x400e000000000000L "41"
+    baseline;
+  let steps = baseline |> member "executed_steps" |> to_int in
+  require (steps > 1) "floating load must charge its runtime instructions";
+  invoke ~target ~mode
+    ~options:
+      [ "--initializer-step-limit=1"; "--step-limit=" ^ string_of_int steps ]
+    "exact AOT floating load runtime budget" source
+  |> check_success "exact AOT floating load runtime budget" 0x400e000000000000L
+       "41";
+  let failed =
+    invoke ~status:1 ~target ~mode
+      ~options:
+        [
+          "--initializer-step-limit=1";
+          "--step-limit=" ^ string_of_int (steps - 1);
+        ]
+      "one-below AOT floating load runtime budget" source
+  in
+  rejected "one-below AOT floating load runtime budget" failed;
+  require
+    (has_code failed "HCIRVM0007"
+    && member "final_value" failed = `Null
+    && member "executed_steps" failed = `Int (steps - 1)
+    && member "compiled_initializer_steps" failed = `Int 0
+    && member "output_hex" failed = `String "41")
+    "AOT floating load step fault lost exact runtime work or prior output"
+
 let capability mode =
   let pure = image mode "F64 Id(F64 x){return x;}Id(1.5);" in
   require
@@ -789,6 +1009,7 @@ let () =
                   invoke ~target ~mode "AOT persistent zero image" source
                   |> successful "AOT persistent zero image" 0L)
               [ "F64 value;value;"; "F64 value;(&value)(U8*)[0]=0;value;" ];
+            if has_x87 && mode = "aot" then aot_initializers target;
             if target <> "host-jit-task" || mode <> "jit" then
               List.iter
                 (fun source ->

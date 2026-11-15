@@ -77,6 +77,7 @@ val prepare_callback :
     work and saved-byte budgets as named defaults and initializers. *)
 
 val prepare_initializer :
+  ?require_load:bool ->
   t ->
   session:Session.t ->
   ledger:Task_declarations.t ->
@@ -87,7 +88,9 @@ val prepare_initializer :
     source-owned byte copies. Copy work is charged to [max_initializer_steps].
     AOT scalar leaves with original references retain their source and checked
     destination for load-time lowering, without evaluating or charging a
-    prepared value. Their eventual calls and effects use the runtime meter. *)
+    prepared value. Their eventual calls and effects use the runtime meter.
+    [require_load] rejects leaves that need constant or copy preparation before
+    that preparation starts, while retaining the original AOT load checks. *)
 
 val initializers : t -> Integer_initializers.native_preparation list
 
@@ -114,11 +117,14 @@ val execution : completion -> Ir.Integer_interpreter.default_constant
 type static_completion
 
 val prepare_static :
+  ?require_load:bool ->
   t ->
   session:Session.t ->
   ledger:Task_declarations.t ->
   Frontend.Parser.static_initializer_preparation ->
   (unit, Common.Diagnostic.t list) result
+(** [require_load] permits only an original AOT load leaf and rejects constant
+    or copy preparation before it executes or charges initializer work. *)
 
 val static_completions : t -> static_completion list
 

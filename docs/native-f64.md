@@ -104,8 +104,10 @@ members and one-level owned pointers, including fixed pointer parameters and
 borrowed recursive calls. Binary64 stores materialize their values; these memory
 operations do not grant an extended-precision link.
 Globals and static locals also support F64 storage. Declaration initializers
-currently require native source-task JIT; isolated and AOT preparation remain
-separate unsupported paths.
+execute in native source-task JIT. Original nonconstant same-class initializers
+also run as AOT load assignments on both native targets, including fixed arrays
+and packed aggregate leaves. Closed AOT and isolated floating preparation remain
+unsupported.
 
 Ordinary F64 locals stay in their checked stack slots. A separate authenticated
 mixed-scalar proof admits supported explicit variable-register requests and
@@ -161,12 +163,12 @@ Unproved conversion normalization, comparison chains, floating short circuit,
 constant-only comparisons without a normalization proof, comparison results
 converted to F64, arithmetic-wrapped comparison conditions, remainder, power,
 shifts, compound updates, increment/decrement, other floating intrinsics,
-variadic F64 arguments, `%f`, deeper F64 pointers, pointer arrays, AOT/isolated
-F64 initializer preparation and F64 parameter defaults remain unsupported. Mixed
-functions containing F64 also reject narrow integer frame members unless their
-register or stack selection has an authenticated allocation proof; `noreg` alone
-does not supply that proof. I64/U64
-control variables do not have this width-dependent ambiguity. A nested source
+variadic F64 arguments, `%f`, deeper F64 pointers, pointer arrays, closed
+AOT/isolated F64 initializer preparation and F64 parameter defaults remain
+unsupported. Mixed functions containing F64 also reject narrow integer frame
+members unless their register or stack selection has an authenticated allocation
+proof; `noreg` alone does not supply that proof. I64/U64 control variables do not
+have this width-dependent ambiguity. A nested source
 callback requiring an I64 result
 rejects a final F64 value rather than reinterpreting its bits.
 

@@ -17,7 +17,7 @@ reached native faults.
 Native F64 storage follows member/stride production in `PrsUnaryModifier`
 (`Compiler/PrsExp.HC:960-1115`) and dispatch in
 `Compiler/OptPass789A.HC:461-468,606-608`. `ICDeref`
-(`Compiler/BackLib.HC:693-710`) and `ICAssign`
+(`Compiler/BackLib.HC:693-708`) and `ICAssign`
 (`Compiler/BackC.HC:159-211`) consume the selected pointed-to type through
 `ICMov` (`Compiler/BackLib.HC:445-691`). Same-class F64 memory operations
 transport eight raw bytes. See [native F64 storage](native-f64-storage.md) for
@@ -28,15 +28,27 @@ Standalone F64 roots retain their original declaration and extent.
 reaching `PrsGlblInit`. `Compiler/PrsVar.HC:1-246,536-587` supplies the shared
 scalar/array copy consumer and static declaration preparation. The native task
 uses those same-class F64 copies for global/static scalars and fixed arrays in
-JIT. AOT zero images and unknown JIT bytes remain distinct; AOT and isolated
-floating initializer preparation remain unsupported.
+JIT. AOT zero images and unknown JIT bytes remain distinct. Original nonconstant
+same-class F64 leaves also use AOT load assignments on both native targets;
+closed AOT and isolated floating preparation remain unsupported.
 Unused F64 declarations still allocate their full extent. The public global CLI
 checks eight- and sixteen-byte limits independently of floating execution;
 native assignment/read execution and the integer interpreter's earlier floating
 instruction rejection remain separate controls.
 The native source-task API also checks three reached F64 initializer instructions
 and eight copy bytes: eleven units succeed, while ten fail before the copy.
-AOT floating declaration preparation retains its separate rejection.
+Closed AOT floating declaration preparation retains its separate rejection.
+
+`PrsVarInit` at `Compiler/PrsVar.HC:53-112` emits an `IET_MAIN` assignment for
+original nonconstant AOT leaves when globals are not on the data heap.
+`PrsStaticInit` at lines 215-246 shares the traversal. Native global/static F64
+load assignments preserve eight-byte scalar types, original destinations and
+source order, including statics in unused functions. Reached effects and faults
+use the runtime meter; scheduling itself consumes no initializer preparation
+work. Closed floating constants and numeric initializer conversions remain
+separate. Static source leaves preserve their expression result before the
+reached scalar consumer, rather than selecting a conversion from the enclosing
+aggregate class. See [AOT F64 load initializers](native-f64-storage.md#aot-load-initializers).
 
 F64 aggregate initializer leaves follow `PrsVarInit` and `PrsVarInit2`
 (`Compiler/PrsVar.HC:1-204`). `LexExpression2Bin`

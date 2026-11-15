@@ -749,10 +749,10 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
     |> Result.map_error (fun message ->
         [ diagnostic ~span "HCRUN0004" message ])
   in
+  let compilation_mode = Frontend.Preprocessor.Config.compilation_mode config in
   let* preparation =
-    Native_default_preparation.create
-      ~compilation_mode:(Frontend.Preprocessor.Config.compilation_mode config)
-      ~max_initializer_steps ~max_default_bytes session
+    Native_default_preparation.create ~compilation_mode ~max_initializer_steps
+      ~max_default_bytes session
     |> Result.map_error (fun message ->
         [ diagnostic ~span "HCIRVM0001" message ])
   in
@@ -843,7 +843,8 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                       | None -> Ok ()
                       | Some error -> Error [ error ])
                   | Frontend.Parser.Global_initializer_started receipt
-                    when !entry_statement_seen ->
+                    when !entry_statement_seen
+                         && compilation_mode = Frontend.Preprocessor.Jit ->
                       Error
                         [
                           source_error receipt.initializer_equals.span
@@ -851,7 +852,8 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                              top-level statements";
                         ]
                   | Frontend.Parser.Static_initializer_preparing receipt
-                    when !entry_statement_seen ->
+                    when !entry_statement_seen
+                         && compilation_mode = Frontend.Preprocessor.Jit ->
                       Error
                         [
                           source_error
@@ -917,15 +919,17 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                       Task_declarations
                       .emit_aot_direct_call_initializer_warnings ledger receipt
                     in
-                    Native_default_preparation.prepare_initializer preparation
-                      ~session ~ledger receipt
+                    Native_default_preparation.prepare_initializer
+                      ~require_load:!entry_statement_seen preparation ~session
+                      ~ledger receipt
                 | Frontend.Parser.Static_initializer_preparing receipt ->
                     let* () =
                       Task_declarations.emit_aot_direct_call_static_warnings
                         ledger receipt
                     in
-                    Native_default_preparation.prepare_static preparation
-                      ~session ~ledger receipt
+                    Native_default_preparation.prepare_static
+                      ~require_load:!entry_statement_seen preparation ~session
+                      ~ledger receipt
                 | Frontend.Parser.Function_header_completed header ->
                     Task_declarations.complete_source_defaults ledger header
                 | _ -> Ok ()));

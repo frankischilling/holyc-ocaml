@@ -1,21 +1,20 @@
 module Typed = Sema.Function_call_expression_result
 
+let floating_destination scalar =
+  Option.bind scalar (fun scalar ->
+      let type_ = Sema.Initializer_type.scalar_value_type scalar in
+      if
+        Sema.Initializer_type.scalar_byte_size scalar = 8
+        && Sema.Type.is_f64 type_
+      then Some type_
+      else None)
+
 let same_f64 ~scalar expression =
-  let is_f64 t =
-    Sema.Type.pointer_depth t = 0
-    &&
-    match Sema.Type.base t with
-    | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> true
-    | _ -> false
-  in
   Typed.result_array_rank expression = 0
   && Typed.result_class expression = Typed.F64_result
   &&
-  match (scalar, Typed.result_value_type expression) with
-  | Some scalar, Some result_type ->
-      Sema.Initializer_type.scalar_byte_size scalar = 8
-      && is_f64 result_type
-      && is_f64 (Sema.Initializer_type.scalar_value_type scalar)
+  match (floating_destination scalar, Typed.result_value_type expression) with
+  | Some _, Some result_type -> Sema.Type.is_f64 result_type
   | _ -> false
 
 (* A U0 expression can supply effects to a zero-byte initializer leaf. It does

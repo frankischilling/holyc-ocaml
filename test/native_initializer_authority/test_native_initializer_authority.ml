@@ -6,6 +6,10 @@ module Unit = Holyc_lib__Driver.Integer_unit
 module Proof = Native_global_initializers
 module Image = X86_64_program
 module VM = Ir_integer_interpreter
+module Initialization = Ir_global_initialization
+module Graph = Ir_block_graph
+module Sequence = Ir_instruction_sequence
+module Opcode = Ir_opcode
 
 let checked = function
   | Ok value -> value
@@ -670,6 +674,332 @@ I64 F(){static Box saved={3,"EF"};return first.text[1]+second.text[0]+saved.text
   reject "equal-source foreign pointer load bundle"
     (emit ~global_initializers:sealed foreign)
 
+let f64_load_sources =
+  [
+    ( "scalar",
+      {|F64 Seed;F64 Get(){return 42.5;}F64 direct=Seed,returned=Get();
+I64 F(){static F64 direct=Seed,returned=Get();return 42;}F();|}
+    );
+    ( "fixed array",
+      {|F64 Seed;F64 Get(){return 42.5;}F64 values[2]={Seed,Get()};
+I64 F(){static F64 saved[2]={Seed,Get()};return 42;}F();|}
+    );
+    ( "class",
+      {|F64 Seed;F64 Get(){return 42.5;}class Box{F64 direct;F64 returned;};
+Box values={Seed,Get()};I64 F(){static Box saved={Seed,Get()};return 42;}F();|}
+    );
+  ]
+
+let f64_load_bundle contents =
+  let span, prepared, compile =
+    fixture ~contents ~isolated:true Preprocessor.Aot
+  in
+  let globals = Preparation.initializers prepared in
+  let statics = Preparation.static_initializers prepared in
+  Alcotest.(check int) "two original F64 global leaves" 2 (List.length globals);
+  Alcotest.(check int) "two original F64 static leaves" 2 (List.length statics);
+  Alcotest.(check bool)
+    "all F64 globals retain their original load preparation" true
+    (List.for_all Initializers.native_is_load globals);
+  Alcotest.(check bool)
+    "all F64 statics retain their original load preparation" true
+    (List.for_all Initializers.native_static_is_load statics);
+  Alcotest.(check int)
+    "F64 load leaves invent no constant work" 0
+    (Preparation.work prepared);
+  let unit_ =
+    compile ~native_initializers:globals ~native_static_initializers:statics ()
+    |> diagnostics
+  in
+  let sealed =
+    proof
+      ~static_completions:(Preparation.static_completions prepared)
+      span
+      (Preparation.initializer_completions prepared)
+      unit_
+    |> checked
+  in
+  List.iter
+    (fun status_abi ->
+      ignore
+        (emit ~global_initializers:sealed ~status_abi unit_
+        |> Result.map_error (fun _ -> "F64 load ABI encoding failed")
+        |> checked))
+    [ Image.Windows_x64; Image.System_v_x64 ];
+  (span, prepared, compile, unit_, sealed)
+
+let f64_load_ownership () =
+  List.iter
+    (fun (shape, contents) ->
+      let span, prepared, compile, unit_, sealed = f64_load_bundle contents in
+      let globals = Preparation.initializers prepared in
+      let statics = Preparation.static_initializers prepared in
+      let compile globals statics =
+        compile ~native_initializers:globals ~native_static_initializers:statics
+          ()
+      in
+      let completions = Preparation.initializer_completions prepared in
+      let static_completions = Preparation.static_completions prepared in
+      let seal ?(completions = completions)
+          ?(static_completions = static_completions) unit_ =
+        proof ~static_completions span completions unit_
+      in
+      let _, foreign, _, foreign_unit, _ = f64_load_bundle contents in
+      List.iter
+        (fun status_abi ->
+          reject
+            (shape ^ " F64 image requires the original bundle")
+            (emit ~status_abi unit_);
+          reject
+            (shape ^ " F64 equal-source foreign bundle")
+            (emit ~global_initializers:sealed ~status_abi foreign_unit))
+        [ Image.Windows_x64; Image.System_v_x64 ];
+      let changes values foreign =
+        [
+          ("missing all", []);
+          ("missing reference", List.tl values);
+          ("missing call", [ List.hd values ]);
+          ("repeated", List.hd values :: values);
+          ("reordered", List.rev values);
+          ("substituted reference", List.hd foreign :: List.tl values);
+          ("substituted call", List.hd values :: List.tl foreign);
+          ("foreign", foreign);
+        ]
+      in
+      let rejects_preparation label = function
+        | Error errors ->
+            Alcotest.(check bool)
+              label true
+              (List.exists
+                 (fun (error : Diagnostic.t) -> error.code = "HCRUN0004")
+                 errors)
+        | Ok _ -> Alcotest.fail (label ^ " accepted altered preparation")
+      in
+      List.iter
+        (fun (change, evidence) ->
+          rejects_preparation
+            (shape ^ " global F64 " ^ change)
+            (compile evidence statics))
+        (changes globals (Preparation.initializers foreign));
+      List.iter
+        (fun (change, evidence) ->
+          rejects_preparation
+            (shape ^ " static F64 " ^ change)
+            (compile globals evidence))
+        (changes statics (Preparation.static_initializers foreign));
+      let rejects_completion label = function
+        | Error message ->
+            Alcotest.(check string)
+              label
+              "native global initializers lack their complete original \
+               preparation"
+              message
+        | Ok _ -> Alcotest.fail (label ^ " accepted altered completion")
+      in
+      List.iter
+        (fun (change, completions) ->
+          rejects_completion
+            (shape ^ " global F64 completion " ^ change)
+            (seal ~completions unit_))
+        (changes completions (Preparation.initializer_completions foreign));
+      List.iter
+        (fun (change, static_completions) ->
+          rejects_completion
+            (shape ^ " static F64 completion " ^ change)
+            (seal ~static_completions unit_))
+        (changes static_completions (Preparation.static_completions foreign));
+      let clone_at selected values =
+        List.mapi
+          (fun index value ->
+            if index = selected then Obj.obj (Obj.dup (Obj.repr value))
+            else value)
+          values
+      in
+      List.iter
+        (fun index ->
+          let copied =
+            compile (clone_at index globals) statics |> diagnostics
+          in
+          rejects_completion
+            (shape ^ " copied global F64 preparation")
+            (seal copied);
+          let copied =
+            compile globals (clone_at index statics) |> diagnostics
+          in
+          rejects_completion
+            (shape ^ " copied static F64 preparation")
+            (seal copied))
+        [ 0; 1 ])
+    f64_load_sources
+
+let f64_load_store_graphs () =
+  let word_type =
+    Semantic_type.make_primitive ~form:Internal_storage
+      ~primitive:Primitive_type.I64 ~pointer_depth:0
+    |> checked
+  in
+  let word_pointer = Semantic_type.pointer_to word_type |> checked in
+  List.iter
+    (fun (shape, contents) ->
+      let span, _, _, unit_, _ = f64_load_bundle contents in
+      let original = Unit.initialization unit_ in
+      let descriptions =
+        Initialization.regions original |> List.map Initialization.describe
+      in
+      let static_descriptions =
+        Initialization.static_regions original
+        |> List.map Initialization.describe_static
+      in
+      let recreate () =
+        Initialization.create ~span ~globals:(Unit.globals unit_)
+          ~entry:(Unit.entry unit_) ~static_descriptions
+          ~publications:
+            (Initialization.publications original
+            |> List.map Initialization.describe_publication)
+          ?publication_evidence:(Initialization.publication_evidence original)
+          descriptions
+      in
+      ignore (recreate () |> diagnostics);
+      let graph = Ir_x87_stack.graph (Unit.entry unit_) in
+      let instructions =
+        Graph.blocks graph
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Sequence.instructions)
+        |> List.map Sequence.description
+      in
+      let with_changed_instruction original transform action =
+        let rec change = function
+          | [] -> false
+          | instruction :: rest as cell ->
+              let description = Sequence.description instruction in
+              if
+                Sequence.Instruction_id.equal description.instruction_id
+                  original.Sequence.instruction_id
+              then (
+                let cell = Obj.repr cell in
+                let previous = Obj.field cell 0 in
+                Fun.protect
+                  ~finally:(fun () -> Obj.set_field cell 0 previous)
+                  (fun () ->
+                    Obj.set_field cell 0 (Obj.repr (transform description));
+                    action ());
+                true)
+              else change rest
+        in
+        Alcotest.(check bool)
+          "mutation reached the original graph" true
+          (List.exists
+             (fun block ->
+               change (Sequence.instructions (Graph.instructions block)))
+             (Graph.blocks graph))
+      in
+      let regions =
+        List.mapi
+          (fun index (region : Initialization.region_description) ->
+            ( (if index = 0 then "global reference" else "global call"),
+              region.first,
+              region.last ))
+          descriptions
+        @ List.mapi
+            (fun index (region : Initialization.static_region_description) ->
+              ( (if index = 0 then "static reference" else "static call"),
+                region.first,
+                region.last ))
+            static_descriptions
+      in
+      Alcotest.(check int)
+        "four original F64 load regions" 4 (List.length regions);
+      List.iter
+        (fun (owner, first, last) ->
+          let region =
+            List.filter
+              (fun (instruction : Sequence.description) ->
+                Sequence.Instruction_id.compare instruction.instruction_id first
+                >= 0
+                && Sequence.Instruction_id.compare instruction.instruction_id
+                     last
+                   <= 0)
+              instructions
+          in
+          match List.rev region with
+          | ending :: store :: pointer :: _address :: _sum :: _scaled :: offset
+            :: stride :: _bytes :: owned_root :: _ ->
+              Alcotest.(check bool)
+                "original typed F64 store" true
+                (ending.opcode = Opcode.Ic_end_exp
+                && store.opcode = Opcode.Ic_assign
+                && Option.fold ~none:false ~some:Semantic_type.is_f64
+                     store.target_type
+                && pointer.opcode = Opcode.Ic_holyc_typecast
+                && offset.opcode = Opcode.Ic_imm_i64
+                && stride.opcode = Opcode.Ic_imm_i64
+                && owned_root.opcode = Opcode.Ic_addr);
+              List.iter
+                (fun (change, instruction, transform) ->
+                  let label = shape ^ " " ^ owner ^ " " ^ change in
+                  with_changed_instruction instruction transform (fun () ->
+                      match recreate () with
+                      | Error [ error ] ->
+                          Alcotest.(check string)
+                            (label ^ " diagnostic") "HCIRVM0017" error.code;
+                          Alcotest.(check string)
+                            (label ^ " canonical guard")
+                            "initializer region has a noncanonical \
+                             destination, store or expression boundary"
+                            error.message
+                      | Error errors -> ignore (diagnostics (Error errors))
+                      | Ok _ ->
+                          Alcotest.fail
+                            (label ^ " accepted an altered typed store")))
+                [
+                  ( "store type",
+                    store,
+                    fun d -> { d with Sequence.target_type = Some word_type } );
+                  ( "store operands",
+                    store,
+                    fun d -> { d with Sequence.operands = List.rev d.operands }
+                  );
+                  ( "store payload",
+                    store,
+                    fun d ->
+                      { d with Sequence.payload = Some (Sequence.Integer 0L) }
+                  );
+                  ( "destination pointer type",
+                    pointer,
+                    fun d -> { d with Sequence.target_type = Some word_pointer }
+                  );
+                  ( "destination cast",
+                    pointer,
+                    fun d ->
+                      { d with Sequence.payload = Some (Sequence.Integer 0L) }
+                  );
+                  ( "destination byte offset",
+                    offset,
+                    fun d ->
+                      match d.Sequence.payload with
+                      | Some (Sequence.Integer value) ->
+                          {
+                            d with
+                            payload = Some (Sequence.Integer (Int64.succ value));
+                          }
+                      | _ ->
+                          Alcotest.fail "original F64 offset is not an integer"
+                  );
+                  ( "destination byte stride",
+                    stride,
+                    fun d ->
+                      { d with Sequence.payload = Some (Sequence.Integer 8L) }
+                  );
+                  ( "storage root type",
+                    owned_root,
+                    fun d -> { d with Sequence.target_type = Some word_pointer }
+                  );
+                ]
+          | _ -> Alcotest.fail "original F64 typed store suffix is incomplete")
+        regions;
+      ignore (recreate () |> diagnostics))
+    f64_load_sources
+
 let empty_array_ownership () =
   let contents =
     {|U8 A[]="AB",B[]="CD";I64 Empty[]={};
@@ -1081,6 +1411,11 @@ let () =
                 ());
           Alcotest.test_case "owned pointer load source and bundle ownership"
             `Quick pointer_load_ownership;
+          Alcotest.test_case "F64 load source and completion ownership" `Quick
+            f64_load_ownership;
+          Alcotest.test_case
+            "F64 load typed stores require their original graph" `Quick
+            f64_load_store_graphs;
           Alcotest.test_case "empty arrays retain original zero-work ownership"
             `Quick empty_array_ownership;
           Alcotest.test_case "numeric and copied array leaf ownership" `Quick
