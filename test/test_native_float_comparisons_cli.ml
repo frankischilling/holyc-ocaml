@@ -429,7 +429,12 @@ let cases =
   scalar_cases @ context_cases @ precision_cases @ register_cases
   @ mixed_nan_cases @ equality_condition_cases @ signed_zero_normalization_cases
   @ callback_cases
-  @ [ ("maintained example", read example, 1L) ]
+  @ [
+      ("maintained example", read example, 1L);
+      ( "branch PI builtin",
+        "I64 F(F64 a){if(a<3.141592653589793)return 1;return 0;}F(1.0);",
+        1L );
+    ]
 
 let excluded =
   [
@@ -479,8 +484,6 @@ let excluded =
     ( "unproved normalized dereference zero",
       "I64 F(F64 a){return (a+0.0)<0.0;}F(-0.0);" );
     ("unproved computed zero", "I64 F(F64 a){return a<(1.0-1.0);}F(-0.0);");
-    ( "unproved branch PI builtin",
-      "I64 F(F64 a){if(a<3.141592653589793)return 1;return 0;}F(1.0);" );
   ]
 
 let compile ?max_ir_instructions ?max_code_bytes mode contents =

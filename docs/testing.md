@@ -2656,5 +2656,14 @@ The native scalar F64 CLI suite also checks all five option-dependent builtin
 constants with `No_builtin_const` enabled at original compilation. Cases retain
 exact binary64 payloads through both arithmetic operand positions, ordered
 conditions and a later option reset. Default and explicitly disabled options
-retain rejection; zero and one retain their original rules. These are pinned
-source-derived expectations, without a new TempleOS runtime capture.
+select the original x87 builtin instructions. Exact residuals independently
+derived from mathematical constants rounded to 64 significand bits detect
+premature binary64 rounding, reversed subtraction and broken linked division.
+Condition/value pairs cover their distinct constant load rules. Original option
+timing is checked in both directions across later directives. Isolated literal
+subtraction in both directions and unary negation retain the binary64 fold
+results from the source's earlier optimizer phase; a linked fold remains gated.
+Original option and typed-source mutations invalidate saved and freshly requested plans;
+raw graphs and foreign source owners still reject. Zero and one retain their
+original rules. These are pinned source-derived expectations, without a new
+TempleOS runtime capture.

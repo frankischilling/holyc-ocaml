@@ -2378,6 +2378,7 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             | X86_64_float_plan.Zero ->
                 emit (Encoder.Fld_constant Encoder.Fzero)
             | One -> emit (Encoder.Fld_constant Encoder.Fone)
+            | Builtin constant -> emit (Encoder.Fld_constant constant)
             | (Bits | Signed_integer) as loading ->
                 emit (Encoder.Store_stack (scratch, registers.(source value)));
                 emit
@@ -2575,6 +2576,7 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             | X86_64_float_plan.Zero ->
                 emit (Encoder.Fld_constant Encoder.Fzero)
             | One -> emit (Encoder.Fld_constant Encoder.Fone)
+            | Builtin constant -> emit (Encoder.Fld_constant constant)
             | (Bits | Signed_integer) as loading ->
                 emit (Encoder.Store_stack (scratch, source value));
                 emit

@@ -203,12 +203,15 @@ let source_snapshots () =
     "restored original source remains valid" true
     (Option.is_some (Plan.find (prepare source graph) ~graph root))
 
-let option_fixture expression =
+let option_fixture ?(enabled = true) expression =
   let module Execution = Holyc_lib__Driver.Integer_source_execution in
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-float-option-authority.hc"
-      ~contents:("#exe{Option(36,1);}F64 F(F64 a){return " ^ expression ^ ";}")
+      ~contents:
+        ("#exe{Option(36,"
+        ^ (if enabled then "1" else "0")
+        ^ ");}F64 F(F64 a){return " ^ expression ^ ";}")
   in
   let config =
     Preprocessor.Config.create ~compilation_mode:Preprocessor.Aot ()
@@ -230,51 +233,84 @@ let option_fixture expression =
 
 let option_constants () =
   List.iter
-    (fun literal ->
-      let expression = "a+" ^ literal in
-      let source, graph = option_fixture expression in
-      let plan = prepare source graph in
-      let root = last_operation graph in
-      let operation = Plan.find plan ~graph root |> Option.get in
-      Alcotest.(check bool)
-        "disabled builtin uses stored binary64 bytes" true
-        (operation.loads = [ Plan.Bits; Plan.Bits ]);
-      rejects "raw graph cannot borrow compiler options" (Plan.prepare graph);
-      let foreign, _ = option_fixture expression in
-      rejects "foreign enabled-option source"
-        (Plan.prepare ~source:foreign graph);
-      let original = F.definition_source source.body |> Option.get in
-      let original_options = Typed.function_compilation_options original in
-      let record = Obj.repr original in
-      let field =
-        List.init (Obj.size record) Fun.id
-        |> List.find (fun index ->
-            Obj.field record index == Obj.repr original_options)
-      in
-      Fun.protect
-        ~finally:(fun () ->
-          Obj.set_field record field (Obj.repr original_options))
-        (fun () ->
-          Obj.set_field record field (Obj.repr (Some 0L));
-          absent "changed original options invalidate isolated arithmetic plan"
-            plan graph root;
-          rejects "changed original options cannot mint a plan"
-            (Plan.prepare ~source graph));
-      mutate_source_kind source (fun () ->
-          absent "changed option-dependent source invalidates retained plan"
-            plan graph root;
-          rejects "changed source cannot mint option-dependent plan"
-            (Plan.prepare ~source graph));
-      let ordinary, ordinary_graph = fixture ~expression () in
-      rejects "default options retain builtin gate"
-        (Plan.prepare ~source:ordinary ordinary_graph))
-    [
-      "3.141592653589793";
-      "3.321928094887362";
-      "1.4426950408889634";
-      "0.3010299956639812";
-      "0.6931471805599453";
-    ]
+    (fun enabled ->
+      List.iter
+        (fun (literal, builtin) ->
+          let expression = "a+" ^ literal in
+          let source, graph = option_fixture ~enabled expression in
+          let plan = prepare source graph in
+          let root = last_operation graph in
+          let operation = Plan.find plan ~graph root |> Option.get in
+          Alcotest.(check bool)
+            "original options select stored bytes or extended builtin" true
+            (operation.loads
+            = [
+                Plan.Bits; (if enabled then Plan.Bits else Plan.Builtin builtin);
+              ]);
+          rejects "raw graph cannot borrow compiler options"
+            (Plan.prepare graph);
+          let foreign, _ = option_fixture ~enabled expression in
+          rejects "foreign enabled-option source"
+            (Plan.prepare ~source:foreign graph);
+          let original = F.definition_source source.body |> Option.get in
+          let original_options = Typed.function_compilation_options original in
+          let record = Obj.repr original in
+          let field =
+            List.init (Obj.size record) Fun.id
+            |> List.find (fun index ->
+                Obj.field record index == Obj.repr original_options)
+          in
+          Fun.protect
+            ~finally:(fun () ->
+              Obj.set_field record field (Obj.repr original_options))
+            (fun () ->
+              Obj.set_field record field
+                (Obj.repr (Some (if enabled then 0L else 0x400L)));
+              absent
+                "changed original options invalidate isolated arithmetic plan"
+                plan graph root;
+              rejects "changed original options cannot mint a plan"
+                (Plan.prepare ~source graph));
+          mutate_source_kind source (fun () ->
+              absent "changed option-dependent source invalidates retained plan"
+                plan graph root;
+              rejects "changed source cannot mint option-dependent plan"
+                (Plan.prepare ~source graph));
+          let ordinary, ordinary_graph = fixture ~expression () in
+          let ordinary_plan = prepare ordinary ordinary_graph in
+          let ordinary_operation =
+            Plan.find ordinary_plan ~graph:ordinary_graph
+              (last_operation ordinary_graph)
+            |> Option.get
+          in
+          Alcotest.(check bool)
+            "default source selects builtin" true
+            (ordinary_operation.loads = [ Plan.Bits; Plan.Builtin builtin ]);
+          let folded, folded_graph =
+            fixture ~expression:(literal ^ "-3.0") ()
+          in
+          let folded_plan = prepare folded folded_graph in
+          let folded_operation =
+            Plan.find folded_plan ~graph:folded_graph
+              (last_operation folded_graph)
+            |> Option.get
+          in
+          Alcotest.(check bool)
+            "isolated source fold retains binary64 operands" true
+            (folded_operation.loads = [ Plan.Bits; Plan.Bits ]);
+          let linked, linked_graph =
+            fixture ~expression:("(" ^ literal ^ "-3.0)+a") ()
+          in
+          rejects "isolated fold cannot authorize downstream links"
+            (Plan.prepare ~source:linked linked_graph))
+        [
+          ("3.141592653589793", Holyc_lib__Backend.X86_64_encoder.Fpi);
+          ("3.321928094887362", Flog2_10);
+          ("1.4426950408889634", Flog2_e);
+          ("0.3010299956639812", Flog10_2);
+          ("0.6931471805599453", Floge_2);
+        ])
+    [ true; false ]
 
 let tests =
   [

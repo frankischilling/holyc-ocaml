@@ -104,8 +104,11 @@ Value templates load exact binary64 words with FLD. Direct branches may select
 `ICBuiltInFloatConst`, including positive zero and one. Negative zero remains an
 exact binary64 word load in arithmetic, value comparisons and direct branches:
 the builtin selector's raw-word `!d` test does not consider it zero.
-Option-sensitive PI/log constant loads remain rejected unless their original
-option and event selection is proved. An ordinary value comparison does not acquire that branch restriction.
+Pi and logarithmic constants use builtin x87 loads in supported direct
+conditions unless the original function enables `No_builtin_const`. The plan
+authenticates the original options and load events. Ordinary value comparisons
+retain their binary64 loads, so they can differ from conditions at a builtin
+constant's binary64 boundary.
 
 ## Authority, allocation and limits
 

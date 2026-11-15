@@ -616,14 +616,14 @@ let persistent_limits mode target =
     |> rejected "one-below floating copy allowance")
 
 let cli_step_quota ?(source = "F64 Add(F64 a,F64 b){return a+b;}Add(1.5,2.25);")
-    mode target =
+    ?(expected = 0x400e000000000000L) mode target =
   let baseline = invoke ~target ~mode "step baseline" source in
-  successful "step baseline" 0x400e000000000000L baseline;
+  successful "step baseline" expected baseline;
   let steps = baseline |> member "executed_steps" |> to_int in
   invoke ~target ~mode
     ~options:[ "--step-limit=" ^ string_of_int steps ]
     "exact step quota" source
-  |> successful "exact step quota" 0x400e000000000000L;
+  |> successful "exact step quota" expected;
   let failed =
     invoke ~status:1 ~target ~mode
       ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
@@ -871,11 +871,19 @@ let builtin_constant_options mode target =
         = `String "0x000000000000002a")
         (label ^ ": wrong comparison");
       List.iter
+        (fun expression ->
+          let label = name ^ " stored precision " ^ expression in
+          invoke ~target ~mode label
+            ("#exe{Option(36,1);}F64 F(F64 x){return " ^ expression
+           ^ ";}I64 marker;#exe{Option(36,0);}F(" ^ literal ^ ");")
+          |> successful label 0L)
+        [ literal ^ "-x"; "x-" ^ literal ];
+      List.iter
         (fun prefix ->
-          let label = name ^ " default builtin remains unavailable" in
-          invoke ~status:1 ~target ~mode label
+          let label = name ^ " default builtin load" in
+          invoke ~target ~mode label
             (prefix ^ "F64 F(F64 x){return x+" ^ literal ^ ";}F(0.0);")
-          |> rejected label)
+          |> successful label bits)
         [ ""; "#exe{Option(36,1);Option(36,0);}" ])
     constants;
   List.iter
@@ -885,6 +893,88 @@ let builtin_constant_options mode target =
         ("#exe{Option(36,1);}F64 F(F64 x){return " ^ expression ^ ";}F(1.5);")
       |> successful label bits)
     [ ("x+0.0", 0x3ff8000000000000L); ("x/1.0", 0x3ff8000000000000L) ]
+
+(* BackLib selects an extended x87 constant only for immediate operands.
+   These residuals are independently calculated by rounding each mathematical
+   constant to 64 significand bits (nearest/even), subtracting its exact binary64
+   literal, then rounding to binary64. In particular loading the literal bytes
+   instead, or materializing the builtin before subtraction, produces zero. *)
+let builtin_precision mode target =
+  List.iter
+    (fun (name, literal, residual) ->
+      List.iter
+        (fun (expression, bits) ->
+          let label = name ^ " extended " ^ expression in
+          invoke ~target ~mode label
+            ("F64 F(F64 x,F64 y){return " ^ expression ^ ";}F(" ^ literal
+           ^ ",2.0);")
+          |> successful label bits)
+        [
+          (literal ^ "-x", residual);
+          ("x-" ^ literal, Int64.logxor residual Int64.min_int);
+          ("(" ^ literal ^ "-x)/y", Int64.sub residual 0x0010000000000000L);
+          ( "(x-" ^ literal ^ ")/y",
+            Int64.sub (Int64.logxor residual Int64.min_int) 0x0010000000000000L
+          );
+        ];
+      (* Direct conditions use ICBuiltInFloatConst; materialized comparisons
+         use the original word/template path instead. *)
+      let below = residual > 0L in
+      List.iter
+        (fun (expression, expected) ->
+          let label = name ^ " comparison " ^ expression in
+          let report =
+            invoke ~target ~mode label
+              ("I64 F(F64 x){" ^ expression ^ "}F(" ^ literal ^ ");")
+          in
+          require
+            (member "bits" (member "final_value" report)
+            = `String
+                (if expected then "0x000000000000002a" else "0x0000000000000000")
+            )
+            (label ^ ": wrong extended comparison"))
+        [
+          ("if(x<" ^ literal ^ ")return 42;return 0;", below);
+          ("if(" ^ literal ^ ">x)return 42;return 0;", below);
+          ("return (x<" ^ literal ^ ")*42;", false);
+          ("return (x==" ^ literal ^ ")*42;", true);
+        ])
+    [
+      ("pi", "3.141592653589793", 0x3ca1a80000000000L);
+      ("log2_10", "3.321928094887362", 0x3ca7f00000000000L);
+      ("log2_e", "1.4426950408889634", 0x3c77800000000000L);
+      ("log10_2", "0.3010299956639812", 0xbc49c00000000000L);
+      ("loge_2", "0.6931471805599453", 0x3c7ac00000000000L);
+    ];
+  (* OptPass012 folds binary64 literal data before builtin selection. The
+     isolated native operation must reproduce that value, not FLDPI precision. *)
+  List.iter
+    (fun (literal, bits) ->
+      List.iter
+        (fun (expression, bits) ->
+          let label = "binary64 constant fold " ^ expression in
+          invoke ~target ~mode label ("F64 F(){return " ^ expression ^ ";}F();")
+          |> successful label bits)
+        [
+          (literal ^ "-3.0", bits);
+          ("3.0-" ^ literal, Int64.logxor bits Int64.min_int);
+        ])
+    [
+      ("3.141592653589793", 0x3fc21fb54442d180L);
+      ("3.321928094887362", 0x3fd49a784bcd1b88L);
+      ("1.4426950408889634", 0xbff8eab89ad47d02L);
+      ("0.3010299956639812", 0xc005977d95ec10c0L);
+      ("0.6931471805599453", 0xc002746f40417184L);
+    ];
+  invoke ~target ~mode "unary literal fold"
+    "F64 F(){return -3.141592653589793;}F();"
+  |> successful "unary literal fold" 0xc00921fb54442d18L;
+  if target = "host-jit-task" then
+    invoke ~target ~mode "retained builtin after later option enable"
+      "F64 F(F64 x){return 3.141592653589793-x;}I64 \
+       marker;#exe{Option(36,1);}F(3.141592653589793);"
+    |> successful "retained builtin after later option enable"
+         0x3ca1a80000000000L
 
 let () =
   List.iter
@@ -924,6 +1014,12 @@ let () =
         in
         List.iter
           (fun target ->
+            if has_x87 then (
+              builtin_precision mode target;
+              cli_step_quota mode target ~expected:0x3c91a80000000000L
+                ~source:
+                  "F64 F(F64 x,F64 y){return \
+                   (3.141592653589793-x)/y;}F(3.141592653589793,2.0);");
             if has_x87 && target = "host-jit-task" then
               builtin_constant_options mode target;
             if has_x87 then

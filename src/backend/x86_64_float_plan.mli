@@ -1,6 +1,14 @@
 (** Source-backed admission for scalar F64 and authenticated pure linked
     regions. Unproved normalization and extended-precision links reject. *)
-type load = Bits | Zero | One | Signed_integer
+type load =
+  | Bits
+  | Zero
+  | One
+  | Builtin of X86_64_encoder.x87_constant
+      (** Source-selected x87 constant, retaining its extended precision until
+          the original operation materializes it. Requires the original function
+          and compiler-option snapshot, including during retained emission. *)
+  | Signed_integer
 
 type conversion = To_float | To_integer
 

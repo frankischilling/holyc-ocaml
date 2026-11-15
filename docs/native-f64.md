@@ -61,9 +61,9 @@ Arithmetic immediate loading is distinct from bit transport. Positive zero uses
 FLDZ; one uses FLD1. Negative zero and other ordinary literals load from a
 binary64 word. `ICBuiltInFloatConst` tests `!d` using raw-word truth, so negative
 zero's nonzero sign bit prevents the FLDZ shortcut (`BackLib.HC:423-428`,
-`OptLib.HC:235-242`, `BackB.HC:640-660`). PI and the logarithmic builtin constants currently reject in
-arithmetic because their source load rule depends on compiler-option evidence
-not yet retained by this plan. Their raw literal transport is unchanged.
+`OptLib.HC:235-242`, `BackB.HC:640-660`). Pi and the four logarithmic constants
+use their source-selected x87 builtin instructions unless the original function
+enables `No_builtin_const`. Raw literal transport preserves binary64 bytes.
 
 The source's identity templates also matter: adding positive zero, subtracting
 positive zero, multiplying by one or dividing by one can copy the other operand's
@@ -135,10 +135,27 @@ type, so an integer-returning function cannot hide unsupported floating work.
 
 Native source tasks honor `OPTf_NO_BUILTIN_CONST` (bit 36) for the five
 option-dependent constants: pi, log2(10), log2(e), log10(2) and ln(2).
-With the option enabled at original function compilation, arithmetic and ordered
-comparisons load the literal's stored binary64 word. The default builtin x87
-loads for these constants remain unsupported. Zero and one keep their existing
-special load and identity rules under either option value.
+With the option enabled at original function compilation, arithmetic and direct
+ordered conditions load the literal's stored binary64 word. With the option
+disabled, including the default, they use `FLDPI`, `FLDL2T`, `FLDL2E`, `FLDLG2`
+or `FLDLN2`. These instructions retain extended precision until the original
+materialization boundary. For example, `3.141592653589793-x` with that binary64
+value supplied as `x` returns bits `0x3ca1a80000000000` by default and positive
+zero with `No_builtin_const` enabled. Zero and one keep their existing special
+load and identity rules under either option value.
+
+Ordinary value comparisons and stored variables use materialized binary64
+words, so `return x<3.141592653589793;` and a direct `if` condition can differ
+at the constant's binary64 boundary. This follows the separate original
+comparison templates; constant selection does not grant extended precision to
+stored values.
+
+Isolated constant-only arithmetic loads the literal binary64 words, reproducing
+the value of the earlier `OptPass012` fold. Constant `3.141592653589793-3.0` yields
+bits `0x3fc21fb54442d180`, while subtracting a runtime parameter set to 3.0 yields
+`0x3fc21fb54442d184`. This does not authorize links or reassociation through an
+unproved constant fold; those regions retain their existing normalization gate.
+The fold rules are `Compiler/OptPass012.HC:180-188,308-318,403-418,485-495,619-627`.
 
 ```c
 #exe { Option(36,1); }
@@ -156,7 +173,9 @@ The load plan requires the original function, frame, runtime graph and option
 snapshot. A raw graph or numeric option bits alone cannot authorize this path.
 Retained plans recheck that source evidence before emission. The source rule is
 `Compiler/BackLib.HC:423-442`, with memory loads selected by
-`Compiler/BackFA.HC:339-467`, at the pinned reference revision.
+`Compiler/BackFA.HC:339-518` and direct condition loads selected by
+`Compiler/BackFB.HC:226-425`, at the pinned reference revision. Default builtin
+loads also work through isolated `host-jit` without a compile-time directive.
 
 ## Numeric conversions
 

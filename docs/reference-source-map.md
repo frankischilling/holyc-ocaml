@@ -2776,12 +2776,22 @@ and the retained host safeguards.
 ### F64 comparison consumers
 
 `BackLib.HC:423-442` checks zero and one before `OPTf_NO_BUILTIN_CONST`.
-When that option is enabled, the other five builtin constants use the memory
-load paths in `BackFA.HC:339-467`. The native floating plan admits those stored
-binary64 loads only with authenticated original function options and rechecks
-that dependency during retained emission. Native source-task tests cover both
-operand positions, ordered conditions and original option timing. See
+When that option is enabled, the other five builtin constants use memory
+load paths; otherwise they use their dedicated x87 constant instructions.
+`BackFA.HC:339-518` preserves operand orientation and extended arithmetic;
+`BackFB.HC:226-425` selects builtin loads for direct conditions separately from
+materialized comparison templates. The native floating plan requires the
+authenticated original function options and rechecks them during retained
+emission. Tests cover all five constants, both operand positions, linked
+residuals, value/condition differences and original option timing. See
 [stored F64 constants](native-f64.md#stored-constants-under-no_builtin_const).
+
+`OptPass012.HC:180-188,308-318,403-418,485-495,619-627` folds literal binary64
+data before backend constant selection. Isolated constant-only arithmetic
+therefore uses binary64 operands rather than extended builtin constants.
+Exact subtraction and unary controls preserve that phase distinction. A folded
+value entering a linked or reassociated region still requires its own
+normalization proof.
 
 `OptPass789A.HC:567-595` separates integer-word equality from ordered x87
 comparison. `OptPass3.HC:216-221,372-377`, `BackFA.HC:519-546` and the three

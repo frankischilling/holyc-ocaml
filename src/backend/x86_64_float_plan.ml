@@ -10,7 +10,13 @@ module O = Ir.Opcode
 module V = Map.Make (S.Value_id)
 module I = Map.Make (S.Instruction_id)
 
-type load = Bits | Zero | One | Signed_integer
+type load =
+  | Bits
+  | Zero
+  | One
+  | Builtin of X86_64_encoder.x87_constant
+  | Signed_integer
+
 type conversion = To_float | To_integer
 
 type conversion_entry = {
@@ -843,25 +849,41 @@ let prepare ?source ?runtime ?owner graph =
       | Some 0L -> Zero
       | Some 0x3ff0000000000000L -> One
       | Some
-          ( 0x400921fb54442d18L
-          | 0x400a934f0979a371L
-          | 0x3ff71547652b82feL
-          | 0x3fd34413509f79ffL
-          | 0x3fe62e42fefa39efL ) ->
-          if
-            authenticated
-            && Option.fold ~none:false
-                 ~some:(fun s ->
-                   Sema.Compiler_option.is_enabled
-                     ~mask:(Ir.Function_body.compiler_options s.body)
-                     Sema.Compiler_option.No_builtin_const)
-                 source
-          then option_consumer := true
-          else
+          (( 0x400921fb54442d18L
+           | 0x400a934f0979a371L
+           | 0x3ff71547652b82feL
+           | 0x3fd34413509f79ffL
+           | 0x3fe62e42fefa39efL ) as bits) ->
+          if not authenticated then (
             fail d
               "native F64 arithmetic builtin constants require original \
                compiler-option evidence";
-          Bits
+            Bits)
+          else (
+            option_consumer := true;
+            (* OptPass012 folds literal operands from their binary64 data
+               before backend builtin selection. Recomputing an isolated fold
+               must load those words, not introduce an extended constant.
+               Linked folding/reassociation still needs its separate proof. *)
+            if
+              List.for_all
+                (fun operand -> Option.is_some (literal operand))
+                d.operands
+              || Option.fold ~none:false
+                   ~some:(fun s ->
+                     Sema.Compiler_option.is_enabled
+                       ~mask:(Ir.Function_body.compiler_options s.body)
+                       Sema.Compiler_option.No_builtin_const)
+                   source
+            then Bits
+            else
+              Builtin
+                (match bits with
+                | 0x400921fb54442d18L -> X86_64_encoder.Fpi
+                | 0x400a934f0979a371L -> Flog2_10
+                | 0x3ff71547652b82feL -> Flog2_e
+                | 0x3fd34413509f79ffL -> Flog10_2
+                | _ -> Floge_2))
       | _ -> Bits
   in
   List.iter
@@ -995,7 +1017,9 @@ let prepare ?source ?runtime ?owner graph =
                       | Negate, [ input ], _ ->
                           ( Left_first,
                             [ []; [ input ]; [ result.value_id ]; [] ] )
-                      | _, [ _; right ], [ Bits; (Zero | One | Signed_integer) ]
+                      | ( _,
+                          [ _; right ],
+                          [ Bits; (Zero | One | Builtin _ | Signed_integer) ] )
                         ->
                           ( Right_first,
                             [ []; [ right ]; [ result.value_id ]; [] ] )
