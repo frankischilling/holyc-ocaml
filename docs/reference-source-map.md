@@ -34,6 +34,9 @@ Unused F64 declarations still allocate their full extent. The public global CLI
 checks eight- and sixteen-byte limits independently of floating execution;
 native assignment/read execution and the integer interpreter's earlier floating
 instruction rejection remain separate controls.
+The native source-task API also checks three reached F64 initializer instructions
+and eight copy bytes: eleven units succeed, while ten fail before the copy.
+AOT floating declaration preparation retains its separate rejection.
 
 F64 aggregate initializer leaves follow `PrsVarInit` and `PrsVarInit2`
 (`Compiler/PrsVar.HC:1-204`). `LexExpression2Bin`

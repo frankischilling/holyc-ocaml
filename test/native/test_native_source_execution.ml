@@ -567,13 +567,49 @@ let unsupported_domains () =
   Alcotest.(check int)
     "foreign ABI rejected before native callbacks" 0
     (List.length (Native.fragments foreign));
+  (* PrsGlblInit/PrsVarInit2 evaluate and copy the selected eight-byte F64
+     leaf during JIT declaration preparation. Its three native instructions
+     and eight copy bytes share the initializer allowance. *)
+  let floating = "F64 A=42.0; A;" in
+  let live = run ~max_global_bytes:8 ~max_initializer_steps:11 floating in
+  let value = expect_value 0x4045000000000000L live in
+  Alcotest.(check bool)
+    "JIT floating declaration retains F64 result class" true
+    ((Option.get value.final_value).type_ = Image.F64);
+  Alcotest.(check int)
+    "floating initializer instructions plus copy bytes" 11
+    (Native.preparation_steps live);
+  Alcotest.(check (list int))
+    "floating task retains one eight-byte allocation" [ 8; 8 ]
+    (List.map
+       (fun (fragment : Native.fragment) -> fragment.image.global_bytes)
+       (Native.fragments live));
+  Alcotest.(check int)
+    "floating task executes no interpreted runtime instructions" 0
+    (Option.get (Native.source_progress live)).runtime.executed_steps;
+  let below = run ~max_global_bytes:8 ~max_initializer_steps:10 floating in
+  ignore (expect_error "HCIRVM0007" below);
+  Alcotest.(check int)
+    "failed floating copy preserves its reached expression work" 3
+    (Native.preparation_steps below);
+  Alcotest.(check int)
+    "failed floating copy preserves reached native instructions" 3
+    (Native.executed_steps below);
+  ignore (expect_error "HCRUN0006" (run ~mode:Preprocessor.Aot floating));
+  let aot =
+    run ~mode:Preprocessor.Aot ~max_global_bytes:8 "F64 A; A=42.0; A;"
+  in
+  let value = expect_value 0x4045000000000000L aot in
+  Alcotest.(check bool)
+    "AOT floating assignment retains F64 result class" true
+    ((Option.get value.final_value).type_ = Image.F64);
+  Alcotest.(check int)
+    "AOT floating assignment uses its original module" 1
+    (List.length (Native.fragments aot));
   List.iter
     (fun text -> expect_rejection (run text))
     [
-      "F64 F(F64 x){return x**2.0;} F(42.0);";
-      "I64 *A; A;";
-      "F64 A=42.0; A;";
-      "\"unsupported\";";
+      "F64 F(F64 x){return x**2.0;} F(42.0);"; "I64 *A; A;"; "\"unsupported\";";
     ]
 
 let separate_tasks_and_gc () =

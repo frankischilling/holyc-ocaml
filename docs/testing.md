@@ -567,7 +567,9 @@ initializers, stable cross-fragment writes, declared widths, unsigned words,
 reached faults and exact cumulative native limits. It distinguishes native
 runtime work from closed preparation and interpreter runtime counters. Arena
 ownership, garbage collection, independent tasks, raw admission shapes and
-capacity bounds have separate controls. The CLI suite runs the maintained
+capacity bounds have separate controls. F64 source controls check exact JIT
+declaration work, zero interpreted runtime instructions, once-allocated storage
+and the separate AOT declaration/assignment boundary. The CLI suite runs the maintained
 `native-source-initializers.hc` and `native-source-arrays.hc` fixtures through
 `host-jit-task`, checks individual fragment reports and compares the result with independent IR and isolated AOT
 native runs. See [native source tasks](native-source-tasks.md).

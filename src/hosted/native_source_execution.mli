@@ -70,15 +70,15 @@ val evaluate :
   source:Common.Source_file.t ->
   max_steps:int ->
   report
-(** Execute original JIT integer scalar and fixed-array initializer leaves and
-    resumed source commands through one shared native task arena. Each fragment
-    retains its original checked source request and claims its live entry once.
-    Earlier data and initialization flags remain in that arena when later
-    fragments execute. Source admission retains declaration and command metadata
-    without an IR storage copy. The report records actual native outcomes and
-    cumulative native work separately from closed declaration preparation.
-    Fragment observations retain detached image metadata after code and arena
-    release.
+(** Execute original admitted JIT integer and same-class F64 scalar/fixed-array
+    initializer leaves and resumed source commands through one shared native
+    task arena. Each fragment retains its original checked source request and
+    claims its live entry once. Earlier data and initialization flags remain in
+    that arena when later fragments execute. Source admission retains
+    declaration and command metadata without an IR storage copy. The report
+    records actual native outcomes and cumulative native work separately from
+    closed declaration preparation. Fragment observations retain detached image
+    metadata after code and arena release.
 
     One-star callback cells and fixed arrays retain numeric words with separate
     zero executable-owner lanes. Automatic callback storage, fixed callback

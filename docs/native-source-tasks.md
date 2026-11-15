@@ -31,8 +31,14 @@ JIT headers. Native calls reuse the original object/view capture or the copied
 terminated string. The maintained `examples/data-pointer-defaults.hc` prints
 `AB` and returns 42 after two mutations through the same saved alias.
 
-`holyc run --target=host-jit-task --mode=jit` executes integer scalar and fixed
-array initializer leaves during their original parser callbacks. Later source
+`holyc run --target=host-jit-task --mode=jit` executes supported integer and
+same-class F64 scalar/fixed-array initializer leaves during their original
+parser callbacks. Floating preparation follows [native F64 storage](native-f64-storage.md).
+The source API tests retain the F64 result class, an exact eight-byte allocation
+and the eleven-unit initializer allowance: three native instructions plus eight
+copy bytes. A ten-unit allowance preserves the three reached instructions and
+fails before copying. AOT floating declaration preparation remains rejected;
+AOT declarations followed by assignments execute normally. Later source
 commands use the same native storage. The scalar example is:
 
 ```c
@@ -478,7 +484,7 @@ foreign sources and domains, and repeated or expired requests are rejected.
 `examples/native-source-static-copies.hc` returns 69 after a copied byte array
 is mutated across two calls and a later allocation.
 Automatic or parameter references in static initializers,
-partial fixed-array initialization, ordinary pointer/F64/aggregate statics and dynamic
+partial fixed-array initialization, ordinary pointer/aggregate statics and dynamic
 dimensions still return diagnostics. The runtime checks bounds against the
 declared accessible extent, excluding static padding.
 StreamPrint and StreamExePrint keep their separate generated-source and
