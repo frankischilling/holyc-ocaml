@@ -102,9 +102,11 @@ execute initializer leaves once in source order. Retained calls share their
 original private storage, including historical bodies after replacement.
 The compiler's direct literal-copy branch now initializes original fixed byte
 array statics under the same task ownership and initializer allowance.
-Named integer defaults now execute once at their original live header callback,
-including storage effects and calls to retained functions. Later and historical
-calls require the exact original saved word and native completion receipt.
+Named and anonymous integer and F64 defaults now execute once at their original
+live header callback, including storage effects and calls to retained functions.
+Numeric conversion follows the completed expression, and later calls require
+the exact original saved word and native completion receipt. See
+[floating defaults](native-f64-defaults.md).
 Wider defaults, synchronous native StreamExePrint and AOT reference relocation
 remain open. See
 [native source tasks](native-source-tasks.md).

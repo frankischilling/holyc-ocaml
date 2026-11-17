@@ -9222,6 +9222,34 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
                   malformed description
                     "native undefined default lost its original callback value")
           | Opcode.Ic_imm_i64
+            when Option.fold ~none:false ~some:X86_64_float_plan.is_f64
+                   raw.target_type
+                 && List.exists
+                      (fun original -> original == raw)
+                      (Option.value ~default:[]
+                         (Runtime.original_prepared_defaults runtime_calls
+                            ~owner:runtime_owner)) -> (
+              (* PrsFunCall emits IC_IMM_I64 with the original F64 member class.
+                 Its saved word is already converted by declaration preparation;
+                 loading it must preserve every binary64 bit. *)
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | [], Some result, Some target_type, Some (Sequence.Integer bits)
+                when description.flags = 0L
+                     && Lock.clear_flag raw.flags = 0x2000L ->
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  (Load_immediate (value, bits), None)
+              | _ ->
+                  malformed description
+                    "saved floating default lost its original word producer")
+          | Opcode.Ic_imm_i64
             when Lock.clear_flag raw.flags = 0x2000L
                  &&
                  match !calls with

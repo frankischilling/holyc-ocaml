@@ -1,5 +1,23 @@
 # Reference source map
 
+Original live scalar parameter defaults follow `Compiler/PrsVar.HC:619-656`.
+`LexExpression2Bin` creates the expression fragment and `Call` supplies its
+full return word during the original named or anonymous header parse.
+`OptClassFwd` selects the parameter class; its `RT_F64` branch converts an
+integer expression to binary64, while the opposite branch truncates a
+floating expression to integer before saving `dft_val`.
+`Compiler/PrsExp.HC:455-469` later substitutes that saved full word into
+omitted fixed arguments using the reached original header. The live native
+JIT task keeps the actual expression program, executed-work receipt and
+native scalar capture, then applies the same post-Call conversion and
+compares the saved bits with the captured result before publication.
+The public [F64 default example](../examples/native-f64-defaults.hc)
+and [tests](../test/native/test_native_f64_defaults.ml) cover pure F64 bits,
+integer/F64 conversion, selected anonymous headers and retained calls.
+Nested JIT `#exe` retains this task behavior under either outer source mode.
+Isolated and ordinary outer AOT F64 default preparation remain separate
+unsupported paths.
+
 Fixed F64 callback calls follow `PrsFunCall`
 (`Compiler/PrsExp.HC:383-591`): capture the original callee before arguments,
 convert fixed values using their selected classes, preserve the return class
@@ -763,6 +781,16 @@ fragment evidence through argument emission. The existing checked constant
 preparation engine and explicit quotas are hosted policy; this does not claim
 native default-expression machine execution or optimizer parity. See
 [native defaults](native-defaults.md).
+
+Live JIT source tasks execute the original named or anonymous default fragment
+through native entry. The saved scalar word requires an opaque C-created
+capture tied to that program, its actual work, source scope and live arena.
+Completion consumes the capture once and compares the returned word before
+publishing the header. Regressions execute the real entry before substituting
+bits, omitting the capture or changing work; each reaches the corresponding
+guard. This is a hosted authority safeguard around the original
+`PrsVar.HC:629-657` producer and `PrsExp.HC:455-468` saved-value consumer. See
+[live defaults](native-anonymous-defaults.md).
 
 Issue #659 connects the original checked function/body/frame and direct-call
 records to native scalar functions. `PrsStmt.HC:114-170` supplies positive fixed

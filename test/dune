@@ -1,4 +1,9 @@
 (test
+ (name test_binary64_conversion)
+ (modules test_binary64_conversion)
+ (libraries holyc_lib alcotest))
+
+(test
  (name test_native_float_plan)
  (modules test_native_float_plan)
  (libraries holyc_lib alcotest))

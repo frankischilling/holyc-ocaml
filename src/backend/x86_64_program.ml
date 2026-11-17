@@ -79,6 +79,7 @@ type outcome = Completed of execution | Fault of fault
 type task_layout = Task_storage.task_layout
 
 type scalar_program =
+  | Default of Ir.Default_fragment_program.t
   | Internal_binding of Ir.Internal_binding_fragment_program.t
   | Dimension of Ir.Dimension_fragment_program.t
   | Switch_case of Ir.Switch_case_fragment_program.t
@@ -104,6 +105,7 @@ type t = {
   scalar_initializer_ : Ir.Initializer_fragment_program.t option;
   scalar_static_initializer_ : Ir.Static_initializer_program.t option;
   internal_binding_ : Ir.Internal_binding_fragment_program.t option;
+  scalar_default_ : Ir.Default_fragment_program.t option;
 }
 
 let generation value = value.generation_
@@ -115,6 +117,7 @@ let offset value = value.offset_
 let member_metadata value = value.member_metadata_
 let scalar_initializer value = value.scalar_initializer_
 let scalar_static_initializer value = value.scalar_static_initializer_
+let scalar_default value = value.scalar_default_
 
 let scalar_program value =
   match (value.scalar_initializer_, value.scalar_static_initializer_) with
@@ -127,13 +130,17 @@ let scalar_program value =
           value.dimension_,
           value.switch_case_,
           value.offset_,
-          value.member_metadata_ )
+          value.member_metadata_,
+          value.scalar_default_ )
       with
-      | Some program, None, None, None, None -> Some (Internal_binding program)
-      | None, Some program, None, None, None -> Some (Dimension program)
-      | None, None, Some program, None, None -> Some (Switch_case program)
-      | None, None, None, Some program, None -> Some (Offset program)
-      | None, None, None, None, Some program -> Some (Member_metadata program)
+      | Some program, None, None, None, None, None ->
+          Some (Internal_binding program)
+      | None, Some program, None, None, None, None -> Some (Dimension program)
+      | None, None, Some program, None, None, None -> Some (Switch_case program)
+      | None, None, None, Some program, None, None -> Some (Offset program)
+      | None, None, None, None, Some program, None ->
+          Some (Member_metadata program)
+      | None, None, None, None, None, Some program -> Some (Default program)
       | _ -> None)
 
 let data_default value = value.data_default_
@@ -180,6 +187,7 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         scalar_initializer_ = None;
         scalar_static_initializer_ = None;
         internal_binding_ = None;
+        scalar_default_ = None;
       })
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
@@ -209,6 +217,7 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         scalar_initializer_ = None;
         scalar_static_initializer_ = None;
         internal_binding_ = None;
+        scalar_default_ = None;
       })
 
 let project_storage_errors errors =
@@ -228,11 +237,12 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ?data_default ?dimension ?switch_case ?offset
     ?member_metadata ?scalar_initializer ?scalar_static_initializer
-    ?internal_binding ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim
-    ~generation ~source_callback ~runtime_calls ~retained_function_source
-    ~retained_slot_binding ~retained_slot_address_binding
-    ~retained_slot_address_refresh ~retained_parameter_default
-    ~retained_callback_default ~initialization ~entry ~functions () =
+    ?internal_binding ?scalar_default ~max_ir_instructions ~max_code_bytes
+    ~layout ~check ~claim ~generation ~source_callback ~runtime_calls
+    ~retained_function_source ~retained_slot_binding
+    ~retained_slot_address_binding ~retained_slot_address_refresh
+    ~retained_parameter_default ~retained_callback_default ~initialization
+    ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -285,6 +295,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         scalar_initializer_ = scalar_initializer;
         scalar_static_initializer_ = scalar_static_initializer;
         internal_binding_ = internal_binding;
+        scalar_default_ = scalar_default;
         data_default_misc_ =
           Option.is_some data_default
           && Ir.X87_stack.graph entry |> Ir.Block_graph.blocks
@@ -382,7 +393,8 @@ let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
     else Ok None
   in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
-    ?callback_default ?data_default ~max_ir_instructions ~max_code_bytes ~layout
+    ?callback_default ?data_default ~scalar_default:program ~max_ir_instructions
+    ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~generation:(fun () -> Request.generation request)

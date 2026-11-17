@@ -3,8 +3,12 @@
 [Fixed F64 callbacks](native-f64.md#fixed-callback-calls) now transport floating
 arguments and results through owned callback slots, fields, arrays and parameters
 on both native targets. Original callee snapshots, signatures and executable
-ownership remain checked. F64 defaults, variadic F64 arguments and new linked
-precision regions across calls remain outside this support.
+ownership remain checked. Original named and anonymous F64 parameter defaults
+also execute and save full words in live JIT native source tasks, including
+source-proved integer/F64 conversions and nested JIT `#exe` under either outer
+mode. Isolated and ordinary outer AOT floating default preparation, variadic
+F64 arguments and new linked precision regions across calls remain outside
+this support.
 
 [Native F64 storage](native-f64-storage.md) now connects automatic floating
 arrays, packed members and one-level owned pointers to native loads and stores.

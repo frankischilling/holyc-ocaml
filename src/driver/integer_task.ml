@@ -615,6 +615,8 @@ module Native_default = struct
     compiler_options_handler : VM.compiler_options option;
     domain : Domain.id;
     phase : phase Atomic.t;
+    mutable scalar_capture_ :
+      Ir.Default_fragment_program.t Ir.Native_scalar_capture.t option;
   }
 
   type t =
@@ -709,6 +711,19 @@ module Native_default = struct
     then Error "native default work requires its entered original request"
     else VM.record_native_default_steps request.task request.attempt steps
 
+  let record_scalar_capture request capture =
+    if
+      Domain.self () <> request.domain
+      || Atomic.get request.phase <> Entered
+      || Option.is_some request.scalar_capture_
+    then
+      Error "native default capture requires its entered original request once"
+    else (
+      request.scalar_capture_ <- Some capture;
+      Ok ())
+
+  let scalar_capture request = request.scalar_capture_
+
   let create ?(use_active_stream = true) ?compiler_options ?stream_exe_print
       task attempt program_ =
     {
@@ -720,6 +735,7 @@ module Native_default = struct
       compiler_options_handler = compiler_options;
       domain = Domain.self ();
       phase = Atomic.make Offered;
+      scalar_capture_ = None;
     }
 
   let entered request = Atomic.get request.phase = Entered
@@ -730,7 +746,9 @@ module Native_default = struct
       ~valid:(fun () -> Domain.self () = request.domain && entered request)
       request.source_handler
 
-  let close request = Atomic.set request.phase Closed
+  let close request =
+    request.scalar_capture_ <- None;
+    Atomic.set request.phase Closed
 end
 
 module Native_internal_binding = struct
@@ -2114,7 +2132,9 @@ let execute_default_destination ~use_active_stream ?stream_exe_print task
         (fun () ->
           let* value = evaluate request in
           if Native_default.entered request then
-            VM.complete_native_task_default task.state attempt program value
+            VM.complete_native_task_default
+              ?capture:(Native_default.scalar_capture request)
+              task.state attempt program value
             |> Result.map_error (fun message ->
                 [ Integer_source.message_diagnostic ~span message ])
           else
@@ -2153,7 +2173,9 @@ let execute_parameter_default ?(use_active_stream = true) ?stream_exe_print task
     in
     let span = receipt.Frontend.Parser.default_ast.location.span in
     let* destination =
-      Ir.Default_fragment_destination.create ~task_view typed
+      (if Option.is_some task.native_default then
+         Ir.Default_fragment_destination.create_native ~task_view typed
+       else Ir.Default_fragment_destination.create ~task_view typed)
       |> Result.map_error (fun message ->
           [ Integer_source.message_diagnostic ~span message ])
     in
@@ -2178,7 +2200,9 @@ let execute_callback_default ?(use_active_stream = true) ?stream_exe_print task
     in
     let span = receipt.Frontend.Parser.callback_default_ast.location.span in
     let* destination =
-      Ir.Default_fragment_destination.create ~task_view typed
+      (if Option.is_some task.native_default then
+         Ir.Default_fragment_destination.create_native ~task_view typed
+       else Ir.Default_fragment_destination.create ~task_view typed)
       |> Result.map_error (fun message ->
           [ Integer_source.message_diagnostic ~span message ])
     in

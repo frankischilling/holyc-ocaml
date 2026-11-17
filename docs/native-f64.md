@@ -78,8 +78,12 @@ Both native targets support fixed F64 callback parameters and results in JIT
 and AOT source modes. Global, static, automatic, array and member callback slots
 retain the selected header and original executable owner. Mixed integer/F64
 parameters, U0 returns, saved integer defaults and borrowed F64 pointer arguments
-use the existing checked callback path. F64 defaults and variadic F64 arguments
-remain unsupported.
+use the existing checked callback path. Live JIT native source tasks now also
+save F64 defaults on named and anonymous callback headers with the original
+eight-byte conversion and capture rules, including nested JIT `#exe`
+entered from either outer mode; see [live F64 defaults](native-f64-defaults.md).
+Isolated and ordinary outer AOT floating default preparation, and variadic F64
+arguments, remain unsupported.
 
 The [callback example](../examples/native-f64-callbacks.hc) passes an owned
 two-argument callback to `Apply` and returns F64 3.75. The callee is captured
@@ -210,8 +214,9 @@ constant-only comparisons without a normalization proof, comparison results
 converted to F64, arithmetic-wrapped comparison conditions, remainder, power,
 shifts, compound updates, increment/decrement, other floating intrinsics,
 variadic F64 arguments, `%f`, deeper F64 pointers, pointer arrays, closed
-AOT/isolated F64 initializer preparation and F64 parameter defaults remain
-unsupported. Mixed functions containing F64 also reject narrow integer frame
+AOT/isolated F64 initializer preparation and F64 default preparation outside
+the admitted live JIT native source-task path remain unsupported.
+Mixed functions containing F64 also reject narrow integer frame
 members unless their register or stack selection has an authenticated allocation
 proof; `noreg` alone does not supply that proof. I64/U64 control variables do not
 have this width-dependent ambiguity. A nested source

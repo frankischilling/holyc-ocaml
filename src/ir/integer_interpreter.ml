@@ -4588,7 +4588,8 @@ let record_native_default_steps task attempt steps =
     attempt.default_native_work <- Some steps;
     Ok ())
 
-let complete_native_task_default task attempt program value =
+let complete_native_task_default ?capture task attempt program value =
+  let ( let* ) = Result.bind in
   let destination = Default_fragment_program.destination program in
   if
     (not task.native_storage_authority)
@@ -4645,14 +4646,39 @@ let complete_native_task_default task attempt program value =
   then
     Error
       "native callback default lost its original expression or admitted body"
-  else (
+  else
+    let* () =
+      match Saved_parameter_value.word_bits value with
+      | None -> Ok ()
+      | Some expected ->
+          let* capture =
+            match capture with
+            | Some capture -> Ok capture
+            | None ->
+                Error "native scalar default has no executed result capture"
+          in
+          let* actual =
+            Native_scalar_capture.consume
+              ?scope:
+                (match task.resources.native_source_scopes with
+                | [] -> None
+                | scope :: _ -> Some scope)
+              capture ~program
+              ~work:(Option.get attempt.default_native_work)
+          in
+          let actual =
+            Default_fragment_destination.convert_native_word destination actual
+          in
+          if Int64.equal actual expected then Ok ()
+          else Error "native scalar default differs from its executed result"
+    in
     attempt.default_value <- Some value;
     attempt.default_fragment <-
       Some (Default_fragment_destination.fragment destination);
     attempt.default_bits <- Saved_parameter_value.word_bits value;
     attempt.default_native <- true;
     attempt.default_state <- Successful_initializer;
-    Ok ())
+    Ok ()
 
 let task_native_parameter_default task ~globals ~header ~parameter prepared =
   if

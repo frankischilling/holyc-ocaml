@@ -398,11 +398,16 @@ val claim_native_task_default :
   (unit, string) result
 
 val complete_native_task_default :
+  ?capture:Default_fragment_program.t Native_scalar_capture.t ->
   task_state ->
   default_attempt ->
   Default_fragment_program.t ->
   Saved_parameter_value.t ->
   (unit, string) result
+(** Scalar words require the actual native capture. Completion consumes it with
+    the original program, recorded work, current source scope and live arena,
+    then checks the saved bits before publishing. Owned values keep their
+    separate source and ownership checks. *)
 
 val record_native_default_steps :
   task_state -> default_attempt -> int -> (unit, string) result

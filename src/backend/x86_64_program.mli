@@ -365,6 +365,7 @@ val function_slot_bindings : t -> (int * int) list
 val internal_binding : t -> Ir.Internal_binding_fragment_program.t option
 
 type scalar_program =
+  | Default of Ir.Default_fragment_program.t
   | Internal_binding of Ir.Internal_binding_fragment_program.t
   | Dimension of Ir.Dimension_fragment_program.t
   | Switch_case of Ir.Switch_case_fragment_program.t
@@ -374,6 +375,7 @@ type scalar_program =
   | Static_initializer of Ir.Static_initializer_program.t
 
 val scalar_program : t -> scalar_program option
+val scalar_default : t -> Ir.Default_fragment_program.t option
 val dimension : t -> Ir.Dimension_fragment_program.t option
 val switch_case : t -> Ir.Switch_case_fragment_program.t option
 val offset : t -> Ir.Offset_fragment_program.t option

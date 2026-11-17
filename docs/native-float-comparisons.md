@@ -168,7 +168,11 @@ results, including the tested local materialization in the same caller, still
 lack a source normalization proof and remain rejected.
 Callback declaration initializers work in AOT and live JIT source tasks;
 isolated JIT compilation retains its closed-expression initializer restriction.
-F64 saved defaults and variadic F64 callback arguments remain unsupported.
+Live JIT native source tasks now admit saved F64 defaults on the selected
+named or anonymous callback header; their result transport crosses calls as
+materialized words. Nested JIT `#exe` uses that source-task behavior under
+either outer mode. Isolated and ordinary outer AOT floating default preparation
+and variadic F64 callback arguments remain unsupported.
 
 Constant-only comparisons without a normalization proof, comparison results
 converted to F64, floating comparison chains, short circuit, floating globals,

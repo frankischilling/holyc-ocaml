@@ -72,7 +72,7 @@ let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
   |> Sema.Type_reference.resolved_type
 
-let supported_parameter ?(allow_data = false) parameter =
+let supported_parameter ?(allow_data = false) ?(allow_f64 = false) parameter =
   let stack_register =
     match Headers.parameter_register_selection parameter with
     | Sema.Register_request.Unspecified | Sema.Register_request.Disabled -> true
@@ -85,6 +85,12 @@ let supported_parameter ?(allow_data = false) parameter =
   | Headers.Object ->
       let type_ = parameter_type parameter in
       scalar_word type_
+      || (allow_f64
+         && Type.pointer_depth type_ = 0
+         &&
+         match Type.base type_ with
+         | Type.Primitive (_, Sema.Primitive_type.F64) -> true
+         | _ -> false)
       || (Type.pointer_depth type_ = 0
          &&
          match Type.base type_ with
@@ -133,8 +139,8 @@ let execution_type_matches fragment prepared_type destination =
 let same_requirement left_header left_parameter right_header right_parameter =
   left_header == right_header && left_parameter == right_parameter
 
-let add_requirements ?(allow_data = false) globals prepared requirements header
-    =
+let add_requirements ?(allow_data = false) ?(allow_f64 = false) globals prepared
+    requirements header =
   let parameters =
     header |> Headers.function_signature |> Headers.signature_parameters
   in
@@ -150,7 +156,7 @@ let add_requirements ?(allow_data = false) globals prepared requirements header
         when not allow_data ->
           Error "native parameter defaults do not admit string-backed values"
       | Some (Headers.Expression_default _) ->
-          if not (supported_parameter ~allow_data parameter) then
+          if not (supported_parameter ~allow_data ~allow_f64 parameter) then
             Error
               "native parameter defaults require scalar integer objects or \
                original one-star callback-word parameters"
@@ -263,8 +269,8 @@ let callback_pointers ?runtime_calls globals functions =
     runtime_calls;
   !pointers
 
-let add_callback_requirements ?(allow_data = false) globals prepared
-    requirements pointer =
+let add_callback_requirements ?(allow_data = false) ?(allow_f64 = false) globals
+    prepared requirements pointer =
   let ( let* ) = Result.bind in
   List.fold_left
     (fun result parameter ->
@@ -277,7 +283,7 @@ let add_callback_requirements ?(allow_data = false) globals prepared
         when not allow_data ->
           Error "native callback defaults do not admit string-backed values"
       | Some (Headers.Expression_default _) ->
-          if not (supported_parameter ~allow_data parameter) then
+          if not (supported_parameter ~allow_data ~allow_f64 parameter) then
             Error
               "native callback defaults require scalar integer objects or \
                original one-star callback-word parameters"
@@ -504,8 +510,8 @@ let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
         parameters
     in
     let* requirements =
-      add_requirements ~allow_data:true source_globals prepared requirements
-        header
+      add_requirements ~allow_data:true ~allow_f64:true source_globals prepared
+        requirements header
     in
     let* () =
       List.fold_left
@@ -595,8 +601,8 @@ let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
         parameters
     in
     let* requirements =
-      add_callback_requirements ~allow_data:true source_globals prepared
-        requirements pointer
+      add_callback_requirements ~allow_data:true ~allow_f64:true source_globals
+        prepared requirements pointer
     in
     let* () =
       List.fold_left

@@ -845,7 +845,28 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       [ Driver.Integer_source.message_diagnostic ~span message ])
               | true, None, Some value, None -> Ok value
               | true, Some word, None, None ->
-                  Ok (Ir.Saved_parameter_value.word word.bits)
+                  let* capture =
+                    Native.finish_task_default ?scope:(current_scope ()) arena
+                      image
+                    |> Result.map_error (fun message ->
+                        [
+                          Driver.Integer_source.message_diagnostic ~span message;
+                        ])
+                  in
+                  let* () =
+                    Request.record_scalar_capture request capture
+                    |> Result.map_error (fun message ->
+                        [
+                          Driver.Integer_source.message_diagnostic ~span message;
+                        ])
+                  in
+                  let bits =
+                    Ir.Default_fragment_destination.convert_native_word
+                      (Request.program request
+                     |> Ir.Default_fragment_program.destination)
+                      word.bits
+                  in
+                  Ok (Ir.Saved_parameter_value.word bits)
               | _ ->
                   Error
                     [

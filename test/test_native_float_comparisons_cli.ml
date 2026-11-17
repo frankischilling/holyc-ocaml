@@ -436,6 +436,9 @@ let cases =
         1L );
     ]
 
+let floating_callback_default =
+  "I64 F(F64 a){return a<0.0;}I64 (*p)(F64 a=1.0);p=&F;p();"
+
 let excluded =
   [
     ( "mixed integer read versus float zero less",
@@ -455,8 +458,6 @@ let excluded =
     ("short circuit", "I64 F(F64 a,F64 b){return a<b&&b>a;}F(1.0,2.0);");
     ("floating global", "F64 G=1.0;I64 F(F64 x){return x<G;}F(0.0);");
     ("compound update", "I64 F(F64 a,F64 b){a+=b;return a>b;}F(1.0,2.0);");
-    ( "floating callback default",
-      "I64 F(F64 a){return a<0.0;}I64 (*p)(F64 a=1.0);p=&F;p();" );
     ( "floating variadic callback argument",
       "I64 F(I64 a,...){return a;}I64 (*p)(I64 a,...);p=&F;p(42,1.0);" );
     ( "unproved comparison of callback argument materialization",
@@ -637,6 +638,18 @@ let () =
         check (mode ^ " retained recovery") (fun () -> retained mode);
       List.iter
         (fun target ->
+          check
+            (mode ^ target ^ " floating callback default")
+            (fun () ->
+              if mode = "jit" && target = "host-jit-task" then (
+                if native && Native_execution.x87_supported () then
+                  invoke ~target ~mode "floating callback default"
+                    floating_callback_default
+                  |> successful "floating callback default" 0L)
+              else
+                invoke ~status:1 ~target ~mode
+                  "isolated floating callback default" floating_callback_default
+                |> rejected "isolated floating callback default");
           List.iter
             (fun (label, source) ->
               check

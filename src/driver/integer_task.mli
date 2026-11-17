@@ -383,6 +383,15 @@ module Native_default : sig
       request expires when its synchronous source callback returns. *)
 
   val record_steps : request -> int -> (unit, string) result
+
+  val record_scalar_capture :
+    request ->
+    Ir.Default_fragment_program.t Ir.Native_scalar_capture.t ->
+    (unit, string) result
+  (** Scalar completion requires the actual native capture, bound to the
+      original program, work, source scope and live arena. Recording work or
+      returning a word alone cannot authorize publication. The capture is
+      offered once after entry and consumed by completion. *)
 end
 
 module Native_internal_binding : sig

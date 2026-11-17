@@ -18,10 +18,40 @@ Both preprocessing modes use their original source identities and produce a
 hosted native image. AOT mode here does not write an object or TempleOS BIN.
 
 The separate JIT [native source-task path](native-source-tasks.md) executes
-named and anonymous integer defaults containing live storage reads, updates and
-retained calls. One-star callback parameters can also save original owned values.
-It uses original native expression fragments and saved-header receipts. See
-[live anonymous defaults](native-anonymous-defaults.md).
+named and anonymous integer and F64 defaults containing live storage reads,
+updates and retained calls. One-star callback parameters can also save original
+owned values. It uses original native expression fragments and saved-header
+receipts. See [live anonymous defaults](native-anonymous-defaults.md).
+Scalar source-task defaults bind their saved word to an opaque capture from the
+actual native entry. Completion checks the original program, work, source scope
+and live arena before publication. This path is separate from the closed VM
+preparation used by isolated `host-jit` below.
+
+The JIT task also admits original scalar defaults whose expression and selected
+parameter are in different integer/F64 families. TempleOS
+`PrsVar.HC:629-656` evaluates the expression before converting its full saved
+word to the forwarded parameter class. Integer-to-F64 uses signed integer input
+and binary64 nearest-even rounding; F64-to-integer truncates toward zero. NaN,
+infinity and out-of-range integer conversions produce the masked x87
+integer-indefinite word. A same-class F64 default preserves all eight source
+bits, including signed zero and signaling-NaN payloads. Conversion runs only
+after the original native scalar capture; completion separately converts those
+captured bits before comparing them to the saved value. No OCaml floating-point
+reinterpretation or fabricated native result authorizes a default.
+
+The maintained [F64 default example](../examples/native-f64-defaults.hc)
+saves one converted named value and one anonymous callback value, then returns
+F64 3.75 (`0x400e000000000000`) through `host-jit-task --mode=jit`.
+The dedicated [live F64 default guide](native-f64-defaults.md) describes the
+initialized x87 conversion profile and exact supported execution boundary.
+The [public regression suite](../test/native/test_native_f64_defaults.ml)
+checks exact bits, declaration-time effects, nontrailing omission, unused
+headers, native-only execution, source-selected callback defaults and
+preparation/payload limits. Isolated and outer AOT preparation keep their
+existing separate gates. An original JIT `#exe` block entered while the outer
+compiler is in either JIT or AOT mode uses the JIT task path: the regression
+executes `Nested(F64 value=1.5)`, saves eight bytes and injects a final
+`42;` statement. Seven saved-default bytes reject before publication.
 One-level primitive [data-pointer defaults](data-pointer-defaults.md) retain
 original task objects and views; string-producing expressions copy their
 terminated result into fresh mutable storage.
@@ -141,8 +171,12 @@ time, converts its result, stores `dft_val` and sets `MLF_DFT_AVAILABLE`.
 The hosted constant-preparation engine is an explicit bounded implementation of
 that behavior, not evidence that general default expressions execute natively.
 
-Effectful defaults, interleaved source execution, owned strings, `lastclass`,
-non-integer/pointer types and native `#exe` require further work. Optimizer
+For isolated `host-jit`, effectful defaults, interleaved source execution,
+owned strings, `lastclass`, F64 parameter defaults and other unsupported
+value classes still require further work. The live JIT source-task slice above,
+including nested JIT `#exe` in either outer mode, does not authorize general
+aggregate/pointer conversion or ordinary outer AOT floating default
+preparation. Optimizer
 work under #585/#593/#696/#697 remains separate. Fully constant source shifts now fold to known words under #787 while retaining original preparation proofs; nonconstant shifts keep their gate. Full HolyC ABI, assembler/BIN output,
 actual TempleOS loader acceptance, whole-tree compilation and bootstrap are not
 completed by this gate.

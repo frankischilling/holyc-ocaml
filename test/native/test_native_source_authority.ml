@@ -1835,7 +1835,10 @@ let native_static_copy_host_bounds () =
         "unaffected flag representations remain valid" 1
         (raw_static_copy corrupt (40, 0, 32, "A")))
 
-let native_default_source_authority_case ?(callback_saved = false) text () =
+let native_default_source_authority_case ?(callback_saved = false)
+    ?substitute_word ?(omit_capture = false) ?(work_delta = 0)
+    ?(zero_work = false) ?(expected_defaults = 2)
+    ?(expected_final = Dispatch.I64 42L) text () =
   let module Request = Task.Native_default in
   let module Program = Holyc_lib__Ir.Default_fragment_program in
   let module Destination = Holyc_lib__Ir.Default_fragment_destination in
@@ -2032,6 +2035,11 @@ let native_default_source_authority_case ?(callback_saved = false) text () =
         ignore
           (Image.compile_task_default ~status_abi ~layout request |> compiled))
       [ Image.Windows_x64; Image.System_v_x64 ];
+    let other_image =
+      Image.compile_task_default ~status_abi:(host_status_abi ()) ~layout
+        request
+      |> compiled
+    in
     Gc.full_major ();
     let image =
       Image.compile_task_default ~status_abi:(host_status_abi ()) ~layout
@@ -2051,8 +2059,24 @@ let native_default_source_authority_case ?(callback_saved = false) text () =
          ~executed_steps:0L ~value_site:(-100_001L) ~bits:1L);
     let before = (Runtime.budget_progress budget).executed_steps in
     let report, result = execute image in
+    if Option.is_some result.final_value && not omit_capture then (
+      rejected "another scalar kind cannot acquire a default capture"
+        (Runtime.finish_task_dimension arena image);
+      rejected "another original default image cannot take the capture"
+        (Runtime.finish_task_default arena other_image);
+      let capture = Runtime.finish_task_default arena image |> checked in
+      rejected "default scalar capture cannot be taken twice"
+        (Runtime.finish_task_default arena image);
+      Request.record_scalar_capture request capture |> checked;
+      rejected "default scalar capture cannot be recorded twice"
+        (Request.record_scalar_capture request capture));
+    let actual_work =
+      (Runtime.budget_progress budget).executed_steps - before
+    in
+    Alcotest.(check bool)
+      "native original default executes nonzero work" true (actual_work > 0);
     Request.record_steps request
-      ((Runtime.budget_progress budget).executed_steps - before)
+      (if zero_work then 0 else actual_work + work_delta)
     |> checked;
     rejected "native default work cannot replay"
       (Request.record_steps request 1);
@@ -2063,7 +2087,15 @@ let native_default_source_authority_case ?(callback_saved = false) text () =
       "default captured its original native word" true
       (Runtime.value_captured report);
     match (result.final_value, result.captured_callback) with
-    | Some word, None -> Ok (Holyc_lib__Ir.Saved_parameter_value.word word.bits)
+    | Some word, None ->
+        let actual_bits =
+          Destination.convert_native_word
+            (Program.destination program)
+            word.bits
+        in
+        Ok
+          (Holyc_lib__Ir.Saved_parameter_value.word
+             (Option.value substitute_word ~default:actual_bits))
     | None, Some value -> Ok value
     | _ ->
         Alcotest.fail "native default did not capture one original saved value"
@@ -2075,27 +2107,108 @@ let native_default_source_authority_case ?(callback_saved = false) text () =
         Source.run ~native_dispatch ~native_default session ~config ~source
           ~max_steps:100_000
       in
-      Source.outcome report |> Result.map_error describe |> checked |> ignore;
-      Alcotest.(check int)
-        "each original header default executes once" 2 !executions;
-      Alcotest.(check bool)
-        "later native default consumes prior original saved value" true
-        !checked_saved;
-      Alcotest.(check bool)
-        "saved default reaches later native caller" true
-        (Source.native_final_value report = Some (Dispatch.I64 42L));
-      List.iter
-        (fun request ->
-          rejected "closed source request has no default compilation authority"
-            (Request.check request);
-          rejected "closed source cannot report work"
-            (Request.record_steps request 0))
-        !saved)
+      if
+        Option.is_some substitute_word
+        || omit_capture || work_delta <> 0 || zero_work
+      then (
+        let expected =
+          if omit_capture then
+            "native scalar default has no executed result capture"
+          else if work_delta <> 0 || zero_work then
+            "native internal binding has another program or actual work"
+          else "native scalar default differs from its executed result"
+        in
+        Alcotest.(check bool)
+          "substituted native default cannot publish" true
+          (Result.is_error (Source.outcome report));
+        Alcotest.(check bool)
+          "reaches the original scalar-result guard" true
+          (match Source.outcome report with
+          | Error errors ->
+              List.exists
+                (fun (error : Diagnostic.t) -> error.message = expected)
+                errors
+          | Ok _ -> false);
+        Alcotest.(check int) "failure stops the next default" 1 !executions;
+        Alcotest.(check bool)
+          "failed default publishes no later result" true
+          (Source.native_final_value report = None))
+      else (
+        Source.outcome report |> Result.map_error describe |> checked |> ignore;
+        Alcotest.(check int)
+          "each original header default executes once" expected_defaults
+          !executions;
+        Alcotest.(check bool)
+          "later native default consumes prior original saved value" true
+          !checked_saved;
+        Alcotest.(check bool)
+          "saved default reaches later native caller" true
+          (Source.native_final_value report = Some expected_final);
+        List.iter
+          (fun request ->
+            rejected
+              "closed source request has no default compilation authority"
+              (Request.check request);
+            rejected "closed source cannot report work"
+              (Request.record_steps request 0))
+          !saved))
 
 let native_default_source_authority () =
   native_default_source_authority_case
     "I64 Seed(){return 41;}I64 A(I64 n=Seed()){return n;}I64 B(I64 \
      n=A()){return n+1;}B();"
+    ()
+
+let native_default_result_substitution () =
+  native_default_source_authority_case ~substitute_word:17L
+    "I64 Seed(){return 41;}I64 A(I64 n=Seed()){return n;}I64 B(I64 \
+     n=A()){return n+1;}B();"
+    ()
+
+let native_default_missing_capture () =
+  native_default_source_authority_case ~omit_capture:true
+    "I64 Seed(){return 41;}I64 A(I64 n=Seed()){return n;}I64 B(I64 \
+     n=A()){return n+1;}B();"
+    ()
+
+let native_default_work_substitution () =
+  native_default_source_authority_case ~work_delta:1
+    "I64 Seed(){return 41;}I64 A(I64 n=Seed()){return n;}I64 B(I64 \
+     n=A()){return n+1;}B();"
+    ()
+
+let native_default_zero_reported_work () =
+  native_default_source_authority_case ~zero_work:true
+    "I64 Seed(){return 41;}I64 A(I64 n=Seed()){return n;}I64 B(I64 \
+     n=A()){return n+1;}B();"
+    ()
+
+let native_f64_default_source_authority () =
+  native_default_source_authority_case
+    ~expected_final:(Dispatch.F64 0x3ff8_0000_0000_0000L)
+    "F64 Seed(){return 1.5;}F64 A(F64 n=Seed()){return n;}F64 B(F64 \
+     n=A()){return n;}B();"
+    ()
+
+let native_integer_to_f64_default_source_authority () =
+  native_default_source_authority_case
+    ~expected_final:(Dispatch.F64 0x4045_0000_0000_0000L)
+    "I64 Seed(){return 41;}F64 A(F64 n=Seed()){return n;}F64 B(F64 \
+     n=A()){return n+1.0;}B();"
+    ()
+
+let native_f64_to_integer_default_source_authority () =
+  native_default_source_authority_case
+    "F64 Seed(){return 41.75;}I64 A(I64 n=Seed()){return n;}I64 B(I64 \
+     n=A()){return n+1;}B();"
+    ()
+
+let native_anonymous_f64_default_source_authority () =
+  native_default_source_authority_case ~callback_saved:true
+    ~expected_final:(Dispatch.F64 0x3ff8_0000_0000_0000L)
+    "F64 Seed(){return 1.5;}F64 Value(F64 n){return n;}F64 Run(){F64 (*p)(F64 \
+     n=Seed());p=&Value;return p();}F64 Answer(F64 n=Run()){return \
+     n;}Answer();"
     ()
 
 let native_owned_default_source_authority () =
@@ -3228,6 +3341,22 @@ let () =
           Alcotest.test_case
             "original native defaults, saved words, both ABIs and lifetime"
             `Quick native_default_source_authority;
+          Alcotest.test_case "substituted native default result cannot publish"
+            `Quick native_default_result_substitution;
+          Alcotest.test_case "native default requires actual scalar capture"
+            `Quick native_default_missing_capture;
+          Alcotest.test_case "native default requires actual captured work"
+            `Quick native_default_work_substitution;
+          Alcotest.test_case "native default rejects zero reported actual work"
+            `Quick native_default_zero_reported_work;
+          Alcotest.test_case "F64 defaults retain original native scalar bits"
+            `Quick native_f64_default_source_authority;
+          Alcotest.test_case "integer defaults convert to captured F64 words"
+            `Quick native_integer_to_f64_default_source_authority;
+          Alcotest.test_case "F64 defaults convert to saved integer words"
+            `Quick native_f64_to_integer_default_source_authority;
+          Alcotest.test_case "anonymous callback defaults save F64 words" `Quick
+            native_anonymous_f64_default_source_authority;
           Alcotest.test_case
             "original owned defaults, saved identity, both ABIs and expiry"
             `Quick native_owned_default_source_authority;

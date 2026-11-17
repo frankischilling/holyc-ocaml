@@ -37,6 +37,18 @@ Numeric callback defaults retain their full word and zero executable authority.
 Reached calls check ownership and the original signature after the ordinary
 reverse argument effects.
 
+The same JIT source-task path admits scalar F64 parameter defaults on named
+and anonymous headers. A selected anonymous header supplies its saved F64 word
+even if the invoked body declares a different default. Integer/F64 expression
+conversions take place after the real native expression returns and before the
+full eight-byte word is saved; same-class F64 values retain exact raw bits.
+The [F64 example](../examples/native-f64-defaults.hc) calls `Named` during
+the original anonymous declaration and later returns 3.75 from its saved
+value. The [F64 default guide](native-f64-defaults.md) documents its numeric
+conversion and x87 boundaries. The maintained [F64 tests](../test/native/test_native_f64_defaults.ml)
+also exercise a different target header, original effects, fractional
+conversions and unchanged saved words across later calls.
+
 Run the combined maintained example with:
 
 ```sh
@@ -55,6 +67,14 @@ Equal bits, copied saved objects or a foreign request cannot substitute for
 them. Saved source values contain no native PC. The existing owner mapping
 checks any live PC before capturing an original retained function value.
 
+Scalar words require the opaque capture created by the actual native entry.
+Completion checks its original program, reached work, source scope and live
+arena, consumes it once, and compares the saved word with the captured result.
+Returning decoded report bits or charging work alone cannot publish a default.
+Custom `Native_default` consumers take the capture with
+`Native_program_execution.finish_task_default` and attach it using
+`Native_default.record_scalar_capture` before returning the saved word.
+
 Callback calls inside named and anonymous defaults retain their original typed
 call records. Scheduled integer static initializers also retain the original
 function callback source, exact initializer root and complete entry region.
@@ -70,6 +90,10 @@ Tests cover original header shapes, callback calls inside defaults, historical
 owners, once-only effects, result latches, reached faults and exact/one-below
 limits. Authority controls compile both private ABIs, execute the host ABI,
 reject copied or changed values, and check domains, replay, collection and expiry.
+Scalar controls execute the genuine default before substituting a different
+word, omitting its capture or reporting different work. Each reaches its result
+guard and stops the next header default. Authentic neighboring cases retain
+once-only execution and saved values.
 Copied owned-default and static-initializer instruction records lose their
 complete sealed graph authority before execution.
 
@@ -84,5 +108,8 @@ Static callback storage in the streaming native task still needs its original
 allocation connection. Direct automatic callback initializers retain the pinned
 `HCPARSE0137` rejection; static initialization has a separate source branch.
 AOT reference defaults still require output relocation and callable authority.
-String, ordinary object-pointer, F64, aggregate and `lastclass` defaults, provider
-callback entries, member callbacks and the broader compiler remain required work.
+String, ordinary object-pointer, general aggregate and `lastclass` defaults,
+provider callback entries, member callbacks and the broader compiler remain
+required work. Isolated and ordinary outer AOT floating default preparation
+also remain gated; nested JIT `#exe` retains its own source-task defaults
+even when entered from an outer AOT compiler.

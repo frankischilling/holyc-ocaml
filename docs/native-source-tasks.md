@@ -161,8 +161,9 @@ address. Joined bodies are charged as part of the bounded caller closure, with
 cycles and shared dependencies included once per image. Initializer and named
 default fragments use the same source resolver.
 
-Named and anonymous integer and one-star callback parameter defaults execute once at the original live header
-callback. `examples/native-source-defaults.hc` saves 41 from `Seed()`, returns
+Named and anonymous integer, F64 and one-star callback parameter defaults execute
+once at the original live header callback. `examples/native-source-defaults.hc`
+saves 41 from `Seed()`, returns
 42 from `Answer()`, changes the source counter and returns 42 again. Each
 omitted argument loads the saved value from its original header. Explicit
 arguments and unused functions still require the declaration-time default to
@@ -177,17 +178,24 @@ must use its exact published saved object and completed native execution.
 Equal bits, copied saved objects and another source snapshot grant no authority.
 Closed preparation and interpreter execution do not supply these native values.
 
-Defaults can read and update admitted integer or callback storage and call retained
-integer functions, including functions with earlier saved defaults. Actual expression
+Numeric defaults convert the completed expression word before publishing the
+saved value. Integer-to-F64 conversion treats the full word as signed and rounds
+to nearest with ties to even. F64-to-integer conversion truncates toward zero;
+same-class F64 defaults preserve their exact bits. Later omissions load that saved
+word with the original parameter class. See [floating defaults](native-f64-defaults.md)
+for conversion boundaries and public examples.
+
+Defaults can read and update admitted scalar or callback storage and call retained
+scalar functions, including functions with earlier saved defaults. Actual expression
 instructions consume both the shared native step allowance and the remaining
 initializer allowance. Each successfully captured default retains eight bytes,
 reported by `Native_source_execution.default_bytes` and JSON
 `prepared_default_bytes`, under `max_default_bytes`. Code, output, frame and
 call-depth limits keep their existing cumulative or per-activation meanings.
 Reached faults preserve earlier native writes, output and work; later defaults
-and body publication stop. Named scalar-pointer, string, F64 and
-aggregate defaults and `lastclass` remain separate
-work. The isolated `host-jit` target keeps its closed-default restriction.
+and body publication stop. Broader pointer and aggregate defaults, `lastclass`
+and ordinary AOT preparation remain separate work. The isolated `host-jit`
+target keeps its closed-default restriction.
 
 The task publishes function source records when its original declaration
 request claims admission. Rejection before that claim leaves the registry
@@ -430,7 +438,7 @@ in OCaml.
 This source-task path supports integer globals, fixed integer arrays,
 integer and one-star callback function statics, retained direct and joined JIT
 extern calls, their original literals, numeric and owned callback storage, and
-named or anonymous integer and one-star callback defaults, original Print,
+named or anonymous integer, F64 and one-star callback defaults, original Print,
 PutChars and stream callback entries, and native JIT `#exe` generation.
 Runtime-dependent integer dimensions and aggregate offsets use their original
 native scalar captures. Wider callback defaults and broader outer AOT module execution
@@ -520,9 +528,11 @@ storage. The shared task arena preserves the original mutable bytes under the
 hosted ownership and lifetime rules described above.
 
 `Compiler/PrsVar.HC:629-656` compiles and calls the original default expression,
-keeps its full returned word in the parameter member, and marks the default
-available. `Compiler/PrsExp.HC:455-469` uses that saved word when an argument is
-omitted. The native task connection preserves this timing and original header;
+applies the selected integer/F64 conversion to its returned word, stores it in
+the parameter member, and marks the default available.
+`Compiler/PrsExp.HC:455-469` emits that saved word as `IC_IMM_I64` with the
+original member class when an argument is omitted. The native task connection
+preserves this timing and original header;
 its private capability checks and quotas are hosted policy. It adds no new
 TempleOS runtime capture.
 

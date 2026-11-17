@@ -196,6 +196,7 @@ external bind_task_entries :
   bool = "holyc_native_bind_task_entries"
 
 type scalar_capture =
+  | Default_capture of Ir.Default_fragment_program.t Ir.Native_scalar_capture.t
   | Binding_capture of Ir.Native_internal_binding_capture.t
   | Dimension_capture of
       Ir.Dimension_fragment_program.t Ir.Native_scalar_capture.t
@@ -568,6 +569,17 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                 execute_retained_budget_task_program
                                   (Option.get retained) task limits consumed
                                   (Option.get entered)
+                            | Some (Image.Default program) ->
+                                let report, capture =
+                                  execute_retained_budget_scalar_program
+                                    (Option.get retained) task limits consumed
+                                    (Option.get entered, program)
+                                in
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value -> Default_capture value)
+                                    capture;
+                                report
                             | Some (Image.Internal_binding program) ->
                                 let report, capture =
                                   execute_retained_budget_scalar_program
@@ -1078,6 +1090,26 @@ let admit_task_snapshot_locked ?scope arena snapshot =
             Atomic.set arena.admitted_bytes_ observed;
             Ok observed)
         with Failure message | Invalid_argument message -> Error message
+
+let finish_task_default ?scope arena image =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let reached = Atomic.get arena.scalar_capture_ in
+      match
+        (Image.task_snapshot image, Image.scalar_default image, reached)
+      with
+      | Some snapshot, Some _, Some (entered, Default_capture captured)
+        when (not (Atomic.get arena.arena_revoked_))
+             && entered == image
+             && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
+          Ok captured
+      | _ ->
+          Error
+            "native default capture has another original image, kind or arena")
 
 let finish_task_internal_binding ?scope arena image =
   let ( let* ) = Result.bind in

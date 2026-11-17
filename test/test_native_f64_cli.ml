@@ -441,6 +441,8 @@ let callback_cases =
       0x3ff8000000000000L );
   ]
 
+let floating_default = "F64 F(F64 x=1.0){return x;}F();"
+
 let excluded =
   [
     ( "unproved literal reassociation",
@@ -451,7 +453,6 @@ let excluded =
     ("pointer array", "F64 F(){F64 *x[2];return 1.0;}42;");
     ("global pointer", "F64 *x;42;");
     ("static pointer", "F64 F(){static F64 *x;return 1.0;}42;");
-    ("default", "F64 F(F64 x=1.0){return x;}42;");
     ( "floating variadic callback argument",
       "I64 First(I64 x,...){return x;}I64 (*f)(I64 x,...);f=&First;f(42,1.0);"
     );
@@ -985,6 +986,14 @@ let () =
       |> rejected "IR float boundary";
       List.iter
         (fun target ->
+          if mode = "jit" && target = "host-jit-task" then (
+            if native && Native_execution.x87_supported () then
+              invoke ~target ~mode "floating default" floating_default
+              |> successful "floating default" 0x3ff0000000000000L)
+          else
+            invoke ~status:1 ~target ~mode "isolated floating default"
+              floating_default
+            |> rejected "isolated floating default";
           List.iter
             (fun (label, source) ->
               invoke ~status:1 ~target ~mode label source |> rejected label)

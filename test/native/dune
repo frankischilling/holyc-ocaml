@@ -1308,6 +1308,20 @@
   (run %{exe:test_native_source_authority.exe})))
 
 (executable
+ (name test_native_f64_defaults)
+ (modules test_native_f64_defaults)
+ (libraries holyc_lib alcotest yojson unix))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-f64-defaults.hc)
+ (action
+  (run
+   %{exe:test_native_f64_defaults.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-f64-defaults.hc})))
+
+(executable
  (name test_native_source_cli)
  (modules test_native_source_cli)
  (libraries holyc_lib yojson unix))

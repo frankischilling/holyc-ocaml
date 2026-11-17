@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+Native source-default authority tests execute the original entry before
+substituting a saved word, omitting its scalar capture or changing the reported
+work. The intended completion guards reject all three before header publication
+and later default execution. Authentic controls cover named and anonymous
+headers, numeric callback words, original domains, replay, collection and both
+private ABIs. The host ABI executes; cross-ABI compilation is not execution.
+
 Bounded integer AOT initializer leaves now use their original raw assignment
 width, separately from JIT and constant-copy widths. [Native captures](aot-zero-byte-initializers.md)
 verify four- and eight-byte stores. Missing register values, ownership and storage
@@ -988,6 +995,29 @@ even for unused or fully supplied functions. The maintained fixture is
 `examples/native-integer-defaults.hc`; [native defaults](native-defaults.md)
 defines the admitted source domain and report fields.
 
+Live JIT native source-task floating defaults have a separate public
+regression in `test/native/test_native_f64_defaults.ml` and the
+maintained `examples/native-f64-defaults.hc`. It exercises the actual native
+entry through the hosted API and JSON CLI, with raw F64 result/type bits,
+signed integer-to-F64 ties and high-bit U64 inputs, F64-to-integer
+truncation and integer-indefinite results, F64 signaling-NaN transport,
+narrow integer parameter materialization, nontrailing omission, parenthesis-free
+calls, original named/anonymous selection, retained historical headers,
+once-only declaration effects and output preserved at a later fault.
+Nested JIT `#exe` in both outer JIT/AOT modes checks one saved F64 default
+with exactly eight available payload bytes and its seven-byte rejection;
+ordinary outer AOT floating defaults retain their own rejected path.
+Both private image ABIs compile in the source-authority suite; execution uses
+the host ABI. Its negative controls reject a missing native scalar capture,
+returned-bit substitution, reported-work substitution, zero reported work,
+cross-image capture acquisition, duplicate taking and replay.
+Independent `test/test_binary64_conversion.ml` supplies bit-pattern checks
+of the post-Call integer/binary64 conversion function, without an OCaml
+floating-point round trip. Exact/one-below step and default-payload limits
+retain their separate failure paths. The public CLI also retains negative
+tests for isolated and outer AOT F64 default preparation. These are
+source-derived and hosted observations, not original TempleOS runtime captures.
+
 Native function tests extend the program suite with both-mode `Add(20,22)=42`
 under its exact 29-step budget, high-bit words, automatic local mutation,
 right-to-left argument effects with formal-order binding, live caller values,
@@ -1370,7 +1400,7 @@ Unit tests cover source positions, spans, token construction, literal decoding, 
 CLI and ownership suites. The explicit `@native-tests` alias executes generated
 machine code and native CLI fixtures. These checks cover the implemented slices
 listed below; their passing counts do not measure whole-compiler compatibility.
-The reference verifier checks 87 individually audited Git blobs, and both corpus
+The reference verifier checks 88 individually audited Git blobs, and both corpus
 phases account for all 528 relevant blobs from the pinned Git tree.
 
 The runtime-frame tests cover once-only array bounds, native downward alignment,

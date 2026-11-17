@@ -331,6 +331,15 @@ val execute :
     The IR budget bounds checked loops; it is not a CPU timeout or recovery from
     arbitrary machine-code faults. *)
 
+val finish_task_default :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Default_fragment_program.t Ir.Native_scalar_capture.t, string) result
+(** Take this original default image's actual scalar capture once while its
+    arena lives. Owned callback and data captures retain their separate paths.
+*)
+
 val finish_task_internal_binding :
   ?scope:Ir.Native_source_suspension.t ->
   task_arena ->
