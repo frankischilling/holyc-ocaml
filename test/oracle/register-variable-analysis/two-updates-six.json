@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "d51b81e68ebc553fe784e77b55282b33b58b18286b9724e7ff7a8e07d5bb8798",
+  "boot_payload_sha256": "c9e9d581365e2bd01886cc074ef807611010d8b9842ed804e08532d2836922e7",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "7e622e01bc3290ace783b5a8a91c419c36ba8f18f1476434f3acc7951bef09a0",
+  "boot_iso_sha256": "de837f026aa803b6abb3af46007dda4dbe99d9d3227b82e7ffeeca6177a3f79b",
+  "fields": {
+    "J_S": "256",
+    "ERR": "0",
+    "A_S": "256"
+  },
+  "scope": "Repeated original JIT and compiled observations of two register updates in a six-parameter function."
+}

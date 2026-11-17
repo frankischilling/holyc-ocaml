@@ -18,11 +18,11 @@ compiler/kernel captures. Intact DolDoc oracle evidence remains under #375;
 these standalone byte-output
 features do not establish full compiler parity.
 
-Issue #686 now includes owned integer and class pointer fields in IR. Member
-arrays, function-local types, captured destinations, overlap and expired
-targets use checked field proofs and stored pointer ownership. Native pointer
-fields still need durable allocation identities and storage metadata. Persistent
-aggregate objects and member metadata evaluation also remain under this issue.
+Issue #686 includes owned integer and class pointer fields in IR and the native
+targets. Member arrays, function-local types, captured destinations, overlap and
+expired targets use checked field proofs and stored pointer ownership. Supported
+persistent roots retain allocation identities and metadata. Broader aggregate
+copies, pointer layers and reflection remain under this issue.
 See [pointer fields](aggregate-pointer-fields.md).
 
 Issue #822 connects original class and union member `sizeof` queries to IR and
@@ -39,8 +39,15 @@ layouts while preserving exact types, function identities and retained JIT
 contexts. Member access, nested and inherited objects, arrays and class pointer
 operations share the existing IR and native storage paths. See
 [function-local objects](function-local-aggregate-objects.md).
-Persistent aggregates, general object copies, native pointer fields and class
-pointer returns remain part of the broader work under #686.
+General object copies remain part of the broader work under #686.
+[Member metadata](member-metadata.md) now retains closed preparation results.
+Live integer metadata now executes in original JIT tasks. Data/code addresses,
+live floating expressions, ordinary AOT metadata evaluation and runtime
+reflection consumers remain unfinished.
+[Owned reference returns](reference-returns.md) now preserve caller storage and
+activation lifetimes through named calls and callbacks in IR and native code.
+One-level [callback fields](callback-fields.md) now use their selected headers
+and executable ownership through IR and both native targets.
 See [owned aggregate members](aggregate-members.md) and
 [automatic aggregate byte views](automatic-aggregate-byte-views.md).
 
@@ -95,9 +102,11 @@ execute initializer leaves once in source order. Retained calls share their
 original private storage, including historical bodies after replacement.
 The compiler's direct literal-copy branch now initializes original fixed byte
 array statics under the same task ownership and initializer allowance.
-Named integer defaults now execute once at their original live header callback,
-including storage effects and calls to retained functions. Later and historical
-calls require the exact original saved word and native completion receipt.
+Named and anonymous integer and F64 defaults now execute once at their original
+live header callback, including storage effects and calls to retained functions.
+Numeric conversion follows the completed expression, and later calls require
+the exact original saved word and native completion receipt. See
+[floating defaults](native-f64-defaults.md).
 Wider defaults, synchronous native StreamExePrint and AOT reference relocation
 remain open. See
 [native source tasks](native-source-tasks.md).
@@ -308,7 +317,7 @@ the same cells for calls, reads, assignments and numeric updates. Arithmetic
 after an update preserves eight-byte scaling and its I64 or U64 computation
 class. Supported global initializer regions and top-level calls also execute.
 Native source-session scheduling and shared task storage remain under #704;
-callback members, effectful defaults, owned-address arithmetic, remaining
+effectful defaults, owned-address arithmetic, remaining
 indirections and broader executable return domains keep #801 open.
 
 This file does not mark planned work as implemented. Current support is listed in the README and generated compatibility reports.

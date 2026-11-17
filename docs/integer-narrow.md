@@ -4,6 +4,21 @@
 `42` without a newline in JIT and AOT. I8, I16, U16, I32 and U32 now share the
 checked integer storage and direct-call pipeline with I64, U64 and U8.
 
+## Known register-allocation gap
+
+TempleOS can keep a narrow parameter in a wide register. For example, a
+function that shifts an I8 parameter containing 127 left by one and returns it
+produces 254 when the parameter stays in a register. Taking its address makes
+the update write back to a byte, and the same read produces -2. Repeated JIT
+and compiled BIN-load captures in
+`test/oracle/source-root-shifts/narrow-direct-gap.*` record both results. The
+interpreter and native backend reproduce this distinction for a small proven
+class of two-parameter functions for 8-, 16- and 32-bit parameters. Other register allocation cases remain open,
+including locals and functions with more parameters. Both the interpreter and native source-task paths handle this bounded case
+during retained initialization. See [narrow
+register variable analysis](register-variable-analysis.md) for the bounds and
+reference evidence.
+
 ## Stored values and register values
 
 | Type | Object bytes | Stored read | Runtime word |

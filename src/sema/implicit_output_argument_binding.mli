@@ -115,6 +115,11 @@ val default_target :
   default_binding -> Function_call_conversion_policy.target_class
 
 val default_materialization : default_binding -> default_materialization
+
+val default_lastclass :
+  default_binding ->
+  Function_call_expression_result.lastclass_substitution option
+
 val actual_class_name : actual_class -> string
 val conversion_name : conversion -> string
 val default_materialization_name : default_materialization -> string

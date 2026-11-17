@@ -47,10 +47,19 @@ let image_errors ~fallback errors =
         error.code error.message)
     errors
 
-let stack_register_qualifiers register_qualifiers =
+(* The native backend still requires an owner-bound allocation proof before it
+   admits a requested register. These names are the non-scratch registers that
+   proof can currently establish. *)
+let bounded_register_qualifiers register_qualifiers =
   match List.rev register_qualifiers with
   | [] -> true
-  | (request : Ast.register_qualifier) :: _ -> request.kind = Ast.Noreg
+  | (request : Ast.register_qualifier) :: _ -> (
+      match (request.kind, request.explicit_register) with
+      | Ast.Noreg, _ | Ast.Reg, None -> true
+      | Ast.Reg, Some register ->
+          List.mem
+            (String.uppercase_ascii register.spelling)
+            [ "RSI"; "RDI"; "R10"; "R11"; "R12"; "R13"; "R14"; "R15" ])
 
 let validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
     ~max_blocks ~max_global_bytes ~max_literal_bytes =
@@ -98,6 +107,11 @@ let scalar_word_type = function
   | Ast.Primitive_type_specifier primitive -> scalar_integer primitive.primitive
   | Ast.Internal_type_specifier primitive -> scalar_integer primitive.primitive
   | Ast.Named_type_specifier _ -> false
+
+let scalar_f64_type = function
+  | Ast.Primitive_type_specifier { primitive = F64; _ }
+  | Ast.Internal_type_specifier { primitive = F64; _ } -> true
+  | _ -> false
 
 let named_pointer type_specifier pointer_layers =
   List.length pointer_layers = 1
@@ -180,9 +194,11 @@ let internal_prototype (prototype : Ast.function_prototype) =
   | [ parameter ] ->
       plain parameter
       && (public_primitive I64 prototype.return_type
-          && (public_primitive U8 parameter.type_specifier
-              && List.length parameter.pointer_layers <= 1
+          && (scalar F64 parameter
+             || public_primitive U8 parameter.type_specifier
+                && List.length parameter.pointer_layers <= 1
              || scalar I64 parameter)
+         || (public_primitive F64 prototype.return_type && scalar I64 parameter)
          || (public_primitive U64 prototype.return_type && scalar U64 parameter)
          || (public_primitive U8 prototype.return_type
             || public_primitive Bool prototype.return_type)
@@ -226,14 +242,19 @@ let function_source_error (definition : Ast.function_definition) =
   if
     not
       (scalar_word_type definition.return_type
+      || scalar_f64_type definition.return_type
       || void_return_type definition.return_type
       ||
       match definition.return_type with
       | Ast.Named_type_specifier _ -> true
       | _ -> false)
-  then reject "native functions require a scalar integer or U0 return type"
-  else if definition.return_pointer_layers <> [] then
-    reject "native functions do not admit pointer returns"
+  then reject "native functions require a scalar integer, F64 or U0 return type"
+  else if
+    List.length definition.return_pointer_layers > 1
+    || definition.return_pointer_layers <> []
+       && void_return_type definition.return_type
+  then
+    reject "native functions admit one-level integer or class pointer returns"
   else if
     List.exists
       (fun (modifier : Ast.declaration_modifier) ->
@@ -259,6 +280,7 @@ let function_source_error (definition : Ast.function_definition) =
         if
           not
             (scalar_word_type parameter.type_specifier
+            || scalar_f64_type parameter.type_specifier
             || named_pointer parameter.type_specifier parameter.pointer_layers
             || (parameter.pointer_layers = []
                &&
@@ -279,10 +301,8 @@ let function_source_error (definition : Ast.function_definition) =
         then
           reject
             "native functions admit only one-level scalar pointer parameters"
-        else if not (stack_register_qualifiers parameter.register_qualifiers)
+        else if not (bounded_register_qualifiers parameter.register_qualifiers)
         then reject "native functions do not admit explicit parameter registers"
-        else if Option.is_none parameter.name then
-          reject "native function definitions require named fixed parameters"
         else None)
       definition.parameters
 
@@ -291,15 +311,23 @@ let local_source_error (declaration : Ast.local_declaration) =
     Some (source_error declaration.local_declaration_location.span message)
   in
   let is_static = declaration.local_storage = Ast.Static_local in
-  let automatic_aggregate =
-    (not is_static)
-    && (match declaration.local_type_specifier with
+  let storage_free_void =
+    void_return_type declaration.local_type_specifier
+    && List.for_all
+         (fun (local : Ast.local_declarator) ->
+           local.local_pointer_layers = []
+           && local.local_array_dimensions = []
+           && Option.is_none local.local_function_pointer
+           && (is_static || Option.is_none local.local_initializer))
+         declaration.local_declarators
+  in
+  let aggregate_object =
+    (match declaration.local_type_specifier with
       | Ast.Named_type_specifier _ -> true
       | _ -> false)
     && List.for_all
          (fun local ->
            (local.Ast.local_pointer_layers = []
-            && Option.is_none local.local_initializer
            || named_pointer declaration.local_type_specifier
                 local.local_pointer_layers)
            && (local.local_array_dimensions = []
@@ -310,12 +338,22 @@ let local_source_error (declaration : Ast.local_declaration) =
   if
     not
       (scalar_word_type declaration.local_type_specifier
-      || automatic_aggregate
+      || scalar_f64_type declaration.local_type_specifier
+         && List.for_all
+              (fun (local : Ast.local_declarator) ->
+                List.length local.local_pointer_layers <= 1
+                && ((not is_static) || local.local_pointer_layers = [])
+                && (local.local_pointer_layers = []
+                   || local.local_array_dimensions = [])
+                && Option.is_none local.local_function_pointer)
+              declaration.local_declarators
+      || storage_free_void || aggregate_object
       || List.for_all
            (fun local -> Option.is_some local.Ast.local_function_pointer)
            declaration.local_declarators)
   then
-    reject "native locals require nonzero scalar integers or callback storage"
+    reject
+      "native locals require supported scalar, aggregate or callback storage"
   else
     List.find_map
       (fun (local : Ast.local_declarator) ->
@@ -341,19 +379,23 @@ let local_source_error (declaration : Ast.local_declaration) =
           reject
             "native automatic arrays require scalar elements without \
              initializers"
-        else if local.local_register_qualifiers <> [] then
-          reject "native locals do not admit explicit registers"
+        else if
+          not (bounded_register_qualifiers local.local_register_qualifiers)
+        then reject "native locals do not admit this register request"
         else
           match local.local_initializer with
           | None -> None
           | Some { local_initializer_value = Ast.Scalar_initializer _; _ } ->
               None
-          | Some _ when is_static && local.local_array_dimensions <> [] -> None
+          | Some _
+            when is_static
+                 && (local.local_array_dimensions <> [] || aggregate_object) ->
+              None
           | Some _ -> reject "native locals require scalar initializers")
       declaration.local_declarators
 
 let global_source_error ~span ~modifiers ~binding ~type_specifier
-    ~pointer_layers ~function_pointer ~array_dimensions:_ ~has_initializer:_ =
+    ~pointer_layers ~function_pointer ~array_dimensions ~has_initializer:_ =
   let reject message = Some (source_error span message) in
   if
     List.exists
@@ -370,7 +412,15 @@ let global_source_error ~span ~modifiers ~binding ~type_specifier
       "native globals require ordinary integer or callback declarations \
        without aliases or unsupported calling modifiers"
   else if
-    not (scalar_word_type type_specifier || Option.is_some function_pointer)
+    not
+      (scalar_word_type type_specifier
+      || scalar_f64_type type_specifier
+      || (void_return_type type_specifier && array_dimensions = [])
+      || Option.is_some function_pointer
+      ||
+      match type_specifier with
+      | Ast.Named_type_specifier _ -> true
+      | _ -> false)
   then reject "native globals require nonzero scalar integer types"
   else if
     match function_pointer with
@@ -381,7 +431,117 @@ let global_source_error ~span ~modifiers ~binding ~type_specifier
     reject "native globals require scalar integers or one-star callback storage"
   else None
 
-let ast_errors (ast : Ast.module_) =
+(* PrsStmt.HC's PrsFunJoin keeps an unresolved extern when the original numeric
+   _intern header joins it. The completed native default retains that exact
+   source history; names or compatible reconstructed headers cannot supply it. *)
+let prepared_numeric_extern_headers ~table ~compilation_mode preparation =
+  let module R = Sema.Function_resolution in
+  let module F = Sema.Default_fragment in
+  let module O = Sema.Outer_environment in
+  let module VM = Ir.Integer_interpreter in
+  let mode =
+    match compilation_mode with
+    | Frontend.Preprocessor.Jit -> R.Jit
+    | Frontend.Preprocessor.Aot -> R.Aot
+  in
+  let rec retain_ancestors headers declaration =
+    match R.resolved_declaration_joined_predecessor declaration with
+    | None -> headers
+    | Some previous ->
+        let site = R.resolved_declaration_site previous in
+        let headers =
+          if
+            R.resolved_declaration_compilation_mode previous = mode
+            && R.declaration_site_source_kind site = R.Extern
+            && R.declaration_site_kind site = R.Extern
+            && R.declaration_site_state site = R.Unresolved_extern
+          then
+            match R.declaration_site_header_source site with
+            | Some source
+              when Sema.Compiler_record.declared_function_owns_table source
+                     table ->
+                let header =
+                  Sema.Compiler_record.declared_function_source source
+                in
+                let original = header.function_publication.function_header in
+                if
+                  header.header_compiler_options
+                  = R.declaration_site_compiler_option_mask site
+                  && Frontend.Parser.context_mode
+                       original.declaration_command.command_context
+                     = compilation_mode
+                then header :: headers
+                else headers
+            | _ -> headers
+          else headers
+        in
+        retain_ancestors headers previous
+  in
+  List.fold_left
+    (fun headers completion ->
+      let execution = Native_default_preparation.execution completion in
+      let fragment =
+        VM.default_constant_authority execution |> F.authorized_fragment
+      in
+      let environment = F.environment fragment in
+      if
+        VM.default_constant_is_consumed execution
+        && VM.default_constant_has_closed_source execution
+        && F.owns_table fragment table
+        && F.native_source_references_supported fragment
+        && O.owns_table environment table
+        && O.compilation_mode environment = mode
+      then
+        List.fold_left
+          (fun headers (_, reference) ->
+            match Sema.Reference_selection.kind reference with
+            | Sema.Reference_selection.Outer (selected, binding)
+              when selected == environment && O.owns_binding environment binding
+              -> (
+                match O.binding_entry binding |> O.entry_function_metadata with
+                | Some metadata ->
+                    let declaration = O.function_declaration metadata in
+                    if
+                      R.resolved_declaration_compilation_mode declaration = mode
+                    then retain_ancestors headers declaration
+                    else headers
+                | None -> headers)
+            | _ -> headers)
+          headers (F.references fragment)
+      else headers)
+    []
+    (Native_default_preparation.completions preparation)
+
+let prepared_numeric_extern_prototype headers
+    (prototype : Ast.function_prototype) =
+  let same_option left right =
+    match (left, right) with
+    | None, None -> true
+    | Some left, Some right -> left == right
+    | _ -> false
+  in
+  prototype.binding.kind = Ast.Extern
+  && prototype.binding.spelling = "extern"
+  && prototype.binding.target = Ast.No_binding_target
+  && List.exists
+       (fun (header : Frontend.Parser.completed_function_header) ->
+         let publication = header.function_publication in
+         let original = publication.function_header in
+         prototype.name == publication.function_name
+         && same_option original.binding (Some prototype.binding)
+         && prototype.modifiers == original.modifiers
+         && prototype.return_type == original.type_specifier
+         && prototype.return_pointer_layers
+            == publication.function_pointer_layers
+         && prototype.opening_parenthesis
+            == publication.function_opening_parenthesis
+         && prototype.parameters == header.parameters
+         && prototype.empty_parameter_entries == header.empty_parameter_entries
+         && same_option prototype.variadic header.variadic
+         && same_option prototype.closing_parenthesis header.closing_parenthesis)
+       headers
+
+let ast_errors ~prepared_extern_headers (ast : Ast.module_) =
   let first_error = ref None in
   let work =
     ref
@@ -409,10 +569,23 @@ let ast_errors (ast : Ast.module_) =
         | Gate_item (Ast.Function_prototype prototype)
           when put_chars_provider_prototype prototype
                || print_provider_prototype prototype
-               || internal_prototype prototype -> ()
+               || internal_prototype prototype
+               || prepared_numeric_extern_prototype prepared_extern_headers
+                    prototype -> ()
         | Gate_item (Ast.Aggregate_forward_declaration _) -> ()
-        | Gate_item (Ast.Aggregate_definition definition)
-          when definition.attached_declarators = [] -> ()
+        | Gate_item (Ast.Aggregate_definition definition) ->
+            List.find_map
+              (fun (variable : Ast.global_declarator) ->
+                global_source_error ~span:variable.location.span
+                  ~modifiers:definition.modifiers ~binding:None
+                  ~type_specifier:(Ast.Named_type_specifier definition.name)
+                  ~pointer_layers:variable.pointer_layers
+                  ~function_pointer:variable.function_pointer
+                  ~array_dimensions:variable.array_dimensions
+                  ~has_initializer:
+                    (Option.is_some variable.global_initial_value))
+              definition.attached_declarators
+            |> Option.iter reject
         | Gate_item (Ast.Global_variable variable) ->
             Option.iter reject
               (global_source_error ~span:variable.location.span
@@ -484,6 +657,7 @@ let ast_errors (ast : Ast.module_) =
                 match call.call_callee with
                 | Ast.Identifier_expression _
                 | Ast.Index_expression _
+                | Ast.Member_expression _
                 | Ast.Parenthesized_expression _ ->
                     work :=
                       Gate_expression (in_function, call.call_callee)
@@ -648,14 +822,6 @@ let ast_errors (ast : Ast.module_) =
   done;
   Option.to_list !first_error
 
-let program_storage_errors compiled span =
-  let errors = ref [] in
-  let add message = errors := source_error span message :: !errors in
-  let initialization = Integer_unit.initialization compiled in
-  if Ir.Global_initialization.static_regions initialization <> [] then
-    add "native programs require an entry with no runtime initialization";
-  List.rev !errors
-
 let entry_contains_opcode entry opcode =
   Ir.X87_stack.graph entry |> Ir.Block_graph.blocks
   |> List.exists (fun block ->
@@ -665,12 +831,13 @@ let entry_contains_opcode entry opcode =
           (Ir.Instruction_sequence.description instruction).opcode = opcode))
 
 let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
-    ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.hard_max_stack_bytes)
+    ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.default_stack_bytes)
     ?(max_blocks = 4096) ?(max_initializer_steps = 100_000)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
     ?(max_default_bytes = 65_536) ?(max_global_bytes = 1_048_576)
     ?(max_literal_bytes = 1_048_576) ?status_abi ~preparation_steps ~switch_work
-    ~dimension_work ~default_bytes ?streams session ~config ~source =
+    ~dimension_work ~default_bytes ?native_default ?native_code_remaining
+    ?streams session ~config ~source =
   let span = Integer_source.source_span source in
   let* () =
     if
@@ -695,9 +862,9 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
     |> Result.map_error (fun message ->
         [ diagnostic ~span "HCRUN0004" message ])
   in
+  let compilation_mode = Frontend.Preprocessor.Config.compilation_mode config in
   let* preparation =
-    Native_default_preparation.create
-      ~compilation_mode:(Frontend.Preprocessor.Config.compilation_mode config)
+    Native_default_preparation.create ?native_default ~compilation_mode
       ~max_initializer_steps ~max_default_bytes session
     |> Result.map_error (fun message ->
         [ diagnostic ~span "HCIRVM0001" message ])
@@ -753,7 +920,8 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                 let* () =
                   match event with
                   | Frontend.Parser.Parameter_default_completed receipt
-                    when !entry_statement_seen ->
+                    when !entry_statement_seen
+                         && compilation_mode = Frontend.Preprocessor.Jit ->
                       Error
                         [
                           diagnostic ~span:receipt.default_ast.location.span
@@ -763,7 +931,8 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                              unsupported";
                         ]
                   | Frontend.Parser.Callback_default_completed receipt
-                    when !entry_statement_seen ->
+                    when !entry_statement_seen
+                         && compilation_mode = Frontend.Preprocessor.Jit ->
                       Error
                         [
                           diagnostic
@@ -789,7 +958,8 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                       | None -> Ok ()
                       | Some error -> Error [ error ])
                   | Frontend.Parser.Global_initializer_started receipt
-                    when !entry_statement_seen ->
+                    when !entry_statement_seen
+                         && compilation_mode = Frontend.Preprocessor.Jit ->
                       Error
                         [
                           source_error receipt.initializer_equals.span
@@ -797,7 +967,8 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                              top-level statements";
                         ]
                   | Frontend.Parser.Static_initializer_preparing receipt
-                    when !entry_statement_seen ->
+                    when !entry_statement_seen
+                         && compilation_mode = Frontend.Preprocessor.Jit ->
                       Error
                         [
                           source_error
@@ -817,7 +988,37 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                         ]
                   | _ -> Ok ()
                 in
-                let* () = Task_declarations.observe ledger event in
+                let before = Task_declarations.offset_work ledger in
+                let observed =
+                  Task_declarations.observe ~isolated_initializers:true
+                    ~metadata_work_limit:
+                      (Native_default_preparation.remaining_work preparation)
+                    ledger event
+                in
+                let* () =
+                  match event with
+                  | Frontend.Parser.Aggregate_advanced
+                      {
+                        phase_step =
+                          ( Frontend.Parser.Aggregate_member_metadata_reached _
+                          | Frontend.Parser.Aggregate_offset_reached _ );
+                        phase_location;
+                        _;
+                      } ->
+                      Native_default_preparation.synchronize_work preparation
+                        ~work:
+                          (Native_default_preparation.work preparation
+                          + Task_declarations.offset_work ledger
+                          - before)
+                        ~bytes:(Native_default_preparation.bytes preparation)
+                      |> Result.map_error (fun message ->
+                          [
+                            diagnostic ~span:phase_location.span "HCIRVM0007"
+                              message;
+                          ])
+                  | _ -> Ok ()
+                in
+                let* () = observed in
                 match event with
                 | Frontend.Parser.Parameter_default_completed receipt ->
                     Native_default_preparation.prepare preparation ~session
@@ -829,11 +1030,21 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                     Task_declarations.complete_source_callback_defaults ledger
                       header
                 | Frontend.Parser.Global_initializer_leaf_completed receipt ->
-                    Native_default_preparation.prepare_initializer preparation
-                      ~session ~ledger receipt
+                    let* () =
+                      Task_declarations
+                      .emit_aot_direct_call_initializer_warnings ledger receipt
+                    in
+                    Native_default_preparation.prepare_initializer
+                      ~require_load:!entry_statement_seen preparation ~session
+                      ~ledger receipt
                 | Frontend.Parser.Static_initializer_preparing receipt ->
-                    Native_default_preparation.prepare_static preparation
-                      ~session ~ledger receipt
+                    let* () =
+                      Task_declarations.emit_aot_direct_call_static_warnings
+                        ledger receipt
+                    in
+                    Native_default_preparation.prepare_static
+                      ~require_load:!entry_statement_seen preparation ~session
+                      ~ledger receipt
                 | Frontend.Parser.Function_header_completed header ->
                     Task_declarations.complete_source_defaults ledger header
                 | _ -> Ok ()));
@@ -857,14 +1068,23 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
-      match ast_errors ast with
+      let prepared_extern_headers =
+        prepared_numeric_extern_headers
+          ~table:(Session.semantic_symbols session)
+          ~compilation_mode preparation
+      in
+      match ast_errors ~prepared_extern_headers ast with
       | _ :: _ as errors -> Error (parsed.diagnostics @ errors)
       | [] -> (
           let* max_ir_instructions, max_code_bytes =
-            match streams with
+            match
+              Option.fold ~none:native_code_remaining
+                ~some:(fun streams -> Some streams.remaining_code)
+                streams
+            with
             | None -> Ok (max_ir_instructions, max_code_bytes)
-            | Some streams ->
-                let* ir, code = streams.remaining_code () in
+            | Some remaining_code ->
+                let* ir, code = remaining_code () in
                 if
                   ir <= 0 || code <= 0 || ir > max_ir_instructions
                   || code > max_code_bytes
@@ -903,91 +1123,92 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
               { parsed with diagnostics = [] }
           with
           | Error errors -> Error (parsed.diagnostics @ errors)
-          | Ok checked -> (
+          | Ok checked ->
               let diagnostics = parsed.diagnostics @ checked.diagnostics in
-              match program_storage_errors checked.value span with
-              | _ :: _ as errors -> Error (diagnostics @ errors)
-              | [] ->
-                  (match Integer_unit.functions checked.value with
-                    | []
-                      when Ir.Integer_globals.byte_size
-                             (Integer_unit.globals checked.value)
-                           = 0
-                           && (not
-                                 (entry_contains_opcode
-                                    (Integer_unit.entry checked.value)
-                                    Ir.Opcode.Ic_str_const))
-                           && not
-                                (entry_contains_opcode
-                                   (Integer_unit.entry checked.value)
-                                   Ir.Opcode.Ic_call_start) ->
-                        Image.compile ?status_abi ~max_stack_bytes ~max_blocks
-                          ~max_ir_instructions ~max_code_bytes
-                          (Integer_unit.entry checked.value)
-                    | functions ->
-                        let* parameter_defaults =
-                          Native_parameter_defaults.create
-                            ~globals:(Integer_unit.globals checked.value)
-                            ~runtime_calls:
-                              (Integer_unit.runtime_calls checked.value)
-                            ~initialization:
-                              (Integer_unit.initialization checked.value)
-                            ~entry:(Integer_unit.entry checked.value)
-                            ~functions ~prepared:prepared_defaults
-                            ~prepared_callbacks
-                            ~completions:
-                              (Native_default_preparation.completions
-                                 preparation)
-                          |> Result.map_error (fun message ->
-                              [
-                                Backend.X86_64_program.
-                                  {
-                                    code = "HCBACK0002";
-                                    message;
-                                    span = Some span;
-                                  };
-                              ])
-                        in
-                        let* global_initializers =
-                          Native_global_initializers.create ~span
-                            ~static_completions:
-                              (Native_default_preparation.static_completions
-                                 preparation)
-                            ~completions:
-                              (Native_default_preparation
-                               .initializer_completions preparation)
-                            ~preparation:
-                              (Integer_unit.initializer_preparation
-                                 checked.value)
-                            ~runtime_calls:
-                              (Integer_unit.runtime_calls checked.value)
-                            ~initialization:
-                              (Integer_unit.initialization checked.value)
-                            ~entry:(Integer_unit.entry checked.value)
-                            ~functions
-                          |> Result.map_error (fun message ->
-                              [
-                                Backend.X86_64_program.
-                                  {
-                                    code = "HCBACK0003";
-                                    message;
-                                    span = Some span;
-                                  };
-                              ])
-                        in
-                        Image.compile_callable ~parameter_defaults
-                          ~global_initializers ?status_abi ~max_stack_bytes
-                          ~max_blocks ~max_ir_instructions ~max_code_bytes
-                          ~max_global_bytes ~max_literal_bytes
-                          ~runtime_calls:
-                            (Integer_unit.runtime_calls checked.value)
-                          ~initialization:
-                            (Integer_unit.initialization checked.value)
-                          ~entry:(Integer_unit.entry checked.value)
-                          ~functions ())
-                  |> Result.map (fun image -> { value = image; diagnostics })
-                  |> Result.map_error (fun errors ->
-                      diagnostics @ image_errors ~fallback:span errors))))
+              (match Integer_unit.functions checked.value with
+                | []
+                  when Ir.Integer_globals.byte_size
+                         (Integer_unit.globals checked.value)
+                       = 0
+                       && (not
+                             (entry_contains_opcode
+                                (Integer_unit.entry checked.value)
+                                Ir.Opcode.Ic_str_const))
+                       && (not
+                             (entry_contains_opcode
+                                (Integer_unit.entry checked.value)
+                                Ir.Opcode.Ic_call_start))
+                       && not
+                            (Ir.X87_stack.graph
+                               (Integer_unit.entry checked.value)
+                            |> Ir.Block_graph.blocks
+                            |> List.exists (fun block ->
+                                Ir.Block_graph.instructions block
+                                |> Ir.Instruction_sequence.instructions
+                                |> List.exists (fun instruction ->
+                                    let description =
+                                      Ir.Instruction_sequence.description
+                                        instruction
+                                    in
+                                    Option.fold ~none:false
+                                      ~some:Backend.X86_64_float_plan.is_f64
+                                      description.target_type))) ->
+                    Image.compile ?status_abi ~max_stack_bytes ~max_blocks
+                      ~max_ir_instructions ~max_code_bytes
+                      (Integer_unit.entry checked.value)
+                | functions ->
+                    let* parameter_defaults =
+                      Native_parameter_defaults.create
+                        ~globals:(Integer_unit.globals checked.value)
+                        ~runtime_calls:
+                          (Integer_unit.runtime_calls checked.value)
+                        ~initialization:
+                          (Integer_unit.initialization checked.value)
+                        ~entry:(Integer_unit.entry checked.value)
+                        ~functions ~prepared:prepared_defaults
+                        ~prepared_callbacks
+                        ~completions:
+                          (Native_default_preparation.completions preparation)
+                      |> Result.map_error (fun message ->
+                          [
+                            Backend.X86_64_program.
+                              { code = "HCBACK0002"; message; span = Some span };
+                          ])
+                    in
+                    let* global_initializers =
+                      Native_global_initializers.create ~span
+                        ~static_completions:
+                          (Native_default_preparation.static_completions
+                             preparation)
+                        ~completions:
+                          (Native_default_preparation.initializer_completions
+                             preparation)
+                        ~preparation:
+                          (Integer_unit.initializer_preparation checked.value)
+                        ~runtime_calls:
+                          (Integer_unit.runtime_calls checked.value)
+                        ~initialization:
+                          (Integer_unit.initialization checked.value)
+                        ~entry:(Integer_unit.entry checked.value)
+                        ~functions
+                      |> Result.map_error (fun message ->
+                          [
+                            Backend.X86_64_program.
+                              { code = "HCBACK0003"; message; span = Some span };
+                          ])
+                    in
+                    Image.compile_callable ~parameter_defaults
+                      ~global_initializers ?status_abi ~max_stack_bytes
+                      ~max_blocks ~max_ir_instructions ~max_code_bytes
+                      ~max_global_bytes ~max_literal_bytes
+                      ~runtime_calls:(Integer_unit.runtime_calls checked.value)
+                      ~initialization:
+                        (Integer_unit.initialization checked.value)
+                      ~entry:(Integer_unit.entry checked.value)
+                      ~functions ())
+              |> Result.map (fun image -> { value = image; diagnostics })
+              |> Result.map_error (fun errors ->
+                  diagnostics @ image_errors ~fallback:span errors)))
 
 let compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     ?max_initializer_steps ?max_switch_work ?max_dimension_work
@@ -1062,6 +1283,12 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ("HCIRVM0018", "native Print requires a live byte pointer")
     | Image.Output_invalid_byte ->
         ("HCIRVM0008", "native Print byte cell has an invalid runtime value")
+    | Image.Pointer_ownership_unavailable ->
+        ("HCIRVM0018", "pointer reference has no live owned storage")
+    | Image.Reference_shadow_limit_exceeded ->
+        ( "HCIRVM0016",
+          "native pointer ownership metadata exceeds its host allocation limit"
+        )
     | Image.Pointer_object_mismatch ->
         ("HCIRVM0018", "pointer ordering requires the same live object extent")
     | Image.Callback_unowned_address ->
@@ -1116,13 +1343,14 @@ let host_diagnostic ~span platform message =
     (if platform = Native.Unsupported then "HCNATIVE0001" else "HCNATIVE0002")
     message
 
-let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
-    ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
-    ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
-    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
-    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
-    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
-    ?(max_active_stack_bytes = Native.hard_max_active_stack_bytes) ?status_abi
+let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
+    ?max_stack_bytes ?max_blocks ?(max_initializer_steps = 100_000)
+    ?(max_default_bytes = 65_536) ?(max_switch_work = 100_000)
+    ?(max_dimension_work = 100_000) ?(max_global_bytes = 1_048_576)
+    ?(max_literal_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
+    ?(max_call_depth = 128) ?(max_output_bytes = 1_048_576)
+    ?(max_output_work = 1_048_576)
+    ?(max_active_stack_bytes = Native.default_active_stack_bytes) ?status_abi
     session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
   let platform = Native.platform () in
@@ -1163,12 +1391,126 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     let switch_work = ref 0 in
     let dimension_work = ref 0 in
     let default_bytes = ref 0 in
+    let native_budget = ref None in
+    let preparation_ir = ref 0 in
+    let preparation_code = ref 0 in
+    let native_steps () =
+      Option.map
+        (fun budget -> (Native.budget_progress budget).executed_steps)
+        !native_budget
+    in
+    let native_output () =
+      Option.fold ~none:("", 0)
+        ~some:(fun budget ->
+          let progress = Native.budget_progress budget in
+          (progress.output_bytes, progress.output_work))
+        !native_budget
+    in
+    let host_error message = [ host_diagnostic ~span platform message ] in
+    let budget () =
+      match !native_budget with
+      | Some value -> Ok value
+      | None ->
+          let* value =
+            Native.create_budget ~max_steps ~max_output_bytes ~max_output_work
+              ()
+            |> Result.map_error host_error
+          in
+          native_budget := Some value;
+          Ok value
+    in
+    let execute_native ?max_activation_steps ?finish image =
+      let* budget = budget () in
+      let* retained =
+        Native.retain ~max_global_bytes ~max_literal_bytes
+          ~max_active_stack_bytes image
+        |> Result.map_error host_error
+      in
+      let release_error = ref None in
+      let outcome =
+        Fun.protect
+          ~finally:(fun () ->
+            match Native.release retained with
+            | Ok () -> ()
+            | Error message -> release_error := Some message)
+          (fun () ->
+            let before = (Native.budget_progress budget).executed_steps in
+            let report =
+              Native.execute_retained_budget_report ?max_activation_steps
+                ~max_frame_bytes ~max_call_depth ~max_active_stack_bytes
+                ~max_global_bytes ~max_literal_bytes budget retained
+            in
+            let steps =
+              (Native.budget_progress budget).executed_steps - before
+            in
+            let* () =
+              Option.fold ~none:(Ok ())
+                ~some:(fun finish -> finish ~steps report)
+                finish
+            in
+            Ok report)
+      in
+      match (outcome, !release_error) with
+      | result, None -> result
+      | Ok _, Some message -> Error (host_error message)
+      | Error errors, Some message -> Error (errors @ host_error message)
+    in
+    let native_code_remaining () =
+      Ok
+        ( max_ir_instructions - !preparation_ir,
+          max_code_bytes - !preparation_code )
+    in
+    let native_default request =
+      let module Preparation = Driver.Native_default_preparation in
+      let default_span =
+        Preparation.native_program request
+        |> Ir.Default_fragment_program.destination
+        |> Ir.Default_fragment_destination.span
+      in
+      let remaining = Preparation.native_remaining request in
+      let* () =
+        if remaining > 0 then Ok ()
+        else
+          Error
+            [
+              diagnostic ~span:default_span "HCIRVM0007"
+                "native source default exhausted its preparation allowance";
+            ]
+      in
+      let* ir, code = native_code_remaining () in
+      let* image =
+        Image.compile_source_default ?status_abi ?max_stack_bytes ?max_blocks
+          ~max_ir_instructions:ir ~max_code_bytes:code request
+        |> Result.map_error (image_errors ~fallback:default_span)
+      in
+      preparation_ir := !preparation_ir + Image.ir_instructions image;
+      preparation_code := !preparation_code + Image.code_bytes image;
+      let* report =
+        execute_native ~max_activation_steps:remaining
+          ~finish:(fun ~steps report ->
+            if not (Preparation.native_entered request) then Ok ()
+            else
+              Preparation.finish_native request ~steps
+                (Native.source_default_capture report)
+              |> Result.map_error (fun message ->
+                  [
+                    Integer_source.message_diagnostic ~span:default_span message;
+                  ]))
+          image
+      in
+      match Native.outcome report with
+      | Error message -> Error (host_error message)
+      | Ok (Image.Fault fault) ->
+          Error [ fault_diagnostic ~fallback:default_span fault ]
+      | Ok (Image.Completed _) -> Ok ()
+    in
     match
-      compile_with_preparation ?max_ir_instructions ?max_code_bytes
+      compile_with_preparation ~max_ir_instructions ~max_code_bytes
         ?max_stack_bytes ?max_blocks ~max_initializer_steps ~max_switch_work
         ~max_dimension_work ~max_default_bytes ~max_global_bytes
         ~max_literal_bytes ?status_abi ~preparation_steps ~switch_work
-        ~dimension_work ~default_bytes session ~config ~source
+        ~dimension_work ~default_bytes ~native_default ~native_code_remaining
+        session ~config ~source
     with
     | Error diagnostics ->
         {
@@ -1176,76 +1518,102 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
           image_ = None;
           native_outcome_ = None;
           platform_ = platform;
-          executed_steps_ = None;
+          executed_steps_ = native_steps ();
           preparation_steps_ = !preparation_steps;
           switch_work_ = !switch_work;
           dimension_work_ = !dimension_work;
           default_bytes_ = !default_bytes;
-          output_bytes_ = "";
-          output_work_ = 0;
+          output_bytes_ = fst (native_output ());
+          output_work_ = snd (native_output ());
         }
     | Ok checked -> (
         let execution_report =
-          Native.execute_report ~max_steps ~max_frame_bytes ~max_call_depth
-            ~max_output_bytes ~max_output_work ~max_active_stack_bytes
-            ~max_global_bytes ~max_literal_bytes checked.value
+          match !native_budget with
+          | None ->
+              Ok
+                (Native.execute_report ~max_steps ~max_frame_bytes
+                   ~max_call_depth ~max_output_bytes ~max_output_work
+                   ~max_active_stack_bytes ~max_global_bytes ~max_literal_bytes
+                   checked.value)
+          | Some _ -> execute_native checked.value
         in
-        let output_bytes = Native.output_bytes execution_report in
-        let output_work = Native.output_work execution_report in
-        match Native.outcome execution_report with
-        | Error message ->
+        match execution_report with
+        | Error errors ->
             {
-              outcome_ =
-                Error
-                  (checked.diagnostics
-                  @ [ host_diagnostic ~span platform message ]);
+              outcome_ = Error (checked.diagnostics @ errors);
               image_ = Some checked.value;
               native_outcome_ = None;
               platform_ = platform;
-              executed_steps_ = None;
+              executed_steps_ = native_steps ();
               preparation_steps_ = !preparation_steps;
               switch_work_ = !switch_work;
               dimension_work_ = !dimension_work;
               default_bytes_ = !default_bytes;
-              output_bytes_ = output_bytes;
-              output_work_ = output_work;
+              output_bytes_ = fst (native_output ());
+              output_work_ = snd (native_output ());
             }
-        | Ok (Image.Completed execution as native_outcome) ->
-            {
-              outcome_ =
-                Ok
-                  {
-                    value = { image = checked.value; execution; platform };
-                    diagnostics = checked.diagnostics;
-                  };
-              image_ = Some checked.value;
-              native_outcome_ = Some native_outcome;
-              platform_ = platform;
-              executed_steps_ = Some execution.executed_steps;
-              preparation_steps_ = !preparation_steps;
-              switch_work_ = !switch_work;
-              dimension_work_ = !dimension_work;
-              default_bytes_ = !default_bytes;
-              output_bytes_ = output_bytes;
-              output_work_ = output_work;
-            }
-        | Ok (Image.Fault fault as native_outcome) ->
-            {
-              outcome_ =
-                Error
-                  (checked.diagnostics
-                  @ [ fault_diagnostic ~fallback:span fault ]);
-              image_ = Some checked.value;
-              native_outcome_ = Some native_outcome;
-              platform_ = platform;
-              executed_steps_ = Some fault.executed_steps;
-              preparation_steps_ = !preparation_steps;
-              switch_work_ = !switch_work;
-              dimension_work_ = !dimension_work;
-              default_bytes_ = !default_bytes;
-              output_bytes_ = output_bytes;
-              output_work_ = output_work;
-            })
+        | Ok execution_report -> (
+            let output_bytes = Native.output_bytes execution_report in
+            let output_work = Native.output_work execution_report in
+            match Native.outcome execution_report with
+            | Error message ->
+                let output_bytes, output_work =
+                  match !native_budget with
+                  | None -> (output_bytes, output_work)
+                  | Some _ -> native_output ()
+                in
+                {
+                  outcome_ =
+                    Error
+                      (checked.diagnostics
+                      @ [ host_diagnostic ~span platform message ]);
+                  image_ = Some checked.value;
+                  native_outcome_ = None;
+                  platform_ = platform;
+                  executed_steps_ = native_steps ();
+                  preparation_steps_ = !preparation_steps;
+                  switch_work_ = !switch_work;
+                  dimension_work_ = !dimension_work;
+                  default_bytes_ = !default_bytes;
+                  output_bytes_ = output_bytes;
+                  output_work_ = output_work;
+                }
+            | Ok (Image.Completed execution as native_outcome) ->
+                {
+                  outcome_ =
+                    Ok
+                      {
+                        value = { image = checked.value; execution; platform };
+                        diagnostics = checked.diagnostics;
+                      };
+                  image_ = Some checked.value;
+                  native_outcome_ = Some native_outcome;
+                  platform_ = platform;
+                  executed_steps_ = Some execution.executed_steps;
+                  preparation_steps_ = !preparation_steps;
+                  switch_work_ = !switch_work;
+                  dimension_work_ = !dimension_work;
+                  default_bytes_ = !default_bytes;
+                  output_bytes_ = output_bytes;
+                  output_work_ = output_work;
+                }
+            | Ok (Image.Fault fault as native_outcome) ->
+                {
+                  outcome_ =
+                    Error
+                      (checked.diagnostics
+                      @ [ fault_diagnostic ~fallback:span fault ]);
+                  image_ = Some checked.value;
+                  native_outcome_ = Some native_outcome;
+                  platform_ = platform;
+                  executed_steps_ = Some fault.executed_steps;
+                  preparation_steps_ = !preparation_steps;
+                  switch_work_ = !switch_work;
+                  dimension_work_ = !dimension_work;
+                  default_bytes_ = !default_bytes;
+                  output_bytes_ = output_bytes;
+                  output_work_ = output_work;
+                }))
 
 let outcome report = report.outcome_
 let image report = report.image_

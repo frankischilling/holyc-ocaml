@@ -14,6 +14,56 @@ let initialization value = value.initialization_
 let runtime_calls value = value.runtime_calls_
 let source_authority (value : t) = value.authority_
 
+let is_closed_native_source value =
+  let module Typed = Sema.Function_call_expression_result in
+  let fragment = Default_fragment_destination.fragment value.destination_ in
+  let globals = Default_fragment_destination.globals value.destination_ in
+  let typed = Default_fragment_destination.typed value.destination_ in
+  let graph = X87_stack.graph value.entry_ in
+  let references = Sema.Default_fragment.references fragment in
+  let calls = Typed.top_level_direct_calls typed in
+  let intrinsics =
+    Block_graph.blocks graph
+    |> List.concat_map (fun block ->
+        Block_graph.instructions block |> Instruction_sequence.instructions)
+    |> List.filter_map (fun instruction ->
+        let description = Instruction_sequence.description instruction in
+        Runtime_call_context.find_intrinsic_instruction value.runtime_calls_
+          ~owner:Runtime_call_context.Entry description.instruction_id)
+  in
+  Integer_globals.is_isolated_default globals
+  && Integer_globals.byte_size globals = 0
+  && Option.fold ~none:false ~some:(( == ) fragment)
+       (Integer_globals.native_source_default_fragment globals)
+  && Sema.Default_fragment.native_source_references_supported fragment
+  && Runtime_call_context.matches_graph value.runtime_calls_
+       ~owner:Runtime_call_context.Entry graph
+  && List.length references = List.length calls
+  && List.length intrinsics = List.length calls
+  && List.for_all
+       (fun intrinsic ->
+         Numeric_intrinsic.supports
+           (Runtime_call_context.intrinsic_opcode intrinsic))
+       intrinsics
+  && List.for_all
+       (fun (_, selection) ->
+         List.exists
+           (fun call ->
+             let callee =
+               Typed.top_level_direct_source call
+               |> Sema.Top_level_expression_tree.call_callee
+               |> Sema.Top_level_outer_expression_binding.occurrence_source
+             in
+             Option.fold ~none:false ~some:(( == ) selection)
+               (Sema.Top_level_expression_binding.occurrence_selection callee)
+             && List.exists
+                  (fun intrinsic ->
+                    Runtime_call_context.intrinsic_declaration intrinsic
+                    == Typed.top_level_direct_declaration call)
+                  intrinsics)
+           calls)
+       references
+
 let create ~authority ~destination ~lowered ~entry ~initialization
     ~runtime_calls =
   if

@@ -1,5 +1,14 @@
 # holyc-ocaml architecture
 
+Original member metadata phases retain prepared strings and numeric words in
+`Sema.Compiler_record.aggregate_field`. Completion checks the original source
+chain; task promotion and replay preserve its preparation work. See
+[member metadata](member-metadata.md) for lookup order and remaining consumers.
+Live integer metadata uses its own fragment, typed root and task attempt.
+Completion checks actual execution before attaching the word to the original
+member. Native requests retain their scalar capture; IR charges reached work
+before entering nested source and checks the shared allowance on resumption.
+
 `Sema.Compiler_record` retains original aggregate field types and dimension
 counts from live member phases. Member `sizeof` callbacks follow the exact
 root, dot and member sequence, read the selected canonical class's current
@@ -21,7 +30,16 @@ selected width and signedness; whole class values use their checked scalar
 prefix. IR data pointer fields store address bytes and separate ownership
 metadata for the target descriptor. Overlapping writes remove that metadata,
 and frame retirement invalidates saved addresses while releasing storage.
-Native pointer fields require their own storage and lifetime implementation.
+Native descriptors also carry activation identities. Separate native field
+shadows preserve pointee identities, while scalar writes remove overlapping
+ownership. Shared task arenas retain persistent shadows across source fragments.
+Callback fields keep their code-address word and executable owner separately.
+IR byte storage and the native shadow service both invalidate that owner on
+overlapping writes. Field calls use the selected header and a callee snapshot
+taken before argument evaluation. See [callback fields](callback-fields.md).
+Owned reference returns copy the five-word descriptor before callee retirement.
+Native callers snapshot the private context buffer before another invocation;
+IR callers retain the original storage identity. See [reference returns](reference-returns.md).
 See [owned aggregate members](aggregate-members.md) and
 [pointer fields](aggregate-pointer-fields.md).
 
@@ -35,6 +53,13 @@ flag per byte. An owned class address can enter an explicit primitive pointer
 view without widening the object or converting numeric bits into ownership.
 Inherited and retained layouts require their original checked imports before
 they can supply storage. See [automatic aggregate byte views](automatic-aggregate-byte-views.md).
+
+`Ir.Integer_storage_shape` also retains aggregate global and static geometry.
+It keeps source element counts and strides separate from physical byte cells.
+Original global and static allocation receipts supply the nominal class layout;
+foreign symbols or later metadata cannot replace that owner. Native arena layouts
+cover every declared byte with its own initialization flag. See
+[persistent aggregates](persistent-aggregates.md).
 
 The executable expression parser checks an operand identifier's original
 lexer selection before consuming it or invoking reference consumers. An absent

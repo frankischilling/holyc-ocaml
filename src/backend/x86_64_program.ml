@@ -2,7 +2,7 @@ module Codegen = X86_64_word_codegen
 module Task_dispatch = Driver.Integer_task.Native_dispatch
 module Task_storage = X86_64_global_storage
 
-type word_type = X86_64_expression.word_type = I64 | U64
+type word_type = X86_64_expression.word_type = I64 | U64 | F64
 type status_abi = X86_64_encoder.status_abi = Windows_x64 | System_v_x64
 
 type error = X86_64_expression.error = {
@@ -37,6 +37,8 @@ type fault_kind =
   | Output_invalid_pointer
   | Output_invalid_byte
   | Pointer_object_mismatch
+  | Pointer_ownership_unavailable
+  | Reference_shadow_limit_exceeded
   | Pointer_difference_object_mismatch
   | Callback_unowned_address
   | Callback_signature_mismatch
@@ -77,10 +79,14 @@ type outcome = Completed of execution | Fault of fault
 type task_layout = Task_storage.task_layout
 
 type scalar_program =
+  | Default of Ir.Default_fragment_program.t
   | Internal_binding of Ir.Internal_binding_fragment_program.t
   | Dimension of Ir.Dimension_fragment_program.t
   | Switch_case of Ir.Switch_case_fragment_program.t
   | Offset of Ir.Offset_fragment_program.t
+  | Member_metadata of Ir.Member_metadata_fragment_program.t
+  | Initializer of Ir.Initializer_fragment_program.t
+  | Static_initializer of Ir.Static_initializer_program.t
 
 type t = {
   image : Codegen.program_image;
@@ -95,7 +101,11 @@ type t = {
   dimension_ : Ir.Dimension_fragment_program.t option;
   switch_case_ : Ir.Switch_case_fragment_program.t option;
   offset_ : Ir.Offset_fragment_program.t option;
+  member_metadata_ : Ir.Member_metadata_fragment_program.t option;
+  scalar_initializer_ : Ir.Initializer_fragment_program.t option;
+  scalar_static_initializer_ : Ir.Static_initializer_program.t option;
   internal_binding_ : Ir.Internal_binding_fragment_program.t option;
+  scalar_default_ : Ir.Default_fragment_program.t option;
 }
 
 let generation value = value.generation_
@@ -104,23 +114,39 @@ let internal_binding value = value.internal_binding_
 let dimension value = value.dimension_
 let switch_case value = value.switch_case_
 let offset value = value.offset_
+let member_metadata value = value.member_metadata_
+let scalar_initializer value = value.scalar_initializer_
+let scalar_static_initializer value = value.scalar_static_initializer_
+let scalar_default value = value.scalar_default_
 
 let scalar_program value =
-  match
-    ( value.internal_binding_,
-      value.dimension_,
-      value.switch_case_,
-      value.offset_ )
-  with
-  | Some program, None, None, None -> Some (Internal_binding program)
-  | None, Some program, None, None -> Some (Dimension program)
-  | None, None, Some program, None -> Some (Switch_case program)
-  | None, None, None, Some program -> Some (Offset program)
-  | _ -> None
+  match (value.scalar_initializer_, value.scalar_static_initializer_) with
+  | Some program, None -> Some (Initializer program)
+  | None, Some program -> Some (Static_initializer program)
+  | Some _, Some _ -> None
+  | None, None -> (
+      match
+        ( value.internal_binding_,
+          value.dimension_,
+          value.switch_case_,
+          value.offset_,
+          value.member_metadata_,
+          value.scalar_default_ )
+      with
+      | Some program, None, None, None, None, None ->
+          Some (Internal_binding program)
+      | None, Some program, None, None, None, None -> Some (Dimension program)
+      | None, None, Some program, None, None, None -> Some (Switch_case program)
+      | None, None, None, Some program, None, None -> Some (Offset program)
+      | None, None, None, None, Some program, None ->
+          Some (Member_metadata program)
+      | None, None, None, None, None, Some program -> Some (Default program)
+      | _ -> None)
 
 let data_default value = value.data_default_
 let data_default_has_misc_data value = value.data_default_misc_
 let hard_max_stack_bytes = Codegen.hard_max_stack_bytes
+let default_stack_bytes = Codegen.default_stack_bytes
 
 let project_error (error : Codegen.error) : error =
   { code = error.code; message = error.message; span = error.span }
@@ -157,17 +183,21 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         dimension_ = None;
         switch_case_ = None;
         offset_ = None;
+        member_metadata_ = None;
+        scalar_initializer_ = None;
+        scalar_static_initializer_ = None;
         internal_binding_ = None;
+        scalar_default_ = None;
       })
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ?max_literal_bytes ?parameter_defaults ?global_initializers
-    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
-    ~functions () =
+    ?float_entry_source ~max_ir_instructions ~max_code_bytes ~runtime_calls
+    ~initialization ~entry ~functions () =
   Codegen.compile_callable ?status_abi ?max_stack_bytes ?max_blocks
     ?max_global_bytes ?max_literal_bytes ?parameter_defaults
-    ?global_initializers ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~initialization ~entry ~functions ()
+    ?global_initializers ?float_entry_source ~max_ir_instructions
+    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()
   |> Result.map_error project_errors
   |> Result.map (fun image ->
       {
@@ -183,8 +213,58 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         dimension_ = None;
         switch_case_ = None;
         offset_ = None;
+        member_metadata_ = None;
+        scalar_initializer_ = None;
+        scalar_static_initializer_ = None;
         internal_binding_ = None;
+        scalar_default_ = None;
       })
+
+let compile_source_default ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes request =
+  let module Request = Driver.Native_default_preparation in
+  let module Program = Ir.Default_fragment_program in
+  let ( let* ) = Result.bind in
+  let program = Request.native_program request in
+  let* () =
+    Request.check_native request
+    |> Result.map_error (fun message ->
+        [
+          {
+            code = "HCBACK0003";
+            message;
+            span =
+              Some
+                (Ir.Default_fragment_destination.span
+                   (Program.destination program));
+          };
+        ])
+  in
+  let* image =
+    let destination = Program.destination program in
+    let float_entry_source =
+      X86_64_float_plan.
+        {
+          lowered = Program.lowered program;
+          globals = Ir.Default_fragment_destination.globals destination;
+          value =
+            Sema.Function_call_expression_result.top_level_root_value
+              (Ir.Default_fragment_destination.root destination);
+        }
+    in
+    compile_callable ?status_abi ?max_stack_bytes ?max_blocks
+      ~float_entry_source ~max_ir_instructions ~max_code_bytes
+      ~runtime_calls:(Program.runtime_calls program)
+      ~initialization:(Program.initialization program)
+      ~entry:(Program.entry program) ~functions:[] ()
+  in
+  Ok
+    {
+      image with
+      task_check_ = Some (fun () -> Request.check_native request);
+      task_claim_ = Some (fun () -> Request.claim_native request);
+      scalar_default_ = Some program;
+    }
 
 let project_storage_errors errors =
   List.map
@@ -202,11 +282,13 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ?data_default ?dimension ?switch_case ?offset
-    ?internal_binding ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim
-    ~generation ~source_callback ~runtime_calls ~retained_function_source
-    ~retained_slot_binding ~retained_slot_address_binding
-    ~retained_slot_address_refresh ~retained_parameter_default
-    ~retained_callback_default ~initialization ~entry ~functions () =
+    ?member_metadata ?scalar_initializer ?scalar_static_initializer
+    ?internal_binding ?scalar_default ~max_ir_instructions ~max_code_bytes
+    ~layout ~check ~claim ~generation ~source_callback ~runtime_calls
+    ~retained_function_source ~retained_slot_binding
+    ~retained_slot_address_binding ~retained_slot_address_refresh
+    ~retained_parameter_default ~retained_callback_default ~initialization
+    ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -221,7 +303,22 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     |> Result.map_error project_storage_errors
   in
   let* image =
+    let float_entry_source =
+      Option.map
+        (fun program ->
+          let destination = Ir.Default_fragment_program.destination program in
+          X86_64_float_plan.
+            {
+              lowered = Ir.Default_fragment_program.lowered program;
+              globals = Ir.Default_fragment_destination.globals destination;
+              value =
+                Sema.Function_call_expression_result.top_level_root_value
+                  (Ir.Default_fragment_destination.root destination);
+            })
+        scalar_default
+    in
     Codegen.compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
+      ?float_entry_source
       ~capture_callback_default:(Option.is_some callback_default)
       ?capture_data_default:
         (Option.bind data_default Ir.Saved_parameter_value.data_source)
@@ -255,7 +352,11 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         dimension_ = dimension;
         switch_case_ = switch_case;
         offset_ = offset;
+        member_metadata_ = member_metadata;
+        scalar_initializer_ = scalar_initializer;
+        scalar_static_initializer_ = scalar_static_initializer;
         internal_binding_ = internal_binding;
+        scalar_default_ = scalar_default;
         data_default_misc_ =
           Option.is_some data_default
           && Ir.X87_stack.graph entry |> Ir.Block_graph.blocks
@@ -272,6 +373,8 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
   let module Fragment = Ir.Initializer_fragment_program in
   let program = Task_dispatch.initializer_program request in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ?scalar_initializer:
+      (if Fragment.is_scalar_evaluation program then Some program else None)
     ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Task_dispatch.check_initializer_request request)
     ~claim:(fun () -> Task_dispatch.claim_initializer_request request)
@@ -298,6 +401,8 @@ let compile_task_static_initializer ?status_abi ?max_stack_bytes ?max_blocks
   let module Program = Ir.Static_initializer_program in
   let program = Request.program request in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ?scalar_static_initializer:
+      (if Program.is_scalar_evaluation program then Some program else None)
     ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
@@ -349,7 +454,8 @@ let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
     else Ok None
   in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
-    ?callback_default ?data_default ~max_ir_instructions ~max_code_bytes ~layout
+    ?callback_default ?data_default ~scalar_default:program ~max_ir_instructions
+    ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~generation:(fun () -> Request.generation request)
@@ -448,6 +554,27 @@ let compile_task_offset ?status_abi ?max_stack_bytes ?max_blocks
     ~initialization:(Program.initialization program)
     ~entry:(Program.entry program) ~functions:[] ()
 
+let compile_task_member_metadata ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_member_metadata in
+  let module Program = Ir.Member_metadata_fragment_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~member_metadata:program ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
 let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
     ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
   let module Unit = Driver.Integer_unit in
@@ -483,6 +610,7 @@ let check_task_activation image =
   | None -> Ok ()
   | Some claim -> claim ()
 
+let requires_x87 compiled = Codegen.program_requires_x87 compiled.image
 let code compiled = Codegen.program_code compiled.image
 let code_bytes compiled = Codegen.program_code_bytes compiled.image
 
@@ -502,6 +630,7 @@ let register_peak compiled = Codegen.program_register_peak compiled.image
 let frame_bytes compiled = Codegen.program_frame_bytes compiled.image
 let block_count compiled = Codegen.program_block_count compiled.image
 let function_count compiled = Codegen.program_function_count compiled.image
+let is_callable compiled = Codegen.program_is_callable compiled.image
 let has_output compiled = Codegen.program_has_output compiled.image
 
 let entry_stack_bytes compiled =
@@ -510,6 +639,7 @@ let entry_stack_bytes compiled =
 let project_word_type = function
   | Codegen.I64 -> I64
   | Codegen.U64 -> U64
+  | Codegen.F64 -> F64
 
 let project_operation = function
   | Codegen.Divide -> Divide
@@ -899,6 +1029,20 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                          Stream_exe_context_required
                        else Stream_exe_source_failed)
                       None
+                else if kind = 34L || kind = 35L then
+                  if
+                    (if kind = 34L then not candidate.reference_ownership_site
+                     else not candidate.reference_shadow_store_site)
+                    || executed_steps_int < 1
+                  then
+                    Error
+                      "native reference ownership fault has another reached \
+                       site"
+                  else
+                    make_fault
+                      (if kind = 34L then Pointer_ownership_unavailable
+                       else Reference_shadow_limit_exceeded)
+                      None
                 else if Int64.equal kind 17L then
                   if not candidate.pointer_ordering_site then
                     Error
@@ -1030,3 +1174,4 @@ let function_slot_bindings compiled =
   Codegen.program_function_slot_bindings compiled.image
 
 let native_sections compiled = Codegen.program_sections compiled.image
+let requires_fisttp compiled = Codegen.program_requires_fisttp compiled.image

@@ -28,6 +28,7 @@ let () =
 
 let compiler = Sys.argv.(1)
 let global_fixture = Sys.argv.(2)
+let reports = ref 0
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -57,6 +58,7 @@ let status_name = function
   | Unix.WSTOPPED signal -> Printf.sprintf "stopped %d" signal
 
 let checked_json expected arguments =
+  incr reports;
   let status, stdout, stderr = invoke arguments in
   require
     (status = Unix.WEXITED expected)
@@ -235,6 +237,50 @@ let () =
               (first_diagnostic report |> member "code" |> to_string
              = "HCIRVM0012")
               "unknown read code");
+      (* PrsGlblVarLst allocates the selected class extent even without a
+         read. F64's eight-byte storage does not require floating execution. *)
+      List.iter
+        (fun (contents, bytes) ->
+          with_file ".hc" contents (fun source ->
+              let exact = [ "--global-byte-limit=" ^ string_of_int bytes ] in
+              let below =
+                [ "--global-byte-limit=" ^ string_of_int (bytes - 1) ]
+              in
+              let native = host_json ~mode ~options:exact source in
+              check_success native;
+              check_word native "i64" "42" "0x000000000000002a";
+              require
+                (native |> member "native" |> member "image"
+               |> member "global_bytes" |> to_int = bytes)
+                "unused floating globals retain their logical byte extent";
+              let ir = ir_json ~mode ~options:exact source in
+              check_success ir;
+              check_word ir "i64" "42" "0x000000000000002a";
+              let native = host_json ~status:1 ~mode ~options:below source in
+              require
+                (member "executed_steps" native = `Null
+                && first_diagnostic native |> member "code" |> to_string
+                   = "HCBACK0001")
+                "native floating global quota must fail before entry";
+              let ir = ir_json ~status:1 ~mode ~options:below source in
+              require
+                (member "executed_steps" ir = `Int 0
+                && first_diagnostic ir |> member "code" |> to_string
+                   = "HCIRVM0016")
+                "IR floating global quota must fail before execution"))
+        [ ("F64 G;42;", 8); ("F64 G[2];42;", 16) ];
+      with_file ".hc" "F64 G;G=1.5;G;" (fun source ->
+          let native =
+            host_json ~mode ~options:[ "--global-byte-limit=8" ] source
+          in
+          check_success native;
+          check_word native "f64" "1.5" "0x3ff8000000000000";
+          let ir = ir_json ~status:1 ~mode source in
+          require
+            (member "executed_steps" ir = `Int 0
+            && first_diagnostic ir |> member "code" |> to_string = "HCIRVM0002"
+            )
+            "IR floating execution retains its instruction preflight gate");
       if mode = "aot" then
         with_file ".hc" "I64 F(){return 42;}I64 G=F();G;" (fun source ->
             let native = host_json ~mode source in
@@ -259,9 +305,9 @@ let () =
            "I64 *G[1];42;";
            "I64 *G;42;";
            "extern I64 G;42;";
-           "I64 N=1;I64 F(){static I64 G=N<<2;return 42;}F();";
-           "F64 G;42;";
+           "I64 F(I64 p){static I64 G=p<<2;return 42;}42;";
            "I64 G;I64 F(I64 x=G){return x;}F();";
          ]
         @ if mode = "jit" then [ "I64 F(){return 42;}I64 G=F();G;" ] else []))
-    [ "jit"; "aot" ]
+    [ "jit"; "aot" ];
+  Printf.printf "Native global CLI: %d reports passed.\n" !reports

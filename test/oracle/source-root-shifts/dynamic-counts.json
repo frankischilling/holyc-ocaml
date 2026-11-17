@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "8e8ae07d568e0e9779c6dd94b7c083f5d051120eae9aa58abe5c0eb02986942b",
+  "capture_sha256": "8bd8a40f7809e30a0e49cebf8d11f1f15599d7309624273024601d355aadf3f7",
+  "boot_iso_sha256": "e7b0b73a31033741b1a2a68fd7bd6d12fad342a8c8427ada5e0682ca471df63a",
+  "fields": {
+    "JIT_ZERO": "7",
+    "JIT_NEG": "-9223372036854775808",
+    "JIT_63": "-9223372036854775808",
+    "JIT_64": "7",
+    "JIT_128": "7",
+    "COMPILE_ERRORS": "0",
+    "AOT_ZERO": "7",
+    "AOT_NEG": "-9223372036854775808",
+    "AOT_63": "-9223372036854775808",
+    "AOT_64": "7",
+    "AOT_128": "7"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of variable shift counts at negative, zero and word-size boundaries."
+}

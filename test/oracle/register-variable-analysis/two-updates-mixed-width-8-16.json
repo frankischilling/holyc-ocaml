@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e8262a13b774c4848571d5bcd1763cf24bbfab2285d96fab0824c9682f61ce09",
+  "boot_payload_sha256": "1f4faf40b7c8f5347ddf24503a3323ed9195fa2f99dd200ba59b70af5f6d5920",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "df700bb88b76ac27069f7f0ccb9e4dbc7338511bfc1c95c93536dec97009cf38",
+  "boot_iso_sha256": "2d9e60b26387a77548b664917ab311518254a1126aa2bc5be350d0671063bc4b",
+  "fields": {
+    "J_S": "65664",
+    "J_U": "65664",
+    "J_SN": "-128",
+    "J_UN": "-128",
+    "ERR": "0",
+    "A_S": "65664",
+    "A_U": "65664",
+    "A_SN": "-128",
+    "A_UN": "-128"
+  },
+  "scope": "Repeated original JIT and compiled observations of two narrow updates with different widths."
+}

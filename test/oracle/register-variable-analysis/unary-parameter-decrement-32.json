@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "03a75e62f96ff115803f05301ca6eaccaa8f0339214c34356a7c833b265aab75",
+  "boot_payload_sha256": "1b147901521736ec524ac02c5877880f02330f87ada28dc9e35b0b5ec7bcf954",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "09c67c6f7baa539eef1a784987169b970956349ca589dda288d7333fb6be54b5",
+  "boot_iso_sha256": "ec5da682d7a953d4d281edae1f19255e41b84e49dc3b915bb352a777d5ad0777",
+  "fields": {
+    "J_S": "-2147483649",
+    "J_U": "-1",
+    "J_SN": "2147483647",
+    "J_UN": "4294967295",
+    "ERR": "0",
+    "A_S": "-2147483649",
+    "A_U": "-1",
+    "A_SN": "2147483647",
+    "A_UN": "4294967295"
+  },
+  "scope": "Repeated original JIT and compiled observations of a narrow variable incremented or decremented before return. Stored source omits boot padding."
+}

@@ -175,7 +175,7 @@ let context_cases =
        n=38;Add(&n,3);return n;}F();"
       42L;
     successful "aligned subword alias changes only its original bytes"
-      "I64 F(){U64 n=0x112233445566ffff;U16 *p=(&n)(U16*);lock ++*p;return \
+      "I64 F(){U64 n=0x112233445566ffff;U16 *p=(&n)(U16*);lock ++(*p);return \
        n==0x1122334455660000;}F();"
       1L;
     successful "locked U0 helper completes through ordinary call control"

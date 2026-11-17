@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "af65912a0a728ed0beee36d9d3b391c7814080179f883d67e59d209f9afef6fd",
+  "boot_payload_sha256": "36e6a15df7a4cbeed2e86e125593a2e8889415616d2ac70686f0c736200be6c6",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "72baa4bd670acc94338067b624177f3987d43ffdb2ad181843a5cd2b1bf9f14e",
+  "boot_iso_sha256": "248c58401a2373c0d1ec787a6cf1c3d538790c56595d9016e8f5350136e571c3",
+  "fields": {
+    "ADD": "0",
+    "SUB": "1785",
+    "ERR": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of multiplying a narrow global update by a 64-bit global value."
+}

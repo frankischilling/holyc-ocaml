@@ -1,0 +1,19 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "f64ec993b67519583fed94da2a29b1f2071c5da9c787434f23d72172fd6e506c",
+  "boot_iso_sha256": "4279d4e6bf8f835f1b9c3957902e4e81eae1ca14427ff4fc10127425d08e4203",
+  "capture_sha256": "57aaeea3d760c375280cedfd5f4eec9991ae0ce867bda152c2445ff3cb431c43",
+  "fields": {
+    "FUNCTION_ADDRESS": 42,
+    "DATA_ADDRESS": 42,
+    "ARRAY_DECAY": 42,
+    "STRING_ADDRESS": 42,
+    "RETURNED_REFERENCE": 42,
+    "CALLBACK_WORD": 42,
+    "GLOBAL_CALLS": 1,
+    "STATIC_CALLS_BEFORE": 2,
+    "STATIC_SUM": 84,
+    "STATIC_CALLS_AFTER": 2
+  },
+  "scope": "Original JIT reference evaluation into zero-byte leaves; does not establish original AOT execution."
+}

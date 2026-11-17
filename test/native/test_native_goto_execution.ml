@@ -87,6 +87,7 @@ let vm_type_name = function
 let program_type_name = function
   | Program.I64 -> "I64"
   | Program.U64 -> "U64"
+  | Program.F64 -> "F64"
 
 let check_vm_word label expected_type expected_bits result =
   match VM.final_value result with

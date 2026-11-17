@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "08f2c7c8396bf2c63cdd40ba8824f0096690a4b6c77e08407e0206b2cc9e56b3",
+  "boot_payload_sha256": "08f2c7c8396bf2c63cdd40ba8824f0096690a4b6c77e08407e0206b2cc9e56b3",
+  "boot_payload_bytes": 615,
+  "capture_sha256": "79072660889edaf62040d123812cc21a396eed8ee993db1767a8c87d89a1dd6d",
+  "boot_iso_sha256": "4f91bd00e4c463e46f99bbeb5198b27f9c7b5f4ea740b11f0890a7223368c542",
+  "fields": {
+    "PARAM": "384",
+    "FIVE": "2550",
+    "ERR": "0"
+  },
+  "scope": "Two independent original compile-time observations of three additions and five multiplications, captured with QEMU 10.0.13. A newline separates captures."
+}

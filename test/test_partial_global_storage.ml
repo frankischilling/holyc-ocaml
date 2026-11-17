@@ -162,13 +162,29 @@ let preflight_failure () =
         task)
     [
       ({|I64 A[2]={#exe {StreamPrint("42");},0};|}, 15);
-      ("I64 A[0];", 16);
-      ("I64 A[];", 16);
-      ("U0 A;", 16);
+      ("U0 A[1];", 16);
       ("I64 *A;", 16);
       ("_I64 A;", 16);
       ("static I64 A;", 16);
       ("extern I64 A;", 16);
+    ]
+
+let zero_extent_admission () =
+  List.iter
+    (fun text ->
+      let parsed, task, _ = run ~max_global_bytes:1 text in
+      ignore (Test_parser.expect_ast parsed);
+      let progress = (Task.progress task).runtime in
+      Alcotest.(check int)
+        "empty declaration charges no source storage" 0 progress.global_bytes;
+      Alcotest.(check (option int64))
+        "original size query observes zero" (Some 0L)
+        (Option.map (fun word -> word.VM.bits) progress.final_value))
+    [
+      "I64 A[0];sizeof A;";
+      "I64 A[];sizeof A;";
+      "U0 A;sizeof A;";
+      "U0 A,B;sizeof A+sizeof B;";
     ]
 
 let replay_and_foreign () =
@@ -561,7 +577,9 @@ let tests =
     Alcotest.test_case "unknown storage fault preserves admission" `Quick
       unknown_read;
     Alcotest.test_case "allocation preflight stops initializer effects" `Quick
-      preflight_failure;
+      (fun () ->
+        preflight_failure ();
+        zero_extent_admission ());
     Alcotest.test_case "replay and foreign tasks do not allocate" `Quick
       replay_and_foreign;
     Alcotest.test_case "delayed publication cannot mint a boundary" `Quick

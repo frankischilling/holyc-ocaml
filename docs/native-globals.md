@@ -1,5 +1,11 @@
 # Native scalar globals and statics
 
+[Persistent aggregate storage](persistent-aggregates.md) gives nonempty class
+and union globals and statics their original byte roots in IR and native execution.
+Integer fields, arrays, scalar prefixes and member size queries retain the selected
+layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
+Aggregate initializers and the remaining aggregate execution families stay open.
+
 `holyc run --target=host-jit examples/native-scalar-globals.hc` returns I64 42
 in JIT and AOT preprocessing modes. Generated entry code and direct functions
 share ordinary I8/U8/I16/U16/I32/U32/I64/U64 globals, including closed scalar
@@ -41,13 +47,14 @@ duplicate, reordered or foreign evidence rejects. Ordinary batch preparation
 and caller-supplied initial bits cannot supply this certificate. Preparation
 faults occur before native entry and retain earlier declaration work.
 
-In AOT mode, original reference-bearing integer or callback leaves can retain
-their checked load-time regions instead of a prepared value. Generated code
-executes their stores and direct or indirect calls against zeroed global
-storage. Their output, calls and faults use the runtime meter. Exact original
-source and destination receipts join every scheduled region to the complete
-bundle. See [global callback initializers](global-callback-initializers.md) and
-`examples/native-aot-callback-initializers.hc`.
+In AOT mode, original reference-bearing integer, callback or same-class F64
+leaves can retain their checked load-time regions instead of a prepared value.
+Generated code executes their stores and direct or indirect calls against
+zeroed global storage. Their output, calls and faults use the runtime meter.
+Exact original source and destination receipts join every scheduled region to
+the complete bundle. See
+[global callback initializers](global-callback-initializers.md) and
+[AOT F64 load initializers](native-f64-storage.md#aot-load-initializers).
 
 `X86_64_global_storage` seals the original initialization/entry bundle, exact
 global symbol objects, declared types, slots and address opcodes. JIT uses the
@@ -125,15 +132,24 @@ Global and static payloads count toward the global-byte quota, not `--default-by
 The native API tests compare exact runtime meters with fresh isolated checked
 interpreter execution; public source tests independently check values.
 
-JIT effectful or call-dependent initializers, persistent pointers, aggregates,
-aliases, extern/import/data-heap storage and retained task storage remain
-unsupported. Defaults still prepare closed numeric expressions in a separate
-empty fragment at their original declaration boundary; admitting globals does
+Persistent pointers, aliases and extern/import/data-heap storage remain
+unsupported by this isolated path. See [aggregate initializers](aggregate-initializers.md)
+for supported leaves and preparation boundaries. Nonempty aggregate storage
+uses [its original byte roots](persistent-aggregates.md). Retained tasks have
+separate source preparation and ownership checks. Defaults still prepare closed
+numeric expressions in a separate empty fragment at their original declaration
+boundary; admitting globals does
 not authorize a default to read them. Full memory/runtime support, object/BIN
 output, loader acceptance and bootstrap remain open.
-Initializers must precede executable top-level statements. Floating values,
-pointer-valued initializers and unresolved initializer shift-optimizer behavior
-also reject.
+Nonconstant AOT load initializers retain their order among executable top-level
+statements. Later constant or byte-copy preparation still rejects before it
+begins. Supported F64 globals and statics retain their eight-byte scalar or
+fixed-array storage and execute native assignments and reads in both source
+modes. Floating declaration preparation follows the separate
+[F64 storage boundary](native-f64-storage.md).
+The integer interpreter can retain unused F64 storage without admitting floating
+instructions. Pointer-valued initializers and unresolved initializer
+shift-optimizer behavior remain outside this path.
 
 ## Source evidence and verification
 
@@ -158,5 +174,8 @@ one-below preparation quotas, both ABI encodings and failure before entry.
 `test/native/test_native_global_execution.ml` covers all widths, shared calls,
 recursive faults, fresh images, updates and exact resource boundaries.
 `test/native/test_native_global_cli.ml` exercises the maintained source fixture,
-reports, both modes, unknown reads and rejected neighbors. These tests provide
+reports, both modes, unknown reads and rejected neighbors. Its floating controls
+check exact eight- and sixteen-byte allocation limits, one-below rejection,
+native F64 assignment/read results and the separate IR instruction preflight.
+These tests provide
 hosted interpreter/native evidence; they add no TempleOS oracle capture.

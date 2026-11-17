@@ -466,6 +466,7 @@ let build ~table ~parent inputs =
 
 let aggregates result = result.aggregates
 let owns_table result table = result.table == table
+let owns_symbol result symbol = Symbol_table.owns_symbol result.table symbol
 let owns_parent result parent = result.parent == parent
 let parent_scope result = result.parent
 let aggregate_symbol (aggregate : aggregate) = aggregate.symbol
@@ -505,3 +506,106 @@ let lookup result ~aggregate ~name =
                 inheritance_depth;
                 member;
               }))
+
+let lookup_partial_record result ~aggregate ~name record =
+  match record with
+  | None -> Ok None
+  | Some record -> (
+      match Compiler_record.aggregate_reached_field record name with
+      | None ->
+          Error
+            (invalid_input
+               (Printf.sprintf "aggregate `%s` has no reached member `%s`"
+                  (Symbol.name aggregate) name))
+      | Some (_, _, field)
+        when Option.is_some (Compiler_record.aggregate_field_callback field)
+             && Option.is_none
+                  (Compiler_record.aggregate_field_callback_signature field) ->
+          Error
+            (invalid_input
+               "partial callback member requires its original signature index")
+      | Some (declaring_aggregate, inheritance_depth, field) ->
+          let reference, function_pointer =
+            match Compiler_record.aggregate_field_callback_signature field with
+            | None ->
+                (Compiler_record.aggregate_field_type_reference field, None)
+            | Some (reference, pointer) -> (reference, Some pointer)
+          in
+          let original = Compiler_record.aggregate_field_name field in
+          let origin = Closed_numeric_expression.origin original.location in
+          Result.bind
+            (Symbol_table.create_scope result.table ~parent:result.parent
+               ~kind:Symbol_table.Aggregate
+               ~name:(Symbol.name declaring_aggregate)
+               ())
+            (fun scope ->
+              Result.bind
+                (Symbol_table.add result.table ~scope ~name ~kind:Symbol.Member
+                   ~origin) (fun symbol ->
+                  Result.map
+                    (fun layout ->
+                      Some
+                        {
+                          queried_aggregate = aggregate;
+                          declaring_aggregate;
+                          inheritance_depth;
+                          member =
+                            {
+                              symbol;
+                              declaring_aggregate;
+                              member_type =
+                                Type_reference.resolved_type reference;
+                              member_type_reference = reference;
+                              is_function_pointer =
+                                Option.is_some function_pointer;
+                              function_pointer;
+                              layout;
+                            };
+                        })
+                    (Aggregate_layout.reached_member ~table:result.table ~symbol
+                       field)))
+          |> Result.map_error invalid_input)
+
+let lookup_partial result ~visibility ~source ~aggregate ~name =
+  if
+    not
+      (Function_aggregate_visibility.function_owns visibility
+         ~table:result.table ~parent:result.parent)
+  then
+    Error (invalid_input "partial member lookup has another function namespace")
+  else
+    let record =
+      match
+        Function_aggregate_visibility.partial_aggregate visibility ~source
+          ~symbol:aggregate
+      with
+      | Some _ as record -> record
+      | None when Option.is_none (find_aggregate result aggregate) ->
+          Function_aggregate_visibility.completed_aggregate visibility ~source
+            ~symbol:aggregate
+      | None -> None
+    in
+    lookup_partial_record result ~aggregate ~name record
+
+let lookup_reference result ~(identifier : Frontend.Ast.identifier) ~visibility
+    ~aggregate ~name =
+  if
+    (not (Compiler_record.aggregate_reference_is_member visibility))
+    || identifier.Frontend.Ast.spelling <> name
+  then
+    Error
+      (invalid_input "partial member lookup replaced its original selected name")
+  else
+    let record =
+      match
+        Compiler_record.aggregate_reference_partial ~table:result.table
+          ~parent:result.parent ~identifier ~symbol:aggregate visibility
+      with
+      | Some _ as record -> record
+      | None when Option.is_none (find_aggregate result aggregate) ->
+          Compiler_record.aggregate_reference_completed_record
+            ~table:result.table ~parent:result.parent ~identifier
+            ~symbol:aggregate visibility
+      | None -> None
+    in
+    lookup_partial_record result ~aggregate ~name record

@@ -29,6 +29,19 @@ let example = Sys.argv.(2)
 let native = Array.length Sys.argv = 4 && Sys.argv.(3) = "--native"
 
 let invoke ?(status = 0) ?(options = []) target mode path =
+  (* The complete native task includes repeated callback/provider images.
+     Keep the production default unchanged and opt this conformance matrix
+     into a bounded larger allowance; exact code limits are checked below. *)
+  let options =
+    if
+      target = "host-jit-task"
+      && not
+           (List.exists
+              (String.starts_with ~prefix:"--code-byte-limit=")
+              options)
+    then "--code-byte-limit=1048576" :: options
+    else options
+  in
   let args =
     [
       "run";
@@ -131,6 +144,20 @@ let () =
         let fragments =
           baseline |> member "native" |> member "fragments" |> to_list
         in
+        let code_bytes =
+          List.fold_left
+            (fun total fragment ->
+              total + (fragment |> member "code_bytes" |> to_int))
+            0 fragments
+        in
+        word "42"
+          (invoke
+             ~options:[ Printf.sprintf "--code-byte-limit=%d" code_bytes ]
+             target "jit" example);
+        error "HCBACK0005"
+          (invoke ~status:1
+             ~options:[ Printf.sprintf "--code-byte-limit=%d" (code_bytes - 1) ]
+             target "jit" example);
         let defaults =
           List.filter
             (fun fragment -> member "kind" fragment = `String "default")

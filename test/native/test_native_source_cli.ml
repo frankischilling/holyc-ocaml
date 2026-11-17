@@ -21,13 +21,15 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 4)
+    (Array.length Sys.argv = 5)
     "usage: test_native_source_cli.exe <holyc.exe> \
-     <native-source-initializers.hc> <native-source-arrays.hc>"
+     <native-source-initializers.hc> <native-source-arrays.hc> \
+     <native-static-f64-leaves.hc>"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
 let array_fixture = Sys.argv.(3)
+let floating_static_fixture = Sys.argv.(4)
 
 let invoke expected arguments =
   with_file ".out" "" (fun stdout ->
@@ -244,3 +246,306 @@ let () =
     |> List.exists (String.starts_with ~prefix:"native-fragments=4"))
     "human report preserves original array fragments";
   print_endline "Native source CLI: 20 executions passed."
+
+(* Hosted controls: these do not add an original TempleOS capture. *)
+let () =
+  let cases =
+    [
+      ("1.5", [ 0; 0; 0; 0; 0; 0; 248; 63 ]);
+      ("-0.0", [ 0; 0; 0; 0; 0; 0; 0; 128 ]);
+      ("1.5+0.5", [ 0; 0; 0; 0; 0; 0; 0; 64 ]);
+      ("2.5/2.0", [ 0; 0; 0; 0; 0; 0; 244; 63 ]);
+    ]
+  in
+  List.iter
+    (fun (expression, bytes) ->
+      let checks =
+        List.mapi
+          (fun index byte -> Printf.sprintf "(&b)(U8*)[%d]==%d" index byte)
+          bytes
+        |> String.concat " && "
+      in
+      let source =
+        Printf.sprintf "class Box{F64 x;I64 y;};Box b={%s,42};(%s) && b.y==42;"
+          expression checks
+      in
+      with_file ".hc" source (fun path ->
+          let report = json_path path in
+          require
+            (member "outcome" report = `String "success"
+            && final_bits report = "0x0000000000000001"
+            && member "diagnostics" report = `List [])
+            ("exact F64 leaf bytes and neighbor: " ^ expression);
+          List.iter
+            (fun (target, mode) ->
+              let result = json_path ~target ~mode ~status:1 path in
+              require
+                (member "outcome" result = `String "error")
+                "unimplemented floating initializer target stays gated")
+            [ ("ir", "jit"); ("ir", "aot"); ("host-jit-task", "aot") ]))
+    cases;
+  List.iter
+    (fun source ->
+      with_file ".hc" source (fun path ->
+          let result = json_path ~status:1 path in
+          require
+            (member "outcome" result = `String "error")
+            "cross-class initializer conversion remains gated"))
+    [
+      "class Box{F64 x;I64 y;};Box b={1,42};42;";
+      "class Box{I64 x;I64 y;};Box b={1.5,42};42;";
+    ]
+
+let () =
+  let source =
+    "F64 Value(){return 1.5;}class Box{F64 x;I64 y;};Box \
+     b={Value(),42};(&b)(U8*)[7]*256+(&b)(U8*)[6];"
+  in
+  with_file ".hc" source (fun path ->
+      let baseline = json_path path in
+      require
+        (member "outcome" baseline = `String "success"
+        && final_bits baseline = "0x0000000000003ff8")
+        "same-class floating call result reaches its leaf";
+      let steps = member "compiled_initializer_steps" baseline |> to_int in
+      require (steps > 0) "floating initialization records real work";
+      let exact =
+        json_path
+          ~options:[ "--initializer-step-limit=" ^ string_of_int steps ]
+          path
+      in
+      require
+        (member "outcome" exact = `String "success"
+        && final_bits exact = final_bits baseline)
+        "exact floating initializer budget";
+      let limited =
+        json_path ~status:1
+          ~options:[ "--initializer-step-limit=" ^ string_of_int (steps - 1) ]
+          path
+      in
+      require
+        (member "outcome" limited = `String "error"
+        && member "diagnostics" limited
+           |> to_list
+           |> List.exists (fun d -> member "code" d = `String "HCIRVM0007"))
+        "one-below floating initializer budget faults")
+
+let () =
+  with_file ".hc"
+    "extern U0 Print(U8 *fmt,...);F64 Value(){Print(\"A\");return 1.5;}class \
+     Box{F64 x;I64 y;};Box b={Value(),42};Print(\"B\"); (&b)(U8*)[6];"
+    (fun path ->
+      let report = json_path ~options:[ "--code-byte-limit=524288" ] path in
+      require
+        (member "outcome" report = `String "success"
+        && member "output_hex" report = `String "4142"
+        && final_bits report = "0x00000000000000f8")
+        "floating initializer effects run once before later commands")
+
+let () =
+  List.iter
+    (fun (expression, bytes) ->
+      let checks =
+        List.mapi
+          (fun index byte -> Printf.sprintf "(&b)(U8*)[%d]==%d" index byte)
+          bytes
+        |> String.concat " && "
+      in
+      let source =
+        Printf.sprintf
+          "class Box{F64 x;I64 y;};I64 F(){static Box b={%s,42};return (%s) && \
+           b.y==42;} F()+F();"
+          expression checks
+      in
+      with_file ".hc" source (fun path ->
+          let report = json_path path in
+          require
+            (member "outcome" report = `String "success"
+            && final_bits report = "0x0000000000000002"
+            && member "diagnostics" report = `List [])
+            ("exact static F64 bytes and repeated calls: " ^ expression);
+          List.iter
+            (fun (target, mode) ->
+              let result = json_path ~target ~mode ~status:1 path in
+              require
+                (member "outcome" result = `String "error")
+                "unimplemented static floating target stays gated")
+            [ ("ir", "jit"); ("ir", "aot"); ("host-jit-task", "aot") ]))
+    [
+      ("1.5", [ 0; 0; 0; 0; 0; 0; 248; 63 ]);
+      ("-0.0", [ 0; 0; 0; 0; 0; 0; 0; 128 ]);
+      ("1.5+0.5", [ 0; 0; 0; 0; 0; 0; 0; 64 ]);
+      ("2.5/2.0", [ 0; 0; 0; 0; 0; 0; 244; 63 ]);
+    ];
+  List.iter
+    (fun source ->
+      with_file ".hc" source (fun path ->
+          let report = json_path ~status:1 path in
+          require
+            (member "outcome" report = `String "error")
+            "static cross-class conversion stays gated"))
+    [
+      "class Box{F64 x;};I64 F(){static Box b={1};return 0;}42;";
+      "class Box{I64 x;};I64 F(){static Box b={1.5};return 0;}42;";
+    ]
+
+let () =
+  let report =
+    json_path ~options:[ "--code-byte-limit=524288" ] floating_static_fixture
+  in
+  require
+    (member "outcome" report = `String "success"
+    && final_bits report = "0x000000000000002a"
+    && member "output_hex" report = `String "41")
+    "maintained static F64 example returns 42 and prints A once"
+
+let () =
+  let source =
+    "extern U0 Print(U8 *fmt,...);F64 Value(){Print(\"A\");return 1.5;} class \
+     Box{U8 tag;F64 x[2];I64 tail;}; I64 F(){static Box \
+     b={7,{Value(),-0.0},42}; I64 r=b.tag+(&b)(U8*)[7]+(&b)(U8*)[16]+b.tail; \
+     (&b)(U8*)[7]=0;return r;} Print(\"B\");F()+F();"
+  in
+  with_file ".hc" source (fun path ->
+      let baseline = json_path ~options:[ "--code-byte-limit=524288" ] path in
+      require
+        (member "outcome" baseline = `String "success"
+        && final_bits baseline = "0x000000000000025a"
+        && member "output_hex" baseline = `String "4142")
+        "unaligned static array leaves prepare once and retain mutation";
+      let steps = member "compiled_initializer_steps" baseline |> to_int in
+      require (steps >= 16) "both floating copies charge their eight bytes";
+      let run limit status =
+        json_path ~status
+          ~options:
+            [
+              "--code-byte-limit=524288";
+              "--initializer-step-limit=" ^ string_of_int limit;
+            ]
+          path
+      in
+      let exact = run steps 0 in
+      require
+        (final_bits exact = final_bits baseline
+        && member "output_hex" exact = member "output_hex" baseline)
+        "exact static floating preparation allowance";
+      List.iter
+        (fun limit ->
+          let report = run limit 1 in
+          require
+            (member "outcome" report = `String "error"
+            && member "output_hex" report <> `String "4142"
+            && member "compiled_initializer_steps" report |> to_int <= limit
+            && member "diagnostics" report
+               |> to_list
+               |> List.exists (fun d -> member "code" d = `String "HCIRVM0007")
+            )
+            "static preparation stops before later source under its allowance")
+        [ steps - 1 ];
+      let zero = run 0 1 in
+      require
+        (member "command_error" zero |> member "code" = `String "HCIRVM0001"
+        && member "output_hex" zero = `String "")
+        "zero initial allowance is rejected before source admission");
+  with_file ".hc"
+    "extern U0 Print(U8 *fmt,...);F64 Value(){Print(\"B\");return 2.5;} class \
+     Box{F64 x;F64 y;}; I64 F(){static Box b={1.5,Value()};return \
+     42;}Print(\"C\");F();" (fun path ->
+      let report =
+        json_path ~status:1
+          ~options:[ "--code-byte-limit=524288"; "--initializer-step-limit=11" ]
+          path
+      in
+      require
+        (member "outcome" report = `String "error"
+        && member "compiled_initializer_steps" report = `Int 11
+        && member "output_hex" report = `String ""
+        && member "diagnostics" report
+           |> to_list
+           |> List.exists (fun d -> member "code" d = `String "HCIRVM0007"))
+        "zero remaining allowance stops the next floating leaf before effects");
+  with_file ".hc"
+    "extern U0 Print(U8 *fmt,...);F64 Value(){Print(\"A\");return 1.5;} class \
+     Box{F64 x;I64 y;}; I64 NeverCalled(){static Box b={Value(),1/0};return \
+     0;} #exe {Print(\"B\");}42;" (fun path ->
+      let report =
+        json_path ~status:1 ~options:[ "--code-byte-limit=524288" ] path
+      in
+      require
+        (member "outcome" report = `String "error"
+        && member "output_hex" report = `String "41")
+        "unused static prepares and preserves earlier floating effects on fault")
+
+let () =
+  with_file ".hc" "class Box{F64 x;};Box b={1.5};42;" (fun path ->
+      let baseline = json_path path in
+      require
+        (member "compiled_initializer_steps" baseline = `Int 11)
+        "global floating expression charges three instructions plus eight \
+         copied bytes";
+      let exact = json_path ~options:[ "--initializer-step-limit=11" ] path in
+      require
+        (final_bits exact = "0x000000000000002a")
+        "exact global floating expression and copy allowance";
+      List.iter
+        (fun limit ->
+          let report =
+            json_path ~status:1
+              ~options:[ "--initializer-step-limit=" ^ string_of_int limit ]
+              path
+          in
+          require
+            (member "diagnostics" report
+            |> to_list
+            |> List.exists (fun d -> member "code" d = `String "HCIRVM0007"))
+            "global floating work cannot exceed the initializer allowance")
+        [ 10; 1 ]);
+  with_file ".hc"
+    "extern U0 Print(U8 *fmt,...);F64 Value(){Print(\"A\");return 1.5;} class \
+     Box{F64 x;};Box b={Value()};Print(\"B\");42;" (fun path ->
+      let options = [ "--code-byte-limit=524288" ] in
+      let baseline = json_path ~options path in
+      let steps = member "compiled_initializer_steps" baseline |> to_int in
+      require
+        (steps > 11 && member "output_hex" baseline = `String "4142")
+        "global floating call and copy charge actual work";
+      let limited =
+        json_path ~status:1
+          ~options:
+            (options
+            @ [ "--initializer-step-limit=" ^ string_of_int (steps - 1) ])
+          path
+      in
+      require
+        (member "output_hex" limited = `String "41"
+        && member "diagnostics" limited
+           |> to_list
+           |> List.exists (fun d -> member "code" d = `String "HCIRVM0007"))
+        "copy failure retains original expression output and stops later source";
+      let reached =
+        json_path ~status:1
+          ~options:(options @ [ "--initializer-step-limit=1" ])
+          path
+      in
+      require
+        (member "compiled_initializer_steps" reached = `Int 1
+        && member "output_hex" reached = `String ""
+        && member "diagnostics" reached
+           |> to_list
+           |> List.exists (fun d -> member "code" d = `String "HCIRVM0007"))
+        "failed global expression retains its reached initializer work");
+  with_file ".hc"
+    "extern U0 Print(U8 *fmt,...);F64 Value(){Print(\"B\");return 2.5;} class \
+     Box{F64 x;F64 y;};Box b={1.5,Value()};42;" (fun path ->
+      let report =
+        json_path ~status:1
+          ~options:[ "--code-byte-limit=524288"; "--initializer-step-limit=11" ]
+          path
+      in
+      require
+        (member "compiled_initializer_steps" report = `Int 11
+        && member "output_hex" report = `String ""
+        && member "diagnostics" report
+           |> to_list
+           |> List.exists (fun d -> member "code" d = `String "HCIRVM0007"))
+        "global floating leaves share their zero-remaining allowance")

@@ -1,0 +1,12 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "d8ee5e315662bf8dd97b0836eb26ac91124c4f0416bbfc5b536549ebce90d2ad",
+  "capture_sha256": "d45201b3f40bb8bac3b2fb88966cdd97429c96beff5749dcb07382fdc60bff13",
+  "boot_iso_sha256": "eabfaf2b48f6b363827ca6241e7e981da998a10d74fa83aa9a7864296591f42d",
+  "fields": {
+    "VALUE": "-2",
+    "CALLS": "1",
+    "COMPILE_ERRORS": "0"
+  },
+  "scope": "Repeated original compile-time observations of a retained addressed byte shift during default preparation."
+}

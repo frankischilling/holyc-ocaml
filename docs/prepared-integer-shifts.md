@@ -1,16 +1,18 @@
 # Retained integer shift preparation
 
-Retained initializer calls prepare original full-word canonical constant shifts
-and supported scalar right-shift updates in both source modes. This includes
-the literal power-of-two division reductions described in
+Retained initializer calls prepare original supported scalar constant and
+variable-count shifts, full-word compound shifts, bounded narrow right updates
+and proven addressed narrow left updates, including their full expression
+results, in both source modes. This includes the literal power-of-two division
+reductions described in
 [integer division](integer-division.md). For signed `x=-7`, a retained `x/2`
 default saves `-4`, while the constant expression `-7/2` saves `-3`.
 
 Run `holyc run examples/stream-prepared-integer-shifts.hc`. It returns I64 `42`
 from a default, global and static initializer, each saved before the source
-global changes. Its source assertions produce no output. Both modes use 199
+global changes. Its source assertions produce no output. Both modes use 202
 runtime instructions, seven preparation units and seven formatting-work units.
-The example rejects a runtime limit of 198 or preparation limit of six.
+The example rejects a runtime limit of 201 or preparation limit of six.
 
 ## Native observations
 
@@ -41,10 +43,10 @@ one boot; they do not establish cross-boot or general compiler compatibility.
 
 `Runtime_call_context.original_preparation_shifts` first checks the current
 original source bundle and transitive producers. It collects only original
-zero-flag full-word `IC_SHL_CONST`/`IC_SHR_CONST` descriptions, or original
-scalar `IC_SHR_EQ` with an operand-free internal I64 constant count from 0 to
-63. Canonical shift payloads retain their complete 64-bit counts; the existing
-consumer masks them at execution.
+zero-flag scalar integer `IC_SHL_CONST`/`IC_SHR_CONST` and `IC_SHL`/`IC_SHR`
+descriptions and original scalar `IC_SHL_EQ`/`IC_SHR_EQ` with scalar counts.
+Narrow updates must separately pass the original storage and result-use checks. Canonical shift payloads retain their complete 64-bit counts; the
+existing consumer masks them at execution.
 
 The driver uses the retained callee's published context and exact description
 identity. Collection never constructs or reseals a context. Copied records,
@@ -54,7 +56,7 @@ authority. Actual execution checks the original bundle again.
 
 Addressed narrow updates keep declared storage conversion. An ordinary narrow
 register candidate qualifies only when every write preserves its declared
-range. A bounded right shift preserves that range; an out-of-range assignment,
+range. A right shift with a masked integer count preserves that range; an out-of-range assignment,
 another unproved update or an explicit hardware register remains outside this
 proof. The whole-graph check includes writes after the shift and dependent
 locals, rather than assuming the first initializer determines later values.
@@ -68,9 +70,15 @@ invariants and exact/one-below resource limits. Public CLI regressions compare
 all 38 mode/field projections and the measured example. Existing native
 operation and source-authority tests remain required.
 
-Raw variable shifts, unsupported compound counts, direct or unsealed
-preparation expressions and unproved narrow/numeric/flagged domains retain
-`HCRUN0006`. General literal division and modulo admission is still guarded.
+Narrow register-candidate left updates, unsealed preparation expressions and
+unproved numeric or flagged domains retain `HCRUN0006` in this preparation path. Ordinary non-retained callee
+preparation remains a separate boundary. A repeated original compile-time
+captures in `test/oracle/source-root-shifts/retained-callee.*` and
+`retained-compound-*` check variable and compound shifts inside retained default
+initializers and their once-only calls.
+[Source global initializer shifts](source-root-initializer-shifts.md) describes
+the separate bounded direct-root path. General literal division and modulo
+admission is still guarded.
 Shared nonconstant power-of-two division and plain modulo-mask plans remain
 raw under #585/#696/#697. Native retained frontend publication retains
 `HCPP0008` under #704. Broader declaration preparation remains under #685;

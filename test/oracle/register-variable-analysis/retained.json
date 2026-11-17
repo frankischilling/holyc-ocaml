@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "3102fa1184710d07de7b7b6736df5a05c054ae11c29382cda80de46e6ddbfc87",
+  "capture_sha256": "bc75499792620ef4e430afe2ec301fcefee70483c8758041674ae89b6b14a977",
+  "boot_iso_sha256": "c2049e2bbb948a003510b17cb5d4b0a0367a1db7609c302c63b0ecce7ed3e7b5",
+  "fields": {
+    "SIGNED": "254",
+    "UNSIGNED": "510",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled #exe observations of bounded register-selected byte updates. The stored source omits trailing spaces used to pad the boot payload.",
+  "boot_payload_sha256": "806ee314c8cfb61755673513d65b7e0edcf4d33167c45686d360842b973c046f",
+  "boot_payload_bytes": 720
+}

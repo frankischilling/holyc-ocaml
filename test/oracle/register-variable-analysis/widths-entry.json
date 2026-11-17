@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "4f3496da9bd80c93509f64b67dfc1dee92703c71530cd1d206952c8d0d171016",
+  "boot_payload_sha256": "4b4b43443f9d5a945d45efb11298f5324245ee66ce8f90def9dd2326c98d34a7",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "68c6572bc7a6d455188836f2f2612162924d2aeea10656c0a60779ff94cb6693",
+  "boot_iso_sha256": "8308147d70d361b38b26d00aedf7464bf67e0d9aa648c0ebd1f3650f3567f8f8",
+  "fields": {
+    "J_S16": "-1",
+    "J_U16": "0",
+    "J_S32": "-1",
+    "J_U32": "0",
+    "ERR": "0",
+    "A_S16": "-1",
+    "A_U16": "0",
+    "A_S32": "-1",
+    "A_U32": "0"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of 16- and 32-bit register-selected parameter conversion. The stored source omits trailing spaces used to pad the boot payload."
+}

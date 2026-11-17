@@ -18,6 +18,7 @@ type lowering_result = Lowered of t | Unsupported_location
 
 type checked_location = {
   slot : Frame.frame_slot;
+  location : Frame.location;
   address_type : Type.t;
   span : Common.Span.t;
 }
@@ -162,7 +163,8 @@ let checked_non_static_location ~span result identifier location =
                   | Ok address_type -> (
                       match complete_result_span result with
                       | Error _ as error -> error
-                      | Ok span -> Ok (Some { slot; address_type; span })))))
+                      | Ok span ->
+                          Ok (Some { slot; location; address_type; span })))))
 
 let checked_local_location frame result identifier occurrence binding =
   let span = result_span result in
@@ -358,7 +360,14 @@ let lower_supported ~instruction_id ~value_id checked =
           description ~instruction_id:add_id ~opcode:Opcode.Ic_add
             ~operands:[ rbp_value; immediate_value ]
             ~result_value:address_value ~target_type:checked.address_type
-            ~payload:None ~span:checked.span;
+            ~payload:
+              (if
+                 Frame.location_allocated_size checked.location = 0L
+                 && Option.is_some
+                      (Automatic_aggregate_storage.of_location checked.location)
+               then Some (Sequence.Empty_frame_root checked.location)
+               else None)
+            ~span:checked.span;
         ]
       in
       match Sequence.create descriptions with
@@ -409,10 +418,15 @@ let prepare_initializer ~frame initial =
                    ~some:(fun checked -> checked == reference)
                    (Frame.location_type_reference location)))
           || (not
-                (Stdlib.Result.fold
-                   ~ok:(Type.equal (Result.initializer_target_type initial))
-                   ~error:(fun _ -> false)
-                   (Frame.location_storage_type location)))
+                (Source.initializer_assignment_valid
+                   ~header:(Frame.function_header frame)
+                   source))
+          || Result.initializer_target_symbol initial == symbol
+             && not
+                  (Stdlib.Result.fold
+                     ~ok:(Type.equal (Result.initializer_target_type initial))
+                     ~error:(fun _ -> false)
+                     (Frame.location_storage_type location))
           || Result.result_source (Result.initializer_value initial)
              != Source.initializer_expression source
         then
@@ -428,17 +442,60 @@ let prepare_initializer ~frame initial =
           || Sema.Local_type_resolution.local_array_dimensions local <> []
         then Ok None
         else
-          match
-            ( Frame.location_frame_slot location,
-              Sema.Symbol.origin symbol,
-              Type.pointer_to (Frame.location_checked_type location) )
-          with
-          | Some slot, Sema.Symbol.Source_location location, Ok address_type ->
-              Ok (Some { slot; address_type; span = location.span })
+          let first =
+            List.find_opt
+              (fun candidate ->
+                Binding.binding_ordinal (Frame.location_binding candidate)
+                <= Binding.binding_ordinal binding
+                && Sema.Symbol.name (Frame.location_symbol candidate)
+                   = Sema.Symbol.name symbol)
+              (Frame.function_locations frame)
+          in
+          let target =
+            Frame.find_location frame (Result.initializer_target_symbol initial)
+          in
+          match (first, target) with
+          | Some first, Some location
+            when first == location
+                 && (Result.initializer_target_symbol initial == symbol
+                    || Option.equal ( == )
+                         (Source.initializer_assignment_binding source)
+                         (Some (Frame.location_binding location)))
+                 && Option.equal ( == )
+                      (Frame.location_type_reference location)
+                      (Some (Source.initializer_target_reference source))
+                 && (Frame.location_kind location = Frame.Named_parameter
+                    || Frame.location_kind location = Frame.Automatic_local)
+                 && Frame.location_declarator_shape location = Frame.Object
+                 && Frame.location_value_shape location = Frame.Scalar
+                 && Stdlib.Result.fold
+                      ~ok:(Type.equal (Result.initializer_target_type initial))
+                      ~error:(fun _ -> false)
+                      (Frame.location_storage_type location) -> (
+              match
+                ( Frame.location_frame_slot location,
+                  Sema.Symbol.origin symbol,
+                  Type.pointer_to (Frame.location_checked_type location) )
+              with
+              | ( Some slot,
+                  Sema.Symbol.Source_location source_location,
+                  Ok address_type ) ->
+                  Ok
+                    (Some
+                       {
+                         slot;
+                         location;
+                         address_type;
+                         span = source_location.span;
+                       })
+              | _ ->
+                  invalid
+                    "initializer frame target lacks its slot, original LHS \
+                     source or pointer type")
           | _ ->
               invalid
-                "initializer frame location has no complete slot, source or \
-                 pointer type")
+                "initializer assignment target is not the original \
+                 first-visible frame member")
 
 let lower_prepared ~instruction_id ~value_id checked =
   match lower_supported ~instruction_id ~value_id checked with

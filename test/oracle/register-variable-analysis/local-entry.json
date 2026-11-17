@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "a8c49d5463cec6513231cac8de7bf51f4770d7355907f9f11e819b598d970f39",
+  "boot_payload_sha256": "f67c65ce3237adcecb2649136248760a1c5e441ca09bbbe4821d36eea9fcf3d1",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "60270a81ed9c02cf72cb83cde7612e6c399bac0d237abf5f0da6d1ec41f218c2",
+  "boot_iso_sha256": "080625e20f175df268d8f6705263e801c71efd134ec109e67082a446718f42cf",
+  "fields": {
+    "J_S": "255",
+    "J_U": "256",
+    "J_S16": "65535",
+    "J_U16": "65536",
+    "ERR": "0",
+    "A_S": "255",
+    "A_U": "256",
+    "A_S16": "65535",
+    "A_U16": "65536"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of register-selected local initialization. The stored source omits trailing spaces used to pad the boot payload."
+}

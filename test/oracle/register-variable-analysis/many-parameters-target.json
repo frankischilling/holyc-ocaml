@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "3b1fad6758dfb41ea3932376426d9f19b3456f22a809099bdd0ea7c222737c4c",
+  "boot_payload_sha256": "9a2492406d4262f7ae3ed2e7118bf08500d22119a33f36aeb23167f10e19b624",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ac6c15a0eb8ca33339cb2a9765c34554252bce3b7dc30f7f18b1b54dc69c1efc",
+  "boot_iso_sha256": "b599872eaf21766b42db701404fd4842c386932a0095d3ba47d6d33aa2c27413",
+  "fields": {
+    "J_S": "254",
+    "J_U": "510",
+    "J_SN": "-2",
+    "J_UN": "254",
+    "ERR": "0",
+    "A_S": "254",
+    "A_U": "510",
+    "A_SN": "-2",
+    "A_UN": "254"
+  },
+  "scope": "Repeated original JIT and compiled observations of a six-parameter function with an explicit register request."
+}

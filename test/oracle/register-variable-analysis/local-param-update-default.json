@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "500e4e87505ec8ed63994e61362f41ef9ace887963a11945125c0f6f9622e200",
+  "boot_payload_sha256": "9014c6b47ad20ec80fbe046c65d8b22c417261da863f243251b4551d7c52842e",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "d876816126e1d6142ec6e8a2d473d779410f182d304ef3d1bca3ad3546c28857",
+  "boot_iso_sha256": "2451a3607c5950aa3b3c0befa09ffa43c2a6838592e146936f81dd9aa035ad0b",
+  "fields": {
+    "SIGNED": "256",
+    "UNSIGNED": "512",
+    "ERR": "0"
+  },
+  "scope": "Repeated original retained-default observations of parameter-initialized locals updated by literals. Stored source omits boot padding."
+}

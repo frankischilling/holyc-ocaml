@@ -31,9 +31,22 @@ the destination's remaining bytes retain their previous state. The maintained
 and three-byte pointer stride, and returns 42 in JIT and AOT with either
 `--target=ir` or `--target=host-jit`.
 
+Automatic declarations can initialize the same scalar prefix directly:
+`Word o=42;`. The original local allocation, selected nominal class and owning
+function authenticate the destination separately from its right operand.
+Literal values, calls and reads of earlier comma declarators use the same
+projection. The initializer runs in each activation and does not initialize
+the object's remaining bytes. Named backing chains and inherited roots retain
+their original class selection and extent. Empty integer-backed roots still
+evaluate their right operand, then fail the hosted extent check when the store
+needs bytes outside that root.
+For declaration initialization, the backing chain must reach an internal integer
+type. An ordinary class's default raw type does not satisfy the source assignment
+lvalue check.
+
 The selection retains the original completed nominal class, its forwarded
-integer type, the compiler table and namespace, and the owning function, scope and source
-position. A backing chain uses the definitions selected when it was declared;
+integer type, the compiler table and namespace, and the owning function or source
+command, scope and source position. A backing chain uses the definitions selected when it was declared;
 a later same-name class cannot change its width or signedness. Inheritance and
 backing are separate relations. Completed inherited storage can have an
 integer backing without changing its selected base or member lookup.
@@ -62,7 +75,7 @@ activation state and resource limits retain the existing diagnostics. These
 are hosted ownership and bounds policies, not TempleOS behavior for invalid
 memory.
 
-Twenty-seven value groups cover every width, scalar prefix assignment,
+Value groups cover every width, scalar prefix assignment,
 backing chains and redefinitions, inherited and union storage, nested arrays,
 signed and unsigned arithmetic, aliasing, captured destinations and fused
 postfix stores. Shared fault and quota fixtures check initialization, wide
@@ -73,14 +86,63 @@ controls require the original sealed source graph before image creation.
 The tests use independent expected words and hosted executions; they contain
 no TempleOS runtime capture or machine-byte comparison.
 
+Function-body assignments retain three original observations. Before consuming the operator,
+the lvalue selects its forwarded endpoint. After operator lookahead, the parser
+checks that endpoint for internal storage. Function completion retains the
+metadata used by optimization. Completion of an ordinary forward endpoint during
+lookahead can make it assignable. An endpoint already forwarded to `U16` stays
+`U16` when the original extern later completes with `U8` backing. Completing a
+different same-name class cannot retarget either observation.
+
+These observations retain the original root extent, field offsets and array
+dimensions. Each member index records the class size reached after '[' lookahead,
+before parsing its index value. An earlier index can retain a zero stride while
+a later one uses the completed class size. Multidimensional indices keep their
+separately reached sizes and original dimension multipliers. Member pointer
+arithmetic is bounded by the containing byte root; a zero stride can alias the
+same address even beyond a declared member dimension. The assignment
+result retains its full register word independently of the stored prefix,
+including through parentheses and primitive local initializers. Copied source
+nodes, another function, another table, another namespace and replayed phases
+cannot consume these observations.
+
+The [assignment observation example](../examples/assignment-backing-observations.hc)
+keeps its declarations inside `#exe`, prints `A` and returns 42 through IR and
+native source tasks in both outer modes. Ordinary JIT declarations also use the
+observations. An isolated AOT declaration keeps its own class identity: `#exe`
+uses the task's JIT table, so task completion cannot supply backing to that outer
+class. The classic native API retains its separate `HCPP0008` directive boundary.
+
+Top-level source tasks retain the same lvalue and index observations. Their
+optimization metadata belongs to the original completed command. An initializer,
+static leaf, saved named or callback default, dimension, member offset, metadata
+value, switch endpoint or internal binding instead retains the completed
+expression at its own parser callback. These fragments do not wait for a later
+command or function body to complete. Scalar consumers use the checked value
+type while the destination retains its original nominal class and byte root.
+
+Each observation keeps the latest reached record for its canonical class.
+Completion replaces an earlier forward record for that identity; a same-name
+definition with another identity cannot hide or retarget it. Fragment completion
+requires the exact original expression within its current callback. Another
+table, namespace or expression, and repeated or expired callbacks cannot supply
+backing or stride metadata.
+
+The [top-level assignment example](../examples/top-level-aggregate-assignments.hc)
+checks zero and completed array strides, compound stores, an earlier `U16`
+endpoint and a global initializer's full register word. It prints `A` and returns
+42 through IR and native source tasks in both outer modes. Hosted bounds and
+ownership checks still apply; completion cannot enlarge the original root.
+
 [Function-local object execution](function-local-aggregate-objects.md) preserves
 an earlier selected backing when a local type replaces its name. Inline backed
 definitions with attached locals retain their separate declaration-mode gate.
 
-Postfix casts involving whole backed values, aggregate initializers, prepared
+[Aggregate value casts](aggregate-value-casts.md) distinguish selected storage
+widths from computed register bits. Remaining aggregate initializer leaves, prepared
 AOT IR and ordinary native defaults containing references, callback parameter
-ABI paths, floating execution and parameter storage, persistent objects,
-zero-sized automatic objects, F64/pointer/callback
+ABI paths, floating execution and parameter storage,
+U0 and floating automatic initialization, F64/pointer/callback
 backings and general aggregate copies remain open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and the
 related value and ABI issues. Full compiler and release acceptance remain
@@ -96,6 +158,15 @@ and assignment construction at `81-154,183-201`, and complete
 `CmpRawType` and `CmpRawTypePointed` at `Compiler/OptLib.HC:509-525` forward
 the value class. Complete `ICDeref` at `Compiler/BackLib.HC:693-707` and
 `ICAssign` at `Compiler/BackC.HC:159-204` emit scalar loads and stores.
+Complete `PrsExpression2` at `Compiler/PrsExp.HC:65-263` produces the dereference
+class before consuming the assignment operator and performs the lvalue gate
+after lookahead. `ICAdd` at `Compiler/PrsLib.HC:79-97` retains that class.
+Complete `OptPass3` at `Compiler/OptPass3.HC:1-621` sets assignment storage from
+the result's raw class. `CmpMinTypePointed` at `Compiler/OptLib.HC:528-533`
+assigns its existing field back to itself in this pinned source. The host follows
+those bytes rather than inferring a narrowing operation from the helper's name.
+Complete `PrsStreamBlk` at `Compiler/PrsStmt.HC:805-840` switches to the task
+table and clears AOT mode before restoring the enclosing compiler context.
 The fused assignment rewrite is at `Compiler/OptPass012.HC:865-889`; complete
 `ICAssignPostIncDec` at `Compiler/BackB.HC:429-466` stores the forwarded
 width and advances by the original pointed-to class size. Ordinary update

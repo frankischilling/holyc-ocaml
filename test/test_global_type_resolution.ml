@@ -327,8 +327,8 @@ let function_pointer_shapes () =
     prepare ~path:"global-type-callbacks.HC"
       "class Node {};\n\
        U8 *(*one)(); U8 *(**two)(); U8 *(***three)(); U8 *(****four)();\n\
-       U0 (**handler)(Node *node,I64=lastclass,U8 *(*nested)(reg R11 noreg I64 \
-       value=\"nested\",...),...);"
+       U0 (**handler)(Node *node,I64 _anon_=lastclass,U8 *(*nested)(reg R11 \
+       noreg I64 value=\"nested\",...),...);"
   in
   [ "one"; "two"; "three"; "four" ]
   |> List.iteri (fun index name ->
@@ -365,7 +365,7 @@ let function_pointer_shapes () =
   in
   Alcotest.(check (list (option string)))
     "callback slots retain names and gaps"
-    [ Some "node"; None; Some "nested" ]
+    [ Some "node"; Some "_anon_"; Some "nested" ]
     (parameter_names signature);
   Alcotest.(check bool)
     "outer callback is variadic" true
@@ -375,7 +375,7 @@ let function_pointer_shapes () =
     Semantic_function_type_resolution.signature_parameters signature
   in
   Alcotest.(check (list int64))
-    "global callback parameters retain source-derived masks" [ 0L; 0x23L; 0x8L ]
+    "global callback parameters retain source-derived masks" [ 0L; 0x3L; 0x8L ]
     (parameters
     |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   let node_type =

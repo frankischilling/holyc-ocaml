@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "3844a2cb5b783b8dd19cca99c7070c06bd63f2938a171973685ddab2854b0c5f",
+  "boot_iso_sha256": "1fcc70836a0c4633eec4311116f166a396fc633fcfe21831f274cfa41824401d",
+  "capture_sha256": "e26a98f85817e2079d0cae6327559e33ad546536d073969832f24341b4078528",
+  "fields": {
+    "BEFORE": 42,
+    "AFTER": 9,
+    "CALLS": 2
+  },
+  "instruction_counts": {
+    "BEFORE": 11,
+    "AFTER": 10
+  },
+  "scope": "Unsupported automatic U0 assignments. Each disassembly stops at its first RET; addresses and relative-call bytes are capture-specific."
+}

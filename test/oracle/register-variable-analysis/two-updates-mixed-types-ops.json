@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "fad907df5e3bcec193829e6a113e89ec415ebddeb5f9d025c7a00222499c9033",
+  "boot_payload_sha256": "ae797a359cb21fbb52dda592b112cd8e1cd2c528776b70f04116cede4ad47af9",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "665b69696205fae62eb061483a2d06c604faa5b19863b92656066e9150d9edd2",
+  "boot_iso_sha256": "9e94301fbb5791d50c6fcd14374b1f2d9c49ed771f5f2498ebd76ef951bd94db",
+  "fields": {
+    "J_S": "509",
+    "J_U": "637",
+    "J_SN": "253",
+    "J_UN": "381",
+    "ERR": "0",
+    "A_S": "509",
+    "A_U": "637",
+    "A_SN": "253",
+    "A_UN": "381"
+  },
+  "scope": "Repeated original JIT and compiled observations of mixed-signedness shift and bitwise updates."
+}

@@ -136,6 +136,134 @@ let checked_body =
       String.concat "; "
         (List.map Test_ir_function_body.show_function_error errors))
 
+let metadata_only_register_authority () =
+  let module Analysis = Holyc_lib__Ir.Register_variable_analysis in
+  let module Calls = Semantic_function_call_resolution in
+  let module Lower = Ir_integer_program_lowering in
+  let plain = "I64 F(I64 n){return n;}" in
+  List.iter
+    (fun mode ->
+      let compiled = G.compile ~mode plain in
+      let original = List.hd (integer_program_functions compiled) in
+      Alcotest.(check bool)
+        "completed source body permits the ordinary register proof" true
+        (Option.is_some
+           (Analysis.analyze ~frame:original.frame ~body:original.body));
+      List.iter
+        (fun (label, text) ->
+          (* The public typing wrapper used by [prepare] deliberately omits
+             aggregate visibility. Its original declarations and expression
+             roots remain valid, but it has no completed-body receipt. *)
+          let p, sources, records, frames = prepare mode text in
+          let definition = definition_named records "F" in
+          let frame = PF.frame_named frames "F" in
+          let source =
+            Typed.functions sources
+            |> List.find (fun source ->
+                Typed.function_symbol source == Frame.function_symbol frame)
+          in
+          let ast =
+            p.ast.items
+            |> List.find_map (function
+              | Ast.Function_definition source when source.name.spelling = "F"
+                -> Some source
+              | _ -> None)
+            |> Option.get
+          in
+          let parameters =
+            Headers.function_source_parameters (Frame.function_header frame)
+            |> Option.get
+          in
+          Alcotest.(check bool)
+            (label ^ ": original complete formal list remains owned")
+            true
+            (List.length parameters = List.length ast.parameters
+            && List.for_all2 ( == ) parameters ast.parameters);
+          Alcotest.(check bool)
+            (label ^ ": metadata typing has no completed source body")
+            true
+            (Option.is_none (Typed.function_source_body source));
+          Alcotest.(check bool)
+            (label ^ ": metadata typing has no body-closing options")
+            true
+            (Option.is_none (Typed.function_compilation_options source));
+          let returned =
+            match Typed.function_returns source with
+            | [ returned ] -> returned
+            | _ -> Alcotest.fail "expected the one original parameter return"
+          in
+          let return_ast =
+            match ast.body with
+            | Some (Ast.Block_statement block) ->
+                block.block_statements
+                |> List.find_map (function
+                  | Ast.Return_statement returned -> returned.return_value
+                  | _ -> None)
+                |> Option.get
+            | _ -> Alcotest.fail "expected the original block body"
+          in
+          Alcotest.(check bool)
+            (label ^ ": typed return retains the original expression")
+            true
+            (Option.equal ( == ) (Some return_ast)
+               (Typed.return_value returned
+               |> Option.get |> Typed.result_source
+               |> Calls.argument_expression_source));
+          (* Lower the genuine parameter access and return, not a fabricated
+             constant graph. Empty try statements contribute no expression
+             roots, so their omission must not confer allocation authority. *)
+          let graph =
+            Lower.lower ~frame ~span:ast.location.span [ Lower.Return returned ]
+            |> F.checked |> Ir_x87_stack.graph
+          in
+          let code =
+            Ir_block_graph.blocks graph
+            |> List.concat_map (fun block ->
+                Ir_block_graph.instructions block
+                |> Ir_instruction_sequence.instructions
+                |> List.map Ir_instruction_sequence.description)
+          in
+          List.iter
+            (fun opcode ->
+              Alcotest.(check int)
+                (label ^ ": canonical parameter-return operation")
+                1
+                (List.filter
+                   (fun (item : Ir_instruction_sequence.description) ->
+                     item.opcode = opcode)
+                   code
+                |> List.length))
+            [ Ir_opcode.Ic_rbp; Ic_deref; Ic_return_val ];
+          let raw =
+            Body.create
+              {
+                (body_description frame definition) with
+                span = Some ast.location.span;
+                body = graph;
+              }
+            |> checked_body
+          in
+          let bound =
+            Body.with_definition ~records ~sources ~frames ~definition ~frame
+              raw
+            |> checked_body
+          in
+          Alcotest.(check bool)
+            (label ^ ": public binding retains the exact typed definition")
+            true
+            (Option.equal ( == ) (Some source) (Body.definition_source bound)
+            && Body.definition_matches_frame bound frame);
+          Alcotest.(check bool)
+            (label ^ ": missing body receipt rejects exact and fallback proofs")
+            true
+            (Option.is_none (Analysis.analyze ~frame ~body:bound)))
+        [
+          ("ordinary return", plain);
+          ("empty try", "I64 F(I64 n){try{}catch{}return n;}");
+          ("unreachable try", "I64 F(I64 n){return n;try{}catch{}}");
+        ])
+    G.modes
+
 let reject_binding result =
   match result with
   | Ok _ ->
@@ -193,7 +321,7 @@ let reconstructed_declarations () =
         "replay retains the original physical header" true
         (header replayed_definition == original_header);
       reject_binding (bind ~records:replayed ~definition:replayed_definition ());
-      let rebuild signature =
+      let rebuild_input signature =
         Headers.make_function
           ~symbol:(Headers.function_symbol original_header)
           ~scope:(Headers.function_scope original_header)
@@ -203,8 +331,9 @@ let reconstructed_declarations () =
           ~parameter_bindings:
             (Headers.function_parameter_bindings original_header)
           ~variadic_bindings:None
-        |> checked
-        |> fun input ->
+      in
+      let rebuild signature =
+        rebuild_input signature |> checked |> fun input ->
         Headers.resolve
           ~table:(Session.semantic_symbols p.session)
           ~parent:(Semantic_declaration_collection.scope p.declarations)
@@ -240,14 +369,19 @@ let reconstructed_declarations () =
           ()
         |> checked
       in
-      List.iter
-        (fun signature ->
-          let reconstructed = rebuild signature |> replay in
-          reject_binding
-            (bind ~records:reconstructed
-               ~definition:(List.hd (Records.declarations reconstructed))
-               ()))
-        [ signature; changed_signature ])
+      let reconstructed = rebuild signature |> replay in
+      reject_binding
+        (bind ~records:reconstructed
+           ~definition:(List.hd (Records.declarations reconstructed))
+           ());
+      match rebuild_input changed_signature with
+      | Error message ->
+          Alcotest.(check string)
+            "changed parameter provenance rejects before header resolution"
+            "semantic parameter binding has another original source parameter"
+            message
+      | Ok _ ->
+          Alcotest.fail "changed parameter provenance rebuilt the source header")
     G.modes
 
 let gates =
@@ -705,6 +839,8 @@ let tests =
   @ [
       Alcotest.test_case "reconstructed declaration chains and headers" `Quick
         reconstructed_declarations;
+      Alcotest.test_case "metadata-only definitions lack register authority"
+        `Quick metadata_only_register_authority;
       Alcotest.test_case "ordinary execution domains" `Quick ordinary_execution;
       Alcotest.test_case "persistent storage and initializer owners" `Quick
         persistent_and_initializer_owners;

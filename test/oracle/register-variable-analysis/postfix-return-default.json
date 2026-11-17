@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "5d932c85c30ad98917d706a27d3fbe6033ba5ebf91664bb148cff1c5cd22de14",
+  "boot_payload_sha256": "6cc666e4a2a5cbef877c57e73eccbf6c2bdae4075fe69e54377af0d37abe0fa3",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "424c6889034cdf1079f719e56bc3d4f290fcf2f69e8dfc844587f6db4e7f30d0",
+  "boot_iso_sha256": "e5836e1b5fa3b8f80ca704362301da86694b50362558c2a076946ab0160155d9",
+  "fields": {
+    "PIN": "127",
+    "PDEC": "-128",
+    "LIN": "255",
+    "LDEC": "255",
+    "ERR": "0"
+  },
+  "scope": "Repeated original retained default initializer observations for directly returned postfix updates."
+}

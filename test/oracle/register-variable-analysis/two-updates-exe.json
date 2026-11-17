@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "67564477cdb749f2dd71bcb35bad89c9e02d7d1912764b9185d55fade1a0e8ab",
+  "boot_payload_sha256": "c5394dbbab76e3b4bd1a166349238cf1845ad61a72ea30bb2c9f1f189257d35f",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "6b6523b102f38774ad4e9d19efb8973aa780818ea8c75fe5816eea9ee06f973c",
+  "boot_iso_sha256": "d0c00572615fe9e612665ccf9b5b4d52ac2a6ffba61f88e6bf1617abdb76af83",
+  "fields": {
+    "PARAM": "256",
+    "LOCAL": "510",
+    "ERR": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of two narrow register updates."
+}

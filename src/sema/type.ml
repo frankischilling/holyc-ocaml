@@ -46,6 +46,13 @@ let make_aggregate ~symbol ~pointer_depth =
 let base type_ = type_.base
 let pointer_depth type_ = type_.pointer_depth
 
+let is_f64 type_ =
+  type_.pointer_depth = 0
+  &&
+  match type_.base with
+  | Primitive (_, Primitive_type.F64) -> true
+  | _ -> false
+
 let equal left right =
   left.pointer_depth = right.pointer_depth
   &&

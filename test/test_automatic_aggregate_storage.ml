@@ -67,60 +67,72 @@ let faults () =
 let quotas () =
   List.iter
     (fun mode ->
-      let session, config, source = inputs mode Cases.quota_source in
-      let compiled =
-        (compile_integer_program session ~config ~source |> checked).value
-      in
-      let frame_bytes =
-        integer_program_functions compiled
-        |> List.map (fun (f : VM.function_definition) ->
-            Semantic_function_frame_layout.function_frame_size f.frame
-            |> Int64.to_int)
-        |> List.fold_left max 0
-      in
-      let baseline = value 42L "" (run mode Cases.quota_source) in
-      let steps = VM.executed_steps baseline in
       ignore
-        (value 42L ""
-           (run ~max_frame_bytes:frame_bytes ~max_steps:steps mode
-              Cases.quota_source));
-      failure "HCIRVM0011" ""
-        (run ~max_frame_bytes:(frame_bytes - 1) mode Cases.quota_source);
-      failure "HCIRVM0007" ""
-        (run ~max_steps:(steps - 1) mode Cases.quota_source))
+        (value 42L "" (run ~max_frame_bytes:1 mode Cases.empty_quota_source));
+      List.iter
+        (fun contents ->
+          let session, config, source = inputs mode contents in
+          let compiled =
+            (compile_integer_program session ~config ~source |> checked).value
+          in
+          let frame_bytes =
+            integer_program_functions compiled
+            |> List.map (fun (f : VM.function_definition) ->
+                Semantic_function_frame_layout.function_frame_size f.frame
+                |> Int64.to_int)
+            |> List.fold_left max 0
+          in
+          let baseline = value 42L "" (run mode contents) in
+          let steps = VM.executed_steps baseline in
+          ignore
+            (value 42L ""
+               (run ~max_frame_bytes:frame_bytes ~max_steps:steps mode contents));
+          failure "HCIRVM0011" ""
+            (run ~max_frame_bytes:(frame_bytes - 1) mode contents);
+          failure "HCIRVM0007" "" (run ~max_steps:(steps - 1) mode contents))
+        [ Cases.quota_source; Cases.initializer_quota_source ])
     modes
 
 let foreign_frame () =
   List.iter
-    (fun mode ->
-      let compile () =
-        let session, config, source = inputs mode Cases.quota_source in
-        (compile_integer_program session ~config ~source |> checked).value
-      in
-      let original = compile () and foreign = compile () in
-      let functions =
-        List.map2
-          (fun (a : VM.function_definition) (b : VM.function_definition) ->
-            { a with frame = b.frame })
-          (integer_program_functions original)
-          (integer_program_functions foreign)
-      in
-      match
-        VM.execute_program
-          ~runtime_calls:(integer_program_runtime_calls original)
-          ~globals:(integer_program_globals original)
-          ~initialization:(integer_program_initialization original)
-          ~max_steps:100_000 ~max_frame_bytes:1024 ~max_call_depth:16 ~functions
-          (integer_program_entry original)
-      with
-      | Ok _ -> Alcotest.fail "equal names and sizes admitted a foreign frame"
-      | Error errors ->
-          List.iter
-            (fun (e : VM.error) ->
-              Alcotest.(check int)
-                "ownership failure precedes execution" 0 e.executed_steps)
-            errors)
-    modes
+    (fun contents ->
+      List.iter
+        (fun mode ->
+          let compile () =
+            let session, config, source = inputs mode contents in
+            (compile_integer_program session ~config ~source |> checked).value
+          in
+          let original = compile () and foreign = compile () in
+          let functions =
+            List.map2
+              (fun (a : VM.function_definition) (b : VM.function_definition) ->
+                { a with frame = b.frame })
+              (integer_program_functions original)
+              (integer_program_functions foreign)
+          in
+          match
+            VM.execute_program
+              ~runtime_calls:(integer_program_runtime_calls original)
+              ~globals:(integer_program_globals original)
+              ~initialization:(integer_program_initialization original)
+              ~max_steps:100_000 ~max_frame_bytes:1024 ~max_call_depth:16
+              ~functions
+              (integer_program_entry original)
+          with
+          | Ok _ ->
+              Alcotest.fail "equal names and sizes admitted a foreign frame"
+          | Error errors ->
+              List.iter
+                (fun (e : VM.error) ->
+                  Alcotest.(check int)
+                    "ownership failure precedes execution" 0 e.executed_steps)
+                errors)
+        modes)
+    [
+      Cases.quota_source;
+      Cases.empty_quota_source;
+      Cases.initializer_quota_source;
+    ]
 
 let boundaries () =
   List.iter
@@ -134,6 +146,39 @@ let boundaries () =
         Cases.unsupported)
     modes
 
+let empty_proofs () =
+  List.iter
+    (fun mode ->
+      let original, invalid =
+        Aggregate_member_fixture.empty_frame_controls mode
+      in
+      let run definition =
+        VM.execute_program ~max_steps:100_000 ~max_frame_bytes:1024
+          ~max_call_depth:16
+          ~runtime_calls:(integer_program_runtime_calls original)
+          ~globals:(integer_program_globals original)
+          ~initialization:(integer_program_initialization original)
+          ~functions:[ definition ]
+          (integer_program_entry original)
+      in
+      (match run (Aggregate_member_fixture.first_definition original) with
+      | Ok result ->
+          Alcotest.(check (option int64))
+            "original empty root executes" (Some 42L)
+            (Option.map (fun word -> word.VM.bits) (VM.final_value result))
+      | Error _ -> Alcotest.fail "original empty root failed");
+      List.iter
+        (fun (name, definition) ->
+          match run definition with
+          | Ok _ -> Alcotest.fail name
+          | Error errors ->
+              List.iter
+                (fun (error : VM.error) ->
+                  Alcotest.(check int) name 0 error.executed_steps)
+                errors)
+        invalid)
+    modes
+
 let () =
   Alcotest.run "automatic aggregate storage"
     [
@@ -144,7 +189,8 @@ let () =
                 List.iter
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
-          (Cases.values @ Cases.view_matrix) );
+          (Cases.values @ Cases.source_values @ Cases.view_matrix
+         @ Cases.initializer_matrix) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, extents and fresh activations"
@@ -152,6 +198,8 @@ let () =
           Alcotest.test_case "exact frame and instruction limits" `Quick quotas;
           Alcotest.test_case "foreign frame rejected before touching bytes"
             `Quick foreign_frame;
+          Alcotest.test_case "original empty frame root authority" `Quick
+            empty_proofs;
           Alcotest.test_case "unadmitted layouts, copies and numeric ownership"
             `Quick boundaries;
         ] );

@@ -72,7 +72,7 @@ let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
   |> Sema.Type_reference.resolved_type
 
-let supported_parameter ?(allow_data = false) parameter =
+let supported_parameter ?(allow_data = false) ?(allow_f64 = false) parameter =
   let stack_register =
     match Headers.parameter_register_selection parameter with
     | Sema.Register_request.Unspecified | Sema.Register_request.Disabled -> true
@@ -85,6 +85,12 @@ let supported_parameter ?(allow_data = false) parameter =
   | Headers.Object ->
       let type_ = parameter_type parameter in
       scalar_word type_
+      || (allow_f64
+         && Type.pointer_depth type_ = 0
+         &&
+         match Type.base type_ with
+         | Type.Primitive (_, Sema.Primitive_type.F64) -> true
+         | _ -> false)
       || (Type.pointer_depth type_ = 0
          &&
          match Type.base type_ with
@@ -133,8 +139,8 @@ let execution_type_matches fragment prepared_type destination =
 let same_requirement left_header left_parameter right_header right_parameter =
   left_header == right_header && left_parameter == right_parameter
 
-let add_requirements ?(allow_data = false) globals prepared requirements header
-    =
+let add_requirements ?(allow_data = false) ?(allow_f64 = false) globals prepared
+    requirements header =
   let parameters =
     header |> Headers.function_signature |> Headers.signature_parameters
   in
@@ -144,13 +150,12 @@ let add_requirements ?(allow_data = false) globals prepared requirements header
       let* requirements = result in
       match Headers.parameter_default parameter with
       | None -> Ok requirements
-      | Some (Headers.Lastclass_default _) ->
-          Error "native parameter defaults do not admit lastclass"
+      | Some (Headers.Lastclass_default _) -> Ok requirements
       | Some (Headers.Expression_default { contains_string_literal = true; _ })
         when not allow_data ->
           Error "native parameter defaults do not admit string-backed values"
       | Some (Headers.Expression_default _) ->
-          if not (supported_parameter ~allow_data parameter) then
+          if not (supported_parameter ~allow_data ~allow_f64 parameter) then
             Error
               "native parameter defaults require scalar integer objects or \
                original one-star callback-word parameters"
@@ -187,7 +192,7 @@ let execution_matches prepared execution =
         receipt == Prepared.receipt prepared
         && publication == Prepared.publication prepared
     | Callback _ -> false)
-  && Sema.Default_fragment.references fragment = []
+  && Program.default_constant_has_closed_source execution
   && Default_fragment_destination.fragment destination == fragment
   && execution_type_matches fragment (Prepared.type_ prepared) destination
   && Program.default_constant_is_consumed execution
@@ -204,7 +209,7 @@ let callback_execution_matches prepared execution =
         namespace == Prepared_callback.namespace prepared
         && receipt == Prepared_callback.receipt prepared
     | Named _ -> false)
-  && Sema.Default_fragment.references fragment = []
+  && Program.default_constant_has_closed_source execution
   && Default_fragment_destination.fragment destination == fragment
   && execution_type_matches fragment
        (Prepared_callback.type_ prepared)
@@ -214,7 +219,7 @@ let callback_execution_matches prepared execution =
        ~some:(Int64.equal (Program.default_constant_bits execution))
        (Prepared_callback.word_bits prepared)
 
-let callback_pointers globals functions =
+let callback_pointers ?runtime_calls globals functions =
   let pointers = ref [] in
   let rec add_pointer pointer =
     if not (List.exists (( == ) pointer) !pointers) then (
@@ -244,23 +249,39 @@ let callback_pointers globals functions =
           |> Headers.function_signature |> add_signature)
         (Function.definition_declaration definition.body))
     functions;
+  Option.iter
+    (fun calls ->
+      let owners =
+        Runtime_call_context.Entry
+        :: List.map
+             (fun (definition : Integer_interpreter.function_definition) ->
+               Runtime_call_context.Function definition.body)
+             functions
+      in
+      List.iter
+        (fun owner ->
+          Option.iter
+            (List.iter (fun (call : Runtime_call_context.callback_call) ->
+                 add_pointer call.callback_pointer))
+            (Runtime_call_context.original_callback_calls calls ~owner))
+        owners)
+    runtime_calls;
   !pointers
 
-let add_callback_requirements ?(allow_data = false) globals prepared
-    requirements pointer =
+let add_callback_requirements ?(allow_data = false) ?(allow_f64 = false) globals
+    prepared requirements pointer =
   let ( let* ) = Result.bind in
   List.fold_left
     (fun result parameter ->
       let* requirements = result in
       match Headers.parameter_default parameter with
       | None -> Ok requirements
-      | Some (Headers.Lastclass_default _) ->
-          Error "native callback defaults do not admit lastclass"
+      | Some (Headers.Lastclass_default _) -> Ok requirements
       | Some (Headers.Expression_default { contains_string_literal = true; _ })
         when not allow_data ->
           Error "native callback defaults do not admit string-backed values"
       | Some (Headers.Expression_default _) ->
-          if not (supported_parameter ~allow_data parameter) then
+          if not (supported_parameter ~allow_data ~allow_f64 parameter) then
             Error
               "native callback defaults require scalar integer objects or \
                original one-star callback-word parameters"
@@ -396,9 +417,10 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
           |> Sema.Function_resolution.declaration_site_function
         in
         let* requirements =
-          add_requirements globals prepared requirements selected
+          add_requirements ~allow_f64:true globals prepared requirements
+            selected
         in
-        add_requirements globals prepared requirements source)
+        add_requirements ~allow_f64:true globals prepared requirements source)
       (Ok []) functions
   in
   let used = List.map (fun requirement -> requirement.prepared) requirements in
@@ -406,10 +428,10 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
     List.fold_left
       (fun result pointer ->
         let* requirements = result in
-        add_callback_requirements globals prepared_callbacks requirements
-          pointer)
+        add_callback_requirements ~allow_f64:true globals prepared_callbacks
+          requirements pointer)
       (Ok [])
-      (callback_pointers globals functions)
+      (callback_pointers ~runtime_calls globals functions)
   in
   let callback_used =
     List.map
@@ -487,8 +509,8 @@ let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
         parameters
     in
     let* requirements =
-      add_requirements ~allow_data:true source_globals prepared requirements
-        header
+      add_requirements ~allow_data:true ~allow_f64:true source_globals prepared
+        requirements header
     in
     let* () =
       List.fold_left
@@ -578,8 +600,8 @@ let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
         parameters
     in
     let* requirements =
-      add_callback_requirements ~allow_data:true source_globals prepared
-        requirements pointer
+      add_callback_requirements ~allow_data:true ~allow_f64:true source_globals
+        prepared requirements pointer
     in
     let* () =
       List.fold_left

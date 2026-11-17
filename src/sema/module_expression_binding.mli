@@ -59,6 +59,10 @@ val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_occurrences : resolved_function -> occurrence list
 val function_queries : resolved_function -> query list
+
+val function_initializer_use_resets :
+  resolved_function -> Function_expression_binding.initializer_use_reset list
+
 val occurrence_source : occurrence -> Function_expression_binding.occurrence
 val occurrence_index : occurrence -> int
 val occurrence_name : occurrence -> string

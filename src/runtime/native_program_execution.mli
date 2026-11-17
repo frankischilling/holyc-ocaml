@@ -6,8 +6,11 @@ type platform = Native_execution.platform =
 val platform : unit -> platform
 val platform_name : platform -> string
 
+val default_active_stack_bytes : int
+(** Default simultaneous physical native stack budget: 65,536 bytes. *)
+
 val hard_max_active_stack_bytes : int
-(** Hard per-execution bound for generated native activations: 65,536 bytes. *)
+(** Hard per-execution bound for generated native activations: 524,288 bytes. *)
 
 val hard_max_global_bytes : int
 (** Hard logical global and static byte bound: 16 MiB. *)
@@ -26,6 +29,11 @@ type report
 type retained
 type task_arena
 
+val source_default_capture :
+  report -> Ir.Default_fragment_program.t Ir.Native_scalar_capture.t option
+(** Actual closed native default result. Consume it before releasing the exact
+    retained image; a later or foreign completion cannot reuse the capture. *)
+
 val retain :
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -39,7 +47,9 @@ val retain :
     frameless code; callable entries retain their saved-RBP frame. Each charges
     its own exact entry stack footprint. No native pointer or replacement image
     is accepted or exposed. Task-fragment images are rejected here and require
-    [retain_task_fragment]. *)
+    [retain_task_fragment]. Closed source-default images keep their private
+    storage but still require their original one-use parser callback and the
+    budgeted entry path. *)
 
 val create_task_arena :
   ?max_arena_bytes:int ->
@@ -328,6 +338,15 @@ val execute :
     The IR budget bounds checked loops; it is not a CPU timeout or recovery from
     arbitrary machine-code faults. *)
 
+val finish_task_default :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Default_fragment_program.t Ir.Native_scalar_capture.t, string) result
+(** Take this original default image's actual scalar capture once while its
+    arena lives. Owned callback and data captures retain their separate paths.
+*)
+
 val finish_task_internal_binding :
   ?scope:Ir.Native_source_suspension.t ->
   task_arena ->
@@ -355,5 +374,48 @@ val finish_task_offset :
   task_arena ->
   Backend.X86_64_program.t ->
   (Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t, string) result
-(** Take this original image's actual scalar capture once while its arena lives.
-*)
+
+val finish_task_member_metadata :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  ( Ir.Member_metadata_fragment_program.t Ir.Native_scalar_capture.t,
+    string )
+  result
+
+val finish_task_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Initializer_fragment_program.t Ir.Native_scalar_capture.t, string) result
+(** Take the original image's actual scalar capture once in its execution domain
+    while the retained arena lives. *)
+
+val finish_task_static_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Static_initializer_program.t Ir.Native_scalar_capture.t, string) result
+
+val copy_task_static_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Driver.Integer_task.Native_static_initializer.request ->
+  Ir.Integer_interpreter.native_static_initializer_copy ->
+  ( Ir.Integer_interpreter.native_static_initializer_copy
+    Ir.Native_initializer_copy_receipt.t,
+    string )
+  result
+
+val copy_task_initializer :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Driver.Integer_task.Native_dispatch.initializer_request ->
+  Ir.Integer_interpreter.native_initializer_copy ->
+  ( Ir.Integer_interpreter.native_initializer_copy
+    Ir.Native_initializer_copy_receipt.t,
+    string )
+  result
+(** Enter the original admitted byte copy once and return its private native
+    completion receipt. The request, copy token, arena and checked plan retain
+    their original source attempt. Completion consumes this exact receipt. *)

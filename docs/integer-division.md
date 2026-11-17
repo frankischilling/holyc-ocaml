@@ -138,6 +138,30 @@ its signed dividend class: `(x/2(U64))<0` returns `0`. The optimizer keeps that
 early decision separately from the surviving operation's computation class.
 Public call and cast classes retain their operation-specific forwarding rules.
 
+## Initializer roots
+
+Source-owned global and static initializer expressions accept nonconstant
+integer division and remainder by a positive, full-word, non-power-of-two
+immediate, zero, or by a full-word negative constant from -1 through -9223372036854775807.
+Signed remainder also accepts positive power-of-two immediates and the signed
+minimum divisor when the original operation remains `IC_MOD`. The source lowerer
+retains the original expression and applies division normalization before the
+initializer guard accepts the surviving operation. For example, with `I64 N=-7`,
+`I64 A=N%3` stores `-1`.
+Call arguments can retain the original push flag when their complete call
+scope stays inside one checked block, even if the graph has later blocks.
+
+Hosted IR and native tests cover signed and unsigned values, global and static
+roots, array leaves, calls, effects, storage limits and execution budgets. The
+existing original fixture establishes the ordinary optimizer behavior; these
+initializer-root cases are not new TempleOS runtime captures. Signed minimum
+with a divisor of -1 faults when reached. In live JIT source execution, later
+source effects do not run after that fault; AOT load execution occurs after the
+source directives. A zero divisor also faults when reached. Hosted tests cover
+its JIT and AOT phase ordering; constant initializers fault during preparation.
+Narrow constants, other unproved remainder reductions, compound updates and
+transitive callee reductions retain their separate boundaries.
+
 ## Observed fault phases
 
 Both raw operations raised TempleOS `DivZero` for a zero divisor and for

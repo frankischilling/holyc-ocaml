@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "2d11149c59ab774f1e9597fbc7af940a9b86269007dcbf0f45d6bf35cb2c966b",
+  "boot_payload_sha256": "50384dce1f982b4162f404e1613293047259a43ec71a3ef74a856c31c75cb12d",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "f99e626a039c07080983bb3ec48ff151a30073886babcbb454accde11073a119",
+  "boot_iso_sha256": "1aca4edc2c820b985a9001d18007575bca5679cbf07b9314876decca428bf0ea",
+  "fields": {
+    "J_S": "65534",
+    "J_U": "65535",
+    "J_SN": "-2",
+    "J_UN": "65535",
+    "ERR": "0",
+    "A_S": "65534",
+    "A_U": "65535",
+    "A_SN": "-2",
+    "A_UN": "65535"
+  },
+  "scope": "Repeated original JIT and compiled observations of a parameter-initialized local updated by a literal. Stored source omits boot padding."
+}

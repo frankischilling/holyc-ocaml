@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "6b9fadbddc65e8e8164b309e91b8ee70f3e08889612bf2ed742e6df05e8efaf2",
+  "boot_payload_sha256": "4ce8070092ad394b01445bd798506f7a23b728d5ab99a9862ea4372823d972db",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "3d92a63a08e466c35d7289ab2e70d30f9b1c63df1b155486c32dd7bca2798e7b",
+  "boot_iso_sha256": "bbd8fb45354711550ed4b5e0353ab50855b7bb4548a8e08347c5d5e67d68586f",
+  "fields": {
+    "S16": "65534",
+    "U16": "131070",
+    "S32": "4294967294",
+    "U32": "8589934590",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of 16- and 32-bit register-selected updates reached through default initializers. The stored source omits trailing spaces used to pad the boot payload."
+}

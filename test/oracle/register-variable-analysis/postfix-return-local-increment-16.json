@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "03c9622b8cd6855f8718b16b9d6302b58836685e86b09b1ebd05c24378f1865a",
+  "boot_payload_sha256": "ff9d8eaf5b06eb7859b15a1f4bf45668ff78d860c203fb642b1d08a7871faabf",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "5897612d94ddd45550b5b1cf38848bf453373664d172894a542a1b852c210afd",
+  "boot_iso_sha256": "43a053b9f61be494c620e8fc70da077582d9fcd4ef42f7e7035baa47965f75f4",
+  "fields": {
+    "J_S": "65535",
+    "J_U": "65536",
+    "J_SN": "-1",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "65535",
+    "A_U": "65536",
+    "A_SN": "-1",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of directly returned postfix updates. Stored source omits boot padding."
+}

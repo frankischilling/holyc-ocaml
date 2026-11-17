@@ -106,13 +106,16 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/runtime-layout-expressions.hc)
+ (deps
+  ../../examples/runtime-layout-expressions.hc
+  ../../examples/native-f64-runtime-dimensions.hc)
  (action
   (run
    %{exe:../test_runtime_layout_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/runtime-layout-expressions.hc}
-   --native)))
+   --native
+   %{dep:../../examples/native-f64-runtime-dimensions.hc})))
 
 (library
  (name runtime_layout_fixture)
@@ -176,6 +179,7 @@
   holyc_lib
   native_scalar_support
   automatic_aggregate_fixture
+  aggregate_member_support
   alcotest))
 
 (executable
@@ -206,7 +210,12 @@
   ../../examples/class-value-returns.hc
   ../../examples/class-default-words.hc
   ../../examples/retained-nested-members.hc
-  ../../examples/aggregate-pointer-fields.hc)
+  ../../examples/aggregate-pointer-fields.hc
+  ../../examples/persistent-aggregates.hc
+  ../../examples/aggregate-initializers.hc
+  ../../examples/aggregate-value-casts.hc
+  ../../examples/reference-returns.hc
+  ../../examples/top-level-aggregate-assignments.hc)
  (action
   (run
    %{exe:../test_aggregate_members_cli.exe}
@@ -222,6 +231,11 @@
    %{dep:../../examples/class-default-words.hc}
    %{dep:../../examples/retained-nested-members.hc}
    %{dep:../../examples/aggregate-pointer-fields.hc}
+   %{dep:../../examples/persistent-aggregates.hc}
+   %{dep:../../examples/aggregate-initializers.hc}
+   %{dep:../../examples/aggregate-value-casts.hc}
+   %{dep:../../examples/reference-returns.hc}
+   %{dep:../../examples/top-level-aggregate-assignments.hc}
    --native)))
 
 (rule
@@ -231,12 +245,17 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/automatic-aggregate-byte-views.hc)
+ (deps
+  ../../examples/automatic-aggregate-byte-views.hc
+  ../../examples/empty-automatic-aggregates.hc
+  ../../examples/automatic-aggregate-initializers.hc
+  ../../examples/original-automatic-layouts.hc)
  (action
   (run
    %{exe:../test_automatic_aggregates_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/automatic-aggregate-byte-views.hc}
+   %{dep:../../examples/empty-automatic-aggregates.hc}
    --native)))
 
 (rule
@@ -911,7 +930,9 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/native-aot-callback-initializers.hc)
+ (deps
+  ../../examples/native-aot-callback-initializers.hc
+  ../../examples/native-aot-static-initializers.hc)
  (action
   (run
    %{exe:test_native_load_initializer_cli.exe}
@@ -1290,21 +1311,68 @@
   (run %{exe:test_native_source_authority.exe})))
 
 (executable
+ (name test_native_f64_defaults)
+ (modules test_native_f64_defaults)
+ (libraries holyc_lib alcotest yojson unix))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/native-f64-defaults.hc
+  ../../examples/aot-native-defaults.hc)
+ (action
+  (run
+   %{exe:test_native_f64_defaults.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-f64-defaults.hc}
+   %{dep:../../examples/aot-native-defaults.hc})))
+
+(executable
+ (name test_native_source_intrinsic_defaults)
+ (modules test_native_source_intrinsic_defaults)
+ (libraries holyc_lib alcotest yojson unix))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/aot-intrinsic-defaults.hc)
+ (action
+  (run
+   %{exe:test_native_source_intrinsic_defaults.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/aot-intrinsic-defaults.hc})))
+
+(executable
  (name test_native_source_cli)
  (modules test_native_source_cli)
  (libraries holyc_lib yojson unix))
+
+(executable
+ (name test_native_lastclass_defaults)
+ (modules test_native_lastclass_defaults)
+ (libraries holyc_lib alcotest yojson unix))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-lastclass-defaults.hc)
+ (action
+  (run
+   %{exe:test_native_lastclass_defaults.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-lastclass-defaults.hc})))
 
 (rule
  (alias native-tests)
  (deps
   ../../examples/native-source-initializers.hc
-  ../../examples/native-source-arrays.hc)
+  ../../examples/native-source-arrays.hc
+  ../../examples/native-static-f64-leaves.hc)
  (action
   (run
    %{exe:test_native_source_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-source-initializers.hc}
-   %{dep:../../examples/native-source-arrays.hc})))
+   %{dep:../../examples/native-source-arrays.hc}
+   %{dep:../../examples/native-static-f64-leaves.hc})))
 
 (executable
  (name test_native_source_functions)
@@ -1660,3 +1728,16 @@
    %{dep:../../examples/native-stream-declarations.hc}
    %{dep:../../examples/native-compiler-options.hc}
    --native)))
+
+(executable
+ (name test_native_f64_callbacks)
+ (modules test_native_f64_callbacks)
+ (libraries holyc_lib alcotest)
+ (foreign_stubs
+  (language c)
+  (names native_f64_callback_probe)))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_f64_callbacks.exe})))

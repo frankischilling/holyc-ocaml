@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "36bedcdffe226a3e41b58778cb0351db4fd36d688f3075ca1b9c5aee7ef990dd",
+  "boot_payload_sha256": "dfd5ecd731ee265edbfde246952dfc0b7116a9d49115cb12c8d6b026d4f580c3",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "1ae05060e3e697067aabe51a1479eb5751fc7a82a41730bf6fe0f538edb41cd9",
+  "boot_iso_sha256": "8a01d3aa642a06be2baf385585c1c6d37be8df841bc00ea9a21b03abd1c5a683",
+  "fields": {
+    "J_S": "65789",
+    "J_U": "131197",
+    "J_SN": "65533",
+    "J_UN": "65661",
+    "ERR": "0",
+    "A_S": "65789",
+    "A_U": "131197",
+    "A_SN": "65533",
+    "A_UN": "65661"
+  },
+  "scope": "Repeated original JIT and compiled observations of mixed-width shift and bitwise updates."
+}

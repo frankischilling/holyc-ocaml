@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "df85a001afc859242a850bfaaad70e1955247526806fd9a681c38205b61b124e",
+  "capture_sha256": "fb61efdc75486a0a3cd0f982f73f15d39b8958b7e9777c5828d6206804613eb0",
+  "fields": {
+    "START": 0,
+    "I8": 1,
+    "U8": 2,
+    "I16": 3,
+    "U16": 4,
+    "I32": 5,
+    "U32": 6,
+    "I64": 7,
+    "U64": 8,
+    "Bool": 9,
+    "COMPILE_ERRORS": 0
+  },
+  "scope": "Original AOT warning counts for arithmetic using nine integer global types, observed twice in one boot.",
+  "boot_iso_sha256": "df23d5b0ca4c4d489eaad295c6347f192568b16a1cd1f97d2af9b24b76896595"
+}

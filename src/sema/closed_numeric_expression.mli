@@ -55,7 +55,11 @@ type 'query expression =
     }
   | Unsupported_expression of { description : string; origin : Symbol.origin }
 
-type expression_context = Array_dimension | Aggregate_offset | Switch_case
+type expression_context =
+  | Array_dimension
+  | Aggregate_offset
+  | Switch_case
+  | Member_metadata
 
 type error_kind =
   | Invalid_input of string

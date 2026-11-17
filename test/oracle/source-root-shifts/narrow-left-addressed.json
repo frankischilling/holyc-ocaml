@@ -1,0 +1,12 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "a4fa5e1265bd6efb65c69e638baad30f3ee804e48ff1aa9f8f606f235771310d",
+  "capture_sha256": "5845ffe686be33931a3364f8ce7ff330592bc7cdcdac692dcd4f29e863e99d64",
+  "boot_iso_sha256": "d9ee25fce2a10b21febe3603ed102c3a3778e233c3a8275de64473f4ba52e87a",
+  "fields": {
+    "SIGNED": "-2",
+    "UNSIGNED": "254",
+    "COMPILE_ERRORS": "0"
+  },
+  "scope": "Repeated original observations of narrow compound update register and memory behavior."
+}

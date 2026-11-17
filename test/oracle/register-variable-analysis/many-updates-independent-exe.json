@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "ffa03bcf2b471a530622864cf7989b71082c1e14a87ce535f29f78429acbd4aa",
+  "boot_payload_sha256": "ffa03bcf2b471a530622864cf7989b71082c1e14a87ce535f29f78429acbd4aa",
+  "boot_payload_bytes": 601,
+  "capture_sha256": "ab9a67f4dd5b0e65f32033de28611cc5baca973f4a5e16b5ba87da586491abda",
+  "boot_iso_sha256": "e1e7f71c1ad764de6668b04a56dd9de8e8eef036b9e8520b50654cfd18cc5cba",
+  "fields": {
+    "PARAM": "384",
+    "INDEP": "1277",
+    "ERR": "0"
+  },
+  "scope": "Two independent original compile-time observations of mixed updates using independent operands, captured with QEMU 10.0.13. A newline separates captures."
+}

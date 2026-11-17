@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "13bbc0360ad061d7b96bf2c04f88090bf0b5137a907d73a450e29fa2028e8513",
+  "boot_payload_sha256": "106155a89768113c5d21e85e891b4d77d8484b0ae0ec09615186f14f9df872d9",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "57926defbd93e64c03d3ed31a3e10a88d0c6afe0475d71bfeeee63845746cda9",
+  "boot_iso_sha256": "acb80ec63118021834f000bbd0fc0ade72891cbf5b0dfa7a017c820b4ef070ba",
+  "fields": {
+    "J_S": "1",
+    "J_U": "129",
+    "J_SN": "1",
+    "J_UN": "129",
+    "ERR": "0",
+    "A_S": "1",
+    "A_U": "129",
+    "A_SN": "1",
+    "A_UN": "129"
+  },
+  "scope": "Repeated original JIT and compiled observations around the byte-immediate encoding boundary."
+}

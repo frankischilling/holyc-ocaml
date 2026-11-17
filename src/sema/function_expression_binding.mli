@@ -17,6 +17,7 @@ type initializer_use_reset
 
 type binding_event =
   | Bound_use of occurrence
+  | Member_lookup of Function_binding_index.binding
   | Bound_query of query
   | No_warn_suppression of suppression
   | Initializer_use_reset of initializer_use_reset
@@ -142,6 +143,10 @@ val initializer_use_reset_origin : initializer_use_reset -> Symbol.origin
 val initializer_use_reset_binding :
   initializer_use_reset -> Function_binding_index.binding
 
+val initializer_use_reset_target :
+  initializer_use_reset -> Function_binding_index.binding
+
+val initializer_use_reset_valid : initializer_use_reset -> bool
 val error_code : error -> string
 val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option

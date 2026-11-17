@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "2d5c9bee035b679b4bc605cb2731db5fb05655d0ec5998b60ccb3a7c83165842",
+  "boot_payload_sha256": "7df387f0ec370b9208b8e9f610156c7e11c972b38feac6561d0f88758d462a00",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ed350351eaf15befaf2c7ee78f174b1051f48f7590a9b7d3c6ce5afc8568d34a",
+  "boot_iso_sha256": "ee51e62ed5c79646df3eaa49cfbf8155e18cd8fc659c4406d6d74115989cd1de",
+  "fields": {
+    "J_CAUGHT": "1",
+    "ERR": "0",
+    "A_CAUGHT": "1"
+  },
+  "scope": "Repeated original observations of a caught remainder fault from JIT and compiled parameter-local functions. Stored source omits boot padding."
+}

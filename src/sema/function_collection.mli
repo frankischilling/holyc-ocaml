@@ -19,6 +19,13 @@ val make_named_parameter :
   parameter_index:int ->
   (binding, string) result
 
+val make_source_parameter :
+  parameter_index:int ->
+  Frontend.Ast.function_parameter ->
+  (binding, string) result
+(** Keep the original fixed formal, including an omitted name. The lookup
+    spelling is [_anon_] only when the source omitted its identifier. *)
+
 val make_variadic_parameter :
   variadic_parameter ->
   origin:Symbol.origin ->
@@ -74,6 +81,7 @@ val static_symbol :
 
 val entry_symbol : entry -> Symbol.t
 val entry_kind : entry -> binding_kind
+val entry_parameter_source : entry -> Frontend.Ast.function_parameter option
 val entry_parameter_index : entry -> int option
 val entry_local_declaration_index : entry -> int option
 val entry_declarator_index : entry -> int option

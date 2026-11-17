@@ -51,7 +51,26 @@ let fractional_extents () =
   List.iter check_extent
     [
       ("2.9", 2); ("(2`-1)+2", 2); ("1.5<2.0", 1); ("0xffffffffffffffff+3.0", 2);
-    ]
+    ];
+  List.iter
+    (fun expression ->
+      List.iter
+        (fun mode ->
+          List.iter
+            (fun source ->
+              let compiled = G.compile ~mode source in
+              Alcotest.(check int)
+                "truncated zero extent has no source bytes" 0
+                (compiled |> integer_program_globals
+               |> Ir_integer_globals.byte_size);
+              ignore (G.run ~mode source |> F.expect 42L))
+            [
+              Printf.sprintf "I64 A[%s];sizeof A+42;" expression;
+              Printf.sprintf "I64 F(){static I64 A[%s];return sizeof A+42;}F();"
+                expression;
+            ])
+        G.modes)
+    [ "0.5"; "-0.5"; "0.0"; "-0.0" ]
 
 let comparison_chain_boundary () =
   check_extent ("((0<1)<2)+1", 2);
@@ -81,7 +100,6 @@ let invalid_extents () =
         [
           "[-1]";
           "[-1.5]";
-          "[0.5]";
           "[0xffffffffffffffff]";
           "[0x7fffffffffffffff][2]";
           "[0x100000000][0x100000000]";

@@ -15,13 +15,15 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-callback class parameters and persistent objects still need their own
-implementation. Defaults containing references remain unsupported in AOT IR
+callback class parameters still need their own implementation.
+[Persistent class storage](persistent-aggregates.md) retains global and static
+byte roots through the same member and scalar-prefix paths. Defaults containing references remain unsupported in AOT IR
 and ordinary native compilation.
 
-[Data pointer fields](aggregate-pointer-fields.md) add IR reads, assignments
+[Data pointer fields](aggregate-pointer-fields.md) add IR and native reads, assignments
 and updates for one-level integer and class pointers, including pointer member
-arrays. Native execution of these fields remains gated with `HCBACK0002`.
+arrays. Private descriptors and shadows preserve target lifetime across calls
+and retained source fragments.
 
 The interpreter and native executor read, assign and update integer members of
 nonempty automatic class and union objects. The layout must be complete at the
@@ -145,18 +147,29 @@ native fixtures require rejection of those fields before execution.
 object and array storage through the same member paths. Their original
 allocation and expression receipts preserve layout timing and function ownership.
 
+[Persistent storage](persistent-aggregates.md) uses these member projections for
+class and union globals and statics. [Their initializers](aggregate-initializers.md)
+traverse original direct members and fixed arrays with a sequential byte cursor,
+separate from the offsets used by subsequent member accesses.
+
 Partial inherited bases and bases without their original completed compilation
 or retained-context proof cannot authorize object storage. Zero-sized automatic
-objects, automatic root pointer arrays, aggregate array initializers,
-persistent aggregate objects, whole-value postfix casts, callback class
-parameters, general aggregate copies, native data pointer fields, callback
-fields, general casts to class pointers and pointer returns remain unfinished
+objects, automatic root pointer arrays, inferred initializer dimensions,
+floating whole-value postfix casts, callback class
+parameters, general aggregate copies,
+numeric/null casts to class pointers and wider return domains remain unfinished
 under [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 Defaults containing references remain unsupported in AOT IR and ordinary native
 compilation. Local and member size queries use their separate metadata paths;
 compiler position queries for aggregate-valued frames remain gated.
 
-Functions can return supported integers, U0 or qualified class-value words. A
+[Owned callback fields](callback-fields.md) retain their original signature and
+executable owner through direct access, inherited and nested members, arrays,
+typed copies and fixed callback arguments. Numeric and byte stores preserve
+their eight-byte storage without granting calls.
+
+Functions can return supported integers, U0, qualified class-value words or
+[owned integer/class references](reference-returns.md). A
 class-value return grants no addressable object extent. The checks use the
 pinned source and hosted execution without a TempleOS runtime capture; full
 compiler parity remains under

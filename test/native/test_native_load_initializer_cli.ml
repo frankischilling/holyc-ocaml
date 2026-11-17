@@ -72,13 +72,18 @@ let invoke ?(mode = "aot") ?(target = "host-jit") ?(status = 0) ?(options = [])
               "native load execution identity";
           report))
 
-let success report =
+let success ?(expected = "42") ?(warnings = []) report =
   require
     (member "outcome" report = `String "success"
-    && member "diagnostics" report = `List [])
+    &&
+    let diagnostics = report |> member "diagnostics" |> to_list in
+    List.map (fun d -> member "code" d |> to_string) diagnostics = warnings
+    && List.for_all
+         (fun d -> member "severity" d = `String "warning")
+         diagnostics)
     "load success";
   require
-    (member "final_value" report |> member "value" = `String "42")
+    (member "final_value" report |> member "value" = `String expected)
     "load result";
   require (member "output_hex" report = `String "41") "load output"
 
@@ -180,6 +185,78 @@ let () =
     [ "0"; "17"; "0xffffffffffffffff" ]
 
 let () =
+  let static_example =
+    Filename.concat (Filename.dirname example)
+      "native-aot-static-initializers.hc"
+  in
+  List.iter
+    (fun target ->
+      success ~expected:"40" ~warnings:[ "HCSEMA0080" ]
+        (invoke ~target static_example))
+    [ "ir"; "host-jit" ];
+  (* Keep ordinary nonzero AOT load and quota coverage separate from the
+     zero-byte example's unsupported load-assignment operation. *)
+  with_file ".hc"
+    "extern U0 Print(U8 *fmt,...);I64 calls=0;I64 Next(I64 \
+     n){calls++;if(calls==1)Print(\"A\");return n;}I64 first=Next(0);class \
+     Box{U8 values[2];};I64 F(){static Box saved={{Next(40),2}};static U8 \
+     tail=saved.values[1];return saved.values[0]+tail++;}I64 Next(I64 \
+     n){return n+99;}I64 Check(){if(calls!=2)return -1;F();return \
+     F()-1;}Check();" (fun static_example ->
+      let ir = invoke ~target:"ir" static_example in
+      let native = invoke static_example in
+      success ir;
+      success native;
+      List.iter
+        (fun field ->
+          require
+            (member field ir = member field native)
+            ("original static load IR/native agreement: " ^ field))
+        [ "final_value"; "executed_steps"; "output_hex" ];
+      let steps = member "executed_steps" native |> to_int in
+      List.iter
+        (fun target ->
+          let baseline = if target = "ir" then ir else native in
+          let work = member "compiled_initializer_steps" baseline |> to_int in
+          for _ = 1 to 3 do
+            success
+              (invoke ~target
+                 ~options:
+                   [
+                     "--step-limit=" ^ string_of_int steps;
+                     "--initializer-step-limit=" ^ string_of_int work;
+                   ]
+                 static_example)
+          done;
+          error
+            (invoke ~target ~status:1
+               ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+               static_example)
+            "HCIRVM0007" "41";
+          error
+            (invoke ~target ~status:1
+               ~options:
+                 [ "--initializer-step-limit=" ^ string_of_int (work - 1) ]
+               static_example)
+            "HCIRVM0007" "")
+        [ "ir"; "host-jit" ]);
+  List.iter
+    (fun source ->
+      with_file ".hc" source (fun path ->
+          let native = invoke ~status:1 path
+          and ir = invoke ~target:"ir" ~status:1 path in
+          error native "HCIRVM0009" "41";
+          error ir "HCIRVM0009" "41";
+          require
+            (member "executed_steps" native = member "executed_steps" ir)
+            "original static load fault work"))
+    [
+      "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"A\");return 0;}I64 \
+       F(){static I64 n=1/Side();return n;}42;";
+      "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"A\");return 0;}I64 \
+       Later(){return 0;}class Box{U8 a;U8 b;};I64 F(){static Box \
+       n={Side(),1/Later()};return n.a;}42;";
+    ];
   List.iter
     (fun source ->
       with_file ".hc" source (fun path ->

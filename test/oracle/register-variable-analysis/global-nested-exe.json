@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "12b8a15a7f84f5b7fae20e23ebb9516ed844a01255ced3375e5e51a14402c34d",
+  "boot_payload_sha256": "e680ba5a10a8d4c04c26337652240e7048fddce4cfe7da31a29741c88f04e52c",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "9cc7bac748adc6e12d153f24b4fac12befa77568a3bc03ed265c8d8cd6996099",
+  "boot_iso_sha256": "e68fbcbb251278ecf16dccf55b926282d150d964630e723df3307be7ad7e46c5",
+  "fields": {
+    "ADD": "1",
+    "SUB": "511",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compile-time execution observations of global updates inside addition expressions."
+}

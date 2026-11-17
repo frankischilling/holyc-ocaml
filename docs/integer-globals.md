@@ -95,7 +95,16 @@ fixture establishes shared storage without erasing these phase rules.
 [byte updates](integer-byte-updates.md) extend this scalar connection.
 [Global callbacks](global-callbacks.md) add one-star scalar cells and fully
 indexed arrays to the IR runner, with original saved defaults and calling flags.
-External/import/data-heap storage, aggregates, other pointer-valued globals,
+JIT data-heap definitions use their original declaration options and the same
+owned hosted storage checks as code-heap definitions. Scalars, fixed arrays,
+aggregate roots and their byte views retain their selected storage and effects.
+Option changes during an earlier initializer can affect the next declarator;
+they cannot retarget the earlier allocation. AOT data-heap initializers reject at
+the original `=` callback before initializer directives or expressions run.
+Uninitialized AOT data-heap globals still require the separate `IC_HEAP_GLBL`
+and loader path.
+
+External/import and AOT data-heap storage, aggregates, other pointer-valued globals,
 and other narrow/floating storage remain unsupported, even in unused
 declarations. Full runtime output,
 stateful compilation and #exe, optimizer parity, native backends, actual-loader

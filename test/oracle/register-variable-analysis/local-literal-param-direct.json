@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "9cb8004aedd7dd8896d18e22a816dd62d5885b74ea6800de03b3901ed67ac871",
+  "boot_payload_sha256": "75f9b162ff5a18221f7a540fe2684a67d5247802dee9a3a6cd8b2be326b54e1b",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "d0217bd6b47821f4ed34d8d4398843273f7cddb4d4a976c2c6c8b26dbd1ec464",
+  "boot_iso_sha256": "6a09b6269fa0b325272fd8d0bd56e65310f3b19dbb37cada65ae5db2f1d3c2db",
+  "fields": {
+    "J_S": "255",
+    "J_U": "256",
+    "J_SN": "-1",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "255",
+    "A_U": "256",
+    "A_SN": "-1",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original observations of a literal-initialized local in a one-parameter function. Stored source omits boot padding."
+}

@@ -1639,6 +1639,9 @@ and print_aggregate_declaration buffer sources ~indent = function
         declaration.modifiers;
       print_binding buffer sources ~indent:(indent ^ "  ")
         (Some declaration.binding);
+      Option.iter
+        (print_aggregate_backing buffer sources ~indent:(indent ^ "  "))
+        declaration.backing;
       Printf.bprintf buffer "%s  aggregate_keyword spelling=%S span=%s\n" indent
         declaration.aggregate_keyword_spelling
         (location_text sources declaration.aggregate_keyword_location);
@@ -3527,7 +3530,12 @@ and item_to_yojson sources = function
                 ~some:(location_to_yojson sources)
                 declaration.semicolon );
             ("location", location_to_yojson sources declaration.location);
-          ])
+          ]
+        @
+        match declaration.backing with
+        | None -> []
+        | Some backing ->
+            [ ("backing", aggregate_backing_to_yojson sources backing) ])
   | Ast.Aggregate_definition definition ->
       `Assoc
         ([

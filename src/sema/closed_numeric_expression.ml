@@ -55,7 +55,11 @@ type 'query expression =
     }
   | Unsupported_expression of { description : string; origin : Symbol.origin }
 
-type expression_context = Array_dimension | Aggregate_offset | Switch_case
+type expression_context =
+  | Array_dimension
+  | Aggregate_offset
+  | Switch_case
+  | Member_metadata
 
 type error_kind =
   | Invalid_input of string
@@ -339,9 +343,17 @@ let evaluate_expression ?(consume = fun () -> Ok ()) ~query_origin ~query_value
     | Integer value | Unsigned_integer value -> Ok value
     | Floating value -> (
         match context with
-        | Array_dimension | Switch_case ->
+        | Array_dimension ->
+            (* PrsExp.HC:1140-1149 converts the completed F64 value through
+               ToI64 before PrsVar.HC checks whether the extent is negative.
+               Masked x87 invalid conversions produce I64_MIN, including
+               NaN, infinity and out-of-range finite values. *)
+            Ok
+              (Common.Binary64_conversion.to_signed_word
+                 (Int64.bits_of_float value))
+        | Switch_case ->
             float_to_i64 (expression_origin ~query_origin expression) value
-        | Aggregate_offset ->
+        | Aggregate_offset | Member_metadata ->
             if Float.is_finite value then Ok (Int64.bits_of_float value)
             else Error (non_finite (expression_origin ~query_origin expression))
         ))

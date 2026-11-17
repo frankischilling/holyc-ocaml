@@ -16,9 +16,11 @@ let inputs mode contents =
   in
   (session, config, source)
 
-let report ?(max_steps = 100_000) ?(max_call_depth = 128) mode contents =
+let report ?max_code_bytes ?(max_steps = 100_000) ?(max_call_depth = 128) mode
+    contents =
   let session, config, source = inputs mode contents in
-  Native_program.evaluate ~max_call_depth session ~config ~source ~max_steps
+  Native_program.evaluate ?max_code_bytes ~max_call_depth session ~config
+    ~source ~max_steps
 
 let success report =
   match Native_program.outcome report with
@@ -85,7 +87,8 @@ let faults () =
     (fun mode ->
       List.iter
         (fun (source, code, output) ->
-          let failed = report mode source in
+          (* Several complete Print bodies plus reference guards exceed 64 KiB. *)
+          let failed = report ~max_code_bytes:131072 mode source in
           let interpreted = T.run mode source in
           let source_fault =
             match

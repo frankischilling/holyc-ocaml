@@ -1,0 +1,12 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "c02a1aef954569b8dc909dee2597f18e2b81fca9bd69f7a70f1e332fe0f8459d",
+  "capture_sha256": "042d68983ac7ceaab702b71baf68fb71572efc8718cd5fdae51f529c11c9e54c",
+  "boot_iso_sha256": "4c9a2ddc45868d759697be43d2a0f3f854aee43c03a8346af850f1960e9c2b29",
+  "fields": {
+    "VALUE": "14",
+    "CALLS": "1",
+    "COMPILE_ERRORS": "0"
+  },
+  "scope": "Repeated original compile-time observations of a retained full-word variable-count compound shift during default preparation."
+}

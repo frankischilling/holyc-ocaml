@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "066d5374a422f54d9680daeb8b19fccb1d4511b7bc9549866fafe7a1b9ac601d",
+  "boot_payload_sha256": "b660aedd0cec531a763ab6e6167a8c8e573d2877b56c169aeaa89294cb3317cf",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "45244537098eafd10c4339bbde6d53ae63282e1acde9246dfcec9eef1d07ed94",
+  "boot_iso_sha256": "db9778f9107756357a976ba3ece33430607753f2709a2af41724b2bda2a5ac97",
+  "fields": {
+    "J_S": "4294967295",
+    "J_U": "4294967296",
+    "J_SN": "-1",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "4294967295",
+    "A_U": "4294967296",
+    "A_SN": "-1",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original observations of directly returned register and noreg locals. The stored source omits trailing spaces used to pad the boot payload."
+}

@@ -26,6 +26,9 @@ val compile_task_ast :
   (compiled checked, Common.Diagnostic.t list) result
 
 val compile_source_in_task_budget :
+  ?native_initializers:Integer_initializers.native_preparation list ->
+  ?native_static_initializers:
+    Integer_initializers.native_static_preparation list ->
   task:Ir.Integer_interpreter.task_state ->
   source_command:Task_declarations.source_command ->
   Session.t ->

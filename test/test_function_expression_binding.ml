@@ -386,6 +386,8 @@ let suppression_and_initializer_events () =
           |> Semantic_function_expression_binding.initializer_use_reset_binding
           |> binding_name )));
   let event_signature = function
+    | Semantic_function_expression_binding.Member_lookup binding ->
+        "member-lookup:" ^ binding_name binding
     | Semantic_function_expression_binding.Bound_use occurrence ->
         "use:" ^ Semantic_function_expression_binding.occurrence_name occurrence
     | Semantic_function_expression_binding.Bound_query query ->

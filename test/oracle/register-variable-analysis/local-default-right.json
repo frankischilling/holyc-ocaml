@@ -1,0 +1,15 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "62475436b2da80ceec9dbdf680b0a8ee57ce53dc5dbf2b109112a5fa78f3a1f6",
+  "boot_payload_sha256": "e31ea3c9deae66bf09ea31d7353b6ada33e4ba3b96d21ac0e3620e2b190dc3ba",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "c347936331936435ac3449126e1b59c64cfc5990a835ebf996f60593ffb00d34",
+  "boot_iso_sha256": "67ffc21c22c835e545ec2af4f5df21f654f2515f3085d9b25244e6fb373464cf",
+  "fields": {
+    "S": "127",
+    "U": "128",
+    "SH": "63",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of local register right shifts reached through default initializers. The stored source omits trailing spaces used to pad the boot payload."
+}

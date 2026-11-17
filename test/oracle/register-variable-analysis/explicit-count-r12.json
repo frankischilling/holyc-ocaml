@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "d45d23cd4aac45df968ddf620dbbcbe953000e8824c09261bb0cc837ec8a2deb",
+  "boot_payload_sha256": "1f4613204bb2e9caebc1eb44c1debecd2f3c6b4026053341d8dd9d6c520af5a1",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ac6c15a0eb8ca33339cb2a9765c34554252bce3b7dc30f7f18b1b54dc69c1efc",
+  "boot_iso_sha256": "d1b938a9d5bf6ec2158f9f40f1e61a29ebfd45c4bf6351ad147ff97ee3e390bc",
+  "fields": {
+    "J_S": "254",
+    "J_U": "510",
+    "J_SN": "-2",
+    "J_UN": "254",
+    "ERR": "0",
+    "A_S": "254",
+    "A_U": "510",
+    "A_SN": "-2",
+    "A_UN": "254"
+  },
+  "scope": "Repeated original JIT and compiled observations of a requested register for an unchanged operand parameter."
+}

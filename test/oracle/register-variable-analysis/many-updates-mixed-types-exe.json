@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "f182164da860a0fb7dffba687461aac0c03e9704b90ae707d0afa11d4b3498b7",
+  "boot_payload_sha256": "f182164da860a0fb7dffba687461aac0c03e9704b90ae707d0afa11d4b3498b7",
+  "boot_payload_bytes": 619,
+  "capture_sha256": "15fe3fb1b245e88569764c78d44a1ddd4536a81fe8061ecadac88020feb7afff",
+  "boot_iso_sha256": "02d88c7977e7053e7df7b301b9cb1bf39ad8d760f0a44c578a5b12b9b7dedd98",
+  "fields": {
+    "PARAM": "384",
+    "MIXED": "6442516608",
+    "ERR": "0"
+  },
+  "scope": "Two independent original compile-time observations of mixed narrow update types, captured with QEMU 10.0.13. A newline separates captures."
+}

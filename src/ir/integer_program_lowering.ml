@@ -79,6 +79,11 @@ type pending_exception = {
 
 type t = {
   expression_source_ : (Integer_globals.t * Typed.expression_result) option;
+  framed_expression_source_ :
+    (Sema.Function_frame_layout.function_layout
+    * Integer_globals.t
+    * Typed.expression_result)
+    option;
   graph_ : X87_stack.t;
   initializer_regions_ : Global_initialization.region_description list;
   static_initializer_regions_ :
@@ -95,6 +100,14 @@ let owns_expression result ~globals ~value =
   match result.expression_source_ with
   | Some (original_globals, original_value) ->
       original_globals == globals && original_value == value
+  | None -> false
+
+let owns_framed_expression result ~frame ~globals ~value =
+  match result.framed_expression_source_ with
+  | Some (original_frame, original_globals, original_value) ->
+      original_frame == frame
+      && original_globals == globals
+      && original_value == value
   | None -> false
 
 let initializer_regions result = result.initializer_regions_
@@ -119,9 +132,9 @@ let span_of_result fallback result =
   | Sema.Symbol.Source_location location -> location.span
   | _ -> fallback
 
-let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
-    ?(function_calls = []) ?(callback_calls = []) ?(top_callback_calls = [])
-    ~span statements =
+let lower_complete ?frame ?globals ?records ?labels
+    ?(source_static_frame = false) ?(top_calls = []) ?(function_calls = [])
+    ?(callback_calls = []) ?(top_callback_calls = []) ~span statements =
   try
     let instruction_count = ref 0
     and value_count = ref 0
@@ -170,7 +183,22 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     let entry = block () in
     exception_blocks :=
       Int_map.add (Sequence.Block_id.to_int entry) [] !exception_blocks;
-    let leave = Option.map (fun _ -> block ()) frame in
+    (* A source-time AOT static expression belongs to a function even before
+       its complete frame is available. Give its closed value graph the same
+       function exit shape as the eventual framed initializer. *)
+    let source_static =
+      match (source_static_frame, frame, globals, statements) with
+      | true, None, Some globals, [ Expression _ ] ->
+          Integer_globals.native_static_initializer_fragment globals
+          |> Option.fold ~none:false ~some:(fun fragment ->
+              Sema.Outer_environment.compilation_mode
+                (Sema.Static_initializer_fragment.environment fragment)
+              = Sema.Outer_environment.Aot)
+      | _ -> false
+    in
+    let leave =
+      if Option.is_some frame || source_static then Some (block ()) else None
+    in
     let label_lowering =
       match (frame, labels) with
       | None, None -> None
@@ -1591,6 +1619,11 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
           expression_source_ =
             (match (frame, globals, statements) with
             | None, Some globals, [ Expression value ] -> Some (globals, value)
+            | _ -> None);
+          framed_expression_source_ =
+            (match (frame, globals, statements) with
+            | Some frame, Some globals, [ Expression value ] ->
+                Some (frame, globals, value)
             | _ -> None);
           initializer_regions_ = List.rev !initial_regions;
           static_initializer_regions_ = List.rev !static_regions;

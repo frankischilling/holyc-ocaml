@@ -1,0 +1,12 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "4a04845b6d2e174183836ab898337c88db0cccfa2871bde54fc4e8b6bbe427f7",
+  "capture_sha256": "2c9ab345233af0f6d712f13c79c96df7c485188e58e23a6ea87ab5efbe274269",
+  "boot_iso_sha256": "26a64f2da05af57ebe4c529f8faaa5f19d4d13d2b1d51c2e81c477d660f70df5",
+  "fields": {
+    "JIT_DIV": "-2",
+    "COMPILE_ERRORS": "0",
+    "AOT_DIV": "-2"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of a static signed division rewritten to a constant shift."
+}

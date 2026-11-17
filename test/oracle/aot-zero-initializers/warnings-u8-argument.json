@@ -1,0 +1,15 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "523ba6774b9e0aa2e4015309f136af93f56e276ca2c44fdd7f66c16885b03400",
+  "capture_sha256": "5a82e29f217a0bde21e1cafbd7faa011716a8865029f8a5e67ee5867d5328da7",
+  "fields": {
+    "START": 0,
+    "CONSTANT": 0,
+    "INTEGER": 1,
+    "VOID": 3,
+    "STATIC": 4,
+    "COMPILE_ERRORS": 0
+  },
+  "scope": "Original AOT warning counts for direct calls with one U8 literal argument, observed twice in the same boot.",
+  "boot_iso_sha256": "c2d4e79a30cf0a35a318ff73e6de230a3c14b1582d85cc2e3cbbf5c08d042e90"
+}

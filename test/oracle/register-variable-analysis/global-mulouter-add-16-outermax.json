@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "5bad71e655e8a59cffe41fa30bfe3b01c20762e90bf6916647e79f7f49e3e5f2",
+  "boot_payload_sha256": "a5bd1ae844cec6f6b83fb8567ea137261ce4c6183fd546bde8a9909003f5f943",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "4f04372a6e4ed8a2190c990b613f200cd38f77bf7b2a991280c4e38c8becb926",
+  "boot_iso_sha256": "50938944dc58e2f9904ca31b3f77cf0c0a709fd75abd118035de1ecdb7b32d61",
+  "fields": {
+    "J_S": "-70368744144896",
+    "J_U": "0",
+    "J_SN": "-70368744144896",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "-70368744144896",
+    "A_U": "0",
+    "A_SN": "-70368744144896",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of multiplication around signed-32-bit immediate boundaries."
+}

@@ -1,0 +1,17 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "97147810037052bc6d1d689a7d21352efb3e972f7841d767ffc9d4aac2642f23",
+  "boot_payload_sha256": "61818b788f6f17e3e2b81acf988d0c4f3e70419d4737f2be6f170fa7d392bc9c",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "a3a5da45216059a1c68f713bcebd384ad186c5d3cae6050dbba2387de518340a",
+  "boot_iso_sha256": "b298e1e97606c6648b516d4bdff3b986dc953c88cad32a5610976dda2a724615",
+  "fields": {
+    "ADD": "256",
+    "SUB": "254",
+    "MUL": "255",
+    "SHL": "510",
+    "SHR": "127",
+    "ERR": "0"
+  },
+  "scope": "Repeated original retained default initializer observations for directly returned local compound updates."
+}

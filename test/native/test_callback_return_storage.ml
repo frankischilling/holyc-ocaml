@@ -364,7 +364,7 @@ let compile_error ~mode source =
   | Error [] -> Alcotest.fail "native callback gate returned no diagnostic"
   | Ok _ -> Alcotest.fail "native callback gate unexpectedly compiled"
 
-let unsupported_f64_execution_stays_gated () =
+let f64_native_execution_keeps_ir_and_ownership_boundaries () =
   List.iter
     (fun mode ->
       List.iter
@@ -373,13 +373,20 @@ let unsupported_f64_execution_stays_gated () =
             "unsupported object or callback indirection stays gated" "HCRUN0001"
             (compile_error ~mode contents).code)
         [
-          "I64 Run(){F64 value;return 42;}Run();";
-          "I64 Run(){F64 (*p)(),value;return 42;}Run();";
+          "I64 Run(){F64 (*p)(),*value;return 42;}Run();";
           "I64 Run(){I64 (**p)();return 42;}Run();";
         ];
+      let static = "I64 Run(){static F64 value;return 42;}Run();" in
+      let public = public_success ~mode ~max_steps:10_000 static in
+      check_vm_word "unused static F64 storage" 42L public;
+      let _, native = native_success ~mode ~max_steps:10_000 static in
+      check_native_word "native unused static F64 storage" 42L
+        native.execution.final_value;
       let body = "F64 Value(){return 1.0;}42;" in
-      let body_error = compile_error ~mode body in
-      Alcotest.(check string) "F64 source body gate" "HCRUN0001" body_error.code;
+      let session, config, source = source_inputs ~mode body in
+      (match Native_program.compile session ~config ~source with
+      | Ok _ -> ()
+      | Error _ -> Alcotest.fail "native scalar F64 body did not compile");
       let call = "I64 Run(){F64 (*p)(I64 n);p=0;p(40);return 42;}Run();" in
       let _, batch = batch_failure ~mode ~max_steps:10_000 call in
       Alcotest.(check string)
@@ -400,9 +407,48 @@ let unsupported_f64_execution_stays_gated () =
       Alcotest.(check string)
         "public F64 callback call gate" "HCIRVM0014"
         (List.hd public_errors).code;
-      let call_error = compile_error ~mode call in
-      Alcotest.(check string)
-        "native F64 callback call gate" "HCBACK0002" call_error.code)
+      let check_fault label source code kind output =
+        let report =
+          native_report ~status_abi:(host_abi ()) ~mode ~max_steps:10_000 source
+        in
+        (match Native_program.outcome report with
+        | Error (diagnostic :: _) ->
+            Alcotest.(check string) (label ^ " diagnostic") code diagnostic.code
+        | Error [] -> Alcotest.fail (label ^ ": no native diagnostic")
+        | Ok _ -> Alcotest.fail (label ^ ": invalid callback completed"));
+        (match Native_program.native_outcome report with
+        | Some (Program.Fault fault) ->
+            Alcotest.(check bool)
+              (label ^ " fault kind") true (fault.kind = kind);
+            Alcotest.(check bool)
+              (label ^ " reached machine call")
+              true
+              (fault.executed_steps > 0 && Option.is_some fault.span)
+        | Some (Program.Completed _) | None ->
+            Alcotest.fail (label ^ ": native fault was not executed"));
+        Alcotest.(check string)
+          (label ^ " output") output
+          (Native_program.output_bytes report)
+      in
+      check_fault "native F64 callback null target" call "HCIRVM0024"
+        Program.Callback_unowned_address "";
+      check_fault "native F64 callback signature after argument effects"
+        ("extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}"
+       ^ "I64 Value(I64 n){return n;}I64 Run(){F64 (*p)(I64 \
+          n);p=&Value;p(Arg());return 42;}Run();")
+        "HCIRVM0014" Program.Callback_signature_mismatch "A";
+      let _, valid =
+        native_success ~mode ~max_steps:10_000
+          "F64 Value(I64 n){return 1.5;}F64 Run(){F64 (*p)(I64 \
+           n);p=&Value;return p(40);}Run();"
+      in
+      match valid.execution.final_value with
+      | Some word ->
+          Alcotest.(check bool)
+            "native F64 callback result class" true (word.type_ = Program.F64);
+          Alcotest.(check int64)
+            "native F64 callback result bits" 0x3ff8000000000000L word.bits
+      | None -> Alcotest.fail "native F64 callback returned no value")
     modes
 
 let () =
@@ -428,7 +474,7 @@ let () =
                 "callback storage quotas are exact across IR and native" `Quick
                 exact_storage_code_and_step_quotas;
               Alcotest.test_case
-                "F64 callback execution and F64 bodies remain gated" `Quick
-                unsupported_f64_execution_stays_gated;
+                "F64 native calls preserve IR and owned signature boundaries"
+                `Quick f64_native_execution_keeps_ir_and_ownership_boundaries;
             ] );
         ]

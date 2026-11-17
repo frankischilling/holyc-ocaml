@@ -7,7 +7,7 @@ type result = { image : Image.t; bits : int64; platform : Native.platform }
 let ( let* ) = Result.bind
 
 let compile ?(max_ir_instructions = 4096) ?(max_code_bytes = 65536)
-    ?(max_stack_bytes = Image.hard_max_stack_bytes) ?status_abi session ~config
+    ?(max_stack_bytes = Image.default_stack_bytes) ?status_abi session ~config
     ~source =
   let span = Integer_source.source_span source in
   let errors =

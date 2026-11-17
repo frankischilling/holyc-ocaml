@@ -85,10 +85,12 @@ the existing padded static allocations. `--literal-byte-limit` /
 to 1,048,576 and accepts positive values through 16,777,216. Unused declarations
 and unreachable original literal producers still consume their storage quota.
 
-Private metadata is separate from both data counts. Scalar objects retain their
-eight-byte initialization regions. Arrays retain the object-prefix position and add
-one eight-byte slot per original element; each object's byte flags are packed
-within its complete region. Literal regions add one 32-byte
+Private metadata is separate from both data counts. Scalar integer objects retain
+their eight-byte initialization regions. Arrays retain the object-prefix position
+and add one eight-byte slot per physical cell; each object's byte flags are packed
+within its complete region. [Aggregate roots](persistent-aggregates.md), including
+scalar classes, use byte cells so every declared byte has initialization coverage.
+Source class counts and strides remain separate from those cells. Literal regions add one 32-byte
 descriptor per producer. The complete arena is capped at
 33,554,432 bytes; layouts check this bound before expanding flags or records.
 Array references materialized by a function still count their snapshot homes

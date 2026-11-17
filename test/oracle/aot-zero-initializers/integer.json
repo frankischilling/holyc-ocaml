@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "da8c8579a6f5508efe0da0e1a731ed705030ec29659e9c277fc87b83b53309c4",
+  "capture_sha256": "19f8f96ec231225c42dc4b41ee2f3d5ceff4df576124e6983f11163ecdfbb03f",
+  "boot_iso_sha256": "5500a4770ce82006b5e4b6ebf15df0ad83602195c5e9eb2e6cd65dbff6acc9ff",
+  "fields": {
+    "JIT_INTEGER": 42,
+    "COMPILE_ERRORS": 0,
+    "AOT_INTEGER": 7,
+    "AOT_CONSTANT": 42,
+    "AOT_STATIC": 7
+  },
+  "scope": "Original compiled BIN load observations with KernelA.HH public type definitions and successful compilation. Unsupported hosted nonconstant zero-byte AOT assignments must not be replaced by JIT empty copies."
+}

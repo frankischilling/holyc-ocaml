@@ -388,7 +388,7 @@ let assignment_results_and_types () =
       [
         block 0
           [
-            H.imm ~id:0 ~value:0 ~type_:H.i64 42L;
+            H.imm ~id:0 ~value:0 ~type_:H.i64 0x1002aL;
             H.description
               ~operands:[ H.value_id 0 ]
               ~result:(H.result 1) ~target_type:cast_type
@@ -398,16 +398,26 @@ let assignment_results_and_types () =
           ];
       ]
   in
-  ignore (execute frame [ 0L; 0L ] (public_cast H.public_i64) |> expect_word 42L);
+  ignore
+    (execute frame [ 0L; 0L ] (public_cast H.public_i64) |> expect_word 0x1002aL);
   let narrow =
     Type.make_primitive ~form:Type.Public_spelling ~primitive:Primitive_type.U8
       ~pointer_depth:0
     |> Result.get_ok
   in
-  ignore
-    (execute frame [ 0L; 0L ] (public_cast narrow) |> expect_error "HCIRVM0005")
+  ignore (execute frame [ 0L; 0L ] (public_cast narrow) |> expect_word 0x1002aL)
 
 let lowering_boundaries () =
+  let float_frame, float_function =
+    analyze "I64 Add(){F64 c;c=1.0;return 0;}"
+  in
+  let float_root = A.expression_values float_function |> List.hd in
+  (match
+     Expr.lower_typed_result ~frame:float_frame
+       ~instruction_id:(H.instruction_id 0) ~value_id:(H.value_id 0) float_root
+   with
+  | Ok (Expr.Lowered _) -> ()
+  | _ -> Alcotest.fail "scalar F64 assignment must lower for native execution");
   let frame, function_ = analyze source in
   let root = A.return_value function_ in
   let foreign, _ = analyze source in
@@ -443,7 +453,6 @@ let lowering_boundaries () =
       "I64 Add(){I0 c;c=1;return 0;}";
       "I64 Add(){I0 c[1];c;return 0;}";
       "I64 Add(){I64 *c[2];c;return 0;}";
-      "I64 Add(){F64 c;c=1.0;return 0;}";
       "I64 Add(){I0 c;&c;return 0;}";
       "I64 global; I64 Add(){global=1;return 0;}";
     ];
@@ -493,10 +502,46 @@ let frame_boundaries () =
       "I64 Add(){I0 c;}";
       "I64 Add(){F64 c;}";
       "I64 Add(){I64 *c[2];}";
-      "I64 Add(){I64 c[0];}";
       "I64 Add(){static I64 c;}";
       "I64 Add(){I0 *c;}";
     ];
+  let void_frame, void_function = analyze "I64 Add(){U0 c;return 42;}" in
+  let void_location = Frame.function_locations void_frame |> List.hd in
+  Alcotest.(check bool)
+    "original uninitialized U0 is storage-free" true
+    (Holyc_lib__Ir.Automatic_void_declaration.is_storage_free void_location);
+  Alcotest.(check int64)
+    "U0 declaration has zero frame bytes" 0L
+    (Frame.function_frame_size void_frame);
+  ignore
+    (execute ~max_frame_bytes:1 void_frame []
+       (composed_body void_frame void_function)
+    |> expect_word 42L);
+  List.iter
+    (fun text ->
+      let other, _ = analyze text in
+      List.iter
+        (fun location ->
+          Alcotest.(check bool)
+            "other local consumers are not storage-free U0" false
+            (Holyc_lib__Ir.Automatic_void_declaration.is_storage_free location))
+        (Frame.function_locations other))
+    [
+      "I64 Add(){I64 c;}";
+      "I64 Add(){U0 c=42;}";
+      "I64 Add(){U0 c[1];}";
+      "I64 Add(){static U0 c;}";
+      "I64 Add(){U0 *c;}";
+      "I64 Add(){I0 c;}";
+    ];
+  let empty_frame, empty_function = analyze "I64 Add(){I64 c[0];return 42;}" in
+  Alcotest.(check int64)
+    "zero-count array has no logical frame bytes" 0L
+    (Frame.function_frame_size empty_frame);
+  ignore
+    (execute ~max_frame_bytes:1 empty_frame []
+       (composed_body empty_frame empty_function)
+    |> expect_word 42L);
   let malformed =
     body frame H.public_i64
       [

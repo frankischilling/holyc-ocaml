@@ -1,0 +1,21 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e9f1b290a882cfd9fa84212005e1630ca38ddb85c8f2f7783b4e80bdf3d41ba0",
+  "capture_sha256": "17bf53d6b3cfa862be8b38605d67e1597f4dc4b0b70ccfd6e475cdb87a8e5e21",
+  "fields": {
+    "START": 0,
+    "I8": 1,
+    "U8": 2,
+    "I16": 3,
+    "U16": 4,
+    "I32": 5,
+    "U32": 6,
+    "I64": 7,
+    "U64": 8,
+    "F64": 9,
+    "Bool": 10,
+    "COMPILE_ERRORS": 0
+  },
+  "scope": "Original AOT warning counts for ten numeric global types supplied to an I64 parameter, observed twice in one boot.",
+  "boot_iso_sha256": "a6555513b284258e3aab8d5acc31989fb416e730e556bba9a9a09a0282d17ff5"
+}

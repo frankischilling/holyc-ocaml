@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "175920953feb3d087d0a00d7ac6e29ad13392383e2818c546853ba0623622222",
+  "boot_payload_sha256": "1b113409a563ee2153e096d1bf7f6aa19d8afd7cfc56e19796e1b615c0d4b430",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "370cb0eddf2a1e1f0a38f93b86c1a4a7d1506974f2e151998a659a6072eb5622",
+  "boot_iso_sha256": "e500cf948f79373f7f041d38a41055cefef4432d1f88ca5c7eff71406869a4e0",
+  "fields": {
+    "J_S": "-9223372036854775681",
+    "J_U": "-9223372036854775553",
+    "J_SN": "127",
+    "J_UN": "255",
+    "ERR": "0",
+    "A_S": "-9223372036854775681",
+    "A_U": "-9223372036854775553",
+    "A_SN": "127",
+    "A_UN": "255"
+  },
+  "scope": "Repeated original JIT and compiled observations of high-bit parameter compound addition. The stored source omits trailing spaces used to pad the boot payload."
+}

@@ -211,8 +211,19 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               ast
           in
           let typed = Integer_source.top_level prepared in
+          let* initializer_layouts =
+            match source_command with
+            | None -> Ok []
+            | Some command ->
+                Task_declarations.source_initializer_layouts
+                  ~table:(Session.semantic_symbols session)
+                  ~ast command
+          in
           let* globals_ =
-            Ir.Integer_globals.create_with_layout
+            Ir.Integer_globals.create_with_layout ?task_view
+              ~initializer_layouts
+              ~members:(Integer_source.aggregate_members prepared)
+              ~headers:(Integer_source.aggregate_headers prepared)
               ~layout:(Integer_source.global_layouts prepared)
               ~initializers:typed ~span:ast.span
               (Integer_source.global_records prepared)
@@ -303,8 +314,20 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     ]))
               task_view
           in
+          let* initializer_snapshots =
+            match source_command with
+            | None -> Ok []
+            | Some command ->
+                Task_declarations.source_static_initializer_snapshots
+                  ~table:(Session.semantic_symbols session)
+                  ~ast command
+          in
           let* globals_ =
             Ir.Integer_globals.with_statics ~span:ast.span
+              ~initializer_snapshots
+              ?source_allocations:
+                (Option.map Ir.Integer_globals.private_static_allocations
+                   task_view)
               ~frames:(Integer_source.frames prepared)
               ~functions:(Integer_source.functions prepared)
               ~records:(Integer_source.records prepared)
@@ -629,6 +652,49 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       "switch case does not own its original checked endpoint \
                        roots"
             in
+            let empty_static_initializer (declarator : Ast.local_declarator)
+                (ast_initial : Ast.local_initializer) =
+              Option.fold ~none:false
+                ~some:(fun owner ->
+                  List.exists
+                    (fun slot ->
+                      let location = Ir.Integer_globals.static_location slot in
+                      Frame.function_symbol
+                        (Ir.Integer_globals.static_frame slot)
+                      == owner
+                      && Frame.location_kind location = Frame.Static_local
+                      && Frame.location_dimensions location <> []
+                      && Frame.location_allocated_size location = 0L
+                      && Frame.location_source_dimensions_checked location
+                      && Ir.Integer_globals.static_initializers slot = []
+                      && Option.fold ~none:false
+                           ~some:(fun initializers ->
+                             Ir.Integer_array_initializers.entries initializers
+                             = [])
+                           (Ir.Integer_globals.static_array_initializers slot)
+                      && Option.fold ~none:false
+                           ~some:(fun local ->
+                             Sema.Local_type_resolution.local_storage local
+                             = Sema.Local_type_resolution.Static
+                             && source_span
+                                  (Sema.Local_type_resolution
+                                   .local_declarator_origin local)
+                                = declarator.local_declarator_location.span
+                             && Option.fold ~none:false
+                                  ~some:(fun manifest ->
+                                    Sema.Initializer_source.matches_ast manifest
+                                      ast_initial.local_initializer_value
+                                    && Sema.Initializer_source.leaves manifest
+                                       = [])
+                                  (Option.bind
+                                     (Sema.Local_type_resolution
+                                      .local_initializer local)
+                                     Sema.Local_type_resolution
+                                     .initializer_source))
+                           (Frame.location_local_source location))
+                    (Ir.Integer_globals.statics globals_))
+                function_symbol
+            in
             let rec statement source_statement =
               match source_statement with
               | Ast.Empty_statement empty ->
@@ -672,6 +738,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                        (fun (declarator : Ast.local_declarator) ->
                          match declarator.local_initializer with
                          | None -> None
+                         | Some ast_initial
+                           when empty_static_initializer declarator ast_initial
+                           -> None
                          | Some ast_initial ->
                              let batch =
                                consume initializers
@@ -1296,6 +1365,81 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               ~functions:(List.rev !function_contexts)
               ()
           in
+          let register_warnings =
+            definitions
+            |> List.concat_map
+                 (fun
+                   (definition : Ir.Integer_interpreter.function_definition) ->
+                   let frame = definition.frame and body = definition.body in
+                   let rec conflicts seen = function
+                     | [] -> false
+                     | location :: rest -> (
+                         match Frame.location_register_selection location with
+                         | Sema.Register_request.Explicit register ->
+                             let number =
+                               Sema.Register_request.explicit_register_number
+                                 register
+                             in
+                             List.mem number seen
+                             || conflicts (number :: seen) rest
+                         | Unspecified | Allocatable | Disabled ->
+                             conflicts seen rest)
+                   in
+                   if not (conflicts [] (Frame.function_locations frame)) then
+                     []
+                   else
+                     match
+                       Ir.Register_variable_analysis.analyze_with_runtime_result
+                         ~runtime:runtime_calls_ ~frame ~body
+                     with
+                     | Error Ir.Register_variable_analysis.Proof_limit_exceeded
+                       ->
+                         fail
+                           (Option.value (Body.span body) ~default:ast.span)
+                           "HCIRVM0007"
+                           "allocation proof exceeds the hosted work or \
+                            nesting allowance"
+                     | Ok None -> []
+                     | Ok (Some proof) ->
+                         Ir.Register_variable_analysis.explicit_conflicts proof
+                           ~frame ~body
+                         |> Option.value ~default:[]
+                         |> List.map
+                              (fun
+                                (conflict :
+                                  Ir.Register_variable_analysis
+                                  .explicit_conflict)
+                              ->
+                                let primary =
+                                  match conflict.origin with
+                                  | Sema.Symbol.Source_location location ->
+                                      location.span
+                                  | _ -> ast.span
+                                in
+                                let register_name =
+                                  Sema.Register_request.canonical_u64_registers
+                                  |> List.find_map (fun (name, number) ->
+                                      if number = conflict.register then
+                                        Some name
+                                      else None)
+                                  |> Option.value
+                                       ~default:
+                                         (string_of_int conflict.register)
+                                in
+                                Common.Diagnostic.make
+                                  ~severity:Common.Diagnostic.Warning
+                                  ~code:"HCREG0001"
+                                  ~message:
+                                    (Printf.sprintf
+                                       "register %s is already in use; member \
+                                        %S in function %S replaces %S"
+                                       register_name
+                                       (Sema.Symbol.name conflict.replacement)
+                                       (Sema.Symbol.name
+                                          (Frame.function_symbol frame))
+                                       (Sema.Symbol.name conflict.previous))
+                                  ~primary ()))
+          in
           Ok
             {
               entry_;
@@ -1320,7 +1464,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               static_sources_;
               runtime_calls_;
               entry_has_calls_ = entry_calls <> [];
-              compiler_warnings_ = Integer_source.compiler_warnings prepared;
+              compiler_warnings_ =
+                Integer_source.compiler_warnings prepared @ register_warnings;
             }
         with Invalid diagnostics -> Error diagnostics
       in
@@ -1372,7 +1517,8 @@ let compile_source_output ?initializer_progress ?native_initializers
       ~max_initializer_steps:(max_initializer_steps - offset_work)
       session ~config parsed
 
-let compile_source_in_task_budget ~task ~source_command session ~config parsed =
+let compile_source_in_task_budget ?native_initializers
+    ?native_static_initializers ~task ~source_command session ~config parsed =
   let module VM = Ir.Integer_interpreter in
   let* () =
     VM.settle_isolated_aggregate_offsets task
@@ -1384,13 +1530,66 @@ let compile_source_in_task_budget ~task ~source_command session ~config parsed =
             ~span:(Option.get parsed.Frontend.Parser.ast).span message;
         ])
   in
-  let preparation = VM.begin_isolated_preparation task in
+  let* () =
+    VM.settle_isolated_member_metadata task
+      ~table:(Session.semantic_symbols session)
+      (Task_declarations.source_member_metadata source_command)
+    |> Result.map_error (fun message ->
+        [
+          Integer_source.message_diagnostic
+            ~span:(Option.get parsed.Frontend.Parser.ast).span message;
+        ])
+  in
+  let imported_steps =
+    Option.value native_initializers ~default:[]
+    |> List.fold_left
+         (fun n value -> n + Integer_initializers.native_steps value)
+         0
+  in
+  let imported_steps =
+    Option.value native_static_initializers ~default:[]
+    |> List.fold_left
+         (fun n value -> n + Integer_initializers.native_static_steps value)
+         imported_steps
+  in
+  let receipts =
+    List.filter_map Integer_initializers.native_execution
+      (Option.value native_initializers ~default:[])
+    @ List.filter_map Integer_initializers.native_static_execution
+        (Option.value native_static_initializers ~default:[])
+  in
+  let copies =
+    List.filter_map Integer_initializers.native_copy_execution
+      (Option.value native_initializers ~default:[])
+    @ List.filter_map Integer_initializers.native_static_copy_execution
+        (Option.value native_static_initializers ~default:[])
+  in
+  let receipt_steps =
+    List.fold_left
+      (fun total receipt ->
+        total + VM.executed_steps (VM.constant_receipt_result receipt))
+      0 receipts
+    + List.fold_left (fun total copy -> total + VM.aot_copy_steps copy) 0 copies
+  in
+  let* () =
+    if imported_steps = receipt_steps then Ok ()
+    else
+      Error
+        [
+          Integer_source.message_diagnostic
+            ~span:(Option.get parsed.Frontend.Parser.ast).span
+            "AOT source initialization lacks its actual copy execution";
+        ]
+  in
+  let preparation = VM.begin_isolated_preparation ~receipts ~copies task in
   let compiled =
-    compile_parsed_with_limit ~source_command
-      ~allow_zero_initializer_budget:true
-      ~max_initializer_steps:(VM.task_initializer_remaining task)
+    compile_parsed_with_limit ~source_command ?native_initializers
+      ?native_static_initializers ~allow_zero_initializer_budget:true
+      ~max_initializer_steps:
+        (VM.task_initializer_remaining task + imported_steps)
       ~initializer_progress:(fun steps ->
-        VM.record_isolated_preparation task preparation ~steps)
+        VM.record_isolated_preparation task preparation
+          ~steps:(steps + imported_steps))
       session ~config parsed
   in
   match compiled with

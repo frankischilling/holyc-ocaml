@@ -3,6 +3,20 @@ type platform = Windows_x86_64 | Linux_x86_64 | Unsupported
 val platform : unit -> platform
 val platform_name : platform -> string
 
+val x87_supported : unit -> bool
+(** Whether this host build provides audited x87 entry and callback scopes. A
+    false result does not disable legacy integer native execution. *)
+
+val x87_unavailable_message : string
+
+val fisttp_supported : unit -> bool
+(** Whether the runtime CPU supports the SSE3 FISTTP instruction on a supported
+    native platform. Independent of [x87_supported]; pure floating-point images
+    do not require this feature. Unknown host/compiler combinations return
+    false. *)
+
+val fisttp_unavailable_message : string
+
 type execution_outcome =
   | Returned of int64
   | Fault of Backend.X86_64_expression.arithmetic_fault

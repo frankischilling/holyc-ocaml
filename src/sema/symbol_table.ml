@@ -27,6 +27,12 @@ type t = {
   mutable next_symbol_id : int;
 }
 
+type empty_fork = {
+  fork_parent : t;
+  fork_child : t;
+  mutable fork_claimed : bool;
+}
+
 let scope_kind_name = function
   | Task -> "task"
   | Module -> "module"
@@ -63,6 +69,21 @@ let create ?root_name () =
     next_symbol_id = 0;
   }
 
+let fork_empty ?root_name parent =
+  let child = create ?root_name () in
+  ({ fork_parent = parent; fork_child = child; fork_claimed = false }, child)
+
+let fork_matches fork ~parent ~child =
+  fork.fork_parent == parent && fork.fork_child == child
+
+let claim_empty_fork fork =
+  if fork.fork_claimed then Error "AOT fork has already been claimed"
+  else (
+    fork.fork_claimed <- true;
+    Ok ())
+
+let fork_parent fork = fork.fork_parent
+let fork_child fork = fork.fork_child
 let root table = table.root
 let scope_id scope = scope.id
 let scope_kind scope = scope.kind

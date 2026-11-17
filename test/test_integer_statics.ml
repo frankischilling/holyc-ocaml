@@ -19,7 +19,13 @@ let cases examples =
         examples)
     G.modes
 
-let source_gate () = cases [ (source, 42L) ]
+let source_gate () =
+  cases
+    [
+      (source, 42L);
+      ("I64 Never(){static F64 n;return 0;}42;", 42L);
+      ("I64 F(){static F64 n[2];return 42;}F();", 42L);
+    ]
 
 let lifetime () =
   cases
@@ -118,7 +124,7 @@ let boundaries () =
         (fun text -> ignore (F.first_error (G.run ~mode text)))
         [
           "I64 F(){static I64 *n;return 0;}42;";
-          "I64 F(){static F64 n;return 0;}42;";
+          "F64 F(){static F64 n;return n;}F();";
           "I64 F(){static I0 n;return 0;}42;";
           "I64 F(){static I64 n={42};return 0;}42;";
         ])
@@ -155,6 +161,12 @@ let limits () =
             "precise bound" code (F.first_error result).code)
         [
           (G.run ~mode ~max_global_bytes:7 source, "HCIRVM0016");
+          ( G.run ~mode ~max_global_bytes:7
+              "I64 F(){static F64 n;return 42;}F();",
+            "HCIRVM0016" );
+          ( G.run ~mode ~max_global_bytes:15
+              "I64 F(){static F64 n[2];return 42;}F();",
+            "HCIRVM0016" );
           (G.run ~mode ~max_steps:(steps - 1) source, "HCIRVM0007");
           ( G.run ~mode ~max_global_bytes:8
               "I64 G;I64 Never(){static I64 n;return 0;}42;",
@@ -164,6 +176,13 @@ let limits () =
                0;}42;",
             "HCIRVM0016" );
         ];
+      ignore
+        (G.run ~mode ~max_global_bytes:8 "I64 F(){static F64 n;return 42;}F();"
+        |> F.expect 42L);
+      ignore
+        (G.run ~mode ~max_global_bytes:16
+           "I64 F(){static F64 n[2];return 42;}F();"
+        |> F.expect 42L);
       let text = "I64 F(){static I64 s=40;return s;}I64 g=2;(F()+g);" in
       let recursion =
         "I64 F(I64 p){static I64 n=40;++n;if(p)return F(p-1);return n;}F(1);"

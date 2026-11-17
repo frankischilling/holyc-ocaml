@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e05f0cd3eabe347d518dba7aeaf3a422044a899234e68dc56d777dcb1d2e6f85",
+  "capture_sha256": "be6a459c799f39776969732fbc1f48a81d528b8f56cfd414840e7038e88bb270",
+  "fields": {
+    "START": 0,
+    "ADD": 1,
+    "RADD": 2,
+    "SUB": 3,
+    "MUL": 4,
+    "AND": 5,
+    "OR": 6,
+    "XOR": 7,
+    "SHL": 8,
+    "SHR": 9,
+    "COMPILE_ERRORS": 0
+  },
+  "scope": "Original AOT warning counts for expressions with two completed I64 globals, observed twice in one boot.",
+  "boot_iso_sha256": "cfe926bdf7c18eb9c6e8bbbedbea0babb81ab3952d812c8f08bbecbb7fe64da7"
+}

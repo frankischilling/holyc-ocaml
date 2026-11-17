@@ -144,7 +144,7 @@ let primitive_intrinsic_pointers_and_gaps () =
       check_primitive_type ~form ~primitive ~pointer_depth
         (List.nth parameters index |> parameter_type));
   Alcotest.(check (list int))
-    "named symbols keep original slots" [ 0; 2; 3; 4 ]
+    "all fixed symbols keep original slots" [ 0; 1; 2; 3; 4 ]
     (function_ |> Semantic_function_type_resolution.function_parameter_bindings
     |> List.map Semantic_function_type_resolution.parameter_binding_index)
 
@@ -267,7 +267,7 @@ let recursive_callbacks_defaults_and_varargs () =
   let ast =
     parse session ~path:"function-type-callbacks.HC"
       "class Node {}; extern U8 *Complex(I64 first=1,I64 middle,I64 \
-       last=lastclass,U0 (**handler)(Node *node,I64=lastclass,U8 \
+       last=lastclass,U0 (**handler)(Node *node,I64 _anon_=lastclass,U8 \
        *(*nested)(I64 value,...),...),...);"
   in
   let function_ =
@@ -303,11 +303,11 @@ let recursive_callbacks_defaults_and_varargs () =
   in
   Alcotest.(check (list (option string)))
     "callback slots retain names and gaps"
-    [ Some "node"; None; Some "nested" ]
+    [ Some "node"; Some "_anon_"; Some "nested" ]
     (List.map Semantic_function_type_resolution.parameter_name
        handler_parameters);
   Alcotest.(check string)
-    "unnamed callback default" "lastclass"
+    "explicitly named callback default" "lastclass"
     (List.nth handler_parameters 1 |> default_kind);
   Alcotest.(check bool)
     "handler keeps its terminal ellipsis" true
@@ -372,8 +372,8 @@ let parameter_flags_follow_pinned_assignments () =
   let ast =
     parse session ~path:"function-parameter-flags.HC"
       "extern U0 Flags(I64 named,I64,I64 numeric=1,I64 current=lastclass,U8 \
-       *mask=\"*\",U0 (*callback)(I64 \
-       nested=\"nested\",I64=lastclass,...),...);"
+       *mask=\"*\",U0 (*callback)(I64 nested=\"nested\",I64 \
+       _anon_=lastclass,...),...);"
   in
   let function_ =
     resolve session ast |> fun results -> function_named results "Flags"
@@ -394,13 +394,13 @@ let parameter_flags_follow_pinned_assignments () =
     |> Semantic_function_type_resolution.signature_parameters
   in
   Alcotest.(check (list int64))
-    "nested callback parameters derive their own masks" [ 0x5L; 0x23L ]
+    "nested callback parameters derive their own masks" [ 0x5L; 0x3L ]
     (callback_parameters
     |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   List.iter2
     (fun expected parameter ->
       check_parameter_mask "nested callback parameter mask" expected parameter)
-    [ 0x5L; 0x23L ] callback_parameters;
+    [ 0x5L; 0x3L ] callback_parameters;
   check_parameter_mask "outer callback excludes nested defaults" 0x8L
     (parameter_at function_ 5);
   let variadic =
@@ -683,8 +683,8 @@ let type_signature function_ =
 
 let modes_determinism_and_purity () =
   let source =
-    "class Node {}; extern Node *Walk(Node *node,U8 \
-     *mask=\"*\",I64=lastclass,U0 (*visit)(Node *value),...);"
+    "class Node {}; extern Node *Walk(Node *node,U8 *mask=\"*\",I64 \
+     _anon_=lastclass,U0 (*visit)(Node *value),...);"
   in
   let summaries =
     [ Preprocessor.Jit; Preprocessor.Aot ]

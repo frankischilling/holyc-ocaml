@@ -187,6 +187,10 @@ let integer value =
   Semantic_aggregate_layout.Integer_expression
     { value; origin = expression_origin }
 
+let floating value =
+  Semantic_aggregate_layout.Floating_expression
+    { value; origin = expression_origin }
+
 let binary operator left right =
   Semantic_aggregate_layout.Binary_expression
     { operator; left; right; origin = expression_origin }
@@ -284,6 +288,54 @@ let check_error_code expected = function
         (Semantic_aggregate_layout.error_code error);
       error
 
+let f64_array_dimension_conversion () =
+  let samples =
+    [
+      ("positive fractional", 3.75, 3L);
+      ("negative fractional", -1.5, -1L);
+      ("negative fraction approaching zero", -0.5, 0L);
+      ("positive zero", 0.0, 0L);
+      ("negative zero", -0.0, 0L);
+      ("positive overflow", 9223372036854775808.0, Int64.min_int);
+      ("negative overflow", -1.0e40, Int64.min_int);
+      ("positive infinity", infinity, Int64.min_int);
+      ("negative infinity", neg_infinity, Int64.min_int);
+      ("quiet NaN", nan, Int64.min_int);
+    ]
+  in
+  List.iter
+    (fun (label, value, expected) ->
+      let result =
+        Semantic_aggregate_layout.evaluate_expression
+          ~context:Semantic_aggregate_layout.Array_dimension
+          ~current_position:0L (floating value)
+      in
+      Alcotest.(check int64)
+        label expected
+        (match result with
+        | Ok bits -> bits
+        | Error error ->
+            Alcotest.fail (Semantic_aggregate_layout.error_to_string error)))
+    samples;
+  let result =
+    Semantic_aggregate_layout.evaluate_expression
+      ~context:Semantic_aggregate_layout.Array_dimension ~current_position:0L
+      (binary Power (integer 2L) (integer 1024L))
+  in
+  Alcotest.(check int64)
+    "overflowing F64 operator has the same completed signed word" Int64.min_int
+    (Result.get_ok result);
+  ignore
+    (Semantic_aggregate_layout.evaluate_expression
+       ~context:Semantic_aggregate_layout.Switch_case ~current_position:0L
+       (floating infinity)
+    |> check_error_code "HCSEMA0006");
+  ignore
+    (Semantic_aggregate_layout.evaluate_expression
+       ~context:Semantic_aggregate_layout.Switch_case ~current_position:0L
+       (floating 9223372036854775808.0)
+    |> check_error_code "HCSEMA0007")
+
 let expression_failures_are_typed () =
   let dependency =
     Semantic_aggregate_layout.Dependency_expression
@@ -316,13 +368,13 @@ let expression_failures_are_typed () =
     |> check_error_code "HCSEMA0005");
   ignore
     (Semantic_aggregate_layout.evaluate_expression
-       ~context:Semantic_aggregate_layout.Array_dimension ~current_position:0L
+       ~context:Semantic_aggregate_layout.Switch_case ~current_position:0L
        (binary Power (integer 2L) (integer 1024L))
     |> check_error_code "HCSEMA0006")
 
-let layout_error source =
+let layout_error ?(mode = Preprocessor.Jit) source =
   let session = Session.create () in
-  let ast = parse session ~path:"bad-layout.HC" source in
+  let ast = parse ~mode session ~path:"bad-layout.HC" source in
   let prepared = prepare session ast in
   match
     Holyc_lib.layout_aggregates session
@@ -347,6 +399,36 @@ let layout_failures_stay_visible () =
     (layout_error "class Huge { I8 values[0x7fffffffffffffff][2]; };");
   check_prefix "HCSEMA0008:"
     (layout_error "class Huge { $$=0x7fffffffffffffff; I64 value; };")
+
+let f64_aot_member_bounds () =
+  let session = Session.create () in
+  let ast =
+    parse ~mode:Preprocessor.Aot session ~path:"aot-f64-class.HC"
+      "class B { U8 bytes[3.75]; };"
+  in
+  let layout = resolve session ast |> fun layouts -> layout_named layouts "B" in
+  Alcotest.(check int64)
+    "AOT closed F64 class member extent truncates once" 3L layout.size;
+  let near_zero =
+    parse ~mode:Preprocessor.Aot session ~path:"aot-f64-near-zero.HC"
+      "class NearZero { U8 bytes[-0.5]; };"
+    |> resolve session
+    |> fun layouts -> layout_named layouts "NearZero"
+  in
+  Alcotest.(check int64)
+    "AOT negative fractional extent truncates to zero" 0L near_zero.size;
+  Alcotest.(check (list int64))
+    "zero extent preserves converted dimension" [ 0L ]
+    (member_named near_zero "bytes").dimensions;
+  List.iter
+    (fun source ->
+      check_prefix "HCSEMA0003:" (layout_error ~mode:Preprocessor.Aot source))
+    [
+      "class Bad { I8 values[-1.5]; };";
+      "class Bad { I8 values[4294967296.0*2147483648.0]; };";
+      "class Bad { I8 values[1.0/0.0]; };";
+      "class Bad { I8 values[0.0/0.0]; };";
+    ]
 
 let mismatched_inputs_are_rejected () =
   let session = Session.create () in
@@ -430,10 +512,14 @@ let tests =
       explicit_and_negative_offsets;
     Alcotest.test_case "closed expression operators" `Quick
       closed_expression_operators;
+    Alcotest.test_case "array F64 conversion and exact work" `Quick
+      f64_array_dimension_conversion;
     Alcotest.test_case "typed expression failures" `Quick
       expression_failures_are_typed;
     Alcotest.test_case "visible layout failures" `Quick
       layout_failures_stay_visible;
+    Alcotest.test_case "AOT F64 member bounds and negative errors" `Quick
+      f64_aot_member_bounds;
     Alcotest.test_case "mismatched inputs" `Quick mismatched_inputs_are_rejected;
     Alcotest.test_case "modes and deterministic repeats" `Quick
       modes_and_repeat_runs_are_deterministic;

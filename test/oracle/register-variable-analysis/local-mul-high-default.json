@@ -1,0 +1,15 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "3a36d48b859f77abecdfa49270292582c1800b823972e9898c94982d277da571",
+  "boot_payload_sha256": "f5a56624642169515b6818fa011ac4d94f4566c9dc458efe794611299a5e8461",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "2b7d3a942b29321a45761a6c381c26b5035bf899ea4b4f1d56b6a4bd050c1fdf",
+  "boot_iso_sha256": "260af1f243febad47edaf31db28528b15f08061d4bae2ffdf3cf773850170a0d",
+  "fields": {
+    "S": "-9223372036854775808",
+    "U": "0",
+    "SH": "-9223372036854775808",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of high-bit local multiplication reached through default initializers. The stored source omits trailing spaces used to pad the boot payload."
+}

@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "d3144a91419a74339510ffd249b89c74e7b3f928de33b5919cc0c99678bea70d",
+  "boot_payload_sha256": "3bb70fc3aacce0c3a8942c7af27b8cf71b7ab15cae43a461cd845bdf5aab3dd5",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ac6c15a0eb8ca33339cb2a9765c34554252bce3b7dc30f7f18b1b54dc69c1efc",
+  "boot_iso_sha256": "899e21127a60f8c0185ae4b690369e39bd5adaeaa1cbbb55268539f88c1301e9",
+  "fields": {
+    "J_S": "254",
+    "J_U": "510",
+    "J_SN": "-2",
+    "J_UN": "254",
+    "ERR": "0",
+    "A_S": "254",
+    "A_U": "510",
+    "A_SN": "-2",
+    "A_UN": "254"
+  },
+  "scope": "Repeated original JIT and compiled observations of explicitly requested non-scratch registers and noreg controls."
+}

@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "1ef4203f788681fc7810be88244d4025f32a017442f90b7e7fa8031b4de24879",
+  "capture_sha256": "c3f78810f0a2f56166f19208592756fe0080d3fb01b02ac3834631180dfffdca",
+  "boot_iso_sha256": "c4760800f42c48ff38ca94cf39ccccf7688165319eb5f76fa228429c1bfb078a",
+  "fields": {
+    "JIT_MIXED": "128",
+    "JIT_SIGNED": "-4",
+    "COMPILE_ERRORS": "0",
+    "AOT_MIXED": "128",
+    "AOT_SIGNED": "-4"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of source-owned shifts used as direct call arguments."
+}

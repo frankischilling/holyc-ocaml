@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "7612dc17341dd7e47b29e0227ed1919a5b6629f58a449b14cd4dd2ec725fae75",
+  "boot_payload_sha256": "7f9d9666f630403c7d55b1662e5b84c6aa8eae0f9f14cfe695fed69684574854",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "d47a50a914b48b91cbd7309cf9a256d312619205449a570f425b621a7334fedf",
+  "boot_iso_sha256": "2285ac76eac8da0cf29910eb293f17718705545b1aadae9f3447bcdcb1701146",
+  "fields": {
+    "J_S": "4294967550",
+    "J_U": "4294967551",
+    "J_SN": "-2",
+    "J_UN": "255",
+    "ERR": "0",
+    "A_S": "4294967550",
+    "A_U": "4294967551",
+    "A_SN": "-2",
+    "A_UN": "255"
+  },
+  "scope": "Repeated original JIT and compiled observations of parameter width conversion before updating a parameter-initialized local. Stored source omits boot padding."
+}

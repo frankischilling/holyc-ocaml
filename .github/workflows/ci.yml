@@ -17,7 +17,7 @@ jobs:
   build-and-test:
     name: OCaml ${{ matrix.ocaml-compiler }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -67,13 +67,16 @@ jobs:
       - name: Build package artifacts
         run: opam exec -- dune build @install
 
+      - name: Verify built, staged and installed compiler consumers
+        run: opam exec -- pwsh -NoProfile -File ./tools/test-installed-compiler.ps1
+
       - name: Trim Dune cache
         run: opam exec -- dune cache trim --size=1GB
 
   native-windows:
     name: Native Windows x86-64
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     defaults:
       run:
         shell: pwsh
@@ -101,6 +104,9 @@ jobs:
 
       - name: Build and package
         run: opam exec -- dune build '@all' '@install'
+
+      - name: Verify built, staged and installed compiler consumers
+        run: opam exec -- pwsh -NoProfile -File ./tools/test-installed-compiler.ps1
 
       - name: Run tests
         run: opam exec -- dune runtest --no-buffer

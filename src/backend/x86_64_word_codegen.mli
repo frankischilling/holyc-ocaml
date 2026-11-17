@@ -1,4 +1,4 @@
-type word_type = I64 | U64
+type word_type = I64 | U64 | F64
 type status_abi = X86_64_encoder.status_abi = Windows_x64 | System_v_x64
 type arithmetic_operation = Divide | Remainder
 type error = { code : string; message : string; span : Common.Span.t option }
@@ -47,6 +47,8 @@ type program_site = {
   lock_alignment_site : bool;
   pointer_ordering_site : bool;
   pointer_difference_site : bool;
+  reference_ownership_site : bool;
+  reference_shadow_store_site : bool;
   output_site : bool;
   atomic_output_site : bool;
   stream_print_site : bool;
@@ -57,6 +59,7 @@ type program_site = {
 type program_image
 
 val hard_ir_limit : int
+val default_stack_bytes : int
 val hard_max_stack_bytes : int
 val hard_block_limit : int
 
@@ -102,6 +105,7 @@ val compile_callable :
   ?max_literal_bytes:int ->
   ?parameter_defaults:Driver.Native_parameter_defaults.t ->
   ?global_initializers:Driver.Native_global_initializers.t ->
+  ?float_entry_source:X86_64_float_plan.entry_source ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
   runtime_calls:Ir.Runtime_call_context.t ->
@@ -131,6 +135,7 @@ val compile_task_fragment :
   ?max_blocks:int ->
   ?capture_callback_default:bool ->
   ?capture_data_default:Ir.Saved_parameter_value.data ->
+  ?float_entry_source:X86_64_float_plan.entry_source ->
   task_snapshot:X86_64_global_storage.task_snapshot ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
@@ -198,6 +203,7 @@ val program_register_peak : program_image -> int
 val program_frame_bytes : program_image -> int
 val program_block_count : program_image -> int
 val program_function_count : program_image -> int
+val program_is_callable : program_image -> bool
 val program_entry_stack_bytes : program_image -> int
 val program_sites : program_image -> program_site list
 val program_has_output : program_image -> bool
@@ -220,3 +226,8 @@ val program_private_function_count : program_image -> int
 val program_function_slot_bindings : program_image -> (int * int) list
 val expression_sections : expression_image -> Asm.Native_sections.t
 val program_sections : program_image -> Asm.Native_sections.t
+
+val program_requires_x87 : program_image -> bool
+(** True when the original sealed emission contains x87 instructions. *)
+
+val program_requires_fisttp : program_image -> bool

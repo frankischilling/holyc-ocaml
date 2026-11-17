@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "4bb190be76b6ccb16616158b8b01ca618f424b523cdd96ef5a708592240eef5e",
+  "boot_payload_sha256": "3e630a9bba6066a76ec92ecd174bd68f542a5296654ed3c8b45588d64a72c8ef",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "58152f18b989973e30c70a4ac62400cb2101bad03739e848577d1de19d09cc1b",
+  "boot_iso_sha256": "fa394bc23a310ae4ebd18a658231fe7d5ca7d0ef70e8777116b9163795df4dea",
+  "fields": {
+    "J_S": "-1",
+    "J_U": "255",
+    "J_SN": "-1",
+    "J_UN": "255",
+    "ERR": "0",
+    "A_S": "-1",
+    "A_U": "255",
+    "A_SN": "-1",
+    "A_UN": "255"
+  },
+  "scope": "Repeated original observations of parameter compound bitwise updates. The stored source omits trailing spaces used to pad the boot payload."
+}

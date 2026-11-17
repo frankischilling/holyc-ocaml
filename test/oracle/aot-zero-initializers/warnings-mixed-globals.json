@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e570052ae56ec83c990624b7d9998a4f4a3a061b1775f78f30baba2df4a8e742",
+  "capture_sha256": "2a32849520fc23a3c47c15d0c2e11fddaa5103e0a086892a1c1012880c320db4",
+  "fields": {
+    "START": 0,
+    "MIX1": 1,
+    "MIX2": 2,
+    "MIX3": 3,
+    "MIX4": 4,
+    "SHIFT": 5,
+    "COMPILE_ERRORS": 0
+  },
+  "scope": "Original AOT warning counts for mixed-width integer global expressions, observed twice in one boot.",
+  "boot_iso_sha256": "8e53b9511a51d6a0073b19650b25390dc8553a644386bdcf007c39e0917e38c1"
+}

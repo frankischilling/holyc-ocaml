@@ -62,7 +62,7 @@ results remain unchanged.
 
 Member suffixes follow the separate [member query path](aggregate-member-sizeof.md).
 These metadata checks do not authorize zero-sized automatic storage. Remaining
-`offset` queries, persistent objects, general object copies and runtime AOT
+`offset` queries, general object copies and runtime AOT
 layout relocation retain their existing boundaries.
 [Issue #820](https://github.com/frankischilling/holyc-ocaml/issues/820)
 tracks this query feature within [aggregate work](https://github.com/frankischilling/holyc-ocaml/issues/686).

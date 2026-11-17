@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "d4df7fb28691eec65cec56b10c3f119529b1704cd857e09cd39f7bac8028122b",
+  "capture_sha256": "bfc132411d1c1847794c7af216f111150f2868a5636736898f02fa814185f55d",
+  "fields": {
+    "START": 0,
+    "BOTH": 1,
+    "LAST": 2,
+    "FIRST": 3,
+    "TRAIL": 4,
+    "FULL": 5,
+    "COMPILE_ERRORS": 0
+  },
+  "scope": "Original AOT warning counts for five combinations of two supplied and default arguments, observed twice in one boot.",
+  "boot_iso_sha256": "63b9056eee8df8a5fe2b2161f725d56041086695667a59b5d2acc3e94d545d33"
+}

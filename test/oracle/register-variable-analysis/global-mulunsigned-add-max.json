@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "d012ea8365999e4ac9edb1aabe3020e25c84726c37ca6eb7aedecfd2d1650dcb",
+  "boot_payload_sha256": "4fe6cb3e878251b3550a363e4ea490d216e7f1df56936c7eb006e7283364524c",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "8c70321c4e8167c85737ba9db3e5be881b1669bf01426c2bec6d2a2fbd98b5fd",
+  "boot_iso_sha256": "309bb91e65aad40134bedabf3e2a66849fd2016aa611cd93c5ce408b0a88b34c",
+  "fields": {
+    "J_S": "128",
+    "J_U": "0",
+    "J_SN": "128",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "128",
+    "A_U": "0",
+    "A_SN": "128",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of multiplication by signed or unsigned 64-bit global boundary values."
+}

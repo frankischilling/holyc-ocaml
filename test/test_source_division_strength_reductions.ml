@@ -225,6 +225,58 @@ let preparation () =
        (fun w -> w.VM.bits)
        (Integer_task.progress task).runtime.final_value)
 
+let non_power_initializer_roots () =
+  let cases =
+    [
+      ( "signed global and static",
+        "I64 N=-7;I64 A=N%3;I64 F(){static I64 B=N/3;return B;}A+F()+45;",
+        42L );
+      ( "negative divisor static",
+        "I64 N=-7;I64 A=N%-3;I64 F(){static I64 B=N/-3;return B;}A+F()+41;",
+        42L );
+      ("unsigned global", "U64 N=7;U64 A=N/3;U64 B=N%3;A+B+39;", 42L);
+      ( "signed power remainder",
+        "I64 N=-7;I64 A=N%2;I64 F(){static I64 B=N%4;return B;}A+F()+46;",
+        42L );
+      ("multiple leaves", "I64 N=-7;I64 A[2]={N/3,N%3};A[0]+A[1]+45;", 42L);
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, expected) ->
+          let _, execution = success mode source in
+          Alcotest.(check (option int64))
+            label (Some expected)
+            (Option.map (fun w -> w.VM.bits) (VM.final_value execution)))
+        cases)
+    modes
+
+let negative_one_initializer_fault_phases () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun operator ->
+          let source =
+            "#exe{Print(\"A\");}I64 N=0x8000000000000000;I64 A=N" ^ operator
+            ^ "-1;#exe{Print(\"B\");}42;"
+          in
+          let report = run mode source in
+          (match integer_program_report_outcome report with
+          | Error diagnostics ->
+              Alcotest.(check bool)
+                "reached signed overflow" true
+                (List.exists
+                   (fun (d : Diagnostic.t) -> d.code = "HCIRVM0010")
+                   diagnostics)
+          | Ok _ -> Alcotest.fail "signed overflow succeeded");
+          Alcotest.(check string)
+            "source-phase effects survive in order"
+            (if mode = Preprocessor.Jit then "A" else "AB")
+            (integer_program_report_output_bytes report))
+        [ "/"; "%" ])
+    modes
+
 let authority () =
   List.iter
     (fun mode ->
@@ -279,6 +331,10 @@ let tests =
   [
     Alcotest.test_case "38 repeated native fields and source contexts" `Quick
       values;
+    Alcotest.test_case "source-owned non-power initializer roots" `Quick
+      non_power_initializer_roots;
+    Alcotest.test_case "negative one initializer fault phases" `Quick
+      negative_one_initializer_fault_phases;
     Alcotest.test_case "literal, compound and following comparison shapes"
       `Quick shapes;
     Alcotest.test_case "compilation and reached arithmetic fault phases" `Quick

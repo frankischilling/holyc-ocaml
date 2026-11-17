@@ -1,0 +1,32 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "1d62d283a199484aa89781bf9042d8728b3a33c64ca462d42b6218eb3c640f81",
+  "boot_payload_sha256": "1d62d283a199484aa89781bf9042d8728b3a33c64ca462d42b6218eb3c640f81",
+  "boot_payload_bytes": 3742,
+  "capture_sha256": "372b98ec6e5737898a7550ff1f21250092fa8899899b06fe8672ea52102f098b",
+  "boot_iso_sha256": "19d33133a6305c60e2e0afd5890924e3630e20f99b31fdcb350fcddbb7113af8",
+  "fields": {
+    "J_AR": "-9223372036854775299",
+    "J_AN": "9223372036854775805",
+    "J_BR": "381",
+    "J_BN": "125",
+    "J_CR": "317",
+    "J_CN": "61",
+    "J_DR": "-4611686018427387394",
+    "J_DN": "-4611686018427387906",
+    "J_ER": "21474902133",
+    "J_EN": "4295032693",
+    "ERR": "0",
+    "A_AR": "-9223372036854775299",
+    "A_AN": "9223372036854775805",
+    "A_BR": "381",
+    "A_BN": "125",
+    "A_CR": "317",
+    "A_CN": "61",
+    "A_DR": "-4611686018427387394",
+    "A_DN": "-4611686018427387906",
+    "A_ER": "21474902133",
+    "A_EN": "4295032693"
+  },
+  "scope": "Two independent original JIT and compiled observations of signed and unsigned full-width boundary values in mixed update sequences, captured with QEMU 10.0.13. A newline separates captures."
+}

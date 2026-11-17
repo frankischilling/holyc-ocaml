@@ -10,6 +10,7 @@ val authorize :
     declared object and the original leaf callback must still be current. *)
 
 val authorized_fragment : authority -> t
+val authorized_namespace : authority -> Declaration_collection.namespace
 
 val create :
   table:Symbol_table.t ->

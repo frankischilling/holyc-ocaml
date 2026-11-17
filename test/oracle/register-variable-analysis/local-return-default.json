@@ -1,0 +1,15 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "0518daadafc341751373235512ea467947aafed83c0beccffa6a00c23197b446",
+  "boot_payload_sha256": "cf73aaf7d1e268d4c5d25c85332adcbd83823bc3f82582aa1c9fddc0beeff79d",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "aa9c6790f029d5db8415af7d5fc4dfac99bb6bce36ae5d87480c3a49847fc2ab",
+  "boot_iso_sha256": "d7eacbff0a9f0aacd7cd546bdbb0ccb3b773e3aa72be0df11aff1f2b33ccb028",
+  "fields": {
+    "S": "255",
+    "U": "256",
+    "SH": "127",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of local register returns reached through default initializers. The stored source omits trailing spaces used to pad the boot payload."
+}

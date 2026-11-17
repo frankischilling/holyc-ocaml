@@ -150,6 +150,28 @@ val matches_graph : t -> owner:owner -> Block_graph.t -> bool
     instruction record. Equal text, copied graphs and another context do not
     establish storage ownership. *)
 
+val function_call_targets :
+  t ->
+  body:Function_body.t ->
+  Sema.Function_call_target_classification.t list option
+(** Return the original ordinary direct-call classifications only for the exact
+    sealed function graph and its captured typed source owner. Every receipt
+    must match one original typed call and its selected declaration. Callback,
+    output and intrinsic scopes are excluded. Consumers must independently
+    authenticate source expressions and re-lower complete call/control regions;
+    this accessor alone does not prove register allocation or primitive data. *)
+
+val function_mixed_scalar_call_targets :
+  t ->
+  body:Function_body.t ->
+  Sema.Function_call_target_classification.t list option
+(** Opt-in extension of [function_call_targets] for ordinary direct calls and
+    original sealed numeric conversion intrinsics only. The exact graph, typed
+    source owner, selected declarations and one-to-one original call coverage
+    must still match. Callback, output and nonnumeric intrinsic scopes are
+    rejected. Consumers must independently authenticate and re-lower source
+    expressions; this query does not authorize floating links or conversions. *)
+
 val exception_regions : t -> owner:owner -> Exception_regions.t option
 (** Return the original sealed handler context only after complete graph and
     source validation. A foreign body or changed marker has no exception scope.
@@ -243,17 +265,17 @@ val is_original_pointer_difference_division :
 type preparation_shifts
 
 val original_preparation_shifts : t -> owner:owner -> preparation_shifts option
-(** Validate original/transitive records, then collect full-word canonical
-    constant shifts and scalar right-shift updates with original internal I64
-    counts from 0 through 63. Canonical payloads retain their complete count;
-    execution masks it at the existing consumer. The query does not construct or
-    reseal a context. Prepared execution still requires its original bundle. *)
+(** Validate original/transitive records, then collect supported scalar integer
+    constant and variable shifts and scalar compound shifts with original count
+    producers. Narrow updates require separate storage and result-use checks.
+    Constant payloads retain their complete count; execution masks it at the
+    existing consumer. The query does not construct or reseal a context.
+    Execution still requires its original bundle. *)
 
 val is_original_preparation_shift :
   preparation_shifts -> Instruction_sequence.description -> bool
 (** Require the exact original collected instruction. Copied records, foreign
-    instructions, raw shifts and new-after-seal instructions have no authority.
-*)
+    instructions and new-after-seal instructions have no authority. *)
 
 val find_intrinsic_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> intrinsic option
@@ -275,6 +297,15 @@ val original_prepared_defaults :
 (** Return the physical original producers after checking the complete sealed
     graph. An equal reconstructed instruction grants no saved-default type
     authority. *)
+
+val original_lastclass :
+  t ->
+  owner:owner ->
+  Instruction_sequence.description ->
+  Lastclass_argument.t option
+(** Return an omitted argument's original typed lastclass substitution only for
+    its physical producer in the unchanged sealed call graph. Copies, supplied
+    arguments and foreign owners cannot acquire class-name or null authority. *)
 
 val provider : call -> provider option
 val symbol : call -> Sema.Symbol.t
@@ -308,6 +339,52 @@ val argument_transport_type : argument -> Sema.Type.t
 (** Full-word carrier of a source-selected integer class parameter. The target
     type retains the original nominal signature. This does not narrow integer
     argument bits to the class's memory view. *)
+
+val argument_lastclass : argument -> Lastclass_argument.t option
+
+type call_result_conversion
+
+val original_call_result_conversion :
+  t ->
+  owner:owner ->
+  Instruction_sequence.description ->
+  call_result_conversion option
+(** Return the retained conversion for an original CALL_END whose numeric flag
+    matches its exact checked consumer and operand relationship. Recheck the
+    original source batch and expression proof on every query. Copied producers,
+    unrelated graphs and guessed flags have no conversion authority. *)
+
+val call_result_conversion_source :
+  call_result_conversion ->
+  Sema.Function_call_expression_result.expression_result
+
+val call_result_conversion_consumer :
+  call_result_conversion ->
+  Sema.Function_call_expression_result.expression_result
+
+val call_result_conversion_kind :
+  call_result_conversion ->
+  Sema.Function_call_expression_result.intrinsic_conversion
+
+val original_expression_call_source :
+  t ->
+  owner:owner ->
+  Sema.Function_call_expression_result.expression_result ->
+  (source * Integer_globals.t) option
+(** Select the original ordinary direct or callback call and globals snapshot
+    for an exact checked result in this sealed graph and source batch. This
+    supports canonical expression replay, including the original callee capture
+    and saved defaults. It grants no authority to link floating operations
+    without replaying their complete source region and matching the original
+    instruction sequence. *)
+
+val original_expression_results :
+  t ->
+  owner:owner ->
+  Sema.Function_call_expression_result.expression_result list option
+(** Read the original checked batch after validating the sealed graph. These
+    expressions alone grant no numeric authority: canonical replay must join
+    each call to [original_expression_call_source] and match its exact graph. *)
 
 val argument_prepared_default : argument -> Prepared_parameter_default.t option
 (** The exact prepared declaration-time value for an omitted fixed argument.

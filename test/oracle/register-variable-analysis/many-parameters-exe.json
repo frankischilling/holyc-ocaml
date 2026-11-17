@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "83b402a1543023bbb1b40c4d71bfd653e83071871197dbbbc3b075e249f0de27",
+  "boot_payload_sha256": "6ce91737263c8948b75134af94ee610125ca9ab9278874c67740e4ca7874c70b",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "6c527adf6de789ffad8125950098ba8497584c0118332fde3abc989ad6b67214",
+  "boot_iso_sha256": "416c707e3b2b78373f4560371b200f03f8a61dd1cb8cb38046e8faa6518550b1",
+  "fields": {
+    "PARAM": "254",
+    "LOCAL": "510",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of a six-parameter function in compile-time execution."
+}

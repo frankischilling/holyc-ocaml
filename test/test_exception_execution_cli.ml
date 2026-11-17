@@ -105,6 +105,15 @@ let representative =
     "subsequent calls register fresh exception frames";
     "named UndefExt source exception";
     "divide by zero becomes DivZero";
+    "narrow parameter compound division by zero becomes DivZero";
+    "parameter local division by zero becomes DivZero";
+    "parameter local division overflow becomes DivZero";
+    "parameter local modulo by zero becomes DivZero";
+    "parameter local modulo overflow becomes DivZero";
+    "literal local division by zero becomes DivZero";
+    "literal local division overflow becomes DivZero";
+    "literal local modulo by zero becomes DivZero";
+    "literal local modulo overflow becomes DivZero";
     "signed division overflow becomes DivZero";
     "throw retains earlier output and follows catch";
   ]

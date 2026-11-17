@@ -69,6 +69,7 @@ type expression_context = Closed_numeric_expression.expression_context =
   | Array_dimension
   | Aggregate_offset
   | Switch_case
+  | Member_metadata
 
 type dimension = {
   dimension_expression : expression option;
@@ -139,6 +140,13 @@ type aggregate_layout = private {
 }
 
 type t
+
+val reached_member :
+  table:Symbol_table.t ->
+  symbol:Symbol.t ->
+  Compiler_record.aggregate_field ->
+  (member_layout, string) result
+(** Read original member placement metadata; this creates no allocation. *)
 
 type error_kind =
   | Invalid_input of string

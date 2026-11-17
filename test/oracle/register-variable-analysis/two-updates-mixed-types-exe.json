@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "441037b50b1d040a37b979c36bf9c547b04bef9f481b0912cee5c0e325f464f3",
+  "boot_payload_sha256": "182e27dd0d4b4b1355e518414a2fa8502e67168865af026dd17674b9e2128094",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "c71266ae70f026250666ab3b20d0c13f4b8e7fe6e270a45d2930bbd7416a2cb0",
+  "boot_iso_sha256": "f0565f318a1aa26ce03d78af2f69fbcb1570c6ac5d8dd373d0e814adefca5d65",
+  "fields": {
+    "PARAM": "384",
+    "LOCAL": "510",
+    "ERR": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of two narrow updates with mixed signedness."
+}

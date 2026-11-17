@@ -52,6 +52,11 @@ val create :
   t
 
 val id : t -> Id.t
+
+val execution_identity : t -> int
+(** Process-unique identity of this allocation, independent of table-local IDs.
+    This number cannot authorize a source selection or layout. *)
+
 val scope_id : t -> Scope_id.t
 val name : t -> string
 val kind : t -> kind

@@ -70,6 +70,12 @@ val make_signature :
 val make_parameter_binding :
   parameter_index:int -> symbol:Symbol.t -> (parameter_binding, string) result
 
+val make_source_parameter_binding :
+  source:Frontend.Ast.function_parameter ->
+  parameter_index:int ->
+  symbol:Symbol.t ->
+  (parameter_binding, string) result
+
 val make_synthetic_binding :
   synthetic_parameter ->
   symbol:Symbol.t ->
@@ -95,6 +101,21 @@ val make_function :
   parameter_bindings:parameter_binding list ->
   variadic_bindings:variadic_bindings option ->
   (function_declaration, string) result
+
+val make_function_with_source_parameters :
+  Frontend.Ast.function_parameter list ->
+  symbol:Symbol.t ->
+  scope:Symbol_table.scope ->
+  item_index:int ->
+  return_type:Type_reference.t ->
+  signature:signature ->
+  parameter_bindings:parameter_binding list ->
+  variadic_bindings:variadic_bindings option ->
+  (function_declaration, string) result
+(** Preserve the original whole parameter list when resolving a source AST
+    without a live completed-header receipt. The signature must contain those
+    exact original children. List membership/order is copied independently of
+    the signature; this does not fabricate parser completion authority. *)
 
 val make_function_with_completed_header :
   Frontend.Parser.completed_function_header ->
@@ -207,6 +228,11 @@ val function_variadic_bindings : resolved_function -> variadic_bindings option
 val function_completed_header :
   resolved_function -> Frontend.Parser.completed_function_header option
 
+val function_source_parameters :
+  resolved_function -> Frontend.Ast.function_parameter list option
+(** Original parameter children retained by a source-aware producer, including
+    unnamed formals. Metadata-only and provisional records have no receipt. *)
+
 val signature_opening_origin : signature -> Symbol.origin
 val signature_parameters : signature -> parameter list
 val signature_variadic_origin : signature -> Symbol.origin option
@@ -223,6 +249,8 @@ val parameter_register_requests : parameter -> Register_request.t list
 val parameter_register_selection : parameter -> Register_request.selection
 val parameter_name : parameter -> string option
 val parameter_name_origin : parameter -> Symbol.origin option
+val parameter_lookup_name : parameter -> string
+val parameter_lookup_origin : parameter -> Symbol.origin
 val parameter_type_reference : parameter -> Type_reference.t
 val parameter_declarator_kind : parameter -> declarator_kind
 val parameter_default : parameter -> parameter_default option
@@ -243,6 +271,10 @@ val function_pointer_closing_origin : function_pointer -> Symbol.origin
 val function_pointer_signature : function_pointer -> signature
 val parameter_binding_index : parameter_binding -> int
 val parameter_binding_symbol : parameter_binding -> Symbol.t
+
+val parameter_binding_source :
+  parameter_binding -> Frontend.Ast.function_parameter option
+
 val variadic_marker_origin : variadic_bindings -> Symbol.origin
 val variadic_argc : variadic_bindings -> synthetic_binding
 val variadic_argv : variadic_bindings -> synthetic_binding

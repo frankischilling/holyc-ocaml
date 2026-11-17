@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "8ff5c735e61be24238e1127313947dffa7321f07f4eb1fd28f2f1b416294f625",
+  "boot_payload_sha256": "9d49fcbacdcef7692ad84e2075ca0cad4a5c88af811de29249e95c64e92716ce",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "ac6c15a0eb8ca33339cb2a9765c34554252bce3b7dc30f7f18b1b54dc69c1efc",
+  "boot_iso_sha256": "2fd5e590206c5c6b4c715335f9d0df1352f9e327c5d3015c2fe12b9d84b5e49a",
+  "fields": {
+    "J_S": "254",
+    "J_U": "510",
+    "J_SN": "-2",
+    "J_UN": "254",
+    "ERR": "0",
+    "A_S": "254",
+    "A_U": "510",
+    "A_SN": "-2",
+    "A_UN": "254"
+  },
+  "scope": "Repeated original JIT and compiled observations of a 3-parameter function with nonadjacent updated and operand variables."
+}

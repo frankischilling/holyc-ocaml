@@ -11,6 +11,10 @@ val create :
   selection:Frontend.Parser.reference_selection ->
   unit ->
   (t, string) result
+(** Retain the type and dimensions selected by the original static allocation.
+    Aggregate objects use its checked nominal type rather than resolving the
+    spelling again. The occurrence must still select the exact local and
+    partial-header symbol. This grants no storage or execution authority. *)
 
 val allocation : t -> Compiler_record.static_allocation
 val symbol : t -> Symbol.t

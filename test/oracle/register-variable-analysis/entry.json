@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "c4e05cfda211c8ef0df818048aa0585bca4f4c0655d0927a2d1ce46d3473ed34",
+  "capture_sha256": "3850ed193b5f8760ecac40e74080f7d74566b0b506524f63fe69ffda84d5a03a",
+  "boot_iso_sha256": "e0e9bf3ec5a0c62d1a48bad027e376b047a9d7d60c3b44ec1ce501a0d6d32cf9",
+  "fields": {
+    "JS": "-1",
+    "JU": "0",
+    "ERR": "0",
+    "AS": "-1",
+    "AU": "0"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load observations of byte parameter entry conversion. The stored source omits trailing spaces used to pad the boot payload.",
+  "boot_payload_sha256": "69054f7fcaf5531714610f9a1411f71dd2300035bb8c4a16a69c32e546a561a0",
+  "boot_payload_bytes": 720
+}

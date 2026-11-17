@@ -4,6 +4,8 @@ One-star callback cells containing numeric words support prefix and postfix
 `++`/`--` and the ten compound assignment operators through the IR and native
 runners. This covers automatic and static cells, named callback parameters,
 globals, and fully indexed callback arrays in JIT and AOT source modes.
+[Callback members](callback-fields.md) use the same numeric update rules and
+retain their selected field and array window.
 `*callback` and `*callbacks[index]` select the same original cells as their
 forms without the canceled star. Grouping under the star remains a boundary.
 

@@ -1,0 +1,15 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "6abe59f79a3731f32810c305b55be258c5359721e142c572d13ff6ecf85aa46a",
+  "boot_payload_sha256": "3671a9ba3b37e21ce3f97497479ef9982fa8bdf96e570d755be5672ac1161ebe",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "30732c20718ef444a90b3524c5f9c11651f8d10170bda338fe2f990714d810d5",
+  "boot_iso_sha256": "04e85b228c258f53460854ce47d2a0712b8cb63d06b10622f038ebbf42db5098",
+  "fields": {
+    "DIV": "127",
+    "MOD": "1",
+    "MUL": "765",
+    "ERR": "0"
+  },
+  "scope": "Repeated original observations of dynamic division or remainder on a parameter-initialized local. Caught fault probes invoke JIT and compiled functions from original JIT callers. Stored source omits boot padding."
+}

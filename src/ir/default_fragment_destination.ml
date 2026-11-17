@@ -1,6 +1,8 @@
 module Typed = Sema.Function_call_expression_result
 module Fragment = Sema.Default_fragment
 
+type numeric_conversion = Same_class | To_f64 | To_integer
+
 type t = {
   fragment_ : Fragment.t;
   typed_ : Typed.top_level_t;
@@ -8,6 +10,7 @@ type t = {
   globals_ : Integer_globals.t;
   type_ : Sema.Type.t;
   aggregate_value_type_ : Sema.Type.t option;
+  numeric_conversion_ : numeric_conversion;
   span_ : Common.Span.t;
 }
 
@@ -25,7 +28,20 @@ let is_callback value =
   let _, _, pointer = Fragment.parameter_parts value.fragment_ in
   Option.is_some pointer
 
-let create_with_globals globals typed =
+let is_f64 type_ =
+  Sema.Type.pointer_depth type_ = 0
+  &&
+  match Sema.Type.base type_ with
+  | Sema.Type.Primitive (_, Sema.Primitive_type.F64) -> true
+  | _ -> false
+
+let convert_native_word destination bits =
+  match destination.numeric_conversion_ with
+  | To_f64 -> Common.Binary64_conversion.of_signed_word bits
+  | To_integer -> Common.Binary64_conversion.to_signed_word bits
+  | Same_class -> bits
+
+let create_with_globals ?(native_numeric = false) globals typed =
   let ( let* ) = Result.bind in
   let* root_ =
     match
@@ -83,14 +99,16 @@ let create_with_globals globals typed =
          || Typed.result_is_numeric_callback value)
     then Ok ()
     else if
-      Option.is_some (Integer_scalar_storage.of_type type_)
+      (Option.is_some (Integer_scalar_storage.of_type type_)
+      || (native_numeric && is_f64 type_))
       && Typed.result_array_rank value = 0
       && (match Typed.result_category value with
         | Typed.Object_value | Typed.Lvalue -> true
         | _ -> false)
       && Option.fold ~none:false
            ~some:(fun type_ ->
-             Option.is_some (Integer_scalar_storage.of_type type_))
+             Option.is_some (Integer_scalar_storage.of_type type_)
+             || (native_numeric && is_f64 type_))
            (Typed.result_value_type value)
       && (Option.is_none aggregate_value_type_
          || Option.is_none (Typed.result_callback_parser_pointer value))
@@ -115,6 +133,15 @@ let create_with_globals globals typed =
          owned data-pointer value"
   in
   let* globals_ = globals fragment_ in
+  let numeric_conversion_ =
+    match
+      ( Option.fold ~none:false ~some:is_f64 (Typed.result_value_type value),
+        is_f64 type_ )
+    with
+    | false, true -> To_f64
+    | true, false -> To_integer
+    | _ -> Same_class
+  in
   Ok
     {
       fragment_;
@@ -123,13 +150,19 @@ let create_with_globals globals typed =
       globals_;
       type_;
       aggregate_value_type_;
+      numeric_conversion_;
       span_ = (Fragment.ast fragment_).location.span;
     }
 
 let create ~task_view =
   create_with_globals (Integer_globals.default_context task_view)
 
+let create_native ~task_view =
+  create_with_globals ~native_numeric:true
+    (Integer_globals.default_context task_view)
+
 let create_source = create_with_globals Integer_globals.source_default_context
 
 let create_native_source =
-  create_with_globals Integer_globals.native_source_default_context
+  create_with_globals ~native_numeric:true
+    Integer_globals.native_source_default_context

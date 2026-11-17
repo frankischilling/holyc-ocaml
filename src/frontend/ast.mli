@@ -279,9 +279,16 @@ type declaration_binding = private {
 
 type aggregate_kind = Class_aggregate | Union_aggregate
 
+type aggregate_backing = private {
+  backing_type_specifier : type_specifier;
+  backing_pointer_layers : pointer_layer list;
+  backing_location : location;
+}
+
 type aggregate_forward_declaration = private {
   modifiers : declaration_modifier list;
   binding : declaration_binding;
+  backing : aggregate_backing option;
   aggregate_kind : aggregate_kind;
   aggregate_keyword_spelling : string;
   aggregate_keyword_location : location;
@@ -295,12 +302,6 @@ type array_dimension = private {
   dimension_expression : expression option;
   closing_bracket : location;
   location : location;
-}
-
-type aggregate_backing = private {
-  backing_type_specifier : type_specifier;
-  backing_pointer_layers : pointer_layer list;
-  backing_location : location;
 }
 
 type aggregate_base = private {
@@ -960,6 +961,18 @@ val make_aggregate_forward_before_comma :
   aggregate_keyword_spelling:string ->
   aggregate_keyword_location:location ->
   name:identifier ->
+  location:location ->
+  aggregate_forward_declaration
+
+val make_backed_aggregate_forward :
+  modifiers:declaration_modifier list ->
+  binding:declaration_binding ->
+  backing:aggregate_backing ->
+  aggregate_kind:aggregate_kind ->
+  aggregate_keyword_spelling:string ->
+  aggregate_keyword_location:location ->
+  name:identifier ->
+  semicolon:location option ->
   location:location ->
   aggregate_forward_declaration
 

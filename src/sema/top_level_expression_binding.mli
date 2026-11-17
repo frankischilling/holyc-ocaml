@@ -156,6 +156,11 @@ val make_offset_fragment :
 
 val statement_offset : statement -> Offset_fragment.t option
 
+val make_member_metadata_fragment :
+  fragment:Member_metadata_fragment.t -> event list -> (input, string) result
+
+val statement_member_metadata : statement -> Member_metadata_fragment.t option
+
 val make_static_fragment :
   fragment:Static_initializer_fragment.t -> event list -> (input, string) result
 

@@ -26,7 +26,7 @@ the existing checked source, IR and execution interfaces in JIT and AOT modes.
 
 ## Checked shapes and source evidence
 
-Each declaration owns one storage object with a checked element type, positive
+Each declaration owns one storage object with a checked element type, nonnegative
 dimensions, element count, byte size and suffix byte strides. Globals retain
 their exact declaration record and dimension-binding environment before the
 owner's publication. Static arrays retain the exact definition frame, location
@@ -67,7 +67,7 @@ For example, `(0xffffffffffffffff>0)+1` and
 toward zero, so `2.9` gives two in global and local layout. Mixed constant F64
 folding follows the pinned signed intermediate-code payload conversion;
 `0xffffffffffffffff+3.0` therefore also gives two. Non-finite results,
-conversion overflow and nonpositive persistent extents are rejected.
+conversion overflow and negative persistent extents are rejected.
 Unparenthesized comparison chains are explicitly unsupported in this layout
 path, including inside a skipped logical branch. Explicitly grouped comparison
 results remain usable in arithmetic, as in `((0<1)<2)+1`. The remaining optimizer
@@ -203,10 +203,10 @@ Reference: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 | `OptLib.HC:96-179`, `OptPass012.HC:153-191,211-217,403-445,809-822` | Closed-expression classes, unsigned operations, unary results and comparison-chain boundaries |
 
 Ordinary first `[]` produces zero dimension metadata in `PrsArrayDims`, while
-the initializer's inferred-allocation branches test for negative counts. The
-audited path does not connect those states. Empty, zero and negative persistent
-extents remain rejected; inferred allocation and native pass-one/pass-two
-effect parity are not claimed.
+the initializer's inferred-allocation branches test for negative counts.
+[Zero-sized arrays](empty-arrays.md) now execute the ordinary empty/zero path
+without inventing an inferred length. Negative counts remain rejected.
+Compiler-record mutation and general inference replay are not claimed.
 
 Pointer-valued globals/statics, other primitive widths, aggregate and callback
 storage, pointer returns and general pointer arithmetic remain outside this

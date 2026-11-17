@@ -1,0 +1,5 @@
+U0 POOut(U8 *s) {while (*s) OutU8(0xE9,*s++);}
+U0 POValue(U8 *name,I64 value) {U8 buf[80];StrPrint(buf,"%s=%d\n",name,value);POOut(buf);}
+I8 NJI=-8;U8 NJU=248;I8 NJC=1;I64 NJR=NJI>>1;I64 NJUR=NJU>>1;I64 NJD=NJI>>NJC;I64 NJUD=NJU>>NJC;POValue("JIT_SIGNED",NJR);POValue("JIT_UNSIGNED",NJUR);POValue("JIT_DYN_SIGNED",NJD);POValue("JIT_DYN_UNSIGNED",NJUD);
+U8 *NSource="#include \"/Kernel/KernelA.HH\"\nI8 NAI=-8;U8 NAU=248;I8 NAC=1;I64 NAR=NAI>>1;I64 NAUR=NAU>>1;I64 NAD=NAI>>NAC;I64 NAUD=NAU>>NAC;public I64 NAReadS(){return NAR;}public I64 NAReadU(){return NAUR;}public I64 NAReadDS(){return NAD;}public I64 NAReadDU(){return NAUD;}\n";
+FileWrite("B:/NARROW.HC",NSource,StrLen(NSource));I64 NErrors=Cmp("B:/NARROW.HC");POValue("COMPILE_ERRORS",NErrors);if(!NErrors){Load("B:/NARROW.BIN");ExePrint("extern I64 NAReadS();extern I64 NAReadU();extern I64 NAReadDS();extern I64 NAReadDU();POValue(\"AOT_SIGNED\",NAReadS());POValue(\"AOT_UNSIGNED\",NAReadU());POValue(\"AOT_DYN_SIGNED\",NAReadDS());POValue(\"AOT_DYN_UNSIGNED\",NAReadDU());");}POOut("POINTER_DONE\n");

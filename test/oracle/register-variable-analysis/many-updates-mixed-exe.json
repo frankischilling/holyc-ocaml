@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "f08715346287f1cf47d263ca16ac6f9e1bf30ba91034d2d2298bea2988204908",
+  "boot_payload_sha256": "f08715346287f1cf47d263ca16ac6f9e1bf30ba91034d2d2298bea2988204908",
+  "boot_payload_bytes": 616,
+  "capture_sha256": "5e74b46dbc2960890f4da9a219cbc0968487987671f6fcab2ae2f2f38dca212b",
+  "boot_iso_sha256": "5b28093942c698768cc521598d9ddae17d9ea3996a776275a5175bd69eba7875",
+  "fields": {
+    "PARAM": "384",
+    "FIVE": "2293",
+    "ERR": "0"
+  },
+  "scope": "Two independent original compile-time observations of five mixed-operator updates, captured with QEMU 10.0.13. A newline separates captures."
+}

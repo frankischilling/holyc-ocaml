@@ -300,3 +300,127 @@ addresses retain that definition's body. `PrsStmt.HC:67-143` applies function
 modifiers when creating a record; reuse keeps its stored cleanup flags. The
 private IR and native adapters check the selected call header against those
 original flags. Later source spelling cannot replace the checked cleanup policy.
+
+Hosted native entries can now use checked, page-probed private frames beyond
+4 KiB without changing the semantic RBP layout above. See
+[native stack probing](native-stack-probing.md) for the limits, prologues and
+Windows unwind checks. This is a host adapter extension, not the full HolyC
+register allocation or native exception ABI.
+
+Native temporary spill homes now use [control-flow liveness](native-value-liveness.md)
+to share space across disjoint block lifetimes. Loop backedges preserve overlapping
+values. Reference-dependent callable graphs keep permanent homes; general source
+and floating register allocation remain open under issue #703.
+
+[Parameter register values across control flow](register-variable-analysis.md#parameter-values-across-branches-and-loops)
+now cover bounded call-free branches and loops with dynamic statement updates.
+Selected narrow parameters retain full values across iterations; `noreg` still
+narrows each store. General source and floating allocation remain open.
+
+[Named calls and recursion](register-variable-analysis.md#values-held-across-named-calls)
+now preserve values selected by the bounded parameter proof. Recursive callees
+still apply their declared entry conversions. Callback, default-argument and
+variadic call paths remain outside this proof.
+
+[Automatic local values](register-variable-analysis.md#local-values-across-control-flow-and-calls)
+can also survive bounded loops and named calls. Locals need one original
+literal or parameter initializer in the entry block. Register capacity
+counts both parameters and locals; arbitrary local assignments remain unproved.
+
+[Register-bank accounting](register-variable-analysis.md#variable-register-bank-capacity)
+covers distinct RSI, RDI and R10 through R15 requests and larger mixed
+register/stack frames. It rejects uncertain automatic allocation pressure.
+
+[Compiler option snapshots](register-variable-analysis.md#compiler-option-snapshots)
+keep warning settings independent of register values. NO_REG_VAR disables
+automatic selection while preserving supported explicit register requests.
+Each decision uses the original function definition, not the later live options.
+
+[Literal and unary loop updates](register-variable-analysis.md#literal-and-unary-loop-updates)
+retain selected narrow values through bounded constant updates and discarded
+prefix/postfix increment/decrement, including locals and named calls. Typed
+operators, operand bindings and source positions are checked before selection.
+General allocation remains open under #703.
+
+[Reassignment to selected variables](register-variable-analysis.md#reassignment-to-selected-variables)
+now preserves full integer values in parameters and initialized locals when the
+right-hand side is a direct member read or literal. Stack destinations still
+narrow. General register allocation remains unproved.
+
+[Requested variables under pressure](register-variable-analysis.md#requested-variables-under-register-pressure)
+retain plain `reg` and explicit integer values when ordinary I64/U64 members
+exceed the bank. The plain requests must have guaranteed capacity; ordinary
+members keep unknown selection. Pressure involving ordinary narrow members
+still requires the general allocator.
+
+[Computed integer assignments](register-variable-analysis.md#computed-integer-assignments)
+now preserve full selected values for source-owned addition, subtraction,
+multiplication and bitwise trees. Stack stores still narrow; calls, casts,
+division and shifts inside those trees remain outside the proof.
+
+[Computed compound operands](register-variable-analysis.md#computed-compound-operands)
+extend all ten discarded integer compound updates to source-owned arithmetic
+and bitwise operand trees. Literal-only restrictions remain in force, and
+nested shift-count literals retain their exact source values.
+
+[Computed local initializers](register-variable-analysis.md#computed-local-initializers)
+retain full selected integer values from source-owned arithmetic/bitwise trees
+over parameters and literals. Original entry-block declaration ownership remains
+required; ordering between local initializers is not inferred.
+
+[Integer expression operands](register-variable-analysis.md#integer-expression-operands)
+add source-owned unary, division/remainder, shift and comparison trees to the
+bounded assignment/update/initializer proof. Division faults and original
+shift-count ownership are checked; calls, casts and general allocation remain open.
+
+[Whole straight-line functions](register-variable-analysis.md#whole-straight-line-functions)
+use the same owned integer storage proof without requiring a branch or call.
+Dependent updates, self-updates, multiple locals and longer sequences retain
+selected values under the existing capacity and ownership bounds.
+
+[Ordered local initializers](register-variable-analysis.md#ordered-local-initializers)
+may read earlier initialized integer locals in the entry block. The proof
+requires each dependency store to precede its read and each read to precede
+the consuming initializer; self-initialization and uninitialized reads remain
+unproved.
+
+[Consumed selected assignments](register-variable-analysis.md#consumed-selected-assignments)
+retain proven storage when a plain assignment feeds a condition or return.
+Register destinations preserve the full RHS word; stack destinations reload
+the stored value at its declared width. Unknown-pressure destinations remain
+excluded, and pointer/global assignment rules are unchanged.
+
+[Compact stack probes](native-stack-probing.md) extend opt-in private frames
+beyond 64 KiB while keeping small-frame bytes and default budgets unchanged.
+Large-frame allocation may clobber RAX, which is free at each generated
+allocation entry; argument, context, nonvolatile and stack registers survive
+until the final allocation. The callable and retained-closed admission paths validate the exact loop
+and unwind endpoint before execution.
+
+[Physical R12-R15 variables](register-variable-analysis.md#physical-r12-r15-variables)
+use authenticated explicit requests, typed parameter entry and per-invocation
+save slots. Normal and fault returns restore caller values. Windows unwind
+metadata describes each nonvolatile save, and admission checks the matching
+save/restore bytes. General automatic and floating register allocation remain
+outside this milestone.
+
+[Physical RSI/RDI variables](register-variable-analysis.md#physical-rsi-and-rdi-variables)
+add unconditional pair preservation at host service bridges, including calls
+through unpinned functions. Their scratch slots count toward stack limits;
+[R10/R11 placement](register-variable-analysis.md#physical-r10-and-r11-variables)
+uses private source-register saves while callable runtime state lives in RBX
+and context memory. Closed execution retains its earlier register contract.
+
+[Bounded automatic placement](register-variable-analysis.md#bounded-automatic-placement)
+uses the first free general register for a sole automatic candidate, or a sole
+plain `reg` candidate among at most six possible candidates. Complete original
+parameter membership and explicit reservations are required. Ambiguous score
+order and unnamed-formal functions remain unproved. The same
+save slots, bridge preservation and unwind checks apply to these placements.
+
+[Scored straight-line allocation](register-variable-analysis.md#scored-straight-line-allocation)
+replays original occurrence scores, unstable ties and both integer variable
+banks for authenticated scalar functions. Pressure losers use declared-width
+stack storage; all selected integer registers have physical placements. Original body
+and request receipts prevent an unsupported or altered exact proof from gaining
+unsafe authority through the conservative fallback.

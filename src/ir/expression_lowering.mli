@@ -18,6 +18,27 @@ type call_lowerer =
 
 val reference_commit : string
 
+type operand_conversion
+
+val prepare_operand_conversion :
+  consumer:Sema.Function_call_expression_result.expression_result ->
+  operand:Sema.Function_call_expression_result.expression_result ->
+  operand_conversion option
+(** Retain the exact checked numeric consumer and operand relationship used by
+    expression lowering. Explicit result conversions and mixed binary operands
+    share the lowering rules; parentheses and unary plus forward the conversion
+    to their original operand. This proves the conversion decision only, not
+    ownership of a call, source batch or emitted graph. *)
+
+val operand_conversion_kind :
+  operand_conversion ->
+  Sema.Function_call_expression_result.intrinsic_conversion
+
+val valid_operand_conversion : operand_conversion -> bool
+(** Recheck the original checked children, source expressions, scalar metadata
+    and conversion decision. Replacing a child or changing a consumer revokes
+    the retained proof. *)
+
 val lower_typed_result :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->

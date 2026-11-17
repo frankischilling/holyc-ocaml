@@ -1,0 +1,18 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "4a82498f4e1ca87953196500a18e2d744b51c0afbf6baca161fc8fa76db55e7d",
+  "boot_payload_sha256": "15b4a4995c3cf0ce09e06b79f5c02a2b58ffc23293527feb130a0d977b394a52",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "985f82de1417308b89c8b7bf1dd2da499863063ea9c277e7d16d7ccfbd766be8",
+  "boot_iso_sha256": "79e03bc9edbf145b2e9470ce5a4fb740cedfc33e5304884fdf2471740d9160ec",
+  "fields": {
+    "J_DYN": "256",
+    "J_PTR": "256",
+    "J_EXPR": "256",
+    "ERR": "0",
+    "A_DYN": "256",
+    "A_PTR": "256",
+    "A_EXPR": "256"
+  },
+  "scope": "Repeated original JIT and compiled observations of global compound update context and addressing."
+}

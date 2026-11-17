@@ -5,6 +5,7 @@ let decimal image bits =
   match Image.value_type image with
   | Image.I64 -> Int64.to_string bits
   | Image.U64 -> Printf.sprintf "%Lu" bits
+  | Image.F64 -> Printf.sprintf "%.17g" (Int64.float_of_bits bits)
 
 let render ~human ~session ~mode ~conditional_recovery ~max_ir_instructions
     ~max_code_bytes ~max_stack_bytes ?command_error ?result () =
@@ -47,7 +48,8 @@ let render ~human ~session ~mode ~conditional_recovery ~max_ir_instructions
                    `String
                      (match Image.value_type value.image with
                      | I64 -> "I64"
-                     | U64 -> "U64") );
+                     | U64 -> "U64"
+                     | F64 -> "F64") );
                  ("value", `String (decimal value.image value.bits));
                  ("bits", `String (Printf.sprintf "0x%016Lx" value.bits));
                ],

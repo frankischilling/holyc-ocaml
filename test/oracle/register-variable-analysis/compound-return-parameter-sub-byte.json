@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "e8c83157cabf933234fca1ac334b6dd106348236d656431874e75c97cfbc6640",
+  "boot_payload_sha256": "658bfe136bc814d95e06da9bd186641420243c5871b5bd5c7e5d1d457caf1b2a",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "3a7eabc0a9fb238bfd7933f92dae3686d20bf84dc5715f74d9716448c8256d11",
+  "boot_iso_sha256": "95a895cf56f3b0477ef9a66add376e6a4450e712eb54497d8ff916ec5639768d",
+  "fields": {
+    "J_S": "126",
+    "J_U": "254",
+    "J_SN": "126",
+    "J_UN": "254",
+    "ERR": "0",
+    "A_S": "126",
+    "A_U": "254",
+    "A_SN": "126",
+    "A_UN": "254"
+  },
+  "scope": "Repeated original JIT and compiled observations of directly returned parameter compound updates."
+}

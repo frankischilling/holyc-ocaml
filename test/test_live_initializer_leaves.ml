@@ -617,10 +617,10 @@ let tests =
     ("equal source leaves cannot cross owners", `Quick, cross_owner);
     ( "scalar leaf precedes command resume",
       `Quick,
-      fun () -> timing {|I64 A=40;#exe {}|} [ 2 ] );
+      fun () -> timing {|I64 A=40;#exe {}|} [ 3 ] );
     ( "leaf follows expression lookahead and precedes next element",
       `Quick,
-      fun () -> timing {|I64 A[2]={40#exe {},#exe {"2";}};|} [ 2; 4 ] );
+      fun () -> timing {|I64 A[2]={40#exe {},#exe {"2";}};|} [ 3; 5 ] );
     ( "source ledger retains native leaves",
       `Quick,
       fun () ->

@@ -72,11 +72,136 @@ let values () =
         (Native.output_bytes native))
     Cases.values
 
-let dimension_capture_authority_case expire =
+let floating_values () =
+  let cases =
+    [
+      ( "I64 N=0;F64 Next(){N++;return 2.875;}I64 \
+         A[Next()]={40,2};A[0]+A[1]+N-1;",
+        "global bound" );
+      ( "I64 N=0;F64 Next(){N++;return 2.875;}I64 Never(){I64 A[Next()];return \
+         0;}N+41;",
+        "automatic bound in unused function" );
+      ( "I64 N=0;F64 Next(){N++;return 2.875;}I64 Never(){static I64 \
+         A[Next()]={40,2};return A[0]+A[1];}N+41;",
+        "static bound in unused function" );
+      ( "I64 N=0;F64 Next(){N++;return 2.875;}class C{I64 \
+         A[Next()];};sizeof(C)+N+25;",
+        "class member bound" );
+      ( "F64 Next(){return 3.75;}I64 A[Next()];sizeof(A)+18;",
+        "truncated native floating result" );
+      ( "F64 Next(){return 1.25;}I64 A[Next()+1.5];sizeof(A)+26;",
+        "floating expression result" );
+      ( "F64 N=3.75;I64 A[N];N=1.25;sizeof(A)+18;",
+        "saved extent after floating source mutation" );
+      ( "F64 Next(){return 9223372036854775808.0;}I64 A[Next()];sizeof(A)+42;",
+        "source 19-digit F64 literal accumulator wraps to zero" );
+    ]
+  in
+  List.iter
+    (fun (source, label) ->
+      let report = run source in
+      value 42L report;
+      let dimensions =
+        Native.fragments report
+        |> List.filter (fun (fragment : Native.fragment) ->
+            fragment.kind = Native.Dimension)
+      in
+      Alcotest.(check bool)
+        ("reached original native dimension: " ^ label)
+        true (dimensions <> []))
+    cases;
+  List.iter
+    (fun (source, expected_bits) ->
+      let result = Native.outcome (run source) |> checked in
+      Alcotest.(check (option int64))
+        "original oversized source literal returns its native F64 bits"
+        (Some expected_bits)
+        (Option.map
+           (fun (word : Native.word) -> word.bits)
+           result.value.final_value);
+      Alcotest.(check bool)
+        "oversized source literal remains F64" true
+        (Option.fold ~none:false
+           ~some:(fun (word : Native.word) -> word.type_ = X86_64_program.F64)
+           result.value.final_value))
+    [
+      ("F64 Next(){return 9223372036854775808.0;}Next();", 0L);
+      ("F64 Next(){return -9223372036854775808.0;}Next();", Int64.min_int);
+    ];
+  let session, source, config =
+    inputs "F64 Next(){return 2.875;}I64 A[Next()];sizeof(A)+26;"
+  in
+  let independent =
+    run_integer_program_report session ~source ~config ~max_steps:100_000
+  in
+  Alcotest.(check bool)
+    "independent integer VM retains its F64 execution boundary" true
+    (Result.is_error (integer_program_report_outcome independent))
+
+let floating_failures () =
+  let negative =
+    "extern U0 Print(U8 *fmt,...);F64 Next(){Print(\"kept\");return -1.5;}I64 \
+     A[Next()];"
+  in
+  let negative_report = run negative in
+  Alcotest.(check bool)
+    "negative converted bound rejects after native execution" true
+    (Result.is_error (Native.outcome negative_report));
+  Alcotest.(check string)
+    "output before a negative converted bound" "kept"
+    (Native.output_bytes negative_report);
+  let later_syntax =
+    "extern U0 Print(U8 *fmt,...);F64 Next(){Print(\"kept\");return 2.875;}I64 \
+     A[Next();"
+  in
+  let syntax_report = run later_syntax in
+  Alcotest.(check bool)
+    "later invalid bracket rejects after preparation" true
+    (Result.is_error (Native.outcome syntax_report));
+  Alcotest.(check string)
+    "native output survives later syntax error" "kept"
+    (Native.output_bytes syntax_report);
+  let overflow =
+    "extern U0 Print(U8 *fmt,...);F64 Next(){Print(\"kept\");return \
+     4294967296.0*2147483648.0;}I64 A[Next()];"
+  in
+  let overflow_report = run overflow in
+  Alcotest.(check bool)
+    "indefinite signed integer F64 conversion rejects negative extent" true
+    (Result.is_error (Native.outcome overflow_report));
+  Alcotest.(check string)
+    "overflow conversion executes original native call first" "kept"
+    (Native.output_bytes overflow_report);
+  List.iter
+    (fun (description, operation) ->
+      let source =
+        Printf.sprintf
+          "extern U0 Print(U8 *fmt,...);F64 Next(){Print(\"kept\");return \
+           %s;}I64 A[Next()];"
+          operation
+      in
+      let report = run source in
+      failure "HCRUN0004" report;
+      Alcotest.(check string)
+        ("original native " ^ description ^ " output before extent check")
+        "kept"
+        (Native.output_bytes report))
+    [ ("infinity", "1.0/0.0"); ("NaN", "0.0/0.0") ];
+  let source = "F64 Next(){return 3.75;}I64 A[Next()];sizeof(A)+18;" in
+  let baseline = run source in
+  value 42L baseline;
+  let prep = Native.preparation_steps baseline in
+  Alcotest.(check bool)
+    "floating bound consumed initializer work" true (prep > 0);
+  value 42L (run ~max_initializer_steps:prep source);
+  failure "HCIRVM0007" (run ~max_initializer_steps:(prep - 1) source)
+
+let dimension_capture_authority_case ~floating expire =
   let module Task = Holyc_lib__Driver.Integer_task in
   let module Source = Holyc_lib__Driver.Integer_source_execution in
   let module Request = Task.Native_dimension in
   let module Program = Holyc_lib__Ir.Dimension_fragment_program in
+  let module Destination = Holyc_lib__Ir.Dimension_fragment_destination in
   let module Capture = Holyc_lib__Ir.Native_scalar_capture in
   let module Runtime = Native_program_execution in
   let module Image = X86_64_program in
@@ -143,8 +268,14 @@ let dimension_capture_authority_case expire =
     let before = (Runtime.budget_progress budget).executed_steps in
     let reached = execute image |> completed in
     Alcotest.(check (option int64))
-      "actual original scalar" (Some 3L)
+      "actual original scalar"
+      (Some (if floating then 0x400e_0000_0000_0000L else 3L))
       (Option.map (fun (word : Image.word) -> word.bits) reached.final_value);
+    Alcotest.(check bool)
+      "native dimension captures the original F64 type" floating
+      (Option.fold ~none:false
+         ~some:(fun (word : Image.word) -> word.type_ = Image.F64)
+         reached.final_value);
     let work = (Runtime.budget_progress budget).executed_steps - before in
     rejects "foreign arena cannot take capture"
       (Runtime.finish_task_dimension foreign image);
@@ -154,6 +285,9 @@ let dimension_capture_authority_case expire =
     rejects "capture cannot be taken twice"
       (Runtime.finish_task_dimension arena image);
     let original = Request.program request in
+    Alcotest.(check bool)
+      "original dimension result carries the native conversion" floating
+      (Destination.native_f64_source (Program.destination original));
     let copy =
       Program.create
         ~authority:(Program.source_authority original)
@@ -191,7 +325,8 @@ let dimension_capture_authority_case expire =
                   (fun (word : Image.word) ->
                     match word.type_ with
                     | Image.I64 -> Task.Native_dispatch.I64 word.bits
-                    | U64 -> Task.Native_dispatch.U64 word.bits)
+                    | U64 -> Task.Native_dispatch.U64 word.bits
+                    | F64 -> Task.Native_dispatch.F64 word.bits)
                   result.final_value)));
     }
   in
@@ -201,7 +336,10 @@ let dimension_capture_authority_case expire =
       if not !arena_released then Runtime.release_task_arena arena |> unwrap)
     (fun () ->
       let session, source, config =
-        inputs "I64 Next(){return 3;}I64 A[Next()];sizeof(A)+18;"
+        inputs
+          (if floating then
+             "F64 Next(){return 3.75;}I64 A[Next()];sizeof(A)+18;"
+           else "I64 Next(){return 3;}I64 A[Next()];sizeof(A)+18;")
       in
       let report =
         Source.run ~native_dispatch:dispatch ~native_dimension session ~source
@@ -341,7 +479,8 @@ let offset_capture_authority_case expire =
                   (fun (word : Image.word) ->
                     match word.type_ with
                     | Image.I64 -> Task.Native_dispatch.I64 word.bits
-                    | U64 -> Task.Native_dispatch.U64 word.bits)
+                    | U64 -> Task.Native_dispatch.U64 word.bits
+                    | F64 -> Task.Native_dispatch.F64 word.bits)
                   result.final_value)));
     }
   in
@@ -375,8 +514,10 @@ let offset_capture_authority_case expire =
         (Capture.consume capture ~program ~work))
 
 let captures () =
-  dimension_capture_authority_case false;
-  dimension_capture_authority_case true;
+  dimension_capture_authority_case ~floating:false false;
+  dimension_capture_authority_case ~floating:false true;
+  dimension_capture_authority_case ~floating:true false;
+  dimension_capture_authority_case ~floating:true true;
   offset_capture_authority_case false;
   offset_capture_authority_case true
 
@@ -424,6 +565,12 @@ let () =
         [
           Alcotest.test_case "original bounds, calls, offsets and history"
             `Quick values;
+          Alcotest.test_case
+            "native F64 bounds prepare global, automatic, static and member \
+             layouts"
+            `Quick floating_values;
+          Alcotest.test_case "native F64 truncation, failures and charged work"
+            `Quick floating_failures;
           Alcotest.test_case "once-only output and reached failures" `Quick
             effects;
           Alcotest.test_case

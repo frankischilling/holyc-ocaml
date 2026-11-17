@@ -91,7 +91,7 @@ let make_type_reference ?selected_aggregate ?selected_owner
           in
           (if callback_metadata then
              Sema.Source_type_reference.selected_callback_return
-           else Sema.Source_type_reference.selected)
+           else Sema.Source_type_reference.selected_header_class)
             proof type_specifier pointer_layers)
   | _ -> (
       match type_source with

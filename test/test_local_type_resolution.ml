@@ -343,8 +343,8 @@ let callback_types () =
     prepare ~path:"local-type-callbacks.HC"
       "class Node {};\n\
        U0 Callbacks(){\n\
-       U8 reg R9 *(**handler)(Node *node,I64=lastclass,U8 *(*nested)(reg R8 \
-       noreg I64 value=\"nested\",...),...);\n\
+       U8 reg R9 *(**handler)(Node *node,I64 _anon_=lastclass,U8 \
+       *(*nested)(reg R8 noreg I64 value=\"nested\",...),...);\n\
        }"
   in
   let local =
@@ -367,10 +367,10 @@ let callback_types () =
   in
   Alcotest.(check (list (option string)))
     "callback parameters retain names and gaps"
-    [ Some "node"; None; Some "nested" ]
+    [ Some "node"; Some "_anon_"; Some "nested" ]
     (List.map Semantic_function_type_resolution.parameter_name parameters);
   Alcotest.(check (list int64))
-    "local callback parameters retain source-derived masks" [ 0L; 0x23L; 0x8L ]
+    "local callback parameters retain source-derived masks" [ 0L; 0x3L; 0x8L ]
     (parameters
     |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   Alcotest.(check bool)
@@ -432,7 +432,7 @@ let local_member_flags () =
   let results =
     prepare ~path:"local-member-flags.HC"
       "U0 Flags(){I64 automatic; U0 (*callback)(); static I64 first,second; \
-       static U0 (*stored_callback)(I64=lastclass); }"
+       static U0 (*stored_callback)(I64 _anon_=lastclass); }"
   in
   let function_ = function_named results "Flags" in
   [
@@ -449,7 +449,7 @@ let local_member_flags () =
         (local_named function_ name));
   let nested = local_named function_ "stored_callback" |> expect_callback in
   Alcotest.(check (list int64))
-    "callback parameter flags do not alter the static callback" [ 0x23L ]
+    "callback parameter flags do not alter the static callback" [ 0x3L ]
     (nested |> Semantic_local_type_resolution.function_pointer_signature
    |> Semantic_function_type_resolution.signature_parameters
     |> List.map Semantic_function_type_resolution.parameter_flag_mask)

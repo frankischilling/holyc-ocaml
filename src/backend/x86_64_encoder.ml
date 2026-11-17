@@ -1,6 +1,21 @@
 module Facts = Generated.Opcode_keywords
 
-type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
+type register =
+  | Rax
+  | Rbx
+  | Rcx
+  | Rdx
+  | Rsi
+  | Rdi
+  | R8
+  | R9
+  | R10
+  | R11
+  | R12
+  | R13
+  | R14
+  | R15
+
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 type shift = Shl | Shr | Sar
@@ -15,8 +30,33 @@ type stack_frame = { bytes : int }
 type frame_slot = { frame_offset : int }
 type arena_slot = { arena_offset : int }
 type call_frame = { call_bytes : int }
+type x87_register = { x87_index : int }
+type x87_memory = X87_frame of frame_slot | X87_stack of stack_slot
+type x87_binary = Fadd | Fmul | Fsub | Fsubr | Fdiv | Fdivr
+
+type x87_constant =
+  | Fzero
+  | Fone
+  | Fpi
+  | Flog2_10
+  | Flog2_e
+  | Flog10_2
+  | Floge_2
 
 type instruction =
+  | Fild64 of x87_memory
+  | Fisttp64 of x87_memory
+  | Fld64 of x87_memory
+  | Fstp64 of x87_memory
+  | Fbinary64 of x87_binary * x87_memory
+  | Fbinary_st0 of x87_binary * x87_register
+  | Fbinary_sti of x87_binary * x87_register
+  | Fbinary_pop of x87_binary * x87_register
+  | Fcomip of x87_register
+  | Ffree of x87_register
+  | Fincstp
+  | Fchs
+  | Fld_constant of x87_constant
   | Mov_imm64 of register * int64
   | Mov of register * register
   | Load_stack of register * stack_slot
@@ -51,6 +91,7 @@ type instruction =
   | Free_call_frame of call_frame
   | Call of int64
   | Call_stack of stack_slot
+  | Jump_stack of stack_slot
   | Pop_rbp
   | Unary of unary * register
   | Binary of binary * register * register
@@ -59,6 +100,16 @@ type instruction =
   | Bit of bit * register * register
   | Shift_cl of shift * register
   | Shift_immediate of shift * register * int64
+  | Callable_capture_status of status_abi
+  | Callable_source_arguments of status_abi
+  | Callable_compiler_option_arguments of status_abi
+  | Callable_store_status_kind of int
+  | Callable_store_status_site of int
+  | Callable_load_context of register * int
+  | Callable_store_context of int * register
+  | Callable_store_context_imm of int * int
+  | Callable_test_budget
+  | Callable_dec_budget
   | Capture_status of status_abi
   | Source_arguments of status_abi
   | Compiler_option_arguments of status_abi
@@ -85,18 +136,43 @@ type instruction =
   | Movzx8 of register * register
   | Ret
 
+(* Hosted callable adaptation: RBX carries the runtime context so TempleOS
+   source variables can own R10/R11. Closed expression/program encodings keep
+   their original R11 context and R10 budget unchanged. *)
+let callable_instruction = function
+  | Capture_status abi -> Callable_capture_status abi
+  | Source_arguments abi -> Callable_source_arguments abi
+  | Compiler_option_arguments abi -> Callable_compiler_option_arguments abi
+  | Store_status_kind kind -> Callable_store_status_kind kind
+  | Store_status_site site -> Callable_store_status_site site
+  | Load_context (register, offset) -> Callable_load_context (register, offset)
+  | Store_context (offset, register) -> Callable_store_context (offset, register)
+  | Store_context_imm (offset, value) ->
+      Callable_store_context_imm (offset, value)
+  | instruction -> instruction
+
 let registers = [ Rax; Rcx; Rdx; R8; R9; R10; R11 ]
+
+(* Additional physical registers and the hosted callable context base never
+   enter the temporary bank. Callable allocation separately reserves the bank's
+   R10/R11 for source owners; legacy expression allocation may still use them. *)
+let encodable_registers = registers @ [ Rbx; Rsi; Rdi; R12; R13; R14; R15 ]
 let max_code_bytes = min (16 * 1024 * 1024) Sys.max_string_length
 
+let x87_register ~index =
+  if index < 0 || index > 7 then
+    Error "x87 register index must be between 0 and 7"
+  else Ok { x87_index = index }
+
 let stack_slot ~offset =
-  if offset < 0 || offset > 4080 || offset mod 8 <> 0 then
-    Error "stack slot offset must be an aligned value between 0 and 4080"
+  if offset < 0 || offset > 524272 || offset mod 8 <> 0 then
+    Error "stack slot offset must be an aligned value between 0 and 524272"
   else Ok { offset }
 
 let stack_frame ~bytes =
-  if bytes < 8 || bytes > 4088 || bytes mod 16 <> 8 then
+  if bytes < 8 || bytes > 524280 || bytes mod 16 <> 8 then
     Error
-      "stack frame size must be between 8 and 4088 and congruent to 8 mod 16"
+      "stack frame size must be between 8 and 524280 and congruent to 8 mod 16"
   else Ok { bytes }
 
 let frame_slot ~offset =
@@ -123,18 +199,26 @@ let arena_slot ~offset =
   else Ok { arena_offset = offset }
 
 let call_frame ~bytes =
-  if bytes < 16 || bytes > 4080 || bytes mod 16 <> 0 then
-    Error "call frame size must be a 16-byte multiple between 16 and 4080 bytes"
+  if bytes < 16 || bytes > 524272 || bytes mod 16 <> 0 then
+    Error
+      "call frame size must be a 16-byte multiple between 16 and 524272 bytes"
   else Ok { call_bytes = bytes }
 
 let register_spelling = function
   | Rax -> "RAX"
+  | Rbx -> "RBX"
   | Rcx -> "RCX"
   | Rdx -> "RDX"
+  | Rsi -> "RSI"
+  | Rdi -> "RDI"
   | R8 -> "R8"
   | R9 -> "R9"
   | R10 -> "R10"
   | R11 -> "R11"
+  | R12 -> "R12"
+  | R13 -> "R13"
+  | R14 -> "R14"
+  | R15 -> "R15"
 
 let register_numbers =
   List.map
@@ -147,7 +231,7 @@ let register_numbers =
           Facts.registers
       in
       (register, fact.register_number))
-    registers
+    encodable_registers
 
 let register_number register = List.assoc register register_numbers
 
@@ -237,15 +321,18 @@ let shift_left_one = source_form "SHL1" 1120
 let shift_right_one = source_form "SHR1" 1138
 let shift_arithmetic_right_one = source_form "SAR1" 1156
 let compare_immediate_byte = source_form "CMP" 365
+let compare_immediate = source_form "CMP" 368
 let zero_register32 = source_form "XOR" 496
 let divide = source_form "DIV" 708
 let signed_divide = source_form "IDIV" 713
 let sign_extend_rax = source_form "CQO" 780
 let jump = source_form "JMP" 584
+let jump_indirect = source_form "JMP" 587
 let jump_equal = source_form "JE" 608
 let jump_not_equal = source_form "JNE" 612
 let jump_below = source_form "JB" 600
 let jump_less = source_form "JL" 640
+let jump_greater_equal_short = source_form "JGE" 642
 let jump_overflow = source_form "JO" 592
 let store_immediate = source_form "MOV" 284
 let decrement = source_form "DEC" 670
@@ -263,6 +350,48 @@ let set_above_equal = source_form "SETAE" 982
 let set_above = source_form "SETA" 986
 let set_below_equal = source_form "SETBE" 985
 let return = source_form "RET" 961
+
+(* OpCodes.DD:1158-1253; BackFA.HC:480-512 selects reversed memory
+   subtraction/division when operand loading swaps, or pop forms after loading
+   a second built-in constant. Keep all three register orientations explicit. *)
+let fild64 = source_form "FILD" 1161
+let fisttp64 = source_form "FISTTP" 1165
+let fld64 = source_form "FLD" 1168
+let fstp64 = source_form "FSTP" 1172
+let fchs = source_form "FCHS" 1189
+let fcomip = source_form "FCOMIP" 1235
+let ffree = source_form "FFREE" 1242
+let fincstp = source_form "FINCSTP" 1241
+
+let x87_binary_forms =
+  List.map
+    (fun (operation, name, memory_line, pop_line) ->
+      ( operation,
+        ( source_form name memory_line,
+          source_form name (memory_line + 1),
+          source_form name (memory_line + 2),
+          source_form (name ^ "P") pop_line ) ))
+    [
+      (Fadd, "FADD", 1220, 1217);
+      (Fmul, "FMUL", 1198, 1195);
+      (Fsub, "FSUB", 1226, 1223);
+      (Fsubr, "FSUBR", 1232, 1229);
+      (Fdiv, "FDIV", 1207, 1204);
+      (Fdivr, "FDIVR", 1213, 1210);
+    ]
+
+let x87_constant_forms =
+  List.map
+    (fun (constant, name, line) -> (constant, source_form name line))
+    [
+      (Fzero, "FLDZ", 1253);
+      (Fone, "FLD1", 1247);
+      (Fpi, "FLDPI", 1250);
+      (Flog2_10, "FLDL2T", 1248);
+      (Flog2_e, "FLDL2E", 1249);
+      (Flog10_2, "FLDLG2", 1251);
+      (Floge_2, "FLDLN2", 1252);
+    ]
 
 let condition_form = function
   | E -> set_equal
@@ -305,6 +434,27 @@ let narrow_store_form = function
   | Frame32 -> mov_store32
 
 let form = function
+  | Fild64 _ -> fild64
+  | Fisttp64 _ -> fisttp64
+  | Fld64 _ -> fld64
+  | Fstp64 _ -> fstp64
+  | Fbinary64 (operation, _) ->
+      let memory, _, _, _ = List.assoc operation x87_binary_forms in
+      memory
+  | Fbinary_st0 (operation, _) ->
+      let _, st0, _, _ = List.assoc operation x87_binary_forms in
+      st0
+  | Fbinary_sti (operation, _) ->
+      let _, _, sti, _ = List.assoc operation x87_binary_forms in
+      sti
+  | Fbinary_pop (operation, _) ->
+      let _, _, _, pop = List.assoc operation x87_binary_forms in
+      pop
+  | Fcomip _ -> fcomip
+  | Ffree _ -> ffree
+  | Fincstp -> fincstp
+  | Fchs -> fchs
+  | Fld_constant constant -> List.assoc constant x87_constant_forms
   | Mov_imm64 _ -> mov_immediate
   | Mov _ -> mov_register
   | Load_stack _ -> mov_load
@@ -338,6 +488,7 @@ let form = function
   | Free_call_frame _ -> add_immediate
   | Call _ -> call_relative
   | Call_stack _ -> call_indirect
+  | Jump_stack _ -> jump_indirect
   | Pop_rbp -> pop_register
   | Unary (Neg, _) -> negate
   | Unary (Not, _) -> complement
@@ -355,24 +506,31 @@ let form = function
   | Binary (Xor, _, _) -> bitwise_xor
   | Shift_cl (shift, _) -> shift_form shift
   | Shift_immediate (shift, _, count) -> immediate_shift_form shift count
-  | Capture_status _ | Source_arguments _ | Compiler_option_arguments _ ->
-      mov_register
+  | Callable_capture_status _
+  | Callable_source_arguments _
+  | Callable_compiler_option_arguments _
+  | Capture_status _
+  | Source_arguments _
+  | Compiler_option_arguments _ -> mov_register
   | Zero_edx -> zero_register32
   | Cqo -> sign_extend_rax
   | Div_rcx -> divide
   | Idiv_rcx -> signed_divide
-  | Cmp_imm8 _ -> compare_immediate_byte
+  | Callable_test_budget | Cmp_imm8 _ -> compare_immediate_byte
   | Jump _ -> jump
   | Jump_equal _ -> jump_equal
   | Jump_not_equal _ -> jump_not_equal
   | Jump_below _ -> jump_below
   | Jump_less _ -> jump_less
   | Jump_overflow _ -> jump_overflow
-  | Store_status_kind _ | Store_status_site _ -> store_immediate
-  | Load_context _ -> mov_load
-  | Store_context _ -> mov_store
-  | Store_context_imm _ -> store_immediate
-  | Dec _ -> decrement
+  | Callable_store_status_kind _
+  | Callable_store_status_site _
+  | Store_status_kind _
+  | Store_status_site _ -> store_immediate
+  | Callable_load_context _ | Load_context _ -> mov_load
+  | Callable_store_context _ | Store_context _ -> mov_store
+  | Callable_store_context_imm _ | Store_context_imm _ -> store_immediate
+  | Callable_dec_budget | Dec _ -> decrement
   | Cmp _ -> compare
   | Test _ -> test
   | Setcc (condition, _) -> condition_form condition
@@ -389,28 +547,50 @@ let signed_int32 value =
   && Int64.compare value 0x7fffffffL <= 0
 
 let valid_context_read_offset offset =
-  offset >= 0 && offset <= 184 && offset mod 8 = 0
+  offset >= 0 && offset <= 272 && offset mod 8 = 0
 
 let valid_context_write_offset offset =
   (offset >= 0 && offset <= 64 && offset mod 8 = 0)
   || offset = 88 || offset = 96 || offset = 104 || offset = 120 || offset = 128
-  || offset = 160
+  || offset = 160 || offset = 208 || offset = 216 || offset = 224
+  || offset = 232
+  || (offset >= 240 && offset <= 272 && offset mod 8 = 0)
 
 let valid_reference_offset offset =
-  offset = 0 || offset = 8 || offset = 16 || offset = 24
+  offset = 0 || offset = 8 || offset = 16 || offset = 24 || offset = 32
 
 let validate = function
+  | Fild64 (X87_frame slot)
+  | Fisttp64 (X87_frame slot)
+  | Fld64 (X87_frame slot)
+  | Fstp64 (X87_frame slot)
+  | Fbinary64 (_, X87_frame slot)
+    when slot.frame_offset mod 8 <> 0 ->
+      invalid_arg "x87 m64 access requires an aligned frame slot"
+  | Callable_store_status_kind kind when kind < 1 || kind > 2 ->
+      invalid_arg "status kind must be 1 or 2"
+  | Callable_store_status_site site when site < 1 || site > 100_000 ->
+      invalid_arg "status site must be between 1 and 100000"
+  | Callable_load_context (_, offset)
+    when not (valid_context_read_offset offset || offset = 280) ->
+      invalid_arg
+        "callable context read offset must be aligned from 0 through 280"
+  | (Callable_store_context (offset, _) | Callable_store_context_imm (offset, _))
+    when not (valid_context_write_offset offset || offset = 280) ->
+      invalid_arg "callable context write offset is outside the sealed context"
+  | Callable_store_context_imm (_, immediate) when not (signed_int32 immediate)
+    -> invalid_arg "callable context immediate must fit signed 32 bits"
   | Lock_binary_indirect (Imul, _, _, _) ->
       invalid_arg "LOCK requires memory ADD, SUB, AND, OR or XOR"
   | Load_indirect (_, _, offset) when not (valid_reference_offset offset) ->
       invalid_arg
-        "reference descriptor offset must be zero, eight, sixteen or \
-         twenty-four"
+        "reference descriptor offset must be aligned from zero through \
+         thirty-two"
   | Store_indirect_offset (_, offset, _)
     when not (valid_reference_offset offset) ->
       invalid_arg
-        "reference descriptor offset must be zero, eight, sixteen or \
-         twenty-four"
+        "reference descriptor offset must be aligned from zero through \
+         thirty-two"
   | (Load_frame (_, slot) | Store_frame (slot, _))
     when slot.frame_offset mod 8 <> 0 ->
       invalid_arg "qword frame access requires an aligned frame slot"
@@ -432,16 +612,18 @@ let validate = function
       invalid_arg "status site must be between 1 and 100000"
   | Load_context (_, offset) when not (valid_context_read_offset offset) ->
       invalid_arg
-        "private context read offset must be aligned from 0 through 184"
+        "private context read offset must be aligned from 0 through 272"
   | Store_context (offset, _) when not (valid_context_write_offset offset) ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96, 104, 120, 128 or 160"
+         88, 96, 104, 120, 128, 160, 208, 216, 224, 232, 240, 248, 256, 264 or \
+         272"
   | Store_context_imm (offset, _) when not (valid_context_write_offset offset)
     ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96, 104, 120, 128 or 160"
+         88, 96, 104, 120, 128, 160, 208, 216, 224, 232, 240, 248, 256, 264 or \
+         272"
   | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
@@ -454,6 +636,77 @@ let checked = function
 
 let signed bytes value =
   Encoding.field ~bytes ~range:Encoding.Signed value |> checked
+
+(* Probe downward before moving RSP. Every touched word lies inside the future
+   allocation. Preserve the original unrolled bytes through 65528; larger
+   frames use a bounded loop that also clobbers the caller-scratch RAX. *)
+let stack_probe_offsets bytes =
+  if bytes < 0 || bytes > 524280 then
+    invalid_arg "stack allocation outside 0..524280";
+  if bytes < 4096 then []
+  else
+    List.init
+      ((bytes + 4095) / 4096)
+      (fun index -> min bytes ((index + 1) * 4096))
+
+let stack_probe_plan offset =
+  Encoding.plan ~mode:Asm.Operand.Use64 ~form:test ~prefixes:[ 0x48 ]
+    ~modrm:0x84 ~sib:0x24
+    ~displacement:(signed 4 (Int64.of_int (-offset)))
+    ()
+  |> checked
+
+let stack_probe_plans bytes =
+  let offsets = stack_probe_offsets bytes in
+  if bytes <= 65528 then List.map stack_probe_plan offsets
+  else
+    let rax_immediate ~reg selected immediate =
+      Encoding.plan ~mode:Asm.Operand.Use64 ~form:selected ~prefixes:[ 0x48 ]
+        ~modrm:(0xc0 lor (reg lsl 3))
+        ~immediate:(signed 4 (Int64.of_int immediate))
+        ()
+      |> checked
+    in
+    (* OpCodes.DD:284/461/437/368/642 supplies MOV RM64,IMM32, TEST
+       RM64,R64, SUB/CMP RM64,IMM32 and JGE REL8. Asm.HC's ModR/M and SIB
+       rules encode [RSP+RAX] with scale=1, index=RAX and base=RSP. Starting
+       at -4096 and subtracting before signed JGE touches pages in descending
+       address order, stopping after the last complete page. RSP, argument,
+       context and nonvolatile registers remain intact throughout the loop. *)
+    let initialize = rax_immediate ~reg:0 store_immediate (-4096) in
+    let probe =
+      Encoding.plan ~mode:Asm.Operand.Use64 ~form:test ~prefixes:[ 0x48 ]
+        ~modrm:0x04 ~sib:0x04 ()
+      |> checked
+    in
+    let body =
+      [
+        probe;
+        rax_immediate ~reg:subtract_immediate.slash_value subtract_immediate
+          4096;
+        rax_immediate ~reg:compare_immediate.slash_value compare_immediate
+          (-(bytes / 4096 * 4096));
+      ]
+    in
+    let branch displacement =
+      Encoding.plan ~mode:Asm.Operand.Use64 ~form:jump_greater_equal_short
+        ~immediate:(signed 1 (Int64.of_int displacement))
+        ()
+      |> checked
+    in
+    let distance =
+      List.fold_left
+        (fun total plan -> total + Encoding.size plan)
+        (Encoding.size (branch 0))
+        body
+    in
+    let tail = if bytes mod 4096 = 0 then [] else [ stack_probe_plan bytes ] in
+    initialize :: (body @ (branch (-distance) :: tail))
+
+let stack_allocation_size bytes =
+  List.fold_left
+    (fun total plan -> total + Encoding.size plan)
+    7 (stack_probe_plans bytes)
 
 let plans instruction =
   validate instruction;
@@ -474,6 +727,8 @@ let plans instruction =
       ?immediate ()
   in
   let memory ?(prefixes = []) ?(wide = true) ~reg ~base displacement =
+    (* Keep even a neutral REX for byte stores/atomics: register numbers six
+       and seven name SIL/DIL with REX, but DH/BH without it. *)
     let rex =
       (if wide then 0x48 else 0x40)
       lor ((reg land 8) lsr 1)
@@ -489,11 +744,13 @@ let plans instruction =
     width <> Frame32 || extension <> Zero_extend
   in
   let store_prefixes width = if width = Frame16 then [ 0x66 ] else [] in
-  let context ~reg ?immediate displacement =
+  let context ?(base = 11) ~reg ?immediate displacement =
     one
-      ~prefixes:[ 0x49 lor ((reg land 8) lsr 1) ]
+      ~prefixes:[ 0x48 lor ((base land 8) lsr 3) lor ((reg land 8) lsr 1) ]
       ~modrm:
-        ((if displacement <= 127 then 0x43 else 0x83) lor ((reg land 7) lsl 3))
+        ((if displacement <= 127 then 0x40 else 0x80)
+        lor (base land 7)
+        lor ((reg land 7) lsl 3))
       ~displacement:
         (signed
            (if displacement <= 127 then 1 else 4)
@@ -501,6 +758,30 @@ let plans instruction =
       ?immediate ()
   in
   match instruction with
+  | Fild64 operand
+  | Fisttp64 operand
+  | Fld64 operand
+  | Fstp64 operand
+  | Fbinary64 (_, operand) ->
+      let base, offset =
+        match operand with
+        | X87_frame slot -> (5, slot.frame_offset)
+        | X87_stack slot -> (4, slot.offset)
+      in
+      (* The pinned backtick m64 form suppresses REX.W. No general registers
+         are exposed, so neither a REX extension nor a neutral REX is needed. *)
+      one
+        ~modrm:(0x80 lor (selected.slash_value lsl 3) lor base)
+        ?sib:(if base = 4 then Some 0x24 else None)
+        ~displacement:(signed 4 (Int64.of_int offset))
+        ()
+  | Fbinary_st0 (_, register)
+  | Fbinary_sti (_, register)
+  | Fbinary_pop (_, register)
+  | Fcomip register
+  | Ffree register ->
+      one ~opcode_patch:(Encoding.Add_low3 register.x87_index) ()
+  | Fincstp | Fchs | Fld_constant _ -> one ()
   | Mov_imm64 (destination, immediate) ->
       let destination = register_number destination in
       one
@@ -521,7 +802,12 @@ let plans instruction =
       memory ~reg:(register_number destination) ~base:4 slot.offset
   | Store_stack (slot, source) ->
       memory ~reg:(register_number source) ~base:4 slot.offset
-  | Alloc_stack frame | Free_stack frame ->
+  | Alloc_stack frame ->
+      stack_probe_plans frame.bytes
+      @ register ~reg:selected.slash_value ~rm:4
+          ~immediate:(signed 4 (Int64.of_int frame.bytes))
+          ()
+  | Free_stack frame ->
       register ~reg:selected.slash_value ~rm:4
         ~immediate:(signed 4 (Int64.of_int frame.bytes))
         ()
@@ -576,14 +862,23 @@ let plans instruction =
           (lock_prefix.opcode_bytes @ if width = Atomic16 then [ 0x66 ] else [])
         ~wide:(width = Atomic64) ~reg:(register_number source)
         ~base:(register_number base) 0
-  | Alloc_call_frame frame | Free_call_frame frame ->
+  | Alloc_call_frame frame ->
+      stack_probe_plans frame.call_bytes
+      @ register ~reg:selected.slash_value ~rm:4
+          ~immediate:(signed 4 (Int64.of_int frame.call_bytes))
+          ()
+  | Free_call_frame frame ->
       register ~reg:selected.slash_value ~rm:4
         ~immediate:(signed 4 (Int64.of_int frame.call_bytes))
         ()
   | Call displacement -> one ~immediate:(signed 4 displacement) ()
-  | Call_stack slot ->
-      (* CALL RM64 uses its implicit qword width without a REX prefix. *)
+  | Call_stack slot | Jump_stack slot ->
+      (* The pinned CALL form suppresses W; its JMP RM64 form retains W. *)
       one
+        ~prefixes:
+          (match instruction with
+          | Jump_stack _ -> [ 0x48 ]
+          | _ -> [])
         ~modrm:(0x84 lor (selected.slash_value lsl 3))
         ~sib:0x24
         ~displacement:(signed 4 (Int64.of_int slot.offset))
@@ -620,30 +915,42 @@ let plans instruction =
       register ~reg:selected.slash_value
         ~rm:(register_number destination)
         ?immediate ()
-  | Capture_status abi ->
+  | Capture_status abi | Callable_capture_status abi ->
       register
         ~reg:
           (match abi with
           | Windows_x64 -> 1
           | System_v_x64 -> 7)
-        ~rm:11 ()
-  | Source_arguments abi ->
-      register ~reg:11
+        ~rm:
+          (match instruction with
+          | Callable_capture_status _ -> 3
+          | _ -> 11)
+        ()
+  | Source_arguments abi | Callable_source_arguments abi ->
+      register
+        ~reg:
+          (match instruction with
+          | Callable_source_arguments _ -> 3
+          | _ -> 11)
         ~rm:
           (match abi with
           | Windows_x64 -> 1
           | System_v_x64 -> 7)
         ()
-  | Compiler_option_arguments abi ->
+  | Compiler_option_arguments abi | Callable_compiler_option_arguments abi ->
       (* System V stages the index and operation in RSI/RDX before passing the
-         private R11 context in RDI. Every MOV uses its own shared plan. *)
+         legacy R11 or callable RBX context in RDI. Each MOV has its own plan. *)
       let arguments =
         match abi with
         | Windows_x64 -> []
         | System_v_x64 -> register ~reg:2 ~rm:6 () @ register ~reg:8 ~rm:2 ()
       in
       arguments
-      @ register ~reg:11
+      @ register
+          ~reg:
+            (match instruction with
+            | Callable_compiler_option_arguments _ -> 3
+            | _ -> 11)
           ~rm:
             (match abi with
             | Windows_x64 -> 1
@@ -664,6 +971,21 @@ let plans instruction =
   | Jump_below displacement
   | Jump_less displacement
   | Jump_overflow displacement -> one ~immediate:(signed 4 displacement) ()
+  | Callable_store_status_kind immediate ->
+      context ~base:3 ~reg:0 ~immediate:(signed 4 (Int64.of_int immediate)) 0
+  | Callable_store_status_site immediate ->
+      context ~base:3 ~reg:0 ~immediate:(signed 4 (Int64.of_int immediate)) 8
+  | Callable_load_context (destination, displacement) ->
+      context ~base:3 ~reg:(register_number destination) displacement
+  | Callable_store_context (displacement, source) ->
+      context ~base:3 ~reg:(register_number source) displacement
+  | Callable_store_context_imm (displacement, immediate) ->
+      context ~base:3 ~reg:0
+        ~immediate:(signed 4 (Int64.of_int immediate))
+        displacement
+  | Callable_test_budget ->
+      context ~base:3 ~reg:selected.slash_value ~immediate:(signed 1 0L) 280
+  | Callable_dec_budget -> context ~base:3 ~reg:selected.slash_value 280
   | Store_status_kind immediate ->
       context ~reg:0 ~immediate:(signed 4 (Int64.of_int immediate)) 0
   | Store_status_site immediate ->
@@ -684,10 +1006,14 @@ let plans instruction =
   | Setcc (_, destination) ->
       let destination = register_number destination in
       one
-        ~prefixes:(if destination >= 8 then [ 0x41 ] else [])
+        ~prefixes:
+          (if destination >= 4 then [ 0x40 lor ((destination land 8) lsr 3) ]
+           else [])
         ~modrm:(0xc0 lor (destination land 7))
         ()
   | Movzx8 (destination, source) ->
+      (* The qword destination forces REX.W, also selecting SIL/DIL rather
+         than DH/BH when source register numbers six/seven are used. *)
       register
         ~reg:(register_number destination)
         ~rm:(register_number source) ()

@@ -133,8 +133,8 @@ let validate_fact ~table ~compiler_option_mask entry global (ast : ast_global) =
             Sema.Global_resolution.make_declaration ~compiler_option_mask
               ~global ~binding ())
 
-let declaration_facts ~table ~compiler_option_mask ~declarations ~globals
-    module_ =
+let declaration_facts ?compiler_options ~table ~compiler_option_mask
+    ~declarations ~globals module_ =
   let entries = global_entries declarations in
   let globals = Sema.Global_type_resolution.globals globals in
   let ast = ast_globals module_ in
@@ -142,7 +142,15 @@ let declaration_facts ~table ~compiler_option_mask ~declarations ~globals
     match (entries, globals, ast) with
     | [], [], [] -> Ok (List.rev facts_rev)
     | entry :: entry_rest, global :: global_rest, ast :: ast_rest -> (
-        match validate_fact ~table ~compiler_option_mask entry global ast with
+        let selected =
+          match compiler_options with
+          | None -> Ok compiler_option_mask
+          | Some options -> options ast.name
+        in
+        match
+          Result.bind selected (fun compiler_option_mask ->
+              validate_fact ~table ~compiler_option_mask entry global ast)
+        with
         | Error _ as error -> error
         | Ok fact -> pair (fact :: facts_rev) entry_rest global_rest ast_rest)
     | [], _, _ | _, [], _ | _, _, [] ->
@@ -154,7 +162,8 @@ let semantic_mode = function
   | Frontend.Preprocessor.Jit -> Sema.Global_resolution.Jit
   | Frontend.Preprocessor.Aot -> Sema.Global_resolution.Aot
 
-let resolve ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
+let resolve ?compiler_options
+    ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
     ~declarations ~globals ~compilation_mode module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table parent) then
@@ -163,8 +172,8 @@ let resolve ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
     Error "semantic global records require a module declaration collection"
   else
     match
-      declaration_facts ~table ~compiler_option_mask ~declarations ~globals
-        module_
+      declaration_facts ?compiler_options ~table ~compiler_option_mask
+        ~declarations ~globals module_
     with
     | Error _ as error -> error
     | Ok facts ->

@@ -1,0 +1,19 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "24c3d0a3acaadd6ccfdc417ae3dbc36e665795a2729c2e269bedc25d7e8242a4",
+  "boot_iso_sha256": "88cb9ec10dc83cb8db12e59390175206d6120f679b4245162a4eb7cea585a210",
+  "capture_sha256": "7c3c18bf197bb2b94e8001252990c4047b02b521f676f84ec4f90e9b9a78b107",
+  "fields": {
+    "UNINITIALIZED_SIZE": 0,
+    "VOID_WARNINGS": 1,
+    "VOID_SIZE": 0,
+    "INTEGER_WARNINGS": 0,
+    "REFERENCE_WARNINGS": 0,
+    "GLOBAL_CALLS": 3,
+    "STATIC_CALLS_BEFORE": 4,
+    "STATIC_SUM": 42,
+    "STATIC_CALLS_AFTER": 4,
+    "TARGET": 7
+  },
+  "scope": "Repeated original JIT persistent U0 declarations and initializer effects. Does not establish original AOT initializer behavior."
+}

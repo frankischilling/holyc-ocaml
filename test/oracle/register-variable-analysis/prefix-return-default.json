@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "7d1e3bd19041ebb2c01fa5003cbc78c064f35cd5ac56365df2eced6b42b2e05a",
+  "boot_payload_sha256": "f64dc6de6a139b61a3d4ad761c9148378ae41e878716ca4ab4c0a29f87762b0a",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "107749dbb21b88e284b4d1d0ecfb91857b2ffcec40c7ee73fb31ab8bd5c118cb",
+  "boot_iso_sha256": "964fb07d69c01950144460afb0e933e3e5645ff0fda5abc96372922ea04069f4",
+  "fields": {
+    "PIN": "128",
+    "PDEC": "-129",
+    "LIN": "256",
+    "LDEC": "254",
+    "ERR": "0"
+  },
+  "scope": "Repeated original retained default initializer observations for directly returned prefix updates."
+}

@@ -1,0 +1,15 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "db89bba0f1c6df9ee117f244e5e00ba7d106249456978593a58352509ba43030",
+  "capture_sha256": "5a82e29f217a0bde21e1cafbd7faa011716a8865029f8a5e67ee5867d5328da7",
+  "fields": {
+    "START": 0,
+    "CONSTANT": 0,
+    "INTEGER": 1,
+    "VOID": 3,
+    "STATIC": 4,
+    "COMPILE_ERRORS": 0
+  },
+  "scope": "Original AOT parser warning counts for a direct I64 function call with one literal argument, observed in two complete runs in the same boot.",
+  "boot_iso_sha256": "cc6e49c46271118c1dc4a4c9b2bdb52f9d290c22052429742a9068bea10f8cdc"
+}

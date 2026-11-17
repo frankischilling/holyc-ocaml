@@ -21,6 +21,7 @@ val runtime_dimension_work : runtime_dimension_proposal -> int
 type t
 type declared_dimension
 type declared_global
+type global_aggregate_allocation
 type declared_function
 
 val declare_function :
@@ -44,6 +45,7 @@ val declared_function_owns_namespace :
   declared_function -> Declaration_collection.namespace -> bool
 
 val declare_global :
+  ?aggregate_allocation:global_aggregate_allocation ->
   ?callback:
     Frontend.Parser.completed_callback_signature
     * Function_type_resolution.function_pointer ->
@@ -62,6 +64,21 @@ val declared_global_source :
   declared_global -> Frontend.Parser.global_publication
 
 val declared_global_type : declared_global -> Type_reference.t
+
+val declared_global_aggregate :
+  declared_global -> global_aggregate_allocation option
+
+val select_global_aggregate :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  publication:Declaration_collection.publication ->
+  selected_aggregate:Source_type_reference.selected_aggregate ->
+  t ->
+  (global_aggregate_allocation, string) result
+
+val global_aggregate_record : global_aggregate_allocation -> t
+val global_aggregate_size : global_aggregate_allocation -> int64
+val global_aggregate_type : global_aggregate_allocation -> Type.t
 
 val declared_global_callback_pointer :
   declared_global -> Function_type_resolution.function_pointer option
@@ -130,6 +147,7 @@ val rebind_primitive :
     spelling lookup. *)
 
 val published_scalar :
+  ?aggregate_allocation:global_aggregate_allocation ->
   ?dimensions:declared_dimension list ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
@@ -151,6 +169,113 @@ type compiler_positions
 type static_allocation
 type automatic_aggregate_allocation
 type aggregate_reference_visibility
+type aggregate_assignment_visibility
+type aggregate_assignment_preparation
+type aggregate_index_visibility
+
+val capture_aggregate_index_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Frontend.Parser.index_selection ->
+  t list ->
+  (aggregate_index_visibility, string) result
+
+val aggregate_index_element_size :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  ?function_source:Frontend.Parser.function_publication ->
+  source:Frontend.Ast.expression ->
+  element_type:Type.t ->
+  aggregate_index_visibility ->
+  int64 option
+
+val prepare_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Frontend.Parser.assignment_selection ->
+  t list ->
+  (aggregate_assignment_preparation, string) result
+
+val capture_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  ?preparation:aggregate_assignment_preparation ->
+  Frontend.Parser.assignment_selection ->
+  t list ->
+  (aggregate_assignment_visibility, string) result
+
+val complete_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  header:Frontend.Parser.completed_function_header ->
+  body:Frontend.Ast.function_definition ->
+  t list ->
+  aggregate_assignment_visibility ->
+  (unit, string) result
+
+val aggregate_assignment_value_type :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  ?function_source:Frontend.Parser.function_publication ->
+  source:Frontend.Ast.expression ->
+  source_type:Type.t ->
+  aggregate_assignment_visibility ->
+  Type.t option
+(** Assignment permission follows the original lookahead endpoint; integer
+    storage width follows the original function or top-level command completion.
+    Later backing cannot authorize an earlier ordinary endpoint. *)
+
+val complete_top_level_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  command:Frontend.Parser.completed_command ->
+  t list ->
+  aggregate_assignment_visibility ->
+  (unit, string) result
+
+(** Complete an original top-level assignment at its current command callback. A
+    function assignment, another command or repeated completion rejects. *)
+
+val complete_fragment_aggregate_assignment_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  t list ->
+  aggregate_assignment_visibility ->
+  (unit, string) result
+
+(** Retain optimization metadata at the original completed expression callback
+    for initializers, defaults, dimensions, offsets, metadata, switch endpoints
+    and internal bindings. Unrelated expressions do not change the proof. *)
+
+val complete_fragment_aggregate_index_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  aggregate_index_visibility ->
+  (unit, string) result
+
+(** Mark an original index contained in the same current expression fragment.
+    This retains its earlier stride observation and grants no object extent. *)
+
+val aggregate_fragment_assignment_value_type :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  source:Frontend.Ast.expression ->
+  source_type:Type.t ->
+  aggregate_assignment_visibility ->
+  Type.t option option
+
+(** [None] means no original fragment completion exists. [Some None] means the
+    completed original fragment cannot supply this assignment's scalar view. *)
+
+val aggregate_fragment_index_element_size :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  source:Frontend.Ast.expression ->
+  element_type:Type.t ->
+  aggregate_index_visibility ->
+  int64 option
 
 val create_compiler_positions :
   sources:Common.Source_manager.t -> compiler_positions
@@ -170,6 +295,18 @@ val compiler_position_dependencies : compiler_position -> aggregate_offset list
 
 val compiler_position_runtime_dependencies :
   compiler_position -> runtime_dimension_proposal list
+
+val capture_static_allocation :
+  ?automatic_aggregate:automatic_aggregate_allocation ->
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  publication:Declaration_collection.publication ->
+  dimensions:declared_dimension list ->
+  Frontend.Parser.function_local_allocation ->
+  (static_allocation, string) result
+(** Retain original static metadata during its live callback, including AOT
+    source bodies without a task function record. This supplies no runtime
+    allocation, executable value or copy authority. *)
 
 val record_local_allocation :
   ?automatic_aggregate:automatic_aggregate_allocation ->
@@ -208,7 +345,25 @@ val static_allocation_publication :
 val static_allocation_receipt :
   static_allocation -> Frontend.Parser.function_local_allocation
 
+val static_allocation_compiler_options : static_allocation -> int64
+(** Original option mask reached at this local allocation callback. *)
+
+val observe_static_initializer_options :
+  table:Symbol_table.t ->
+  static_allocation ->
+  Frontend.Parser.static_initializer_preparation ->
+  (unit, string) result
+(** Capture the live option mask after an original scalar expression is parsed.
+    Foreign allocations, expired callbacks and repeated observations reject. *)
+
+val static_initializer_compiler_options :
+  static_allocation -> Frontend.Ast.expression -> int64 option
+(** Read metadata for the exact original expression occurrence. *)
+
 val static_allocation_dimensions : static_allocation -> declared_dimension list
+
+val static_allocation_aggregate :
+  static_allocation -> automatic_aggregate_allocation option
 
 val record_function_position :
   compiler_positions ->
@@ -230,6 +385,10 @@ val aggregate_offset_work : aggregate_offset -> int
 
 val begin_aggregate :
   ?compiler_positions:compiler_positions ->
+  ?backing_record:t ->
+  ?previous_record:t ->
+  ?initializer_records:(Type.t -> t option) ->
+  ?selected_aggregate:Function_type_resolution.selected_aggregate_resolver ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
   Declaration_collection.publication ->
@@ -255,7 +414,71 @@ val select_aggregate_base :
 type aggregate_member
 type aggregate_field
 
+type member_metadata_value =
+  | Metadata_word of int64
+  | Metadata_string of string
+
+type member_metadata
+
+val member_metadata_source :
+  member_metadata -> Frontend.Ast.aggregate_member_metadata
+
+val member_metadata_value : member_metadata -> member_metadata_value
+val member_metadata_work : member_metadata -> int
+val member_metadata_phase : member_metadata -> Frontend.Parser.aggregate_phase
+val member_metadata_table : member_metadata -> Symbol_table.t
+
+val member_metadata_namespace :
+  member_metadata -> Declaration_collection.namespace
+
+val aggregate_field_metadata : aggregate_field -> member_metadata list
+
+val aggregate_field_metadata_find :
+  aggregate_field -> string -> member_metadata option
+(** Retain the original member's prepended metadata chain. Duplicate names
+    return the last source declaration. Words contain no data or executable
+    ownership. *)
+
 val aggregate_fields : t -> aggregate_field list
+val aggregate_initializer_size : t -> int64
+val aggregate_initializer_has_members : t -> bool
+val aggregate_initializer_is_complete : t -> bool
+val aggregate_initializer_is_definition : t -> bool
+val aggregate_field_type : aggregate_field -> Type.t
+val aggregate_field_type_reference : aggregate_field -> Type_reference.t
+
+val aggregate_field_callback_signature :
+  aggregate_field ->
+  (Type_reference.t * Function_type_resolution.function_pointer) option
+
+val aggregate_field_offset : aggregate_field -> int64
+val aggregate_field_placement_size : aggregate_field -> int64
+val aggregate_field_counts : aggregate_field -> int64 list
+val aggregate_field_record : aggregate_field -> t option
+
+val aggregate_field_callback :
+  aggregate_field -> Frontend.Ast.function_pointer_declarator option
+
+val aggregate_reached_field :
+  t -> string -> (Symbol.t * int * aggregate_field) option
+(** Search reached direct members before the original attached base snapshot.
+    Retain the declaring identity, inheritance depth and original field. *)
+
+val aggregate_initializer_backing :
+  t -> (Type_reference.t * t option) option option
+
+val aggregate_initializer_record : t -> Type.t -> t option
+(** Read the reached record for the exact canonical class identity. The source
+    declaration ledger supplies this metadata lookup; it grants no allocation or
+    execution authority. The initializer consumer must retain its original
+    table, namespace and class selection. *)
+
+val aggregate_record_matches : owner:t -> type_:Type.t -> t -> bool
+
+(** Match original class metadata by physical table, namespace and canonical
+    class identity. These reads retain source-selected initializer inputs and
+    grant no storage or executable authority. *)
+
 val aggregate_field_name : aggregate_field -> Frontend.Ast.identifier
 
 val aggregate_field_element_size :
@@ -290,13 +513,28 @@ val select_automatic_aggregate :
   Frontend.Parser.function_local_allocation ->
   t ->
   (automatic_aggregate_allocation, string) result
-(** Capture the selected class size after the original automatic local's name
-    and dimension lookahead. The exact function, local occurrence, selected
-    class identity and current source record must agree. Pointers and statics
+(** Capture the selected class size after the original automatic or static
+    local's name and dimension lookahead. The exact function, local occurrence,
+    selected class identity and current source record must agree. Pointers
     reject. A zero class size is retained and cannot be enlarged by later class
     completion. The receipt does not grant storage or executable authority. *)
 
+val automatic_aggregate_record : automatic_aggregate_allocation -> t
+
+val automatic_aggregate_owns :
+  automatic_aggregate_allocation ->
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  bool
+
 val automatic_aggregate_size : automatic_aggregate_allocation -> int64
+val automatic_aggregate_type : automatic_aggregate_allocation -> Type.t
+
+val automatic_aggregate_runtime_dependencies :
+  automatic_aggregate_allocation -> runtime_dimension_proposal list
+
+val automatic_aggregate_offset_dependencies :
+  automatic_aggregate_allocation -> aggregate_offset list
 
 val automatic_aggregate_source :
   automatic_aggregate_allocation -> Frontend.Parser.function_local_allocation
@@ -324,11 +562,12 @@ val capture_aggregate_reference_visibility :
   Frontend.Parser.reference_selection ->
   t list ->
   (aggregate_reference_visibility, string) result
-(** Record which original class definitions were complete at a live identifier
-    read. Every supplied record must have its current completed definition in
-    the reference's table, namespace and parser environment. Forward
-    declarations cannot establish completion. Later definitions cannot enlarge
-    this set. *)
+(** Record completed class identities and reached ordinary class bodies at a
+    live identifier read. Each record must be current in the original table,
+    namespace and parser environment. Forward declarations cannot establish
+    completion. Member-name observations also retain reached original classes
+    hidden by a later same-name definition: the operand's canonical type still
+    selects the old class. Later phases cannot enlarge the saved snapshots. *)
 
 val aggregate_reference_allows :
   table:Symbol_table.t ->
@@ -341,12 +580,44 @@ val aggregate_reference_allows :
     as complete there. Foreign owners and missing identities return [false].
     This is a visibility limit and grants no member layout or storage. *)
 
+val aggregate_reference_is_member : aggregate_reference_visibility -> bool
+
+val aggregate_reference_owns :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  identifier:Frontend.Ast.identifier ->
+  aggregate_reference_visibility ->
+  bool
+
+val aggregate_reference_completed_record :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  identifier:Frontend.Ast.identifier ->
+  symbol:Symbol.t ->
+  aggregate_reference_visibility ->
+  t option
+(** Read completed member metadata captured by this exact original member-name
+    observation. It grants neither storage nor execution authority. *)
+
+val aggregate_reference_partial :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  identifier:Frontend.Ast.identifier ->
+  symbol:Symbol.t ->
+  aggregate_reference_visibility ->
+  t option
+(** The immutable ordinary class body reached at this exact live identifier.
+    Later phases cannot add fields to this snapshot. *)
+
 val advance_aggregate :
   ?members:
     (Frontend.Parser.aggregate_phase -> (aggregate_member, string) result) ->
   ?callbacks:
     (Frontend.Ast.function_pointer_declarator ->
     Frontend.Parser.completed_callback_signature option) ->
+  ?callback_types:
+    (Frontend.Ast.function_pointer_declarator ->
+    (Type_reference.t * Function_type_resolution.function_pointer) option) ->
   ?bases:(Frontend.Parser.aggregate_phase -> (inherited_base, string) result) ->
   dimensions:(Frontend.Ast.array_dimension -> declared_dimension option) ->
   aggregate_progress ->
@@ -418,6 +689,14 @@ val aggregate_value_header_source :
   (Frontend.Ast.aggregate_definition * Symbol.t) option
 (** Read the exact completed definition and canonical class identity from this
     namespace's immutable metadata. This grants no member layout or storage. *)
+
+val aggregate_value_header_base :
+  table:Symbol_table.t ->
+  scope:Symbol_table.scope ->
+  aggregate_value_header ->
+  (Frontend.Ast.aggregate_definition * Symbol.t) option
+(** Original selected base identity, including forward bases, from this exact
+    retained completed definition. This metadata grants no object layout. *)
 
 type aggregate_import
 
@@ -518,6 +797,57 @@ type query_role = Query_source.role =
   | Defined_operand
 
 type query_read
+type runtime_member_metadata
+
+val begin_runtime_member_metadata :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (runtime_member_metadata, string) result
+
+val runtime_member_metadata_is_current : runtime_member_metadata -> bool
+
+val runtime_member_metadata_dimension_dependencies :
+  runtime_member_metadata -> runtime_dimension_proposal list
+
+val runtime_member_metadata_offset_dependencies :
+  runtime_member_metadata -> aggregate_offset list
+
+val finish_runtime_member_metadata :
+  runtime_member_metadata ->
+  value:int64 ->
+  work:int ->
+  (member_metadata, string) result
+
+val member_metadata_positions :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  ((Frontend.Ast.expression * compiler_position) list, string) result
+
+val member_metadata_dependencies :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (runtime_dimension_proposal list * aggregate_offset list, string) result
+
+val prepare_aggregate_member_metadata :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  max_work:int ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (member_metadata, string) result * int
+(** Prepare a string or closed numeric expression after its original member
+    placement and before its delimiter. Failures consume their reached numeric
+    work and cannot retry the same phase. Live expressions need runtime support.
+*)
 
 val aggregate_offset_is_current :
   table:Symbol_table.t ->
@@ -762,3 +1092,11 @@ val resolve_default_position_reads :
   (Frontend.Ast.expression * Frontend.Parser.compiler_position_source option)
   list ->
   ((Frontend.Ast.expression * compiler_position) list, string) result
+
+val static_initializer_aggregate_matches :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  publication:Declaration_collection.publication ->
+  source:Frontend.Parser.function_local_allocation ->
+  automatic_aggregate_allocation ->
+  bool

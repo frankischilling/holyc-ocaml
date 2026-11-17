@@ -439,7 +439,7 @@ let tests =
            {|#exe {I64 F(){static I64 N=40;return ++N;}F();}#exe {StreamPrint("%d;",F());}|});
       Alcotest.test_case "stream blocks retain mutated literal sites" `Quick
         (generates
-           {|#exe {I64 F(){U8 *p="(";++*p;return *p;}F();}#exe {StreamPrint("%d;",F());}|});
+           {|#exe {I64 F(){U8 *p="(";++(*p);return *p;}F();}#exe {StreamPrint("%d;",F());}|});
     ]
 
 let implicit_phase_after_abort () =

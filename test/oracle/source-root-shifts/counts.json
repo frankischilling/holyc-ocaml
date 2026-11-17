@@ -1,0 +1,22 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "6f317befcfd3d11de1fefebde04a0e79c054e0c5d836cdd3262437f6d1cf37e7",
+  "capture_sha256": "6a080a207feed45ac053243816dcd8bb533405b43978099ec91fa9b4f43f34ff",
+  "boot_iso_sha256": "bd8e8e39f431b6089fccbc8c7bf15beef987e69cb9eacf9a0847458d2b4ba93c",
+  "fields": {
+    "JIT_NEG": "-9223372036854775808",
+    "JIT_ZERO": "7",
+    "JIT_C63": "-9223372036854775808",
+    "JIT_C64": "7",
+    "JIT_C65": "14",
+    "JIT_C128": "7",
+    "COMPILE_ERRORS": "0",
+    "AOT_NEG": "-9223372036854775808",
+    "AOT_ZERO": "7",
+    "AOT_C63": "-9223372036854775808",
+    "AOT_C64": "7",
+    "AOT_C65": "14",
+    "AOT_C128": "7"
+  },
+  "scope": "Repeated original JIT and compiled BIN-load source initializer shift counts within one boot."
+}

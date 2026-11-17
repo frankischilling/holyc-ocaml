@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "bc8c2612f9f471af4604b6fe586eb29261bd7bd4edf5482f8c628ae7b9e9d0fb",
+  "boot_payload_sha256": "88b3ff809bf60873da0bc0116dedd0ce3ed3285d0f8d5d7e50cf08ab0e10a0db",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "34aa3bdeb9453e017879e7e9ba21d4deca6ce7056cc506635225dc59cdcb4558",
+  "boot_iso_sha256": "1f41cc96bd69206b27ba5810ebb37dde94b18cff2e702eb0f888b24c392c1cb8",
+  "fields": {
+    "J_S16": "-32768",
+    "J_U16": "32767",
+    "J_S32": "-2147483648",
+    "J_U32": "2147483647",
+    "ERR": "0",
+    "A_S16": "-32768",
+    "A_U16": "32767",
+    "A_S32": "-2147483648",
+    "A_U32": "2147483647"
+  },
+  "scope": "Repeated original observations of parameter compound division. The stored source omits trailing spaces used to pad the boot payload."
+}

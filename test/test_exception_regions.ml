@@ -521,15 +521,18 @@ let reclassify_header fixture target change =
     (List.map Records.classified_declaration_state originals)
   |> require_ok Fun.id
 
+let copied_header_declaration original ~return_type ~signature =
+  Headers.make_function
+    ~symbol:(Headers.function_symbol original)
+    ~scope:(Headers.function_scope original)
+    ~item_index:(Headers.function_item_index original)
+    ~return_type ~signature
+    ~parameter_bindings:(Headers.function_parameter_bindings original)
+    ~variadic_bindings:(Headers.function_variadic_bindings original)
+
 let copied_checked_header fixture original ~return_type ~signature =
   let declaration =
-    Headers.make_function
-      ~symbol:(Headers.function_symbol original)
-      ~scope:(Headers.function_scope original)
-      ~item_index:(Headers.function_item_index original)
-      ~return_type ~signature
-      ~parameter_bindings:(Headers.function_parameter_bindings original)
-      ~variadic_bindings:(Headers.function_variadic_bindings original)
+    copied_header_declaration original ~return_type ~signature
     |> require_ok Fun.id
   in
   let parent =
@@ -574,52 +577,61 @@ let same_symbol_cannot_replace_header_syntax () =
           copied_checked_header fixture original
             ~return_type:(Headers.function_return_type previous)
             ~signature:(Headers.function_signature original));
-      reject_change
-        "same symbol cannot reconstruct original parameter AST children"
-        (fun original ->
-          let signature = Headers.function_signature original in
-          let parameters =
-            List.map
-              (fun parameter ->
-                let source : Ast.function_parameter =
-                  Headers.parameter_source parameter |> Option.get
-                in
-                let copied_source : Ast.function_parameter =
-                  Ast.make_function_parameter
-                    ~register_qualifiers:source.register_qualifiers
-                    ~type_specifier:source.type_specifier
-                    ~pointer_layers:source.pointer_layers ~name:source.name
-                    ~function_pointer:source.function_pointer
-                    ~default:source.default ~delimiter:source.delimiter
-                    ~location:source.location
-                in
-                Headers.make_parameter ~source:copied_source
-                  ~index:(Headers.parameter_index parameter)
-                  ~origin:(Headers.parameter_origin parameter)
-                  ~register_requests:
-                    (Headers.parameter_register_requests parameter)
-                  ?name:(Headers.parameter_name parameter)
-                  ?name_origin:(Headers.parameter_name_origin parameter)
-                  ~type_reference:(Headers.parameter_type_reference parameter)
-                  ~declarator_kind:(Headers.parameter_declarator_kind parameter)
-                  ~default:(Headers.parameter_default parameter)
-                  ?delimiter_origin:
-                    (Headers.parameter_delimiter_origin parameter)
-                  ()
-                |> require_ok Fun.id)
-              (Headers.signature_parameters signature)
-          in
-          let copied =
-            Headers.make_signature
-              ~opening_origin:(Headers.signature_opening_origin signature)
-              ~parameters
-              ?closing_origin:(Headers.signature_closing_origin signature)
-              ()
-            |> require_ok Fun.id
-          in
-          copied_checked_header fixture original
+      let reject_copied_parameter_children original =
+        let signature = Headers.function_signature original in
+        let parameters =
+          List.map
+            (fun parameter ->
+              let source : Ast.function_parameter =
+                Headers.parameter_source parameter |> Option.get
+              in
+              let copied_source : Ast.function_parameter =
+                Ast.make_function_parameter
+                  ~register_qualifiers:source.register_qualifiers
+                  ~type_specifier:source.type_specifier
+                  ~pointer_layers:source.pointer_layers ~name:source.name
+                  ~function_pointer:source.function_pointer
+                  ~default:source.default ~delimiter:source.delimiter
+                  ~location:source.location
+              in
+              Headers.make_parameter ~source:copied_source
+                ~index:(Headers.parameter_index parameter)
+                ~origin:(Headers.parameter_origin parameter)
+                ~register_requests:
+                  (Headers.parameter_register_requests parameter)
+                ?name:(Headers.parameter_name parameter)
+                ?name_origin:(Headers.parameter_name_origin parameter)
+                ~type_reference:(Headers.parameter_type_reference parameter)
+                ~declarator_kind:(Headers.parameter_declarator_kind parameter)
+                ~default:(Headers.parameter_default parameter)
+                ?delimiter_origin:(Headers.parameter_delimiter_origin parameter)
+                ()
+              |> require_ok Fun.id)
+            (Headers.signature_parameters signature)
+        in
+        let copied =
+          Headers.make_signature
+            ~opening_origin:(Headers.signature_opening_origin signature)
+            ~parameters
+            ?closing_origin:(Headers.signature_closing_origin signature)
+            ()
+          |> require_ok Fun.id
+        in
+        match
+          copied_header_declaration original
             ~return_type:(Headers.function_return_type original)
-            ~signature:copied))
+            ~signature:copied
+        with
+        | Error message ->
+            Alcotest.(check string)
+              "copied parameter AST children reject before header resolution"
+              "semantic parameter binding has another original source parameter"
+              message
+        | Ok _ ->
+            Alcotest.fail
+              "same symbol reconstructed original parameter AST children"
+      in
+      reject_copied_parameter_children selected)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let retained_task_headers () =

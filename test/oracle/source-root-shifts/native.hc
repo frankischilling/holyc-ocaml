@@ -1,0 +1,6 @@
+U0 POOut(U8 *s) {while (*s) OutU8(0xE9,*s++);}
+U0 POValue(U8 *name,I64 value) {U8 buf[80];StrPrint(buf,"%s=%d\n",name,value);POOut(buf);}
+I64 RJN=7,RJNeg=-8;U64 RJU=-8;I64 RJLeft=RJN<<1,RJRight=RJNeg>>1,RJUnsigned=RJU>>1,RJ64=RJN<<64,RJ65=RJN<<65;
+POValue("JIT_LEFT",RJLeft);POValue("JIT_RIGHT",RJRight);POValue("JIT_UNSIGNED",RJUnsigned);POValue("JIT_64",RJ64);POValue("JIT_65",RJ65);
+U8 *RSSource="#include \"/Kernel/KernelA.HH\"\nI64 RSN=7,RSNeg=-8;U64 RSU=-8;I64 RSLeft=RSN<<1,RSRight=RSNeg>>1,RSUnsigned=RSU>>1,RS64=RSN<<64,RS65=RSN<<65;public I64 RSReadLeft(){return RSLeft;}public I64 RSReadRight(){return RSRight;}public I64 RSReadUnsigned(){return RSUnsigned;}public I64 RSRead64(){return RS64;}public I64 RSRead65(){return RS65;}\n";
+FileWrite("B:/RSSHIFT.HC",RSSource,StrLen(RSSource));I64 RSErrors=Cmp("B:/RSSHIFT.HC");POValue("COMPILE_ERRORS",RSErrors);if(!RSErrors){Load("B:/RSSHIFT.BIN");ExePrint("extern I64 RSReadLeft();extern I64 RSReadRight();extern I64 RSReadUnsigned();extern I64 RSRead64();extern I64 RSRead65();POValue(\"LEFT\",RSReadLeft());POValue(\"RIGHT\",RSReadRight());POValue(\"UNSIGNED\",RSReadUnsigned());POValue(\"64\",RSRead64());POValue(\"65\",RSRead65());");}POOut("POINTER_DONE\n");

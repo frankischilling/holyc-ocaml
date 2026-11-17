@@ -7,6 +7,7 @@ type t = {
   root_ : Typed.top_level_root_result;
   globals_ : Integer_globals.t;
   type_ : Sema.Type.t;
+  native_f64_source_ : bool;
   span_ : Common.Span.t;
 }
 
@@ -15,9 +16,15 @@ let typed value = value.typed_
 let root value = value.root_
 let globals value = value.globals_
 let type_ value = value.type_
+let native_f64_source value = value.native_f64_source_
 let span value = value.span_
 
-let create_with_globals globals typed =
+let convert_native_word destination bits =
+  if destination.native_f64_source_ then
+    Common.Binary64_conversion.to_signed_word bits
+  else bits
+
+let create_with_globals ?(native_numeric = false) globals typed =
   let ( let* ) = Result.bind in
   let* root_ =
     match
@@ -42,6 +49,10 @@ let create_with_globals globals typed =
       ~pointer_depth:0
   in
   let value = Typed.top_level_root_value root_ in
+  let native_f64_source_ =
+    Option.fold ~none:false ~some:Sema.Type.is_f64
+      (Typed.result_value_type value)
+  in
   let* () =
     if
       Option.is_some (Integer_scalar_storage.of_type type_)
@@ -51,8 +62,9 @@ let create_with_globals globals typed =
         | _ -> false)
       && Option.fold ~none:false
            ~some:(fun type_ ->
-             Option.is_some (Integer_scalar_storage.of_type type_))
-           (Typed.result_type value)
+             Option.is_some (Integer_scalar_storage.of_type type_)
+             || (native_numeric && Sema.Type.is_f64 type_))
+           (Typed.result_value_type value)
     then Ok ()
     else
       Error
@@ -67,8 +79,13 @@ let create_with_globals globals typed =
       root_;
       globals_;
       type_;
+      native_f64_source_ = native_numeric && native_f64_source_;
       span_ = receipt.dimension_opening.span;
     }
 
 let create ~task_view =
   create_with_globals (Integer_globals.dimension_context task_view)
+
+let create_native ~task_view =
+  create_with_globals ~native_numeric:true
+    (Integer_globals.dimension_context task_view)

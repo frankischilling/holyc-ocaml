@@ -171,8 +171,12 @@ let pointer_width_matrix =
 
 let pointer_faults =
   [
-    ( "whole class prefix store removes pointer ownership",
-      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;U64 old=o;o=old;return *o.p;}F();|},
+    ( "an earlier retained string consumer rejects a later escaped local",
+      {|extern U0 Print(U8 *fmt,...);U0 Show(U8 *p){Print("%s",p);}class Box{U8 *p;};Box saved;U0 Save(){U8 bytes[2];bytes[0]=65;bytes[1]=0;saved.p=bytes;}Save();Print("kept");Show(saved.p);|},
+      "HCIRVM0018",
+      "kept" );
+    ( "internal storage cast store removes pointer ownership",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;U64 old=o;o(I64)=old;return *o.p;}F();|},
       "HCIRVM0018",
       "" );
     ( "a later activation cannot revive a saved local pointer",
@@ -387,17 +391,12 @@ let faults =
 
 let unsupported =
   [
-    ("zero-size automatic object", {|class Box{};I64 F(){Box o;return 42;}F();|});
     ( "automatic aggregate pointer array",
       {|class Box{U8 byte;};I64 F(){Box *items[2];return 42;}F();|} );
-    ("persistent aggregate", {|class Box{U8 byte;};Box object;42;|});
     ( "whole-object copy",
       {|class Box{U8 byte;};I64 F(){Box a,b=a;return 42;}F();|} );
     ( "class pointer return",
       {|class Box{U8 byte;};Box *Get(Box *p){return p;}I64 F(){Box o;return Get(&o)->byte;}F();|}
-    );
-    ( "callback field has no executable owner",
-      {|class Box{I64 (*call)(I64 value);};I64 Id(I64 value){return value;}I64 F(){Box o;o.call=&Id;return o.call(42);}F();|}
     );
     ( "numeric bits cannot become an owned class pointer",
       {|class Box{U8 byte;};I64 F(){Box *p=42(Box*);return p->byte;}F();|} );

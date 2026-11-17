@@ -103,6 +103,55 @@ let origin fragment =
 
 let environment fragment = fragment.environment_
 let references fragment = fragment.references_
+
+let native_source_references_supported fragment =
+  List.for_all
+    (fun (_, selection) ->
+      match Reference_selection.kind selection with
+      | Reference_selection.Outer (environment, binding)
+        when environment == fragment.environment_
+             && Outer_environment.owns_binding environment binding -> (
+          match
+            Outer_environment.binding_entry binding
+            |> Outer_environment.entry_function_metadata
+          with
+          | Some metadata -> (
+              let classified =
+                Outer_environment.function_classified_declaration metadata
+              in
+              let declaration =
+                Outer_environment.function_declaration metadata
+              in
+              Function_record_classification.call_access
+                (Function_record_classification.classified_declaration_record
+                   classified)
+              = Function_record_classification.Internal_operation
+              &&
+              match
+                Function_resolution.resolved_declaration_site declaration
+                |> Function_resolution.declaration_site_source_binding
+              with
+              | Some
+                  {
+                    Frontend.Ast.kind = Intern;
+                    spelling = "_intern";
+                    target =
+                      Expression_binding_target
+                        (Integer_literal
+                           { literal_value = Integer_value value; _ });
+                    _;
+                  } ->
+                  value
+                  = Int64.of_int
+                      (Generated.Intermediate_codes.to_code Ic_to_i64)
+                  || value
+                     = Int64.of_int
+                         (Generated.Intermediate_codes.to_code Ic_to_f64)
+              | _ -> false)
+          | None -> false)
+      | _ -> false)
+    fragment.references_
+
 let queries fragment = fragment.queries_
 let authorized_fragment authority = authority.authorized_fragment
 

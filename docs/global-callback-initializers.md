@@ -102,10 +102,15 @@ argument effects. Public IR, isolated batch IR and native tests cover separate
 old/new bodies, parameter counts, selected defaults, recursion and persistent
 static storage. CLI tests check exact runtime limits and recovery for each case.
 
-Native JIT initializers with references still require execution during their
-original parser callback. They currently report `HCRUN0006`. Static initializers
-and saved defaults retain their closed-expression boundary. The native AOT
-consumer does not establish live native replacement or task linking.
+Isolated `host-jit --mode=jit` initializers with references still require
+execution during their original parser callback and report `HCRUN0006`.
+This includes `&Target`: a final code relocation cannot replace the declaration's
+reached work and failure order (`Compiler/PrsStmt.HC:181-191` and
+`Compiler/PrsVar.HC:94-107`). A later top-level `Selected=&Target;` statement uses
+the existing checked callback assignment path. The
+[numeric-default example](native-f64-defaults.md) uses that statement after its
+four defaults have been prepared. The native AOT consumer does not establish
+live native replacement or task linking.
 
 Member storage, callback updates,
 multistar consumers, live native replacement/linking, general F64/aggregate

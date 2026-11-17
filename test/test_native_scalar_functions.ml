@@ -55,7 +55,8 @@ let reject_gate label = function
   | Error [] -> Alcotest.failf "%s returned no diagnostic" label
   | Error diagnostics ->
       Alcotest.(check bool)
-        (label ^ " rejects before native execution")
+        (label ^ " rejects before native execution: "
+        ^ diagnostics_text diagnostics)
         false
         (List.exists
            (fun (error : Diagnostic.t) ->
@@ -204,8 +205,15 @@ let narrow_defaults_prepare_exact_raw_payloads () =
         [
           "I64 Inc(I64 n){return n+1;} U8 F(U8 n=Inc(41)){return n;} F();";
           "I64 F(I64 n=\"A\"){return n;} F();";
-          "I64 F(I64 n=lastclass){return n;} F();";
-        ])
+        ];
+      let lastclass_source = "I64 F(I64 n=lastclass){return n;} F();" in
+      match mode with
+      | Preprocessor.Jit ->
+          ignore (image ~max_default_bytes:1 ~mode lastclass_source)
+      | Preprocessor.Aot ->
+          compile_source ~mode lastclass_source
+          |> reject_compile ~code:"HCIRL0004"
+               "AOT lastclass without a preceding supplied argument")
     modes;
   (* The prepared default retains the expression bits. Parameter entry performs
      the U8 narrowing later, so 554 is intentionally not pre-normalized to 42. *)
@@ -285,9 +293,9 @@ let unsupported_neighbors_stay_outside_native_gate () =
     [
       "I64 F(){Bool n=42;I8 *p=&n;return *p;} F();";
       "I0 F(I0 n){return n;} F(1);";
-      "F64 F(F64 n){return n;} F(1.0);";
+      "F64 F(F64 n){return n**2.0;} F(1.0);";
       "I64 F(I64 **p){return **p;} 42;";
-      "I64 n=1;I8 G=n<<2; I64 F(){return G;} F();";
+      "I64 F(I64 p){static I64 n=p<<2;return n;}42;";
       "I64 F(){static I8 n={42};return n;} F();";
       "I64 F(I64 n,...){return n;} F(42,1.0);";
       "I64 F(I64 n,...){return n;} F(42,&F);";
@@ -405,12 +413,14 @@ let pointer_source_and_authority () =
       ignore (image ~mode ~max_stack_bytes:stack source);
       compile_source ~mode ~max_stack_bytes:(stack - 1) source
       |> reject_compile ~code:"HCBACK0004" "reference bookkeeping stack quota";
+      ignore
+        (compile_source ~mode "I64 *F(){I64 x;return &x;}42;"
+        |> require_ok diagnostics_text);
       List.iter
         (fun source ->
           compile_source ~mode source
           |> reject_gate "unsupported reference escape or fabrication")
         [
-          "I64 *F(){I64 x;return &x;}42;";
           "I64 *G;42;";
           "I64 F(){static I64 *p;return 42;}42;";
           "I64 F(I64 **p){return **p;}42;";
@@ -587,7 +597,12 @@ let automatic_array_layout () =
       List.iter
         (fun contents ->
           ignore (compile_source ~mode contents |> require_ok diagnostics_text))
-        [ "I64 F(){static I8 a[2];return 42;}F();"; "I8 G[2];42;" ];
+        [
+          "I64 F(){static I8 a[2];return 42;}F();";
+          "I64 F(){I8 a[0];return sizeof(a)+42;}F();";
+          "I8 G[2];42;";
+          "I8 *F(){I8 a[2];return a;}42;";
+        ];
       List.iter
         (fun contents ->
           compile_source ~mode contents
@@ -595,8 +610,7 @@ let automatic_array_layout () =
         [
           "I64 F(){I8 a[2]={1,2};return 42;}F();";
           "I64 F(){I8 *a[2];return 42;}F();";
-          "I8 *F(){I8 a[2];return a;}42;";
-          "I64 F(){I8 a[0];return 42;}F();";
+          "I64 F(){I8 a[0];I8 *p=a;return p==a;}F();";
           "I64 F(){I8 a[1000000000];return 42;}F();";
           "I64 F(){I8 a[9223372036854775807][2];return 42;}F();";
           "I64 Count(){return 2;}I64 F(){I8 a[Count()];return 42;}F();";
@@ -1074,6 +1088,25 @@ let callback_word_default_source_limits () =
       compile_source ~mode ~max_blocks:(blocks - 1) source
       |> reject_compile ~code:"HCBACK0001"
            "saved callback word original blocks one below";
+      let interleaved =
+        "42;I64 F(I64 (*p)(I64 n)=17){if(p==17)return 42;return -1;}F();"
+      in
+      (match mode with
+      | Preprocessor.Aot ->
+          let compiled =
+            image ~mode ~max_initializer_steps:3 ~max_default_bytes:8
+              interleaved
+          in
+          Alcotest.(check int)
+            "AOT entry retains the later prepared callback parameter" 1
+            (Program.function_count compiled);
+          ignore
+            (Test_integer_globals.run ~mode interleaved
+            |> Test_integer_functions.expect 42L)
+      | Preprocessor.Jit ->
+          compile_source ~mode interleaved
+          |> reject_compile ~code:"HCRUN0006"
+               "isolated JIT cannot prepare a default after executable entry");
       List.iter
         (fun contents ->
           compile_source ~mode contents
@@ -1087,10 +1120,44 @@ let callback_word_default_source_limits () =
           "I64 A(I64 n){return n;}I64 F(I64 (*p)(I64 n)=&A){return 42;}F();";
           "I64 A(){return 17;}I64 F(I64 (*p)(I64 n)=A()){return 42;}F();";
           "I64 F(I64 (*p)(I64 n)=\"A\"){return 42;}F();";
-          "I64 F(I64 (*p)(I64 n)=lastclass){return 42;}F();";
-          "I64 F(I64 (*p)(I64 n)=1.5){return 42;}F();";
-          "42;I64 F(I64 (*p)(I64 n)=17){return 42;}F();";
-        ])
+        ];
+      (match
+         compile_source ~mode "I64 F(I64 (*p)(I64 n)=1.5){return 42;}F();"
+       with
+      | Ok _ ->
+          Alcotest.fail
+            "compile-only floating callback default unexpectedly prepared"
+      | Error errors ->
+          let diagnostic =
+            match
+              List.find_opt
+                (fun (error : Diagnostic.t) ->
+                  error.severity = Diagnostic.Error)
+                errors
+            with
+            | Some diagnostic -> diagnostic
+            | None ->
+                Alcotest.fail
+                  ("missing preparation error: " ^ diagnostics_text errors)
+          in
+          Alcotest.(check string)
+            ("compile-only preparation lacks native execution: "
+           ^ diagnostics_text errors)
+            "HCIRVM0002" diagnostic.code;
+          Alcotest.(check string)
+            "compile-only preparation rejects the actual floating instruction"
+            "IC_IMM_F64 is outside the bounded integer interpreter"
+            diagnostic.message);
+      let lastclass_source =
+        "I64 F(I64 (*p)(I64 n)=lastclass){return 42;}F();"
+      in
+      match mode with
+      | Preprocessor.Jit ->
+          ignore (image ~max_default_bytes:1 ~mode lastclass_source)
+      | Preprocessor.Aot ->
+          compile_source ~mode lastclass_source
+          |> reject_compile ~code:"HCIRL0004"
+               "AOT callback lastclass without a preceding supplied argument")
     modes
 
 let tests =

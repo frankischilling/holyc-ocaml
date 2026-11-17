@@ -39,6 +39,7 @@ type default_binding = {
   omission : omission;
   target : Function_call_conversion_policy.target_class;
   materialization : default_materialization;
+  lastclass : Function_call_expression_result.lastclass_substitution option;
 }
 
 type fixed_path =
@@ -117,6 +118,8 @@ let default_target (binding : default_binding) = binding.target
 
 let default_materialization (binding : default_binding) =
   binding.materialization
+
+let default_lastclass (binding : default_binding) = binding.lastclass
 
 let output_source = function
   | Bound_output output -> output.source
@@ -232,8 +235,8 @@ let make_provided policies ~before_item_index position parameter source =
     conversion = Implicit_output_argument_rules.conversion target actual;
   }
 
-let make_default policies mode ~before_item_index output position parameter
-    source =
+let make_default policies mode ~before_item_index ~previous output position
+    parameter source =
   let omission = { output; parameter; position } in
   {
     parameter;
@@ -243,6 +246,9 @@ let make_default policies mode ~before_item_index output position parameter
       Function_call_conversion_policy.parameter_target_class policies
         ~before_item_index parameter;
     materialization = Implicit_output_argument_rules.materialization mode source;
+    lastclass =
+      Function_call_expression_result.lastclass_parameter_substitution policies
+        ~before_item_index previous source;
   }
 
 let bind_header policies mode ~before_item_index output header =
@@ -272,6 +278,7 @@ let bind_header policies mode ~before_item_index output header =
          { provided; position; fixed_count }) ->
       Error (extra_nonvariadic_argument output provided position fixed_count)
   | Ok plan ->
+      let previous = ref None in
       let fixed_slots =
         plan |> Implicit_output_argument_rules.fixed_slots
         |> List.map (fun slot ->
@@ -281,15 +288,18 @@ let bind_header policies mode ~before_item_index output header =
             let path =
               match Implicit_output_argument_rules.fixed_path slot with
               | Implicit_output_argument_rules.Provided provided ->
-                  Provided_path
-                    (make_provided policies ~before_item_index
-                       (Implicit_output_argument_rules.provided_position
-                          provided)
-                       parameter
-                       (Implicit_output_argument_rules.provided_value provided))
+                  let binding =
+                    make_provided policies ~before_item_index
+                      (Implicit_output_argument_rules.provided_position provided)
+                      parameter
+                      (Implicit_output_argument_rules.provided_value provided)
+                  in
+                  previous := Some binding.result;
+                  Provided_path binding
               | Implicit_output_argument_rules.Defaulted default ->
                   Defaulted_path
-                    (make_default policies mode ~before_item_index output
+                    (make_default policies mode ~before_item_index
+                       ~previous:!previous output
                        (Implicit_output_argument_rules.default_position default)
                        parameter
                        (Implicit_output_argument_rules.default_source default))

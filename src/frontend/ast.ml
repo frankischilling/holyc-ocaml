@@ -274,9 +274,16 @@ type declaration_binding = {
 
 type aggregate_kind = Class_aggregate | Union_aggregate
 
+type aggregate_backing = {
+  backing_type_specifier : type_specifier;
+  backing_pointer_layers : pointer_layer list;
+  backing_location : location;
+}
+
 type aggregate_forward_declaration = {
   modifiers : declaration_modifier list;
   binding : declaration_binding;
+  backing : aggregate_backing option;
   aggregate_kind : aggregate_kind;
   aggregate_keyword_spelling : string;
   aggregate_keyword_location : location;
@@ -290,12 +297,6 @@ type array_dimension = {
   dimension_expression : expression option;
   closing_bracket : location;
   location : location;
-}
-
-type aggregate_backing = {
-  backing_type_specifier : type_specifier;
-  backing_pointer_layers : pointer_layer list;
-  backing_location : location;
 }
 
 type aggregate_base = {
@@ -932,12 +933,13 @@ let make_declaration_binding ~(kind : declaration_binding_kind) ~spelling
     ~location ~(target : declaration_binding_target) : declaration_binding =
   { kind; spelling; location; target }
 
-let make_aggregate_forward_internal ~modifiers ~binding ~aggregate_kind
+let make_aggregate_forward_internal ~modifiers ~binding ~backing ~aggregate_kind
     ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~semicolon
     ~location =
   {
     modifiers;
     binding;
+    backing;
     aggregate_kind;
     aggregate_keyword_spelling;
     aggregate_keyword_location;
@@ -949,15 +951,22 @@ let make_aggregate_forward_internal ~modifiers ~binding ~aggregate_kind
 let make_aggregate_forward_declaration ~modifiers ~binding ~aggregate_kind
     ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~semicolon
     ~location =
-  make_aggregate_forward_internal ~modifiers ~binding ~aggregate_kind
-    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name
-    ~semicolon:(Some semicolon) ~location
+  make_aggregate_forward_internal ~modifiers ~binding ~backing:None
+    ~aggregate_kind ~aggregate_keyword_spelling ~aggregate_keyword_location
+    ~name ~semicolon:(Some semicolon) ~location
 
 let make_aggregate_forward_before_comma ~modifiers ~binding ~aggregate_kind
     ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~location =
-  make_aggregate_forward_internal ~modifiers ~binding ~aggregate_kind
-    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name
-    ~semicolon:None ~location
+  make_aggregate_forward_internal ~modifiers ~binding ~backing:None
+    ~aggregate_kind ~aggregate_keyword_spelling ~aggregate_keyword_location
+    ~name ~semicolon:None ~location
+
+let make_backed_aggregate_forward ~modifiers ~binding ~backing ~aggregate_kind
+    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~semicolon
+    ~location =
+  make_aggregate_forward_internal ~modifiers ~binding ~backing:(Some backing)
+    ~aggregate_kind ~aggregate_keyword_spelling ~aggregate_keyword_location
+    ~name ~semicolon ~location
 
 let make_primitive_type ~primitive ~spelling ~location : primitive_type =
   { primitive; spelling; location }

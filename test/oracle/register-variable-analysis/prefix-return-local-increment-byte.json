@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "a5b487f78c6f6ded0c5d25cc046a4974a97c53a55d981882194c8269cecaec01",
+  "boot_payload_sha256": "d55891b245a2e6a9b0b16a724ae71135abc30a1e7c05b380b40d2920842e1d48",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "a7a568872e5e07e1f9eb55d7658394a13e6a08b8217d756c1c1cd33d421d64ae",
+  "boot_iso_sha256": "2b1fa5600e9549369b16c702268a1aebeb7ebea86a58a34d076b186d475250aa",
+  "fields": {
+    "J_S": "256",
+    "J_U": "257",
+    "J_SN": "0",
+    "J_UN": "1",
+    "ERR": "0",
+    "A_S": "256",
+    "A_U": "257",
+    "A_SN": "0",
+    "A_UN": "1"
+  },
+  "scope": "Repeated original JIT and compiled observations of prefix updates returned directly. Stored source omits boot padding."
+}

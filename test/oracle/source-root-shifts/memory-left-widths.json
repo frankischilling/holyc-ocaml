@@ -1,0 +1,16 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "9263d6a86c43347169cac0c34309e477f3ba8ce12d10784ec5eabc1ee33e2c11",
+  "capture_sha256": "0ed0cb692f4174de56ffb7d0874ea0ff113e635ae49525e77eba293f0c4b4d1b",
+  "boot_iso_sha256": "1603abb016f1e422de19dee386db845358b70571f9315217e2e7ec1e2aaef0ad",
+  "fields": {
+    "I8": "254",
+    "U8": "510",
+    "I16": "65534",
+    "U16": "131070",
+    "I32": "4294967294",
+    "U32": "8589934590",
+    "COMPILE_ERRORS": "0"
+  },
+  "scope": "Repeated original compile-time observations of exposed addressed narrow compound-shift results."
+}

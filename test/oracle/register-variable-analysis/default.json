@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "d8dd5e78267bb6e608bb0440045d5327fc86870fe4c4f6e102a3bd8d7bf0bdd4",
+  "boot_payload_sha256": "5fb3150f915ad477c9b7f90e7c7bdbe553fdb325c55f3eaa6f4448f66b7cd7fe",
+  "boot_payload_bytes": 720,
+  "capture_sha256": "bc75499792620ef4e430afe2ec301fcefee70483c8758041674ae89b6b14a977",
+  "boot_iso_sha256": "b166b57e2d18e6b44d6ad65798878ee57dc98ee580fbc590a55990deb0f0f6f6",
+  "fields": {
+    "SIGNED": "254",
+    "UNSIGNED": "510",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of register-selected byte updates reached through retained default initializers. The stored source omits trailing spaces used to pad the boot payload."
+}

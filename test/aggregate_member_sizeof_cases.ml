@@ -35,6 +35,10 @@ let headers = "extern U0 Print(U8 *fmt,...);\n"
 
 let closed =
   [
+    make "static aggregate object reads original member metadata" 4L
+      {|class Packet{U16 words[2];};I64 F(){static Packet stored;return sizeof(stored.words);}F();|};
+    make "module aggregate object reads original member metadata" 12L
+      {|class Packet{U16 words[2][3];};Packet stored;I64 F(){return sizeof(stored.words);}F();|};
     make "named packed class selects exact field extents" 16L
       {|class Packet{U8 tag;U16 words[3];};
 I64 F(){return sizeof(Packet.tag)*10+sizeof(Packet.words);}F();|};
@@ -163,28 +167,7 @@ return sizeof(earlier.u16)*10+sizeof(later.changed);}F();|};
 class U64{U8 changed[9];};F();|};
   ]
 
-(* These are valid sizeof member expressions, but persistent aggregate storage
-   is outside the current executable source scope. Keep their refusals visible
-   so a later storage implementation cannot silently change their status. *)
-let unsupported_storage : unsupported_storage_case list =
-  [
-    {
-      label = "static aggregate object member awaits persistent storage";
-      source =
-        {|class Packet{U16 words[2];};
-I64 F(){static Packet stored;return sizeof(stored.words);}F();|};
-      ir_code = "HCEVAL0003";
-      native_code = "HCRUN0004";
-    };
-    {
-      label = "module aggregate object member awaits persistent storage";
-      source =
-        {|class Packet{U16 words[2][3];};Packet stored;
-I64 F(){return sizeof(stored.words);}F();|};
-      ir_code = "HCRUN0004";
-      native_code = "HCRUN0004";
-    };
-  ]
+let unsupported_storage : unsupported_storage_case list = []
 
 let jit_only =
   [

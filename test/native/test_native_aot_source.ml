@@ -176,6 +176,168 @@ let storage_limits () =
   value (run ~max_literal_bytes:literals text);
   failure ~code:"HCBACK0004" (run ~max_literal_bytes:(literals - 1) text)
 
+let nested_f64_preparation () =
+  if not (Native_execution.x87_supported ()) then
+    print_endline "nested native AOT F64 preparation: x87 unsupported, skipped"
+  else
+    (* TempleOS c26482bb6ad3f80106d28504ec5db3c6a360732c:
+       PrsVar.HC:637-656 executes and saves every default at its declaration,
+       even when no call uses it. PrsStmt.HC:814-839 switches #exe to the JIT
+       task, executes its commands, then restores the outer AOT context. *)
+    let text =
+      {|F64 Before(F64 value=40.0){return value;}#exe {F64 During(F64 value=1.5){return value;}Print("parse;");}F64 After(F64 value=2.0){return value;}Print("load;");42;|}
+    in
+    let completed (fragment : Native.fragment) =
+      match fragment.native_outcome with
+      | Some (Ok (Image.Completed execution)) -> execution
+      | _ ->
+          Alcotest.fail
+            "original preparation fragment did not complete natively"
+    in
+    let baseline = run text in
+    value baseline;
+    let fragments = Native.fragments baseline in
+    let _, observations =
+      List.fold_left
+        (fun (previous, observations) fragment ->
+          let execution = completed fragment in
+          ( execution.executed_steps,
+            (fragment, previous, execution) :: observations ))
+        (0, []) fragments
+    in
+    let observations = List.rev observations in
+    let defaults =
+      List.filter
+        (fun ((fragment : Native.fragment), _, _) ->
+          fragment.kind = Native.Default)
+        observations
+    in
+    Alcotest.(check (list int64))
+      "outer, nested JIT and resumed outer defaults retain their original words"
+      [ 0x4044_0000_0000_0000L; 0x3ff8_0000_0000_0000L; 0x4000_0000_0000_0000L ]
+      (List.map
+         (fun (_, _, (execution : Image.execution)) ->
+           match execution.final_value with
+           | Some word when word.type_ = Image.F64 -> word.bits
+           | _ ->
+               Alcotest.fail "original F64 default lost its native result class")
+         defaults);
+    let measured_work =
+      List.fold_left
+        (fun work (_, before, (execution : Image.execution)) ->
+          work + execution.executed_steps - before)
+        0 defaults
+    in
+    let work = Native.preparation_steps baseline in
+    let steps = Native.executed_steps baseline in
+    Alcotest.(check int)
+      "all three physical default executions are charged once" measured_work
+      work;
+    let _, before_module, _ =
+      List.find
+        (fun ((fragment : Native.fragment), _, _) ->
+          fragment.kind = Native.Aot_module)
+        observations
+    in
+    let _, before_last, last_default = List.hd (List.rev defaults) in
+    let earlier_work = work - (last_default.executed_steps - before_last) in
+    let code, ir =
+      List.fold_left
+        (fun (code, ir) (fragment : Native.fragment) ->
+          (code + fragment.image.code_bytes, ir + fragment.image.ir_instructions))
+        (0, 0) fragments
+    in
+    let success report =
+      value report;
+      Alcotest.(check int)
+        "cumulative native instructions survive context changes" steps
+        (Native.executed_steps report);
+      Alcotest.(check int)
+        "cumulative preparation survives context changes" work
+        (Native.preparation_steps report);
+      Alcotest.(check int)
+        "three original scalar payloads" 24
+        (Native.default_bytes report);
+      Alcotest.(check string)
+        "directive output precedes module output" "parse;load;"
+        (Native.output_bytes report)
+    in
+    success baseline;
+    success
+      (run ~max_steps:steps ~max_initializer_steps:work ~max_default_bytes:24
+         ~max_code_bytes:code ~max_ir_instructions:ir text);
+    let stopped = run ~max_steps:(steps - 1) text in
+    failure ~code:"HCIRVM0007" stopped;
+    Alcotest.(check int)
+      "one-below native allowance retains exact reached work" (steps - 1)
+      (Native.executed_steps stopped);
+    Alcotest.(check int)
+      "module step failure retains all preparation" work
+      (Native.preparation_steps stopped);
+    Alcotest.(check int)
+      "module step failure retains all saved words" 24
+      (Native.default_bytes stopped);
+    Alcotest.(check string)
+      "module step failure retains reached output" "parse;load;"
+      (Native.output_bytes stopped);
+    let step_fault kind report =
+      let last = List.hd (List.rev (Native.fragments report)) in
+      Alcotest.(check bool)
+        "step failure belongs to the reached original image" true
+        (last.kind = kind);
+      match last.native_outcome with
+      | Some (Ok (Image.Fault fault)) ->
+          Alcotest.(check bool)
+            "native status records the actual step limit" true
+            (fault.kind = Image.Step_limit_exceeded)
+      | _ -> Alcotest.fail "step failure lacks its actual native fault"
+    in
+    step_fault Native.Aot_module stopped;
+    let prefix_failure ~code ~saved ~work ~steps report =
+      failure ~code report;
+      Alcotest.(check int)
+        "earlier completed payloads survive rejection" saved
+        (Native.default_bytes report);
+      Alcotest.(check int)
+        "reached preparation is preserved" work
+        (Native.preparation_steps report);
+      Alcotest.(check int)
+        "reached native instructions are preserved" steps
+        (Native.executed_steps report);
+      Alcotest.(check string)
+        "only reached directive output is retained" "parse;"
+        (Native.output_bytes report);
+      Alcotest.(check bool)
+        "rejection prevents outer module entry" false
+        (List.exists
+           (fun (fragment : Native.fragment) ->
+             fragment.kind = Native.Aot_module)
+           (Native.fragments report))
+    in
+    let preparation = run ~max_initializer_steps:(work - 1) text in
+    prefix_failure ~code:"HCIRVM0007" ~saved:16 ~work:(work - 1)
+      ~steps:(before_module - 1) preparation;
+    step_fault Native.Default preparation;
+    let payload = run ~max_default_bytes:23 text in
+    prefix_failure ~code:"HCIRVM0011" ~saved:16 ~work:earlier_work
+      ~steps:before_last payload;
+    Alcotest.(check int)
+      "payload admission stops before the third native default" 2
+      (Native.fragments payload
+      |> List.filter (fun (fragment : Native.fragment) ->
+          fragment.kind = Native.Default)
+      |> List.length);
+    List.iter
+      (fun (code, report) ->
+        prefix_failure ~code ~saved:24 ~work ~steps:before_module report;
+        List.iter
+          (fun fragment -> ignore (completed fragment))
+          (Native.fragments report))
+      [
+        ("HCBACK0005", run ~max_code_bytes:(code - 1) text);
+        ("HCBACK0001", run ~max_ir_instructions:(ir - 1) text);
+      ]
+
 let failure_order () =
   let module_fault = run {|#exe {Print("parse;");}Print("load;");1/0;|} in
   failure ~code:"HCIRVM0009" module_fault;
@@ -225,6 +387,8 @@ let () =
           Alcotest.test_case "shared work and code boundaries" `Quick
             cumulative_limits;
           Alcotest.test_case "combined storage bounds" `Quick storage_limits;
+          Alcotest.test_case "native F64 preparation across nested JIT and AOT"
+            `Quick nested_f64_preparation;
           Alcotest.test_case "reached failures and dependencies" `Quick
             failure_order;
         ] );

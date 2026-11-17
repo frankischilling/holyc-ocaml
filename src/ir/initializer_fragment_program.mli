@@ -1,11 +1,13 @@
 type t
 
 val create :
+  ?scalar_lowered:Integer_program_lowering.t ->
   authority:Sema.Initializer_fragment.authority ->
   destination:Initializer_fragment_destination.t ->
   entry:X87_stack.t ->
   initialization:Global_initialization.t ->
   runtime_calls:Runtime_call_context.t ->
+  unit ->
   (t, string) result
 (** Internal driver seal; this constructor is omitted from the maintained public
     library interface. Exact source, graph and call objects are retained. *)
@@ -15,6 +17,7 @@ val destination : t -> Initializer_fragment_destination.t
 val entry : t -> X87_stack.t
 val initialization : t -> Global_initialization.t
 val runtime_calls : t -> Runtime_call_context.t
+val is_scalar_evaluation : t -> bool
 
 type execution_code = private
   | Prepared of Integer_array_initializers.payload

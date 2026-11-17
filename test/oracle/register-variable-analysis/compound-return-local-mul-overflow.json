@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "accbe6d8aa0f26d5b27cdfe029ce6055654f145aa558c01a9c994c70abbac161",
+  "boot_payload_sha256": "74df7ff77167c082aa092c9bf1af94d322917b4a97cb76a470322713d034a771",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "312f2c2d9684cd289c14cbf3973b5199b1aa35acb2b40b5fa8abffc897c3fb25",
+  "boot_iso_sha256": "d6f75f3d967c3dcb2ada98e35212d5be2dc3c62cd4b7fa87d85a3a78ea0ff5e2",
+  "fields": {
+    "J_S": "254",
+    "J_U": "510",
+    "J_SN": "254",
+    "J_UN": "510",
+    "ERR": "0",
+    "A_S": "254",
+    "A_U": "510",
+    "A_SN": "254",
+    "A_UN": "510"
+  },
+  "scope": "Repeated original JIT and compiled observations of directly returned local compound updates crossing storage width."
+}

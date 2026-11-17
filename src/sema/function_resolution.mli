@@ -115,6 +115,19 @@ val make_completion_declaration :
     record. Successful resolution consumes completion once. Executable
     publication still requires independent body evidence. *)
 
+val make_numeric_internal_declaration :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  compiler_option_mask:int64 ->
+  source:Compiler_record.declared_function ->
+  function_:Function_type_resolution.resolved_function ->
+  (declaration option, string) result
+(** Classify a completed original literal IC_TO_I64 or IC_TO_F64 declaration.
+    Its numeric internal binding emits an opcode and grants no executable
+    address, task installation or body authority. [Ok None] is an authenticated
+    header outside this numeric subset; [Error _] rejects its source ownership,
+    checked header or compiler options. *)
+
 val make_completion_declaration_against :
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
@@ -153,6 +166,17 @@ val resolve :
     participate in ordinary name joins. Each identity has one head; a head
     repeated across the two pools must be the same object. Runtime publication
     independently checks these supplied heads against its actual catalog. *)
+
+val resolve_numeric_source_headers :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  compilation_mode:compilation_mode ->
+  declaration list ->
+  (t, string) result
+(** Reconcile original literal numeric internal headers and ordinary extern
+    prototypes as one source history. Their private parser command predecessors
+    establish order in one original context; local header item indices remain
+    unchanged. This grants no retained task link, body or executable address. *)
 
 val compilation_mode : t -> compilation_mode
 val identities : t -> identity list
@@ -216,6 +240,12 @@ val resolved_declaration_replaced_header :
 
 val resolved_declaration_retained_predecessor :
   resolved_declaration -> resolved_declaration option
+
+val resolved_declaration_joined_predecessor :
+  resolved_declaration -> resolved_declaration option
+(** The exact previous declaration joined into this record, including local
+    joins within the same resolution. Reading this ancestry grants no completion
+    or execution authority. *)
 
 val is_joined_successor :
   earlier:resolved_declaration -> later:resolved_declaration -> bool

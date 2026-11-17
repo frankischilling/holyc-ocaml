@@ -47,6 +47,29 @@ let invalid_extent global index detail =
 
 let evaluate_dimension ~table global index input =
   let dimension = input.dimension in
+  let evaluate () =
+    let record = Global_dimension_binding.global_record global in
+    let source = Global_dimension_binding.dimension_source dimension in
+    let queries =
+      Global_dimension_binding.dimension_queries dimension
+      |> Option.map (List.map Query_selection.checked_read)
+    in
+    (match Global_dimension_binding.dimension_prepared dimension with
+      | Some prepared -> (
+          match queries with
+          | Some queries ->
+              Compiler_record.reuse_global_dimension ~table ~record
+                ~dimension:source ~queries prepared
+          | None -> Error "checked global extent lacks its query manifest")
+      | None ->
+          Compiler_record.evaluate_global_dimension ~table ~record
+            ~dimension:source ~queries)
+    |> Result.map_error (fun detail ->
+        Printf.sprintf "HCSEMA0027: global array dimension %d for %S%s%s" index
+          (Global_dimension_binding.global_symbol global |> Symbol.name)
+          (if String.starts_with ~prefix:": " detail then "" else " ")
+          detail)
+  in
   if Global_dimension_binding.dimension_index dimension <> index then
     invalid "global array layout dimensions are outside source order"
   else if
@@ -55,9 +78,7 @@ let evaluate_dimension ~table global index input =
   then invalid "global array layout expression has the wrong source origin"
   else
     match (input.expression_origin, input.expression) with
-    | None, None ->
-        invalid_extent global index
-          "has an empty extent; inferred persistent arrays are unresolved"
+    | None, None -> evaluate ()
     | None, Some _ | Some _, None ->
         invalid "global array layout expression does not match its dimension"
     | Some _, Some expression ->
@@ -83,28 +104,7 @@ let evaluate_dimension ~table global index input =
                    "requires an evaluated value for bound identifier %S"
                    (Global_dimension_binding.occurrence_name occurrence))
         in
-        let record = Global_dimension_binding.global_record global in
-        let source = Global_dimension_binding.dimension_source dimension in
-        let queries =
-          Global_dimension_binding.dimension_queries dimension
-          |> Option.map (List.map Query_selection.checked_read)
-        in
-        (match Global_dimension_binding.dimension_prepared dimension with
-          | Some prepared -> (
-              match queries with
-              | Some queries ->
-                  Compiler_record.reuse_global_dimension ~table ~record
-                    ~dimension:source ~queries prepared
-              | None -> Error "checked global extent lacks its query manifest")
-          | None ->
-              Compiler_record.evaluate_global_dimension ~table ~record
-                ~dimension:source ~queries)
-        |> Result.map_error (fun detail ->
-            Printf.sprintf "HCSEMA0027: global array dimension %d for %S%s%s"
-              index
-              (Global_dimension_binding.global_symbol global |> Symbol.name)
-              (if String.starts_with ~prefix:": " detail then "" else " ")
-              detail)
+        evaluate ()
 
 let evaluate_dimensions ~table global inputs =
   let semantic =
@@ -129,7 +129,10 @@ let evaluate_dimensions ~table global inputs =
           let extent_count =
             Compiler_record.global_dimension_extent_count value
           in
-          if Int64.compare count (Int64.div Int64.max_int extent_count) > 0 then
+          if
+            extent_count > 0L
+            && Int64.compare count (Int64.div Int64.max_int extent_count) > 0
+          then
             invalid_extent global index "overflows the declared element count"
           else if index = max_int then
             invalid "global array layout dimension identity space is exhausted"

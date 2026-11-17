@@ -6,23 +6,27 @@ use the selected scalar prefix; register results retain the full word.
 
 Completed earlier classes and unions without an explicit backing use a signed
 eight-byte whole value in automatic storage. TempleOS initializes their raw
-type to `RT_PTR`, which aliases `RT_I64`. The value reads or writes the first
-eight bytes; allocation and class pointer stride still use the declared size.
+type to `RT_PTR`, which aliases `RT_I64`. Reads consume the first eight bytes;
+allocation and class pointer stride still use the declared size. Ordinary
+assignment has a separate source lvalue gate: the forwarded class must be a
+pointer or an internal storage type. An unbacked class does not satisfy that
+gate. Write a field or use an explicit internal storage cast when that is the
+intended operation.
 
 ```c
 class Word { U64 low; U8 guard; };
 I64 F() {
   Word o;
   o.guard=9;
-  o=42;
+  o.low=42;
   if (o.low!=42 || o.guard!=9 || sizeof(Word)!=9) return -1;
   return o;
 }
 F();
 ```
 
-This returns 42. Assignment preserves the ninth byte. `b=a` also copies only
-the scalar prefix. The maintained `examples/default-aggregate-values.hc`
+This returns 42. The field assignment preserves the ninth byte. The maintained
+`examples/default-aggregate-values.hc`
 checks two objects, their guard bytes and nine-byte pointer stride. It returns
 42 in JIT and AOT with either `--target=ir` or `--target=host-jit`.
 
@@ -44,9 +48,14 @@ other-function and changed-offset projections fail before IR execution.
 Native execution requires the original sealed source graph. Callback storage
 keeps its physical pointer type even when the declared return type is a class.
 
-Ordinary assignments capture their destination before evaluating the RHS.
-Fused `*p++=rhs` and `*p--=rhs` stores read the binding's current pointer after
-the RHS, write the word, then advance by the original class size. Scalar
+Whole assignments and compound assignments to unbacked classes, ordinary-class
+backing endpoints, members, array elements or dereferenced class pointers reject
+at semantic checking. Inheritance does not inherit the base's internal backing.
+A later same-name internal-backed definition cannot retarget an earlier
+destination. Rejected assignment operands do not run their RHS calls.
+Explicit casts such as `o(I64)=42` retain the original storage root while
+selecting an internal lvalue. Source-permitted internal-backed assignments
+capture their destination before evaluating the RHS. Scalar
 results can supply supported primitive integer parameters and variadic
 output arguments. Provided integer words also supply
 [class value parameters](class-value-parameters.md).
@@ -61,10 +70,10 @@ have fresh storage. Unknown and one-past pointers retain the existing faults.
 These ownership and initialization checks are hosted policies; they do not
 claim TempleOS behavior for invalid memory.
 
-Twenty-three independent value groups cover signed operations, prefix copies,
+Independent value groups cover signed operations, internal storage casts,
 unions, inheritance, original backing chains and redefinitions, nested arrays,
 byte aliases, pointer strides, conditions, argument producers and RHS effects.
-Seven fault cases check eight-byte initialization, short roots and frame
+Fault cases check rejected assignment before RHS execution, eight-byte initialization, short roots and frame
 padding, a late array element, unknown and one-past pointers, and fresh
 activation bytes. Shared IR and native suites also check exact and one-below
 instruction, frame, stack and image limits, both native ABIs and proof
@@ -74,9 +83,11 @@ no TempleOS runtime capture or machine-byte comparison.
 [Closed class default words](class-default-words.md) prepare in both IR modes and
 native JIT/AOT source compilation. Completed
 [function-local classes](function-local-aggregate-objects.md) also retain their
-default signed word view and original object size. Whole-value postfix casts, aggregate
-initializers, AOT IR and ordinary native defaults containing references and
-callback parameter ABI paths, persistent objects and
+default signed word view and original object size.
+[Aggregate value casts](aggregate-value-casts.md) select integer storage widths
+or preserve grouped register words. Remaining aggregate initializer leaves,
+AOT IR and ordinary native defaults containing references and
+callback parameter ABI paths and
 zero-sized automatic objects, pointer and callback backings, F64 execution and
 general aggregate copies remain
 open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686)
@@ -92,7 +103,10 @@ adds inherited and declared storage without changing the raw type.
 at `Compiler/PrsVar.HC:285-371` installs explicit backing relations; complete
 `OptClassFwd`, `CmpRawType` and `CmpRawTypePointed` at
 `Compiler/OptLib.HC:9-15,508-525` resolve the value class.
-The address, dereference, update and assignment producers and scalar backend
+The assignment lvalue check is `Compiler/PrsExp.HC:200-208`, inside complete
+`PrsExpression2`. It follows `OptClassFwd` before requiring `Cf_INTERNAL_TYPE`
+for a nonpointer destination. Prefix/postfix updates and raw value reads follow
+their separate producers. The address, dereference, update and assignment producers and scalar backend
 consumers are the same complete functions audited for
 [integer-backed aggregate values](backed-aggregate-values.md). They retain
 nominal addresses and consume the selected raw width, including the fused

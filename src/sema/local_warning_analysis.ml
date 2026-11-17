@@ -363,7 +363,16 @@ let update_count states (binding : Function_binding_index.binding) update =
            ~origin:(Symbol.origin binding.symbol)
            "local warning event refers to an unindexed binding")
 
+let increment_use function_symbol states binding =
+  update_count states binding (fun state ->
+      Result.map
+        (fun count -> { state with ordinary_use_count = count })
+        (checked_increment function_symbol binding state.ordinary_use_count
+           "member-use"))
+
 let apply_event function_symbol states = function
+  | Function_expression_binding.Member_lookup binding ->
+      increment_use function_symbol states binding
   | Function_expression_binding.Bound_use occurrence -> (
       match Function_expression_binding.occurrence_resolution occurrence with
       | Function_expression_binding.Nonlocal_candidate -> Ok states
@@ -405,14 +414,22 @@ let apply_event function_symbol states = function
       let binding =
         Function_expression_binding.initializer_use_reset_binding reset
       in
-      update_count states binding (fun state ->
-          Ok
-            {
-              state with
-              ordinary_use_count = 0;
-              query_use_count = 0;
-              suppression_count = 0;
-            })
+      let target =
+        Function_expression_binding.initializer_use_reset_target reset
+      in
+      Result.bind
+        (if binding.kind = Function_binding_index.Automatic_local then
+           increment_use function_symbol states target
+         else Ok states)
+        (fun states ->
+          update_count states binding (fun state ->
+              Ok
+                {
+                  state with
+                  ordinary_use_count = 0;
+                  query_use_count = 0;
+                  suppression_count = 0;
+                }))
 
 let source_use_count function_symbol state =
   if state.ordinary_use_count > max_int - state.query_use_count then

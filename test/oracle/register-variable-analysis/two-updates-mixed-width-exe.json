@@ -1,0 +1,14 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "4a122c4f4683045ad886069402227feaf0daabb037cd956a999a0786982c418b",
+  "boot_payload_sha256": "5b74eada1b6d286e0cafe2e5b0cdd9027fe1bf55a9faa315d92bae259897493e",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "aa210c844496906534bcc54c525e38f080fb5fc1610d980e4ec68cb199829cf1",
+  "boot_iso_sha256": "5a5da16a2baca79deea5dae67df49c15b1503834b9b5d14d13980092ebdd3397",
+  "fields": {
+    "PARAM": "65664",
+    "LOCAL": "510",
+    "ERR": "0"
+  },
+  "scope": "Repeated original compiled observations of mixed-width updates during compile-time execution."
+}

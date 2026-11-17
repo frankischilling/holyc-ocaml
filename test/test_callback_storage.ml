@@ -944,10 +944,40 @@ let callback_array_unsupported_shapes () =
                 if storage = "" then "HCIRVM0011" else "HCRUN0001" );
               ("I64 Run(){@I64 (*p)()[2][3];return p[1]();}Run();", "HCSEMA0039");
               ("I64 Run(){@I64 (*p)()[2];return p[1][0]();}Run();", "HCSEMA0039");
-              ( "F64 A(){return 42.0;}I64 Run(){@F64 (*p)()[2];p[1]=&A;return \
-                 p[1]();}Run();",
-                "HCIRVM0014" );
-            ])
+            ];
+          let contents =
+            "F64 A(){return 42.0;}I64 Run(){" ^ storage
+            ^ "F64 (*p)()[2];p[1]=&A;return p[1]();}Run();"
+          in
+          let session, config, source =
+            Test_integer_functions.inputs ~mode contents
+          in
+          let compiled =
+            Native_program.compile session ~config ~source
+            |> Test_integer_functions.checked
+          in
+          Alcotest.(check int)
+            "native callback array preserves the checked F64 call conversion" 2
+            (X86_64_program.function_count compiled.value);
+          let error =
+            Test_integer_globals.run ~mode contents
+            |> Test_integer_functions.first_error
+          in
+          Alcotest.(check string)
+            "integer VM rejects the F64 return type at preflight" "HCIRVM0011"
+            error.code;
+          Alcotest.(check string)
+            "floating callback remains outside integer execution"
+            "the function return type is outside integer, U0 or owned \
+             reference execution"
+            error.message;
+          List.iter
+            (fun note ->
+              Alcotest.(check bool)
+                ("floating return rejection retains " ^ note)
+                true
+                (List.mem note error.notes))
+            [ "stage=preflight"; "executed_steps=0"; "function=A" ])
         [ ""; "static " ];
       ignore
         (Test_integer_globals.run ~mode "I64 (*p)()[2];42;"

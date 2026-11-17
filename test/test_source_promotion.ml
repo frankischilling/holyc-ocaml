@@ -814,6 +814,112 @@ let deferred_dimension_charge_authority () =
   Alcotest.(check bool)
     "authority probe reached directive" true (Parser.has_errors output)
 
+let original_option_snapshots () =
+  let session, source, ledger =
+    inputs
+      "I64 plain;I64 heap;I64 F(){static U8 first=40;static U8 second=2;return \
+       first+second;}"
+  in
+  let globals = ref [] and statics = ref [] and leaves = ref [] in
+  let set context enabled =
+    Parser.context_set_option context ~bit_index:35L enabled
+    |> checked |> ignore
+  in
+  let declaration event =
+    (match event with
+    | Parser.Global_declared publication ->
+        set publication.global_header.declaration_command.command_context
+          (publication.global_name.spelling = "heap");
+        globals := publication.global_name :: !globals
+    | Parser.Function_local_allocated receipt ->
+        Alcotest.(check bool)
+          "original allocation is current" true
+          (Parser.function_local_allocation_is_current receipt);
+        let copied : Parser.function_local_allocation =
+          Obj.obj (Obj.dup (Obj.repr receipt))
+        in
+        Alcotest.(check bool)
+          "copied allocation cannot borrow the callback" false
+          (Parser.function_local_allocation_is_current copied);
+        set
+          receipt.allocation_function.function_header.declaration_command
+            .command_context
+          (receipt.allocation_local.local_spelling = "first");
+        statics := receipt :: !statics
+    | Parser.Static_initializer_preparing receipt ->
+        set
+          receipt.static_allocation.allocation_function.function_header
+            .declaration_command
+            .command_context
+          (receipt.static_allocation.allocation_local.local_spelling = "second");
+        leaves := receipt :: !leaves
+    | _ -> ());
+    D.observe ledger event
+  in
+  let parsed =
+    parse ~mode:Preprocessor.Aot ~declaration session source ledger
+  in
+  let ast = Test_parser.expect_ast parsed in
+  let command = D.seal_source ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let options =
+    D.source_declaration_compiler_options ~table ~ast command |> expect
+  in
+  let enabled mask =
+    Compiler_option.is_enabled ~mask Compiler_option.Globals_on_data_heap
+  in
+  List.iter
+    (fun (name : Ast.identifier) ->
+      Alcotest.(check bool)
+        "original global allocation options" (name.spelling = "heap")
+        (options name |> checked |> enabled);
+      reject "copied declaration name cannot acquire original options"
+        (options
+           (Ast.make_identifier ~spelling:name.spelling ~location:name.location)))
+    !globals;
+  let other = Semantic_symbol_table.create () in
+  reject "foreign option table"
+    (D.source_declaration_compiler_options ~table:other ~ast command);
+  reject "rebuilt option AST"
+    (D.source_declaration_compiler_options ~table
+       ~ast:(Ast.make_module ~source:ast.source ~span:ast.span ~items:ast.items)
+       command);
+  let allocations = D.source_static_allocations ~table ~ast command |> expect in
+  Alcotest.(check int)
+    "both AOT metadata allocations retained" 2 (List.length allocations);
+  List.iter
+    (fun allocation ->
+      let receipt =
+        Semantic_compiler_record.static_allocation_receipt allocation
+      in
+      Alcotest.(check bool)
+        "allocation keeps its earlier mask"
+        (receipt.allocation_local.local_spelling = "first")
+        (Semantic_compiler_record.static_allocation_compiler_options allocation
+        |> enabled);
+      let leaf =
+        List.find (fun leaf -> leaf.Parser.static_allocation == receipt) !leaves
+      in
+      match leaf.static_leaf_value with
+      | Ast.Scalar_initializer expression ->
+          Alcotest.(check (option bool))
+            "leaf keeps its later mask"
+            (Some (receipt.allocation_local.local_spelling = "second"))
+            (Semantic_compiler_record.static_initializer_compiler_options
+               allocation expression
+            |> Option.map enabled);
+          reject "expired static option observation"
+            (Semantic_compiler_record.observe_static_initializer_options ~table
+               allocation leaf)
+      | _ -> Alcotest.fail "expected scalar source leaves")
+    allocations;
+  List.iter
+    (fun receipt ->
+      Alcotest.(check bool)
+        "finished allocation callback expires" false
+        (Parser.function_local_allocation_is_current receipt))
+    !statics
+
 let tests =
   [
     Alcotest.test_case "deferred dimensions require their original charge event"
@@ -828,6 +934,8 @@ let tests =
       `Quick revoked_activation_command;
     Alcotest.test_case "promotion retains original predecessor readiness" `Quick
       preserves_order;
+    Alcotest.test_case "original declaration and static expression options"
+      `Quick original_option_snapshots;
     Alcotest.test_case "promotion retains original array preparation" `Quick
       preserves_dimension;
     Alcotest.test_case "promotion requires exact source and frontend once"

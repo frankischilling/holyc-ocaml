@@ -1,0 +1,20 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "payload_sha256": "65cecfe6ad922e224a55d2fc3ef57e6a67cdfd40f71643269d571f16e764cee6",
+  "boot_payload_sha256": "7effd2bef6a030c0bf3993260adffef038d80c83bb56c95923dfeff4cb362233",
+  "boot_payload_bytes": 1285,
+  "capture_sha256": "2d9c4bbfca09e7a8bcb1b9987a896adb92a61832ea2f07d6693ede5c778e736a",
+  "boot_iso_sha256": "b2a5d276a76beb785e4ec8e0deb7129eb7de6996edc40b525b2addcb168e190a",
+  "fields": {
+    "J_S": "128",
+    "J_U": "256",
+    "J_SN": "-128",
+    "J_UN": "0",
+    "ERR": "0",
+    "A_S": "128",
+    "A_U": "256",
+    "A_SN": "-128",
+    "A_UN": "0"
+  },
+  "scope": "Repeated original JIT and compiled observations of a six-parameter compound arithmetic update."
+}

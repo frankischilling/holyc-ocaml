@@ -1,0 +1,1 @@
+U0 P(U8 *n,I64 v){U8 b[80],*p=b;StrPrint(b,"%s=%d\n",n,v);while(*p)OutU8(0xE9,*p++);}U8 *s="#include \"/Kernel/KernelA.HH\"\n#exe {I64 F(I8 x,I8 c){x<<=c;return x;}I64 U(U8 x,I8 c){x<<=c;return x;}P(\"SIGNED\",F(127,1));P(\"UNSIGNED\",U(255,1));}\n";FileWrite("B:/RETSIMPLE.HC",s,StrLen(s));P("ERR",Cmp("B:/RETSIMPLE.HC"));U8 *z="POINTER_DONE\n";while(*z)OutU8(0xE9,*z++);

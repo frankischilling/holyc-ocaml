@@ -143,8 +143,10 @@ numeric value; it does not substitute zero or retain the preceding word.
 
 ## Metering and frame lifetime
 
-Generated code reserves R10 for the remaining instruction budget and R11 for a
-private host context. Before every IR instruction it tests the remaining count,
+Closed execution reserves R10 for the remaining instruction budget and R11 for
+a private host context. Callable execution uses RBX for context and word 35 of
+that context for the remaining count, leaving R10/R11 available for source
+variables. Before every IR instruction it tests the remaining count,
 branches to that instruction's budget-fault site if zero, and otherwise
 decrements the count. This includes jumps, conditional branches, expression
 disposal, stream end and arithmetic instructions that subsequently fault.
@@ -164,14 +166,14 @@ Storage-bearing callable programs reserve R9 for the arena and use four value
 registers; the reported register peak
 also counts R10, R11 and any fixed or temporary registers. Each block has fresh
 value ownership and reusable spill slots. Closed programs keep their original
-single frame, sized to the largest block, with a maximum of 4,088 bytes.
+single frame, sized to the largest block, with a default quota of 4,088 bytes and a probed maximum of 524,280 bytes.
 
 Callable owners save RBP and keep RSP fixed throughout their bodies. Parameters
 occupy the original positive slots starting at `RBP+16`; automatic locals use
 their checked negative frame displacements and exact declared widths. Narrow
 loads sign- or zero-extend and stores touch only the object's bytes. Private initialization flags, spills,
 pending arguments and a shared outgoing argument area occupy disjoint storage.
-The allocation is a multiple of 16 bytes and at most 4,080 bytes; the return
+The allocation is a multiple of 16 bytes and at most 524,272 bytes; the return
 address and saved RBP are counted separately by the active-stack limit. An owner
 that needs no allocation still saves and restores RBP.
 
@@ -200,7 +202,8 @@ call or semantic frame units, but its physical footprint is checked before host
 entry. A fault returns through each actual generated epilogue; callers restore
 all three reservations and propagate it without charging cleanup/end instructions
 that were not reached. The final native bridge checks the restored counters.
-The physical allowance is independently capped at 65,536 bytes so recursion with
+The physical allowance defaults to 65,536 bytes and is independently capped at
+524,288 bytes, so recursion with
 zero semantic frame bytes cannot evade stack bounds.
 
 The expression API keeps its separate return convention and previous byte
@@ -226,6 +229,14 @@ explicitly call `Native_program_execution.execute ~max_steps`. Code and unwind
 getters return fresh copies. `windows_unwind_functions` exposes checked code
 ranges and per-owner unwind bytes; `function_count` counts named functions and
 `entry_stack_bytes` includes the entry's return address and saved RBP when present.
+Callable frames also reserve an activation record and scratch storage for the
+native reference service. The service body is shared within each callable frame;
+its entry and return use jumps and add no generated stack activation. Retained
+functions keep these lifetime checks when later Source fragments introduce
+pointer fields. The descriptor and guard code increase frame and image sizes;
+programs with several complete Print formatters can require an explicit
+`--code-byte-limit` above the default 65,536 bytes. Source tasks charge code
+cumulatively across their fragments.
 Neither image interface exposes a constructor for
 arbitrary bytes. An optional compile-time `status_abi` selects Windows x64 or
 System V code generation for inspection; execution rejects a foreign ABI before
@@ -238,11 +249,11 @@ allocating executable memory.
 | `--default-byte-limit` / `max_default_bytes` | 65,536 | Positive saved scalar payload quota; eight bytes per prepared default |
 | `--ir-instruction-limit` / `max_ir_instructions` | 4,096 | 1 through 100,000 |
 | `--code-byte-limit` / `max_code_bytes` | 65,536 | 1 through 16 MiB |
-| `--stack-byte-limit` / `max_stack_bytes` | 4,088 | 0 through 4,088 per generated owner; callable allocations are rounded to 16 bytes and capped at 4,080 |
+| `--stack-byte-limit` / `max_stack_bytes` | 4,088 | 0 through 524,280 per generated owner; callable allocations are rounded to 16 bytes and capped at 524,272 |
 | `--block-limit` / `max_blocks` | 4,096 | 1 through 100,000 |
 | `--frame-byte-limit` / `max_frame_bytes` | 1,048,576 | Positive simultaneous named-function parameter/local bytes |
 | `--call-depth-limit` / `max_call_depth` | 128 | Positive simultaneously active named calls |
-| `--active-stack-byte-limit` / `max_active_stack_bytes` | 65,536 | 1 through 65,536; physical bytes for entry and all active generated calls |
+| `--active-stack-byte-limit` / `max_active_stack_bytes` | 65,536 | 1 through 524,288; physical bytes for entry and all active generated calls |
 
 The compiler counts all IR and blocks before allocating its maps, preflights the
 whole bundle, and checks the complete planned image before allocating encoded
@@ -315,8 +326,8 @@ mapping rather than leaving a dangling OS reference. The OCaml runtime lock
 remains held while the image runs. Callable Windows images register one sorted
 function table covering entry and every generated function, with separate unwind
 records for their actual fixed-RSP prologues. The table and records share the
-mapping's lifetime. Each allocation stays below one page; larger/probed frames
-remain outside this gate.
+mapping's lifetime. Allocations crossing a page use checked probes. General
+register allocation remains outside this gate.
 
 This is an in-process executor. The step budget bounds checked IR loops; it is
 not a wall-clock deadline, isolation boundary or recovery from arbitrary machine
@@ -377,3 +388,130 @@ writes survive checked faults; each activation keeps fresh bounded status and
 output capture. The source-task driver schedules original live JIT requests and
 compiles direct calls from their admitted function sources. Persistent native
 addresses across source events still require their own code owners.
+
+## Larger private frames
+
+The default private-frame quota remains 4,088 bytes. An explicit
+`--stack-byte-limit` can raise it to 524,280 bytes; callable allocations are
+16-byte aligned and therefore top out at 524,272. Allocations of at least
+4,096 bytes touch each intervening page and the final allocated word before
+changing RSP. Probe bytes count against the code quota. See
+[stack probing](native-stack-probing.md) for the host ABI and unwind rules.
+
+The simultaneous physical-stack default remains 65,536 bytes; its opt-in hard
+ceiling is 524,288. Raising the private
+frame quota does not raise semantic frame bytes, recursion depth, generated
+code or active-stack limits. A large callee can still fail its active-stack
+check before entry. The usual epilogues restore reservations after normal
+returns and hosted faults.
+
+Native temporary spill homes now use [control-flow liveness](native-value-liveness.md)
+to share space across disjoint block lifetimes. Loop backedges preserve overlapping
+values. Reference-dependent callable graphs keep permanent homes; general source
+and floating register allocation remain open under issue #703.
+
+[Parameter register values across control flow](register-variable-analysis.md#parameter-values-across-branches-and-loops)
+now cover bounded call-free branches and loops with dynamic statement updates.
+Selected narrow parameters retain full values across iterations; `noreg` still
+narrows each store. General source and floating allocation remain open.
+
+[Named calls and recursion](register-variable-analysis.md#values-held-across-named-calls)
+now preserve values selected by the bounded parameter proof. Recursive callees
+still apply their declared entry conversions. Callback, default-argument and
+variadic call paths remain outside this proof.
+
+[Automatic local values](register-variable-analysis.md#local-values-across-control-flow-and-calls)
+can also survive bounded loops and named calls. Locals need one original
+literal or parameter initializer in the entry block. Register capacity
+counts both parameters and locals; arbitrary local assignments remain unproved.
+
+[Register-bank accounting](register-variable-analysis.md#variable-register-bank-capacity)
+covers distinct RSI, RDI and R10 through R15 requests and larger mixed
+register/stack frames. It rejects uncertain automatic allocation pressure.
+
+[Compiler option snapshots](register-variable-analysis.md#compiler-option-snapshots)
+keep warning settings independent of register values. NO_REG_VAR disables
+automatic selection while preserving supported explicit register requests.
+Each decision uses the original function definition, not the later live options.
+
+[Literal and unary loop updates](register-variable-analysis.md#literal-and-unary-loop-updates)
+retain selected narrow values through bounded constant updates and discarded
+prefix/postfix increment/decrement, including locals and named calls. Typed
+operators, operand bindings and source positions are checked before selection.
+General allocation remains open under #703.
+
+[Reassignment to selected variables](register-variable-analysis.md#reassignment-to-selected-variables)
+now preserves full integer values in parameters and initialized locals when the
+right-hand side is a direct member read or literal. Stack destinations still
+narrow. General register allocation remains unproved.
+
+[Requested variables under pressure](register-variable-analysis.md#requested-variables-under-register-pressure)
+retain plain `reg` and explicit integer values when ordinary I64/U64 members
+exceed the bank. The plain requests must have guaranteed capacity; ordinary
+members keep unknown selection. Pressure involving ordinary narrow members
+still requires the general allocator.
+
+[Computed integer assignments](register-variable-analysis.md#computed-integer-assignments)
+now preserve full selected values for source-owned addition, subtraction,
+multiplication and bitwise trees. Stack stores still narrow; calls, casts,
+division and shifts inside those trees remain outside the proof.
+
+[Computed compound operands](register-variable-analysis.md#computed-compound-operands)
+extend all ten discarded integer compound updates to source-owned arithmetic
+and bitwise operand trees. Literal-only restrictions remain in force, and
+nested shift-count literals retain their exact source values.
+
+[Computed local initializers](register-variable-analysis.md#computed-local-initializers)
+retain full selected integer values from source-owned arithmetic/bitwise trees
+over parameters and literals. Original entry-block declaration ownership remains
+required; ordering between local initializers is not inferred.
+
+[Integer expression operands](register-variable-analysis.md#integer-expression-operands)
+add source-owned unary, division/remainder, shift and comparison trees to the
+bounded assignment/update/initializer proof. Division faults and original
+shift-count ownership are checked; calls, casts and general allocation remain open.
+
+[Whole straight-line functions](register-variable-analysis.md#whole-straight-line-functions)
+use the same owned integer storage proof without requiring a branch or call.
+Dependent updates, self-updates, multiple locals and longer sequences retain
+selected values under the existing capacity and ownership bounds.
+
+[Ordered local initializers](register-variable-analysis.md#ordered-local-initializers)
+may read earlier initialized integer locals in the entry block. The proof
+requires each dependency store to precede its read and each read to precede
+the consuming initializer; self-initialization and uninitialized reads remain
+unproved.
+
+[Consumed selected assignments](register-variable-analysis.md#consumed-selected-assignments)
+retain proven storage when a plain assignment feeds a condition or return.
+Register destinations preserve the full RHS word; stack destinations reload
+the stored value at its declared width. Unknown-pressure destinations remain
+excluded, and pointer/global assignment rules are unchanged.
+
+[Physical R12-R15 variables](register-variable-analysis.md#physical-r12-r15-variables)
+use authenticated explicit requests, typed parameter entry and per-invocation
+save slots. Normal and fault returns restore caller values. Windows unwind
+metadata describes each nonvolatile save, and admission checks the matching
+save/restore bytes. General automatic and floating register allocation remain
+outside this milestone.
+
+[Physical RSI/RDI variables](register-variable-analysis.md#physical-rsi-and-rdi-variables)
+add unconditional pair preservation at host service bridges, including calls
+through unpinned functions. Their scratch slots count toward stack limits;
+[R10/R11 placement](register-variable-analysis.md#physical-r10-and-r11-variables)
+uses private source-register saves while callable runtime state lives in RBX
+and context memory. Closed execution retains its earlier register contract.
+
+[Bounded automatic placement](register-variable-analysis.md#bounded-automatic-placement)
+uses the first free general register for a sole automatic candidate, or a sole
+plain `reg` candidate among at most six possible candidates. Complete original
+parameter membership and explicit reservations are required. Ambiguous score
+order and unnamed-formal functions remain unproved. The same
+save slots, bridge preservation and unwind checks apply to these placements.
+
+[Scored straight-line allocation](register-variable-analysis.md#scored-straight-line-allocation)
+replays original occurrence scores, unstable ties and both integer variable
+banks for authenticated scalar functions. Pressure losers use declared-width
+stack storage; all selected integer registers have physical placements. Original body
+and request receipts prevent an unsupported or altered exact proof from gaining
+unsafe authority through the conservative fallback.
