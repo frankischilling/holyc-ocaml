@@ -236,8 +236,15 @@ let boundary_cases =
       "I64 F(I8 x,I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
        h){if(x=a+1)return x+b+c+d+e+f+g+h;return -1;}F(0,255,0,0,0,0,0,0,0);"
       0L;
-    case "nested assignment remains outside the direct RHS proof"
-      "I64 F(I8 noreg x,I8 noreg y,I64 a){return x=(y=a+1);}F(0,0,255);" 256L;
+    (* PrsVar.HC:513-518 and OptPass3.HC:29-42 keep both noreg members
+       in memory independently of the nested RHS. OptPass4.HC:363-399 and
+       BackC.HC:162-170 reload each stored destination in evaluation order. *)
+    case "nested noreg assignments reload the stored zero"
+      "I64 F(I8 noreg x,I8 noreg y,I64 a){return x=(y=a+1);}F(0,0,255);" 0L;
+    case "nested signed byte reload precedes unsigned word storage"
+      "I64 F(U16 noreg x,I8 noreg y,I64 a){return x=(y=a+1);}F(0,0,127);" 65408L;
+    case "nested wider reload precedes outer byte truncation"
+      "I64 F(I8 noreg x,I16 noreg y,I64 a){return x=(y=a+1);}F(0,0,255);" 0L;
     case "consumed multiplication keeps its separate result rule"
       "I64 F(I8 noreg x,I64 a){return x*=a;}F(127,2);" 254L;
     case "stack result and stored value survive a named call"

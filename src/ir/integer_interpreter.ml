@@ -8417,16 +8417,40 @@ let frame_context ?globals ?runtime_calls ?(pointer_arguments = false)
         = Some Register_variable_analysis.Register_candidate)
       register_proof
   in
-  let proved_stack location =
-    (* This authenticates stack selection, not merely absence of a register
-       proof. Direct assignments reload this storage; compound results keep
-       their independent operator-specific rules. *)
+  let selected_stack location =
     Option.fold ~none:false
       ~some:(fun proof ->
         Register_variable_analysis.selection proof ~frame ~body:function_
           ~symbol:(Frame.location_symbol location)
         = Some Register_variable_analysis.Stack)
       register_proof
+  in
+  let* explicit_stack_homes =
+    if
+      List.exists
+        (fun location ->
+          Frame.location_register_selection location
+          = Sema.Register_request.Disabled
+          && not (selected_stack location))
+        locations
+    then
+      Register_variable_analysis.source_disabled_registers_result ~frame
+        ~body:function_
+      |> Result.map_error (function
+          | Register_variable_analysis.Proof_limit_exceeded ->
+          [
+            make_error ~stage:Preflight ~executed_steps:0
+              ?span:(Function.span function_) "HCIRVM0007"
+              "explicit stack proof exceeds the hosted work or nesting \
+               allowance";
+          ])
+    else Ok []
+  in
+  let proved_stack location =
+    (* The allocation proof takes priority. PrsVar's original noreg request
+       independently fixes stack placement before OptPass3 access scoring;
+       collect that bounded source proof once when selection is insufficient. *)
+    selected_stack location || List.memq location explicit_stack_homes
   in
   let of_kind kind =
     List.filter (fun item -> Frame.location_kind item = kind) locations

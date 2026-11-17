@@ -4943,43 +4943,48 @@ module Source_disabled_member = struct
       ~context:Sema.Aggregate_layout.Array_dimension ~current_position:0L
       (Sema.Closed_layout_expression.of_ast expression)
 
+  let eligible ~frame ~body location =
+    Frame.location_register_selection location = Request.Disabled
+    && Frame.location_declarator_shape location = Frame.Object
+    && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
+    && Mixed_scalar_source.scalar (Frame.location_checked_type location)
+    && (match Sema.Type.base (Frame.location_checked_type location) with
+      | Primitive (_, primitive) ->
+          Frame.location_element_size location
+          = Int64.of_int (Sema.Primitive_type.info primitive).byte_size
+      | _ -> false)
+    && Frame.location_callback_pointer location = None
+    && Frame.location_aggregate_allocation location = None
+    && Option.equal ( == ) (Some location)
+         (Frame.find_location frame (Frame.location_symbol location))
+    && Function_body.definition_matches_frame body frame
+    && supported_options body
+    && Int64.logand
+         (Function_body.stored_flags body)
+         (Int64.lognot Function_body.ordinary_calling_flag_mask)
+       = 0L
+
+  let parameter_coverage ~budget ~frame =
+    (* Complete coverage searches the signature and binding lists for each
+       named member. Reserve both quadratic walks once for the batch; repeated
+       charges cannot overflow an intermediate product. *)
+    let parameters = signature_parameters frame in
+    let parameter_count = List.length parameters in
+    List.iter
+      (fun _ ->
+        Budget.charge budget parameter_count;
+        Budget.charge budget parameter_count)
+      parameters;
+    complete_parameter_coverage ~frame
+
   let prove ~budget ~frame ~body ~location =
     try
       (* PrsVar.HC:462-465,513-518 sets REG_NONE. OptPass3.HC:29-42
          excludes that member before access scoring, independently of the
          expressions or other members in the function. *)
-      require
-        (Frame.location_register_selection location = Request.Disabled
-        && Frame.location_declarator_shape location = Frame.Object
-        && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
-        && Mixed_scalar_source.scalar (Frame.location_checked_type location)
-        && (match Sema.Type.base (Frame.location_checked_type location) with
-          | Primitive (_, primitive) ->
-              Frame.location_element_size location
-              = Int64.of_int (Sema.Primitive_type.info primitive).byte_size
-          | _ -> false)
-        && Frame.location_callback_pointer location = None
-        && Frame.location_aggregate_allocation location = None
-        && Option.equal ( == ) (Some location)
-             (Frame.find_location frame (Frame.location_symbol location))
-        && Function_body.definition_matches_frame body frame
-        && supported_options body
-        && Int64.logand
-             (Function_body.stored_flags body)
-             (Int64.lognot Function_body.ordinary_calling_flag_mask)
-           = 0L);
+      require (eligible ~frame ~body location);
       let source = get (Function_body.definition_source body) in
       let definition = get (Typed.function_source_body source) in
-      (* complete_parameter_coverage searches the signature and binding lists
-         for each named member. Reserve both quadratic walks before entering
-         that helper; repeated charges cannot overflow an intermediate product. *)
-      let parameters = signature_parameters frame in
-      let parameter_count = List.length parameters in
-      List.iter
-        (fun _ ->
-          Budget.charge budget parameter_count;
-          Budget.charge budget parameter_count)
-        parameters;
       require
         (Typed.function_source_body_valid source
         && Some definition.location.span = Function_body.span body
@@ -4989,7 +4994,6 @@ module Source_disabled_member = struct
         && Typed.function_item_index source = Frame.function_item_index frame
         && Option.is_some definition.body
         && definition.variadic = None
-        && complete_parameter_coverage ~frame
         && source_owned_requests ~frame ~body
              (get (location_stamp ~frame location)));
       let locations = Frame.function_locations frame in
@@ -5198,18 +5202,25 @@ let source_disabled_registers_result ~frame ~body =
          && span.start >= 0 && span.stop >= span.start -> (
       try
         let budget = Budget.create body in
-        Ok
-          (List.filter
-             (fun location ->
-               Budget.charge budget 1;
-               if Frame.location_register_selection location <> Request.Disabled
-               then false
-               else (
+        let eligible =
+          List.filter
+            (fun location ->
+              Budget.charge budget 1;
+              Source_disabled_member.eligible ~frame ~body location)
+            (Frame.function_locations frame)
+        in
+        if eligible = [] then Ok []
+        else if not (Source_disabled_member.parameter_coverage ~budget ~frame)
+        then Ok []
+        else
+          Ok
+            (List.filter
+               (fun location ->
                  (* Revalidating each source seal also consumes the common
                     allowance; a fresh target cannot restart that work. *)
                  Budget.charge budget (span.stop - span.start);
-                 Source_disabled_member.prove ~budget ~frame ~body ~location))
-             (Frame.function_locations frame))
+                 Source_disabled_member.prove ~budget ~frame ~body ~location)
+               eligible)
       with Budget.Exhausted -> Error Proof_limit_exceeded)
   | _ -> Ok []
 

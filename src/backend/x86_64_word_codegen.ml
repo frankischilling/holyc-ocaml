@@ -6492,25 +6492,26 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
   let require_mixed_storage_proof location scalar =
     if
       has_float_storage_or_code && scalar.byte_size < 8
-      && (not (source_disables_register location))
-      && not
-           (Option.fold ~none:false
-              ~some:(fun proof ->
-                match
-                  Ir.Register_variable_analysis.selection proof ~frame ~body
-                    ~symbol:(Frame.location_symbol location)
-                with
-                | Some (Ir.Register_variable_analysis.Register_candidate | Stack)
-                  -> true
-                | Some Unknown ->
-                    (* A source-zero explicit reservation has no readable home
+      && (not
+            (Option.fold ~none:false
+               ~some:(fun proof ->
+                 match
+                   Ir.Register_variable_analysis.selection proof ~frame ~body
+                     ~symbol:(Frame.location_symbol location)
+                 with
+                 | Some
+                     (Ir.Register_variable_analysis.Register_candidate | Stack)
+                   -> true
+                 | Some Unknown ->
+                     (* A source-zero explicit reservation has no readable home
                        and no narrow accesses whose semantics need widening. *)
-                    Option.is_some
-                      (Ir.Register_variable_analysis.unused_explicit_reservation
-                         proof ~frame ~body
-                         ~symbol:(Frame.location_symbol location))
-                | None -> false)
-              register_proof)
+                     Option.is_some
+                       (Ir.Register_variable_analysis
+                        .unused_explicit_reservation proof ~frame ~body
+                          ~symbol:(Frame.location_symbol location))
+                 | None -> false)
+               register_proof))
+      && not (source_disables_register location)
     then
       reject ?span "HCBACK0002"
         "native F64 functions require an authenticated allocation proof for \
@@ -6607,14 +6608,15 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
   let proved_stack location =
     (* Authenticated stack selection enables direct assignment reloads and
        the separate addition/subtraction compound-result rule. Unknown
-       allocation is not evidence of stack storage. *)
-    source_disables_register location
-    || Option.fold ~none:false
-         ~some:(fun proof ->
-           Ir.Register_variable_analysis.selection proof ~frame ~body
-             ~symbol:(Frame.location_symbol location)
-           = Some Ir.Register_variable_analysis.Stack)
-         register_proof
+       allocation is not evidence of stack storage. Reuse an existing selection
+       before spending the independent explicit-declaration proof budget. *)
+    Option.fold ~none:false
+      ~some:(fun proof ->
+        Ir.Register_variable_analysis.selection proof ~frame ~body
+          ~symbol:(Frame.location_symbol location)
+        = Some Ir.Register_variable_analysis.Stack)
+      register_proof
+    || source_disables_register location
   in
   let allowed_flags =
     (* PrsFunJoin retains Ff_DOT_DOT_DOT when a replacement header is fixed.

@@ -1143,7 +1143,53 @@ let source_noreg_parameter_budget () =
             (string_of_int count
            ^ " flat formals respect the shared proof allowance")
             true matches)
-        [ 8; 1024 ])
+        [ 8; 1024 ];
+      let parameters =
+        List.init 31 (fun index -> Printf.sprintf "I64 noreg p%d" index)
+      in
+      let returned =
+        List.init 30 (fun index -> Printf.sprintf "p%d" (index + 1))
+      in
+      let contents =
+        "I64 F(I8 x,"
+        ^ String.concat "," parameters
+        ^ "){if(p0)x+=p0;return x+" ^ String.concat "+" returned ^ ";}F(127,2,"
+        ^ String.concat "," (List.init 30 (fun _ -> "1"))
+        ^ ");"
+      in
+      let fn = compile mode contents in
+      let expected =
+        List.init 31 (fun index -> location fn ("p" ^ string_of_int index))
+      in
+      Alcotest.(check bool)
+        "32-formal native regression shares one complete coverage proof" true
+        (match
+           Analysis.source_disabled_registers_result ~frame:fn.frame
+             ~body:fn.body
+         with
+        | Ok members ->
+            List.length members = 31 && List.for_all2 ( == ) members expected
+        | Error _ -> false);
+      List.iter
+        (fun (prefix, parameter) ->
+          let parameters =
+            List.init 1024 (fun index -> parameter ^ string_of_int index)
+            |> String.concat ","
+          in
+          let fn =
+            compile mode (prefix ^ "I64 F(" ^ parameters ^ "){return 42;}42;")
+          in
+          Alcotest.(check bool)
+            (parameter ^ " has no eligible explicit stack proof")
+            true
+            (Analysis.source_disabled_registers_result ~frame:fn.frame
+               ~body:fn.body
+            = Ok []))
+        [
+          ("", "I8 p");
+          ("", "I8 noreg *p");
+          ("class Box{U8 byte;};", "Box noreg p");
+        ])
 
 let source_noreg_authority () =
   let contents =
