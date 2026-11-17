@@ -288,6 +288,42 @@ let cases =
       0L );
   ]
 
+(* TempleOS c26482bb: OptPass3.HC:444-505 does not link explicit numeric
+   intrinsics. BackB.HC:277-286 calls ICFCvt at CN_INST; BackFA.HC:123-165
+   materializes the inner binary64 word with FSTP before the outer FLD/FISTTP.
+   Thus +/- (2^53+1) round to +/- 2^53. I64_MAX rounds to 2^63, whose masked
+   integer conversion yields integer indefinite. These are source deductions,
+   not TempleOS runtime captures. *)
+let nested_intrinsic_cases =
+  let declarations = "_intern 27 I64 A(F64 x);_intern 28 F64 B(I64 x);" in
+  List.map
+    (fun (label, argument, bits) ->
+      ( label,
+        declarations ^ "I64 F(I64 n){return A(B(n));}F(" ^ argument ^ ");",
+        "i64",
+        bits ))
+    [
+      ("nested opposite numeric intrinsics", "3", 3L);
+      ( "nested positive binary64 rounding",
+        "9007199254740993",
+        9007199254740992L );
+      ( "nested negative binary64 rounding",
+        "-9007199254740993",
+        -9007199254740992L );
+      ("nested rounded positive overflow", "0x7fffffffffffffff", Int64.min_int);
+      ("nested exact signed minimum", "0x8000000000000000", Int64.min_int);
+    ]
+  @ List.map
+      (fun (label, argument, bits) ->
+        ( label,
+          declarations ^ "F64 F(F64 n){return B(A(n));}F(" ^ argument ^ ");",
+          "f64",
+          bits ))
+      [
+        ("reverse nested positive truncation", "3.75", 0x4008000000000000L);
+        ("reverse nested negative truncation", "-3.75", 0xc008000000000000L);
+      ]
+
 (* Boundary mantissas use exponent zero so the pinned lexer multiplies by
    exact one. Nonzero exponents depend on its generated x87 Pow10 table;
    a host decimal parser is not an oracle for those literals. *)
@@ -335,7 +371,9 @@ let cross_family_normalized_cases =
       to_float @ to_integer)
     [ "n*1.0"; "n+0.0"; "0.0+n"; "n-0.0"; "n/1.0"; "1.0*n" ]
 
-let cases = cases @ normalized_cases @ cross_family_normalized_cases
+let cases =
+  cases @ normalized_cases @ cross_family_normalized_cases
+  @ nested_intrinsic_cases
 
 let excluded =
   [
@@ -357,9 +395,6 @@ let excluded =
     ( "opposite family intrinsic arithmetic consumer",
       "_intern 27 I64 C(F64 x);F64 F(F64 a,F64 b){return C(a)+b;}F(3.75,1.0);"
     );
-    ( "nested opposite numeric intrinsics",
-      "_intern 27 I64 A(F64 x);_intern 28 F64 B(I64 x);I64 F(I64 n){return \
-       A(B(n));}F(3);" );
     ( "integer producer multiply alias",
       "I64 F(I64 n,F64 a,F64 b){return \
        (n*1)+(a+b);}F(9007199254740993,-9007199254740992.0,0.0);" );
