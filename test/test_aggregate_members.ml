@@ -504,7 +504,8 @@ let boundaries () =
                (integer_program_report_outcome (run mode contents))))
         (Refs.unsupported @ Cases.unsupported @ Cases.pointer_unsupported
        @ Arrays.unsupported @ Pointers.unsupported @ Inherited.unsupported
-       @ Backed.unsupported @ Default.unsupported @ Casts.unsupported
+       @ Backed.unsupported @ Backed.ir_unsupported @ Default.unsupported
+       @ Casts.unsupported
         @ (if mode = Preprocessor.Aot then
              [ List.hd Inherited.source_unsupported ]
            else [])

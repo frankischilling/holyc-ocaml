@@ -278,11 +278,14 @@ compound results with floating operands also reject without their original
 result-supplier proof. Supported stores and discarded updates do not remove
 that expression-result requirement. General reassociation and constant folding
 remain open beyond the admitted source recipes.
-Converting comparison results to F64 within general expressions remains
-unsupported outside the admitted initializer conversion paths.
-Mixed functions containing F64 also reject narrow integer frame
-members unless their register or stack selection has an authenticated allocation
-proof; `noreg` alone does not supply that proof. I64/U64 control variables do not
+Direct F64 returns and typed stores can convert a completed comparison's integer
+Boolean to `0.0` or `1.0` through its original result-conversion proof.
+F64 arithmetic consuming a comparison result and direct comparison arguments
+still require additional consumer proof. See [F64 comparisons](native-float-comparisons.md).
+In mixed functions, narrow integer frame members need a proved register or stack
+choice. An original `noreg` declaration can prove stack storage for scalar locals
+and closed primitive arrays; see [numeric conversions](native-f64-conversions.md).
+Other narrow choices still need their allocation proof. I64/U64 control variables do not
 have this width-dependent ambiguity. A nested source
 callback requiring an I64 result
 rejects a final F64 value rather than reinterpreting its bits.

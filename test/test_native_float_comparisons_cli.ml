@@ -487,7 +487,23 @@ let cases =
         "I64 F(F64 a){if(a<3.141592653589793)return 1;return 0;}F(1.0);",
         1L );
       ( "floating global comparison",
-        "F64 G=1.0;I64 F(F64 x){return x<G;}F(0.0);",
+        "F64 G;I64 F(F64 x){G=1.0;return x<G;}F(0.0);",
+        1L );
+      ( "comparison initializer converts the completed Boolean",
+        "I64 F(F64 a,F64 b){F64 value=(a+b)>a;return \
+         value==1.0;}F(9007199254740992.0,1.0);",
+        1L );
+      ( "comparison assignment converts the completed Boolean",
+        "I64 F(F64 a,F64 b){F64 value;value=(a+b)>a;return \
+         value==1.0;}F(9007199254740992.0,1.0);",
+        1L );
+      ( "comparison result stores in a global",
+        "F64 G;I64 F(F64 a,F64 b){G=(a+b)>a;return \
+         G==1.0;}F(9007199254740992.0,1.0);",
+        1L );
+      ( "comparison result stores in a static",
+        "I64 F(F64 a,F64 b){static F64 value;value=a<(a+b);return \
+         value==1.0;}F(9007199254740992.0,1.0);",
         1L );
       ( "comparison after compound update",
         "I64 F(F64 a,F64 b){a+=b;return a>b;}F(1.0,2.0);",
@@ -559,8 +575,11 @@ let excluded =
       "I64 F(I64 n){if(0.0<n)return 1;return 0;}F(-1);" );
     ( "mixed integer read versus reversed float zero greater equal",
       "I64 F(I64 n){if(0.0>=n)return 1;return 0;}F(-1);" );
-    ( "comparison result converted to F64",
-      "F64 F(F64 a,F64 b){return a<b;}F(1.0,2.0);" );
+    ( "comparison result in F64 arithmetic",
+      "F64 F(F64 a,F64 b){return (a<b)+1.0;}F(1.0,2.0);" );
+    ( "comparison result as a fixed F64 argument",
+      "F64 Id(F64 value){return value;}F64 F(F64 a,F64 b){return \
+       Id(a<b);}F(1.0,2.0);" );
     ( "comparison chain",
       "I64 F(F64 a,F64 b,F64 c){return a<b<c;}F(1.0,2.0,3.0);" );
     ("short circuit", "I64 F(F64 a,F64 b){return a<b&&b>a;}F(1.0,2.0);");
@@ -620,6 +639,8 @@ let capabilities mode =
       (f "if(a<0)return 1;return 0;" "1.0,2.0", false);
       ("I64 F(F64i a){return a<0.0;}F(1.0);", true);
       ("I64 F(I64 n,F64 a){return n==a;}F(1,1.0);", true);
+      ("F64 F(F64 a,F64 b){return a==b;}F(1.0,1.0);", true);
+      ("F64 F(F64 a){return a<0.0;}F(-1.0);", true);
     ]
 
 let completed expected report =

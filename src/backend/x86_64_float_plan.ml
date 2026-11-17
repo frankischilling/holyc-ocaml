@@ -1418,9 +1418,11 @@ let prepare ?source ?entry_source ?runtime ?owner graph =
                 && I.mem d.instruction_id conversion_sources))
           && Option.is_none call_source
           && Option.is_none initializer_source
-          (* Runtime construction seals every converted CALL_END. Region replay
-             must not replace that receipt after its typed source changes. *)
-          || (d.opcode = O.Ic_call_end && Option.is_none call_source)
+          (* Converted CALL_END retains its ordinary call receipt or the exact
+             initializer replay. An expression region alone cannot replace a
+             receipt after its typed source changes. *)
+          || d.opcode = O.Ic_call_end && Option.is_none call_source
+             && Option.is_none initializer_source
           || bits = 3L
           || not
                (Option.fold ~none:false

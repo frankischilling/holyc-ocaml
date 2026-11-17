@@ -163,11 +163,18 @@ floating arithmetic would silently change precision.
 integer operand conversions. Ordered predicates can retain signed FILD precision;
 bitwise equality materializes the converted word. The comparison's original
 source event determines its link orientation, including conversions within the
-comparison itself. General comparison-result conversion to F64, comparison
-chains, floating short circuit, arithmetic-wrapped comparison conditions,
-variadic conversion and other unproved normalization forms remain outside this
-subset. Observed indirect arithmetic compound results and dynamic narrow
-integer compound results with floating operands require additional proof of
+comparison itself. A completed comparison can convert its integer Boolean to
+F64 at an original direct return, initializer or typed assignment. The comparison
+consumes its floating inputs at `CN_INST` (`BackFA.HC:519-546`), then the original
+`ICF_RES_TO_F64` flag requests FILD/FSTP at `CN_RES`
+(`OptPass789A.HC:1045-1056`, `BackFA.HC:123-166`). The stored result is exactly
+`0.0` or `1.0`; the conversion does not change the comparison's operand links.
+
+F64 arithmetic consuming a comparison result, direct comparison arguments,
+comparison chains, floating short circuit, arithmetic-wrapped comparison
+conditions, variadic conversion and other unproved normalization forms remain
+outside this subset. Observed indirect arithmetic compound results and dynamic
+narrow integer compound results with floating operands require additional proof of
 the original result supplier. The [storage contract](native-f64-storage.md)
 distinguishes these results from supported discarded updates and typed stores.
 

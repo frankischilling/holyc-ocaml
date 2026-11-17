@@ -334,6 +334,20 @@ let faults =
       "" );
   ]
 
+let native_numeric_values =
+  [
+    ( "integer backing enters a fixed F64 parameter",
+      {|U16 class Box{U16 word;U8 guard;};I64 Take(F64 n){return n+2.;}I64 F(){Box o;o=40;return Take(o);}F();|},
+      42L,
+      "" );
+  ]
+
+let ir_unsupported =
+  List.map
+    (fun (name, source, _, _) ->
+      (name ^ " requires native numeric execution", source))
+    native_numeric_values
+
 let unsupported =
   [
     ( "completion after the right operand cannot authorize assignment",
@@ -347,9 +361,6 @@ let unsupported =
     );
     ( "floating whole-value arithmetic execution",
       {|U16 class Box{U16 word;U8 guard;};I64 F(){Box o;o=40;return o+2.;}F();|}
-    );
-    ( "floating fixed parameter storage",
-      {|U16 class Box{U16 word;U8 guard;};I64 Take(F64 n){return n+2.;}I64 F(){Box o;o=40;return Take(o);}F();|}
     );
     ( "F64 class backing",
       {|F64 class Box{F64 word;};I64 F(){Box o;o=42;return o;}F();|} );

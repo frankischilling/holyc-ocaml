@@ -6,8 +6,10 @@ compiler and the documented x87 and integer instructions. They are not new
 TempleOS runtime captures.
 
 Original checked callable source can use scalar F64 `==`, `!=`, `<`, `>=`, `>`
-and `<=` as integer values or direct conditions. Supported arithmetic operands
-retain the existing source-proved extended-precision links. Fixed runtime
+and `<=` as integer values or direct conditions. An original F64 return or typed
+store can convert the completed integer result to `0.0` or `1.0`.
+Supported arithmetic operands retain the existing source-proved
+extended-precision links. Fixed runtime
 integer operands use the proved numeric conversion events. Both outer JIT/AOT
 modes work with the `host-jit` and `host-jit-task` executors. The integer IR
 interpreter does not gain floating-point execution.
@@ -249,9 +251,26 @@ convert a completed integer comparison word to F64. For example,
 `F64 value=1.5<2.0;` stores `1.0`. This conversion follows expression completion;
 it does not grant a new x87 link through the comparison.
 
-Comparison-result conversion to F64 in general expressions, floating comparison
-chains, floating short circuit, suffix bitcasts and other unproved source shapes
-remain outside this subset. Supported increment/decrement and compound stores
+Native functions also admit a comparison returned directly as F64 or used by an
+original F64 initializer or assignment. `BackFA.HC:519-546` completes an ordered
+comparison at `CN_INST`, consumes its floating inputs and produces an integer
+Boolean. `OptPass789A.HC:1045-1056` then applies `ICF_RES_TO_F64` at `CN_RES`;
+`BackFA.HC:123-166` converts the word with FILD/FSTP at these materialized
+boundaries. Canonical replay must reproduce the comparison's original conversion
+flag. Removing the typed conversion or changing the instruction flag revokes
+both cached and fresh receipts.
+
+The conversion preserves the comparison's selected operand precision. With
+`a=9007199254740992.0` and `b=1.0`, an F64 function returning `(a+b)>a` returns
+`1.0`; storing `a+b` in an F64 local before comparing it with `a` produces `0.0`.
+Returning `(a+b)<(a+b)` produces `1.0` because the left sum materializes while the
+right sum remains extended. Equality still compares stored words, so a direct
+F64 return of `(a+b)==a` is `1.0`.
+
+A comparison consumed by F64 arithmetic or passed directly as a fixed argument
+still lacks a proved terminal consumer. Those forms, floating comparison chains,
+floating short circuit, suffix bitcasts and other unproved source shapes remain
+outside this subset. Supported increment/decrement and compound stores
 retain their own source receipts; observing an indirect arithmetic compound
 result or a dynamic narrow integer compound result still requires its original
 result supplier. Complete TempleOS optimizer parity, remaining floating storage

@@ -333,7 +333,7 @@ let boundaries () =
       List.iter
         (fun (_, source, expected, output) ->
           ignore (value expected output (run mode source)))
-        Persistent.native_numeric_values;
+        (Backed.native_numeric_values @ Persistent.native_numeric_values);
       let original =
         Aggregate_member_fixture.compile ~contents:Returns.quota_source mode
       in
@@ -659,7 +659,7 @@ let persistent_storage () =
       List.iter
         (fun mode -> task_value expected output (run_task ~mode source))
         modes)
-    Persistent.native_numeric_values;
+    (Backed.native_numeric_values @ Persistent.native_numeric_values);
   List.iter
     (fun (_, source, expected, output) ->
       ignore (value expected output (run Preprocessor.Aot source)))

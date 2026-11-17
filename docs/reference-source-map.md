@@ -2889,3 +2889,14 @@ and continuation determine whether that rule applies. `BackLib.HC:423-442`
 selects FLDZ only for the zero word, preserving negative zero as a memory load.
 The hosted receipts preserve these distinctions without moving branch work
 across instruction-budget checks. See [F64 comparisons](native-float-comparisons.md).
+
+`OptPass012.HC:725-823` gives a completed comparison an internal I64 Boolean.
+`BackFA.HC:519-546` emits an ordered comparison at `CN_INST` and consumes its
+floating inputs. An original `ICF_RES_TO_F64` then runs through
+`OptPass789A.HC:1045-1056` at `CN_RES`; `BackFA.HC:123-166` materializes the
+converted zero or one with FILD/FSTP. The native source replay admits this
+sequence for direct F64 returns, initializers and typed assignments only when
+the comparison retains its original conversion flag and terminal consumer.
+Tests preserve the earlier operand links, stored-word equality and intervening
+store barriers, and reject changed conversion evidence. F64 arithmetic consuming
+the comparison and direct fixed arguments still need additional consumer proof.

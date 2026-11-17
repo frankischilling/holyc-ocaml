@@ -15,8 +15,9 @@ let checked = function
   | Ok x -> x
   | Error _ -> Alcotest.fail "original comparison fixture rejected"
 
-let fixture ?(body = "if((a+b)>a)return 1;return 0;") () =
-  let contents = "I64 F(F64 a,F64 b){" ^ body ^ "}" in
+let fixture ?(return_type = "I64") ?(body = "if((a+b)>a)return 1;return 0;") ()
+    =
+  let contents = return_type ^ " F(F64 a,F64 b){" ^ body ^ "}" in
   let fixture =
     Native_scalar_fixture.compile ~mode:Preprocessor.Aot
       ~path:"comparison-authority.hc" ~contents ()
@@ -374,29 +375,29 @@ let entry_owners () =
           rejects "entry graph mutation rejects fresh proof" (prepare graph)))
     [ "1.5>1.0"; "(1.5>1.0)"; "(1.5>1.0)+41" ]
 
+let compile_entry_calls contents =
+  let fixture =
+    match
+      Native_scalar_fixture.compile ~mode:Preprocessor.Aot
+        ~path:"call-conversion-authority.hc" ~contents ()
+    with
+    | Ok fixture -> fixture
+    | Error diagnostics ->
+        Alcotest.fail
+          (String.concat "; "
+             (List.map
+                (fun (diagnostic : Diagnostic.t) ->
+                  diagnostic.code ^ ": " ^ diagnostic.message)
+                diagnostics))
+  in
+  ( Unit.runtime_calls fixture.unit_,
+    Ir_x87_stack.graph (Unit.entry fixture.unit_) )
+
 let call_result_conversions () =
   let module Runtime = Holyc_lib__Ir.Runtime_call_context in
-  let compile contents =
-    let fixture =
-      match
-        Native_scalar_fixture.compile ~mode:Preprocessor.Aot
-          ~path:"call-conversion-authority.hc" ~contents ()
-      with
-      | Ok fixture -> fixture
-      | Error diagnostics ->
-          Alcotest.fail
-            (String.concat "; "
-               (List.map
-                  (fun (diagnostic : Diagnostic.t) ->
-                    diagnostic.code ^ ": " ^ diagnostic.message)
-                  diagnostics))
-    in
-    ( Unit.runtime_calls fixture.unit_,
-      Ir_x87_stack.graph (Unit.entry fixture.unit_) )
-  in
   List.iter
     (fun (contents, direction) ->
-      let runtime, graph = compile contents in
+      let runtime, graph = compile_entry_calls contents in
       let prepare ?(runtime = runtime) () =
         Plan.prepare ~runtime ~owner:Runtime.Entry graph
       in
@@ -454,7 +455,7 @@ let call_result_conversions () =
         (Runtime.original_call_result_conversion runtime ~owner:Runtime.Entry
            copied
         = None);
-      let foreign, _ = compile contents in
+      let foreign, _ = compile_entry_calls contents in
       Alcotest.(check bool)
         "foreign source cannot select a replay target" true
         (Runtime.original_expression_call_source foreign ~owner:Runtime.Entry
@@ -505,6 +506,168 @@ let call_result_conversions () =
         Plan.To_integer );
     ]
 
+let converted_call graph =
+  G.blocks graph
+  |> List.concat_map (fun block ->
+      List.map S.description (S.instructions (G.instructions block)))
+  |> List.find (fun d ->
+      d.S.opcode = O.Ic_call_end && Int64.logand d.flags 3L <> 0L)
+
+let initializer_call_conversions () =
+  let module Runtime = Holyc_lib__Ir.Runtime_call_context in
+  List.iter
+    (fun (contents, direction) ->
+      let runtime, graph = compile_entry_calls contents in
+      let prepare ?(runtime = runtime) () =
+        Plan.prepare ~runtime ~owner:Runtime.Entry graph
+      in
+      let original = converted_call graph in
+      Alcotest.(check bool)
+        "declaration conversion retains its initializer authority" true
+        (Option.is_some
+           (Runtime.original_initializer_region runtime ~owner:Runtime.Entry
+              original));
+      Alcotest.(check bool)
+        "declaration conversion requires complete initializer replay" true
+        (Runtime.original_call_result_conversion runtime ~owner:Runtime.Entry
+           original
+        = None);
+      let plan = prepare () |> checked in
+      let conversions = Plan.validated_conversions plan ~graph |> Option.get in
+      Alcotest.(check int)
+        "one original declaration call conversion" 1 (List.length conversions);
+      let conversion = List.hd conversions in
+      Alcotest.(check bool)
+        "initializer conversion preserves its original producer and direction"
+        true
+        (conversion.conversion_instruction = original.instruction_id
+        && conversion.conversion = direction
+        && (not conversion.deferred) && not conversion.elided);
+      let copied = Obj.obj (Obj.dup (Obj.repr original)) in
+      Alcotest.(check bool)
+        "copied call cannot select an initializer region" true
+        (Runtime.original_initializer_region runtime ~owner:Runtime.Entry copied
+        = None);
+      let foreign, _ = compile_entry_calls contents in
+      rejects "foreign initializer call runtime" (prepare ~runtime:foreign ());
+      mutate graph
+        (fun d -> d.S.instruction_id = original.instruction_id)
+        (fun d -> { d with S.flags = Int64.logxor d.flags 3L });
+      Alcotest.(check bool)
+        "changed initializer call flags invalidate retained conversion" true
+        (Plan.validated_conversions plan ~graph = None);
+      rejects "changed initializer call flags reject fresh conversion"
+        (prepare ()))
+    [
+      ("I64 Seed(){return 42;}F64 value=Seed();value;", Plan.To_float);
+      ("F64 Seed(){return 42.75;}I64 value=Seed();value;", Plan.To_integer);
+      ( "I64 Seed(){return 42;}F64 Read(){static F64 value=Seed();return \
+         value;}Read();",
+        Plan.To_float );
+      ( "F64 Seed(){return 42.75;}I64 Read(){static I64 value=Seed();return \
+         value;}Read();",
+        Plan.To_integer );
+    ]
+
+let initializer_nested_call_invalidation () =
+  let module Runtime = Holyc_lib__Ir.Runtime_call_context in
+  List.iter
+    (fun contents ->
+      let runtime, graph = compile_entry_calls contents in
+      let prepare () = Plan.prepare ~runtime ~owner:Runtime.Entry graph in
+      let plan = prepare () |> checked in
+      let original = converted_call graph in
+      let receipt =
+        Runtime.original_call_result_conversion runtime ~owner:Runtime.Entry
+          original
+        |> Option.get
+      in
+      let source = Runtime.call_result_conversion_source receipt
+      and consumer = Runtime.call_result_conversion_consumer receipt in
+      Alcotest.(check bool)
+        "ordinary converted call remains inside its initializer region" true
+        (Option.is_some
+           (Runtime.original_initializer_region runtime ~owner:Runtime.Entry
+              original));
+      let invalidated label =
+        Alcotest.(check bool)
+          (label ^ " revokes the original call receipt")
+          true
+          (Runtime.original_call_result_conversion runtime ~owner:Runtime.Entry
+             original
+          = None);
+        Alcotest.(check bool)
+          (label ^ " revokes initializer replay authority")
+          true
+          (Runtime.original_initializer_region runtime ~owner:Runtime.Entry
+             original
+          = None);
+        Alcotest.(check bool)
+          (label ^ " invalidates retained conversion")
+          true
+          (Plan.validated_conversions plan ~graph = None);
+        rejects (label ^ " rejects a fresh initializer conversion") (prepare ())
+      in
+      let changed_conversion =
+        match Typed.result_intrinsic_conversion source with
+        | Typed.No_intrinsic_conversion -> Typed.Result_to_int
+        | Result_to_f64 | Result_to_int -> Typed.No_intrinsic_conversion
+      in
+      mutate_field source 20 (Obj.repr changed_conversion) (fun () ->
+          invalidated "changed nested call conversion");
+      let left, right = Typed.result_binary_operands consumer |> Option.get in
+      let copied_left = Obj.obj (Obj.dup (Obj.repr left)) in
+      mutate_field consumer 4
+        (Obj.repr (Some (copied_left, right)))
+        (fun () -> invalidated "copied initializer consumer child");
+      ignore (prepare () |> checked))
+    [
+      "I64 Seed(){return 42;}F64 value=Seed()+1.0;value;";
+      "I64 Seed(){return 42;}F64 Read(){static F64 value=Seed()+1.0;return \
+       value;}Read();";
+    ]
+
+let returned_comparison_conversions () =
+  List.iter
+    (fun body ->
+      let source, graph = fixture ~return_type:"F64" ~body () in
+      let prepare () = Plan.prepare ~source graph in
+      let plan = prepare () |> checked in
+      let comparisons = Plan.validated_comparisons plan ~graph |> Option.get
+      and conversions = Plan.validated_conversions plan ~graph |> Option.get in
+      Alcotest.(check int) "one returned comparison" 1 (List.length comparisons);
+      Alcotest.(check int)
+        "one comparison result conversion" 1 (List.length conversions);
+      let comparison_plan = List.hd comparisons
+      and conversion = List.hd conversions in
+      Alcotest.(check bool)
+        "conversion belongs to the original comparison result" true
+        (conversion.conversion_instruction
+         = comparison_plan.comparison_instruction
+        && conversion.conversion_result = comparison_plan.comparison_result
+        && conversion.conversion = Plan.To_float
+        && (not conversion.deferred) && not conversion.elided);
+      let original = F.definition_source source.Plan.body |> Option.get in
+      let returned = Typed.function_returns original |> List.hd in
+      let value = Typed.return_value returned |> Option.get in
+      Alcotest.(check bool)
+        "original return requests the F64 conversion" true
+        (Typed.return_conversion returned = Typed.Result_to_f64
+        && Typed.result_intrinsic_conversion value = Typed.Result_to_f64);
+      mutate_field value 20 (Obj.repr Typed.No_intrinsic_conversion) (fun () ->
+          Alcotest.(check bool)
+            "changed returned conversion invalidates retained conversion" true
+            (Plan.validated_conversions plan ~graph = None);
+          invalidated "changed returned conversion" source graph plan);
+      ignore (prepare () |> checked);
+      mutate graph comparison (fun d ->
+          { d with S.flags = Int64.logxor d.flags 1L });
+      Alcotest.(check bool)
+        "changed comparison flags invalidate retained conversion" true
+        (Plan.validated_conversions plan ~graph = None);
+      invalidated "changed comparison result conversion flags" source graph plan)
+    [ "return a<b;"; "return (a+b)>a;" ]
+
 let successor_changes () =
   let source, graph = fixture () in
   let plan = Plan.prepare ~source graph |> checked in
@@ -527,6 +690,12 @@ let () =
             entry_owners;
           Alcotest.test_case "materialized source call conversions" `Quick
             call_result_conversions;
+          Alcotest.test_case "AOT initializer call conversions" `Quick
+            initializer_call_conversions;
+          Alcotest.test_case "nested initializer call invalidation" `Quick
+            initializer_nested_call_invalidation;
+          Alcotest.test_case "returned comparison conversions" `Quick
+            returned_comparison_conversions;
           Alcotest.test_case "instruction and branch snapshots" `Quick
             graph_changes;
           Alcotest.test_case "source context and options" `Quick source_changes;

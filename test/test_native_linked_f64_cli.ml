@@ -155,6 +155,40 @@ let precision_cases =
       0x4350000000000000L );
   ]
 
+(* BackFA:519-546 consumes the comparison inputs at CN_INST and produces an
+   integer Boolean. OptPass789A:1045-1056 then converts that word at CN_RES;
+   BackFA:123-166 uses FILD/FSTP at these materialized return/store boundaries. *)
+let comparison_conversion_cases =
+  [
+    ( "comparison false return converts to F64",
+      function_source "return (a+b)<a;",
+      0L );
+    ( "comparison true return converts to F64",
+      "F64 F(F64 a,F64 b){return a<b;}F(1.0,2.0);",
+      0x3ff0000000000000L );
+    ( "comparison return preserves left link",
+      expression "(a+b)>a",
+      0x3ff0000000000000L );
+    ( "comparison return preserves right link",
+      expression "a<(a+b)",
+      0x3ff0000000000000L );
+    ( "comparison return materializes left child",
+      expression "(a+b)<(a+b)",
+      0x3ff0000000000000L );
+    ( "comparison return follows store barrier",
+      function_source "F64 t=a+b;return t>a;",
+      0L );
+    ( "comparison equality return uses stored words",
+      expression "(a+b)==a",
+      0x3ff0000000000000L );
+    ( "comparison initializer stores F64 one",
+      function_source "F64 t=(a+b)>a;return t;",
+      0x3ff0000000000000L );
+    ( "comparison assignment stores F64 zero",
+      function_source "F64 t;t=(a+b)<a;return t;",
+      0L );
+  ]
+
 let normalized_sibling_cases =
   List.map
     (fun expr ->
@@ -216,8 +250,8 @@ let pressure_cases =
   ]
 
 let cases =
-  precision_cases @ normalized_sibling_cases @ orientation_cases
-  @ pressure_cases
+  precision_cases @ comparison_conversion_cases @ normalized_sibling_cases
+  @ orientation_cases @ pressure_cases
 
 let excluded =
   [
@@ -229,7 +263,10 @@ let excluded =
        never accept the incorrect 1.0 obtained by losing the linked value. *)
     ("constant division identity", expression "((a+b)+(1.0/1.0))-a");
     ("constant multiplication identity", expression "((a+b)+(1.0*1.0))-a");
-    ("comparison result converted to F64", function_source "return (a+b)<a;");
+    ("comparison result in F64 arithmetic", expression "((a+b)>a)+1.0");
+    ( "comparison result as a fixed F64 argument",
+      "F64 Id(F64 value){return value;}" ^ function_source "return Id((a+b)>a);"
+    );
   ]
 
 let config mode =

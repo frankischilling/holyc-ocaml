@@ -150,11 +150,16 @@ let invoke ?(status = 0) ?(options = []) ~target ~mode source =
                 (target ^ "/" ^ mode ^ ": " ^ text ^ "; stderr=" ^ errors);
               Yojson.Safe.from_string text)))
 
-let value expected report =
+let value ?result_type expected report =
   require
     (member "outcome" report = `String "success"
     && report |> member "final_value" |> member "bits"
-       = `String (Printf.sprintf "0x%016Lx" expected))
+       = `String (Printf.sprintf "0x%016Lx" expected)
+    && Option.fold ~none:true
+         ~some:(fun expected_type ->
+           report |> member "final_value" |> member "type"
+           = `String expected_type)
+         result_type)
     (Yojson.Safe.to_string report)
 
 let diagnostic code report =
@@ -306,15 +311,25 @@ type case = {
   label : string;
   source : string;
   expected : int64;
+  result_type : string option;
   homes : (string * string) list;
   parameters : (int * string) list option;
   large : bool;
   native_only : bool;
 }
 
-let case ?parameters ?(large = false) ?(native_only = false) label source
-    expected homes =
-  { label; source; expected; homes; parameters; large; native_only }
+let case ?parameters ?result_type ?(large = false) ?(native_only = false) label
+    source expected homes =
+  {
+    label;
+    source;
+    expected;
+    result_type;
+    homes;
+    parameters;
+    large;
+    native_only;
+  }
 
 let letters n = List.init n (fun i -> String.make 1 (Char.chr (97 + i)))
 
@@ -530,6 +545,13 @@ let recursive_all =
 
 let preservation_cases =
   [
+    case ~native_only:true ~result_type:"f64"
+      ~parameters:[ (0, "RSI") ]
+      "mixed array-read numeric conversion preserves forced F64 home"
+      "F64 F(F64 reg x){I64 noreg scratch[2];scratch[0]=42;return \
+       x+scratch[0];}F(1.5);"
+      (Int64.bits_of_float 43.5)
+      [ ("x", "RSI") ];
     recursive_all;
     case ~large:true
       "scalar and descriptor survive named child next to large array"
@@ -737,10 +759,6 @@ let rejected_sources =
       "HCRUN0003" );
     ( "explicit array request has no executable physical home",
       "I64 F(I8 x){I64 reg RSI scratch[2];x+=1;return x;}F(127);",
-      "HCBACK0002" );
-    ( "mixed array-read numeric conversion remains separately unproved",
-      "F64 F(F64 reg x){I64 noreg scratch[2];scratch[0]=42;return \
-       x+scratch[0];}F(1.5);",
       "HCBACK0002" );
   ]
 
@@ -957,7 +975,8 @@ let () =
                 windows_unwind fixture encoded);
               List.iter
                 (fun target ->
-                  invoke ~target ~mode fixture.source |> value fixture.expected)
+                  invoke ~target ~mode fixture.source
+                  |> value ?result_type:fixture.result_type fixture.expected)
                 ((if fixture.native_only then [] else [ "ir" ])
                 @ if native then [ "host-jit"; "host-jit-task" ] else [])))
         cases;

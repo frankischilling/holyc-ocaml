@@ -279,7 +279,8 @@ let () =
            @ Parameters.values @ Parameters.view_matrix @ Returns.values
            @ Returns.view_matrix @ Returns.warning_values @ Persistent.values
            @ Casts.values
-            @ (if target = "host-jit" then Persistent.native_numeric_values
+            @ (if target = "host-jit" then
+                 Backed.native_numeric_values @ Persistent.native_numeric_values
                else [])
             @ if target = "ir" then Backed.source_values else []);
           if target = "ir" && mode = "aot" then (
@@ -435,7 +436,10 @@ let () =
                else Inherited.source_unsupported)
             @ Backed.unsupported @ Default.unsupported @ Parameters.unsupported
             @ Casts.unsupported @ Returns.unsupported @ Persistent.unsupported
-            @ if target = "ir" then Persistent.ir_unsupported else []))
+            @
+            if target = "ir" then
+              Backed.ir_unsupported @ Persistent.ir_unsupported
+            else []))
         (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
     [ "jit"; "aot" ];
   if native then (
@@ -559,7 +563,7 @@ let () =
         List.iter
           (fun mode -> value expected output (invoke_task ~mode source))
           [ "jit"; "aot" ])
-      Persistent.native_numeric_values;
+      (Backed.native_numeric_values @ Persistent.native_numeric_values);
     let _, prototype, expected, output = List.hd Defaults.prototype_values in
     value
       ~warnings:

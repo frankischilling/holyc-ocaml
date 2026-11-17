@@ -764,8 +764,11 @@ let original_initializer_region context ~owner description =
             Instructions.find_opt description.Seq.instruction_id
               graph.call_result_conversions
           with
-          | Some (original, conversion) when conversion.conversion_initializer_
-            -> original == description && conversion.conversion_valid ()
+          (* Initializer replay also contains ordinary converted call operands.
+             Replaying their enclosing expression cannot revive a revoked
+             consumer receipt. *)
+          | Some (original, conversion) ->
+              original == description && conversion.conversion_valid ()
           | _ -> true
         then
           Option.bind

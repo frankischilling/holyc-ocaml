@@ -2752,6 +2752,20 @@ raw graphs and foreign source owners still reject. Zero and one retain their
 original rules. These are pinned source-derived expectations, without a new
 TempleOS runtime capture.
 
+The linked F64 and comparison CLI suites check comparison results converted to
+F64 at direct returns, local initializers and typed assignments in both native
+targets and source modes. Fixed expected bits distinguish true and false returns,
+left and right extended operands, asymmetric materialization of two arithmetic
+children, store barriers and raw-word equality. The comparison suite also checks
+global and static stores and the x87 capability required to convert an integer
+Boolean, including comparisons that use no floating instruction themselves.
+Returned-comparison authority tests change the typed conversion and original
+instruction flags; both cached and fresh receipts must reject those changes.
+Comparison results consumed by F64 arithmetic or passed directly as fixed
+arguments remain negative cases. The expectations follow the comparison event
+at `CN_INST` and subsequent result conversion at `CN_RES`, as documented in
+[F64 comparisons](native-float-comparisons.md).
+
 `test/persistent_f64_execution_cases.ml` supplies source programs to the native
 API suite `test/native/test_native_persistent_f64_execution.ml` and the public
 CLI suite `test/test_persistent_f64_execution_cli.ml`. Their matrix includes
