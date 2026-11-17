@@ -66,6 +66,10 @@ try {
         $example = Join-Path (Join-Path $repositoryRoot 'examples') $case.Example
         $report = (& $consumer run "--target=$($case.Target)" "--mode=$($case.Mode)" --code-byte-limit=1048576 --format=json $example) | ConvertFrom-Json
         if ($LASTEXITCODE -ne 0 -or $report.outcome -ne 'success' -or
+            $report.schema -ne 'holyc-integer-program-v2' -or
+            $report.arithmetic -ne 'runtime-native' -or
+            $report.target -ne $case.Target -or
+            $report.mode -ne $case.Mode -or
             $report.implementation_commit -ne $expectedRevision -or
             $report.reference_commit -ne $referenceRevision -or
             $report.final_value.type -ne $case.Type -or

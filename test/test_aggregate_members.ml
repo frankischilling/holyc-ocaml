@@ -509,7 +509,7 @@ let boundaries () =
              [ List.hd Inherited.source_unsupported ]
            else [])
         @ Parameters.unsupported @ Returns.unsupported @ Persistent.unsupported
-        ))
+        @ Persistent.ir_unsupported))
     modes
 
 let class_default_boundaries () =
