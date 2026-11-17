@@ -9,9 +9,9 @@ JSON. This subset is available through `host-jit` and `host-jit-task` in both
 outer preprocessing modes. The integer interpreter does not execute floating
 arithmetic; the closed integer expression/image APIs remain integer-only.
 
-The admitted arithmetic subset is unary minus and `+`, `-`, `*`, `/` operations
-on F64 operands. Source-owned pure expression regions can retain intermediate
-values in x87 extended precision. For example:
+The admitted arithmetic subset includes unary minus and `+`, `-`, `*`, `/` and
+`%` on F64 operands, with the original mixed integer conversions. Checked source
+regions can retain intermediate values in x87 extended precision. For example:
 
 ```c
 F64 Add(F64 a,F64 b) { return a+b; }
@@ -32,9 +32,10 @@ stack empty at its materialization boundary. Calls, branches and exits therefore
 cannot inherit an unproved extended value.
 
 Linked arithmetic requires an authenticated original function, runtime context
-and frame. The planner re-lowers disjoint pure source subtrees and compares their
-ordered graph slices. Only proved frame reads acquire the source's MOV producer
-classification. A raw graph cannot grant itself linked precision.
+and frame. The planner re-lowers the original source subtrees and compares their
+ordered graph slices. Frame, global, static, array and packed member reads keep
+their exact address and storage owners. Eligible reads acquire the source's MOV
+producer classification. A raw graph cannot grant itself linked precision.
 
 Linking follows the pinned compiler's asymmetric rule. With runtime operands
 `a=9007199254740992.0` and `b=1.0`, `(a+b)-a` returns 1.0, while
@@ -52,10 +53,13 @@ requiring unsupported constant folding or literal reassociation, including
 `((a+0.5)+0.5)-a`.
 
 Only one proved extended value lives between operations, with at most two
-transient x87 operands. Deep expression trees pressure materialized word homes,
-not an invented eight-value x87 evaluation stack. Calls, stores and control-flow
-edges cannot carry an unproved extended value. Call-result and global-containing
-regions remain outside the source-link proof.
+transient x87 operands. Deep expression trees use materialized word homes.
+Calls, stores and control-flow edges cannot carry an unproved extended value.
+An authenticated integer-to-F64 conversion of an ordinary or callback return
+can donate its post-call result to adjacent arithmetic after the original call and
+complete consuming region pass replay. See
+[call-result conversions](native-float-comparisons.md). The same replay admits
+supported arithmetic and comparisons over globals, statics and packed storage.
 
 Arithmetic immediate loading is distinct from bit transport. Positive zero uses
 FLDZ; one uses FLD1. Negative zero and other ordinary literals load from a
@@ -72,18 +76,58 @@ an unnecessary x87 operation. Other arithmetic uses the source's memory-operand
 orientation, including reversed subtraction and division when a right builtin
 constant is loaded first.
 
+## Remainder, updates and raw-word operators
+
+Floating `%` follows `Compiler/Templates.HC:23-37`: load two binary64 operands,
+repeat FPREM while C2 is set, store the result and empty the x87 stack. It keeps
+the dividend's sign, including negative zero. Zero divisors and infinite
+dividends use the masked x87 invalid-operation result. Remainder consumes
+materialized operands and cannot pass an extended result to a later operation.
+For example, converting runtime integer `9007199254740993` before `%3.0` rounds
+it to `9007199254740992.0`, so the remainder is `2.0`.
+
+[Storage expressions](native-f64-storage.md#expressions-and-updates) include
+ordinary assignments, prefix/postfix increment and decrement, and arithmetic
+compound updates over the supported scalar, array, packed and owned pointer
+locations. They retain address evaluation order and the selected destination
+width. A compound store materializes binary64. A postfix word result contains
+the old value, while a source-selected floating link can consume the new
+extended value from the update. Observed compound results require proof of the
+original address mode and result supplier.
+
+Bitwise operators and shifts act on the source-selected register words.
+An ordinary mixed expression first selects the common numeric class; an integer
+operand paired with F64 becomes binary64 before its bits reach the operation
+(`Compiler/OptLib.HC:96-139`). Compound `&=`, `|=`, `^=`, `<<=` and `>>=` instead
+convert an F64 RHS to an integer and update the destination's raw word
+(`Compiler/OptPass012.HC:888-894`). This distinction is visible with `x=1.5`:
+
+| Expression | Count used | Resulting F64 word |
+| --- | --- | --- |
+| `x<<1` | Low six bits of binary64 `1.0`, which are zero | `0x3ff8000000000000` |
+| `x<<=1` | Integer one | `0x7ff0000000000000` |
+| `x<<=1.75` | Integer one after truncation | `0x7ff0000000000000` |
+
+The right-shift form for F64 is signed. For stored negative-zero `x`, `x>>=1`
+produces `0xc000000000000000`. Raw-word operations do not canonicalize NaNs or
+signed zeros. Their stores still use the existing bounds, initialization and
+ownership checks. `Compiler/BackA.HC:573-658` and
+`Compiler/BackC.HC:539-599` select these machine operations.
+
 ## Fixed callback calls
 
 Both native targets support fixed F64 callback parameters and results in JIT
 and AOT source modes. Global, static, automatic, array and member callback slots
 retain the selected header and original executable owner. Mixed integer/F64
 parameters, U0 returns, saved integer defaults and borrowed F64 pointer arguments
-use the existing checked callback path. Live JIT native source tasks now also
-save F64 defaults on named and anonymous callback headers with the original
-eight-byte conversion and capture rules, including nested JIT `#exe`
-entered from either outer mode; see [live F64 defaults](native-f64-defaults.md).
-Isolated and ordinary outer AOT floating default preparation, and variadic F64
-arguments, remain unsupported.
+use the existing checked callback path. Live JIT native source tasks save F64
+defaults on named and anonymous callback headers with the original eight-byte
+conversion and capture rules, including nested JIT `#exe` entered from either
+outer mode. Closed numeric defaults also prepare in isolated native programs
+and ordinary outer AOT source. See [F64 defaults](native-f64-defaults.md) for
+their declaration timing and saved-value ownership. Ordinary AOT defaults that
+depend on output-module storage or callable addresses, isolated preparation with
+retained references, and variadic F64 arguments remain unsupported.
 
 The [callback example](../examples/native-f64-callbacks.hc) passes an owned
 two-argument callback to `Apply` and returns F64 3.75. The callee is captured
@@ -103,14 +147,18 @@ add no independent TempleOS runtime capture.
 
 ## Storage and host state
 
-[Automatic floating storage](native-f64-storage.md) supports F64 arrays, packed
-members and one-level owned pointers, including fixed pointer parameters and
-borrowed recursive calls. Binary64 stores materialize their values; these memory
-operations do not grant an extended-precision link.
+[Floating storage](native-f64-storage.md) supports F64 arrays, packed members
+and one-level owned pointers, including fixed pointer parameters and borrowed
+recursive calls. Binary64 stores materialize their values; the source expression
+separately proves any later extended link.
 Globals and static locals also support F64 storage. Declaration initializers
-execute in native source-task JIT. Original nonconstant same-class initializers
-also run as AOT load assignments on both native targets, including fixed arrays
-and packed aggregate leaves. Closed AOT and isolated floating preparation remain
+execute in native source-task JIT. Closed integer/F64 initializer expressions
+prepare on both native targets in either source mode, including scalar, fixed
+array and packed aggregate leaves. Declaration conversion follows the completed
+expression word and precedes the selected byte copy. Original nonconstant AOT
+leaves instead execute their source-ordered load assignments with the original
+runtime conversion flags. See [numeric initializers](native-numeric-initializers.md)
+for this distinction. Isolated JIT preparation with retained references remains
 unsupported.
 
 Ordinary F64 locals stay in their checked stack slots. A separate authenticated
@@ -132,16 +180,17 @@ claim to preserve every XSAVE component or implement SSE floating arithmetic.
 
 Builds without the checked x87 thunk retain the integer execution path. Sealed
 images containing x87 instructions reject before native mapping or execution on
-those builds. Capability follows emitted instructions, not just the final return
-type, so an integer-returning function cannot hide unsupported floating work.
+those builds. Images record capabilities from their emitted instructions,
+including floating operations in an integer-returning function.
 
 ## Stored constants under `No_builtin_const`
 
 Native source tasks honor `OPTf_NO_BUILTIN_CONST` (bit 36) for the five
 option-dependent constants: pi, log2(10), log2(e), log10(2) and ln(2).
-With the option enabled at original function compilation, arithmetic and direct
-ordered conditions load the literal's stored binary64 word. With the option
-disabled, including the default, they use `FLDPI`, `FLDL2T`, `FLDL2E`, `FLDLG2`
+With the option enabled at original function compilation, arithmetic, supported
+F64 arithmetic compound updates and direct ordered conditions load the literal's
+stored binary64 word. With the option disabled, including the default, they use
+`FLDPI`, `FLDL2T`, `FLDL2E`, `FLDLG2`
 or `FLDLN2`. These instructions retain extended precision until the original
 materialization boundary. For example, `3.141592653589793-x` with that binary64
 value supplied as `x` returns bits `0x3ca1a80000000000` by default and positive
@@ -153,6 +202,11 @@ words, so `return x<3.141592653589793;` and a direct `if` condition can differ
 at the constant's binary64 boundary. This follows the separate original
 comparison templates; constant selection does not grant extended precision to
 stored values.
+
+The same distinction applies to an immediate RHS in `value+=3.141592653589793`
+when `value` contains stored negative pi. Integer destinations and remainder
+updates keep their materialized operands. An update without its original
+function option owner cannot authorize an option-dependent builtin load.
 
 Isolated constant-only arithmetic loads the literal binary64 words, reproducing
 the value of the earlier `OptPass012` fold. Constant `3.141592653589793-3.0` yields
@@ -216,16 +270,22 @@ boundaries. [Numeric defaults](native-f64-defaults.md) have their own closed and
 live preparation paths.
 
 Unproved conversion normalization, comparison chains, floating short circuit,
-constant-only comparisons without a normalization proof,
-arithmetic-wrapped comparison conditions, remainder, power,
-shifts, compound updates, increment/decrement, other floating intrinsics,
-variadic F64 arguments, `%f`, deeper F64 pointers and pointer arrays remain
-unsupported.
-Converting comparison results to F64 within general expressions remains
-unsupported outside the admitted initializer conversion paths.
-Mixed functions containing F64 also reject narrow integer frame
-members unless their register or stack selection has an authenticated allocation
-proof; `noreg` alone does not supply that proof. I64/U64 control variables do not
+constant-only comparisons without a normalization proof, arithmetic-wrapped
+comparison conditions, power, other floating intrinsics, variadic F64 arguments,
+`%f`, deeper F64 pointers and pointer arrays remain unsupported.
+Observed indirect arithmetic compound results and dynamic narrow integer
+compound results with floating operands also reject without their original
+result-supplier proof. Supported stores and discarded updates do not remove
+that expression-result requirement. General reassociation and constant folding
+remain open beyond the admitted source recipes.
+Direct F64 returns and typed stores can convert a completed comparison's integer
+Boolean to `0.0` or `1.0` through its original result-conversion proof.
+F64 arithmetic consuming a comparison result and direct comparison arguments
+still require additional consumer proof. See [F64 comparisons](native-float-comparisons.md).
+In mixed functions, narrow integer frame members need a proved register or stack
+choice. An original `noreg` declaration can prove stack storage for scalar locals
+and closed primitive arrays; see [numeric conversions](native-f64-conversions.md).
+Other narrow choices still need their allocation proof. I64/U64 control variables do not
 have this width-dependent ambiguity. A nested source
 callback requiring an I64 result
 rejects a final F64 value rather than reinterpreting its bits.
@@ -246,6 +306,13 @@ All references are to TempleOS commit
   operand orientation and materialization.
 - `Compiler/BackLib.HC:423-442` selects builtin float loads.
 - `Compiler/BackFB.HC:488-594` implements arithmetic identity copies.
+- `Compiler/BackFA.HC:242-264,549-605` and `Compiler/Templates.HC:23-37`
+  implement materialized remainder and its update form.
+- `Compiler/BackFB.HC:1-224,573-614` selects arithmetic updates and the
+  prefix/postfix word results; `Compiler/Templates.HC:178-190` preserves the
+  new extended increment/decrement value when linked.
+- `Compiler/OptPass012.HC:859-894`, `Compiler/BackA.HC:573-658` and
+  `Compiler/BackC.HC:539-599` select mixed operands and raw-word compound updates.
 - `Compiler/OptPass789A.HC:779-785,1026-1032` transports return words through RAX.
 - `Compiler/OptPass3.HC:29-47` excludes ordinary F64 from automatic GPR selection;
   `Compiler/PrsVar.HC:449-516` retains explicit register requests.
@@ -253,7 +320,7 @@ All references are to TempleOS commit
   `Kernel/Sched.HC:87,119` establish initialized task FPU state and its save/restore
   model.
 
-These are source-derived contracts and hosted regressions, not a new TempleOS
-runtime-oracle capture. This subset does not complete issue #703 or establish
-general floating allocation, complete floating normalization or full HolyC ABI
-compatibility.
+These contracts and hosted regressions derive from the pinned source. They add
+no TempleOS runtime captures. Storage and operator support leaves the broader
+floating compiler and interpreter work open, including issue #703, general
+floating allocation, complete normalization and full HolyC ABI compatibility.

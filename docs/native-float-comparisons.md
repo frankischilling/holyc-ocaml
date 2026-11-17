@@ -6,11 +6,20 @@ compiler and the documented x87 and integer instructions. They are not new
 TempleOS runtime captures.
 
 Original checked callable source can use scalar F64 `==`, `!=`, `<`, `>=`, `>`
-and `<=` as integer values or direct conditions. Supported arithmetic operands
-retain the existing source-proved extended-precision links. Fixed runtime
+and `<=` as integer values or direct conditions. An original F64 return or typed
+store can convert the completed integer result to `0.0` or `1.0`.
+Supported arithmetic operands retain the existing source-proved
+extended-precision links. Fixed runtime
 integer operands use the proved numeric conversion events. Both outer JIT/AOT
 modes work with the `host-jit` and `host-jit-task` executors. The integer IR
 interpreter does not gain floating-point execution.
+
+Operands can come from proved automatic, global and static scalars, fixed
+arrays, packed members and owned F64 pointers. Their original address receipts
+remain part of the source replay. A memory read supplies a binary64 word, while
+subsequent arithmetic keeps only the extended links selected by the source.
+Repeated calls and retained functions continue to use their original storage
+bindings. See [storage expressions](native-f64-storage.md#expressions-and-updates).
 
 The example [native-float-comparisons.hc](../examples/native-float-comparisons.hc)
 returns `1`:
@@ -55,7 +64,7 @@ The resulting NaN value rows, in column order, are therefore `(1,0,1,0)`,
 `Templates.HC:39-85,280-322,456-498`; replacing them with a host-language
 floating comparison would change behavior.
 
-Precision also depends on events, not just types. With the `a` and `b` above:
+The source's store and link events determine precision. With the `a` and `b` above:
 
 - `(a+b)>a` and `a<(a+b)` are `1` because the sum remains extended.
 - `(a+b)<(a+b)` is `1`: the left sum materializes, while the right sum remains
@@ -123,6 +132,12 @@ before either kind of comparison: `9007199254740993==9007199254740992.0`
 is `1`. Direct conditions use this saved word because folding precedes branch
 fusion and builtin x87 constant selection.
 
+`OptPass012.HC:180-188` also folds unary minus of an immediate F64 before
+comparison selection. The receipt recognizes the original non-NaN literal,
+including negative zero, with no attached result conversion. A negative
+immediate can therefore be compared with a stored value or consume an extended
+left operand. It cannot authorize arbitrary arithmetic folding or reassociation.
+
 The hosted backend records the folded word in its original-source receipt and
 emits it at the canonical comparison site. Operand and comparison step charges
 remain visible, including during a quota fault. The receipt also applies to
@@ -152,22 +167,22 @@ Native tests cover finite order and equality, signed zeros, infinity,
 arithmetic-produced NaNs, all ordered value/link orientations, stored versus
 direct conditions, NOT parity and each loop role. Retained executions exercise
 all earlier step limits around linked producers, comparisons and branches,
-then rerun the same image after every fault. Separate architectural tests load
-raw qNaN/sNaN payloads into FCOMIP and check flags and an empty x87 stack; those
-are lower-level instruction tests, not HolyC source execution. Arbitrary NaN
-payload and signaling-NaN source comparisons are not qualified by these
-architectural tests; source-level raw-word transport is covered separately by
-the native scalar F64 tests.
+then rerun the same image after every fault. Source storage fixtures write an
+exact quiet-NaN word through an owned U64 view and check value, direct-condition
+and left/right arithmetic predicates. A packed signaling-NaN fixture checks
+bitwise equality and unchanged payload transport. Separate architectural tests
+load qNaN/sNaN payloads into FCOMIP and check flags and an empty x87 stack; their
+coverage remains distinct from those source programs.
 
 The original `<` and `>=` operators have one additional source rule.
-`OptLib.HC:141-160` changes a direct PUBLIC F64 frame read compared with a direct
+`OptLib.HC:141-160` changes a direct PUBLIC F64 storage read compared with a direct
 positive-zero immediate into a signed integer-word comparison. Both operand
 orders, integer `0` converted to F64, value results and direct conditions follow
 that rule. With negative-zero `x`, `x<0.0` is `1` and `x>=0.0` is `0`. A negative
 NaN word also compares below positive zero. `>` and `<=`, a negative-zero
-immediate, and the distinct `F64i` class do not meet that rule. The proof recognizes
-unary negation of literal zero as its exact negative-zero word. It does not grant
-general constant folding. Computed-zero expressions and alias-simplified reads
+immediate, and the distinct `F64i` class do not meet that rule. The proved
+immediate-negation fold preserves negative zero, so it cannot acquire the
+positive-zero shortcut. Computed-zero expressions and alias-simplified reads
 such as `(x+0.0)<0.0` remain rejected without their own normalization proof.
 An original direct integer read compared with F64 zero using `<` or `>=` also
 remains an unproved conversion-phase boundary; integer operands compared with
@@ -231,7 +246,32 @@ programs and ordinary outer AOT source. Source-owned numeric intrinsic calls use
 their [separate declaration proof](aot-intrinsic-defaults.md). Ordinary AOT
 module-address dependencies and variadic F64 callback arguments remain open.
 
-Comparison results converted to F64, floating comparison chains, short circuit, floating globals,
-compound updates, suffix bitcasts and other unproved source shapes
-remain outside this increment. This does not claim complete TempleOS optimizer
-parity, full floating storage, exported ABI support or bootstrap closure.
+Closed [numeric declaration initializers](native-numeric-initializers.md) can
+convert a completed integer comparison word to F64. For example,
+`F64 value=1.5<2.0;` stores `1.0`. This conversion follows expression completion;
+it does not grant a new x87 link through the comparison.
+
+Native functions also admit a comparison returned directly as F64 or used by an
+original F64 initializer or assignment. `BackFA.HC:519-546` completes an ordered
+comparison at `CN_INST`, consumes its floating inputs and produces an integer
+Boolean. `OptPass789A.HC:1045-1056` then applies `ICF_RES_TO_F64` at `CN_RES`;
+`BackFA.HC:123-166` converts the word with FILD/FSTP at these materialized
+boundaries. Canonical replay must reproduce the comparison's original conversion
+flag. Removing the typed conversion or changing the instruction flag revokes
+both cached and fresh receipts.
+
+The conversion preserves the comparison's selected operand precision. With
+`a=9007199254740992.0` and `b=1.0`, an F64 function returning `(a+b)>a` returns
+`1.0`; storing `a+b` in an F64 local before comparing it with `a` produces `0.0`.
+Returning `(a+b)<(a+b)` produces `1.0` because the left sum materializes while the
+right sum remains extended. Equality still compares stored words, so a direct
+F64 return of `(a+b)==a` is `1.0`.
+
+A comparison consumed by F64 arithmetic or passed directly as a fixed argument
+still lacks a proved terminal consumer. Those forms, floating comparison chains,
+floating short circuit, suffix bitcasts and other unproved source shapes remain
+outside this subset. Supported increment/decrement and compound stores
+retain their own source receipts; observing an indirect arithmetic compound
+result or a dynamic narrow integer compound result still requires its original
+result supplier. Complete TempleOS optimizer parity, remaining floating storage
+shapes, exported ABI support and bootstrap remain open.

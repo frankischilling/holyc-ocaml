@@ -164,11 +164,16 @@ let invoke ?(status = 0) ?(options = []) ~target ~mode source =
                 (target ^ "/" ^ mode ^ ": " ^ text ^ "; stderr=" ^ stderr);
               Yojson.Safe.from_string text)))
 
-let value expected report =
+let value ?result_type expected report =
   require
     (member "outcome" report = `String "success"
     && report |> member "final_value" |> member "bits"
-       = `String (Printf.sprintf "0x%016Lx" expected))
+       = `String (Printf.sprintf "0x%016Lx" expected)
+    && Option.fold ~none:true
+         ~some:(fun expected_type ->
+           report |> member "final_value" |> member "type"
+           = `String expected_type)
+         result_type)
     (Yojson.Safe.to_string report)
 
 let diagnostic code report =
@@ -226,23 +231,29 @@ let frame_moves save register code =
       | _ -> false)
     code
 
-let parameter_map code =
+let parameter_map word_parameters code =
   let rec pairs = function
     | (load : Disassembly.instruction) :: store :: rest ->
         let pair =
           match (load.operands, operands store) with
           | [ dst; src ], [ home; "U64 RAX" ]
-            when load.opcode = "MOVSX" && dst.text = "U64 RAX"
-                 && String.starts_with ~prefix:"U8 " src.text
+            when dst.text = "U64 RAX"
                  && String.ends_with ~suffix:"[RBP]" src.text
                  && Option.fold ~none:false ~some:(fun x -> x >= 16L) src.value
                  && store.opcode = "MOV" ->
-              List.find_map
-                (fun r ->
-                  if home = "U64 " ^ r then
-                    Some ((Int64.to_int (Option.get src.value) - 16) / 8, r)
-                  else None)
-                registers
+              let index = (Int64.to_int (Option.get src.value) - 16) / 8 in
+              let opcode, width =
+                if List.mem index word_parameters then ("MOV", "U64 ")
+                else ("MOVSX", "U8 ")
+              in
+              if
+                load.opcode = opcode
+                && String.starts_with ~prefix:width src.text
+              then
+                List.find_map
+                  (fun r -> if home = "U64 " ^ r then Some (index, r) else None)
+                  registers
+              else None
           | _ -> None
         in
         Option.to_list pair @ pairs (store :: rest)
@@ -313,8 +324,10 @@ type fixture = {
   label : string;
   source : string;
   expected : int64;
+  result_type : string option;
   homes : (string * string) list;
   parameters : (int * string) list option;
+  word_parameters : int list;
   ledger : (string * int64 * int64) list option;
   dimensions : int64 list;
   element_size : int64;
@@ -324,15 +337,17 @@ type fixture = {
   native_only : bool;
 }
 
-let fixture ?parameters ?ledger ?strides ?byte_offsets
-    ?(dimensions = [ 2L; 3L ]) ?(element_size = 8L) ?(large = false)
-    ?(native_only = false) label source expected homes =
+let fixture ?parameters ?(word_parameters = []) ?ledger ?strides ?byte_offsets
+    ?result_type ?(dimensions = [ 2L; 3L ]) ?(element_size = 8L)
+    ?(large = false) ?(native_only = false) label source expected homes =
   {
     label;
     source;
     expected;
+    result_type;
     homes;
     parameters;
+    word_parameters;
     ledger;
     dimensions;
     element_size;
@@ -502,6 +517,14 @@ let composed_cases =
          (String.concat "," (List.map (( ^ ) "I64 ") letters))
          weighted weighted)
       126L general;
+    fixture ~native_only:true ~result_type:"f64"
+      ~parameters:[ (0, "RSI") ]
+      ~word_parameters:[ 0 ] ~strides:[ 24L; 8L; 24L; 8L ]
+      "mixed multidimensional array-read conversion preserves forced F64 home"
+      "F64 F(F64 reg x){I64 scratch[2][3];scratch[0][0]=42;return \
+       x+scratch[0][0];}F(1.5);"
+      (Int64.bits_of_float 43.5)
+      [ ("x", "RSI") ];
     fixture ~dimensions:[ 100L; 50L ] ~large:true ~native_only:true
       "F64 and descriptor survive child beside normalized local arrays"
       "I64 V=2;F64 Child(F64 reg y){return y+1.0;}F64 F(F64 reg x,I64 *p){I64 \
@@ -734,13 +757,12 @@ let physical fixture image =
   let code = instructions image in
   Option.iter
     (fun expected ->
+      let actual = parameter_map fixture.word_parameters code in
       require
-        (parameter_map code = List.sort compare expected)
+        (actual = List.sort compare expected)
         ("decoded parameter homes differ from independent literal map: "
         ^ String.concat "; "
-            (List.map
-               (fun (i, r) -> Printf.sprintf "%d:%s" i r)
-               (parameter_map code))))
+            (List.map (fun (i, r) -> Printf.sprintf "%d:%s" i r) actual)))
     fixture.parameters;
   let saved = List.filter (fun r -> frame_moves true r code <> []) registers in
   require
@@ -904,10 +926,6 @@ let rejected_sources =
     ( "F64 pointer-array storage remains unsupported",
       "I64 F(){F64 *scratch[2][3];return 42;}F();",
       "HCRUN0001" );
-    ( "mixed array-read float arithmetic remains unsupported",
-      "F64 F(F64 reg x){I64 scratch[2][3];scratch[0][0]=42;return \
-       x+scratch[0][0];}F(1.5);",
-      "HCBACK0002" );
   ]
 
 let completed expected report =
@@ -1114,7 +1132,8 @@ let () =
                 windows_metadata fixture encoded);
               List.iter
                 (fun target ->
-                  invoke ~target ~mode fixture.source |> value fixture.expected)
+                  invoke ~target ~mode fixture.source
+                  |> value ?result_type:fixture.result_type fixture.expected)
                 (if fixture.native_only then List.filter (( <> ) "ir") targets
                  else targets)))
         cases;

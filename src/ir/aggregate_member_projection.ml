@@ -143,6 +143,16 @@ let matches ?before_item_index ?function_identity projection ~base_pointer
                 ~value_type:(Type.dereference pointer_type |> Result.get_ok))
             before_item_index)
 
+let same_source left right =
+  (match (left.selection, right.selection) with
+    | Field left, Field right -> left == right
+    | Backing left, Backing right -> left == right
+    | _ -> false)
+  && Type.equal left.base_pointer right.base_pointer
+  && Type.equal left.pointer_type right.pointer_type
+  && left.offset = right.offset
+  && left.strides = right.strides
+
 let offset projection = projection.offset
 let strides projection = projection.strides
 

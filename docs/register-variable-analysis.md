@@ -555,13 +555,26 @@ also applies when an accepted assignment feeds arithmetic, a named call or a
 loop condition. Register destinations retain the full RHS word.
 
 The interpreter returns the stored scalar, and native code loads the destination
-immediately after its store. Both require an authenticated `Stack` selection.
-Unknown pressure is not treated as proof of stack storage. Pointer and global
-assignments keep their separate non-by-value result rules, and the existing
-operator-specific compound-result behavior is unchanged. Consumed compound
-updates, casts and nested assignment operands remain outside this extension.
-The evidence is pinned source and hosted tests, not a new TempleOS runtime
-capture.
+immediately after its store. Both first use an authenticated `Stack` selection.
+When that proof does not cover an explicit `noreg` member, they check the original
+declaration and frame through one bounded source proof batch per function.
+Exhausting that allowance stops preparation. PrsVar.HC:513-518 sets `REG_NONE`
+for these parameters and locals; OptPass3.HC:29-42 excludes them from register
+selection before access scoring.
+
+This also covers nested assignments to direct `noreg` frame members. In
+`I64 F(I8 noreg x,I8 noreg y,I64 a){return x=(y=a+1);}`, `F(0,0,255)` returns
+zero: the inner store writes byte zero, then each assignment reads its stored
+destination. With outer `U16 x`, inner `I8 y` and `a=127`, the inner read produces
+-128 and the outer read produces 65408. The consumed stack assignment suite
+checks this order in IR and both native executors, including an outer `I8`
+destination that truncates an inner `I16` result of 256 to zero.
+
+Unknown pressure does not prove stack storage. Pointer and global assignments
+keep their separate storage and result rules. Consumed compound updates, casts
+and nested assignments to other kinds of storage still require their own source
+proofs. These expectations come from pinned source; there is no new TempleOS
+runtime capture.
 
 ## Physical R12-R15 variables
 

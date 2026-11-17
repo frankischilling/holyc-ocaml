@@ -764,8 +764,11 @@ let original_initializer_region context ~owner description =
             Instructions.find_opt description.Seq.instruction_id
               graph.call_result_conversions
           with
-          | Some (original, conversion) when conversion.conversion_initializer_
-            -> original == description && conversion.conversion_valid ()
+          (* Initializer replay also contains ordinary converted call operands.
+             Replaying their enclosing expression cannot revive a revoked
+             consumer receipt. *)
+          | Some (original, conversion) ->
+              original == description && conversion.conversion_valid ()
           | _ -> true
         then
           Option.bind
@@ -800,6 +803,33 @@ let original_expression_results context ~owner =
                 (fun (_, source) -> Typed.function_all_results source)
                 context.function_source_owners)
       (find_graph context owner)
+
+let original_expression_globals context ~owner =
+  if not (source_producers_match context) then None
+  else
+    Option.map
+      (fun _ -> Global_initialization.globals context.initialization)
+      (find_graph context owner)
+
+let original_ordinary_entry context =
+  source_producers_match context
+  && Option.is_some (find_graph context Entry)
+  && List.exists
+       (fun statement ->
+         List.exists
+           (fun root ->
+             match
+               Typed.top_level_root_source root
+               |> Sema.Top_level_expression_tree.root_role
+             with
+             | Expression_statement _
+             | Condition _
+             | Return_value _
+             | Local_initializer _
+             | Global_initializer _ -> true
+             | _ -> false)
+           (Typed.top_level_statement_roots statement))
+       (Typed.top_level_statements context.typed_top_level)
 
 let original_expression_call_source context ~owner value =
   Option.bind (original_expression_results context ~owner) (fun owned ->

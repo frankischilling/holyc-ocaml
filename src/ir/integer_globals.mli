@@ -349,6 +349,14 @@ val cell_count : t -> int
 val storage_symbol : storage_slot -> Sema.Symbol.t
 val storage_type : storage_slot -> Sema.Type.t
 
+val storage_is_code_heap : storage_slot -> bool
+(** Read the original allocation choice. TempleOS Compiler/PrsStmt.HC:335-376
+    applies [Globals_on_data_heap] to global definitions.
+    Compiler/PrsVar.HC:543-551 keeps static locals in JIT code-heap storage or
+    AOT module storage. Pending globals retain their original declaration option
+    snapshot. This reports source storage, not the private hosted arena address.
+*)
+
 val storage_is_callback : storage_slot -> bool
 (** Identify physical callback storage from its original declaration, including
     the current parser-owned destination before its type record is complete. *)

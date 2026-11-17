@@ -5909,6 +5909,30 @@
  (modules test_native_linked_f64_cli)
  (libraries holyc_lib unix yojson))
 
+(executable
+ (name test_persistent_f64_execution_cli)
+ (modules test_persistent_f64_execution_cli persistent_f64_execution_cases)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (deps ../examples/native-f64-storage-execution.hc)
+ (action
+  (run
+   %{exe:test_persistent_f64_execution_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/native-f64-storage-execution.hc})))
+
+(rule
+ (alias native-tests)
+ (deps ../examples/native-f64-storage-execution.hc)
+ (action
+  (run
+   %{exe:test_persistent_f64_execution_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/native-f64-storage-execution.hc}
+   --native)))
+
 (rule
  (alias runtest)
  (action

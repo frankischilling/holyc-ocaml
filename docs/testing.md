@@ -1007,18 +1007,24 @@ even for unused or fully supplied functions. The maintained fixture is
 `examples/native-integer-defaults.hc`; [native defaults](native-defaults.md)
 defines the admitted source domain and report fields.
 
-Live JIT native source-task floating defaults have a separate public
-regression in `test/native/test_native_f64_defaults.ml` and the
-maintained `examples/native-f64-defaults.hc`. It exercises the actual native
-entry through the hosted API and JSON CLI, with raw F64 result/type bits,
-signed integer-to-F64 ties and high-bit U64 inputs, F64-to-integer
-truncation and integer-indefinite results, F64 signaling-NaN transport,
-narrow integer parameter materialization, nontrailing omission, parenthesis-free
-calls, original named/anonymous selection, retained historical headers,
-once-only declaration effects and output preserved at a later fault.
-Nested JIT `#exe` in both outer JIT/AOT modes checks one saved F64 default
-with exactly eight available payload bytes and its seven-byte rejection;
-ordinary outer AOT floating defaults retain their own rejected path.
+`test/native/test_native_f64_defaults.ml` checks live JIT source-task defaults
+with `examples/native-f64-defaults.hc` and closed numeric defaults with
+`examples/aot-native-defaults.hc`. The API and JSON CLI cases inspect actual
+native entry results, including raw F64 type and bits, signed integer-to-F64
+ties and high-bit U64 inputs, F64-to-integer truncation and integer-indefinite
+results, signaling-NaN transport, narrow parameter materialization, nontrailing
+omission and parenthesis-free calls. Named and anonymous headers retain their
+own saved values across later replacement. Live defaults execute once during
+declaration, and earlier output survives a later fault.
+
+Closed numeric defaults prepare through both native targets in JIT and AOT
+modes. The maintained AOT example checks F64 `5.25` and 32 saved-default bytes.
+Quota cases cover the exact work and payload allowances. A 31-byte bound or
+one-below work allowance must reject the fourth default while retaining the
+first 24 saved bytes.
+Nested JIT `#exe` in both outer modes checks one saved F64 default with exactly
+eight available payload bytes and its seven-byte rejection.
+
 Both private image ABIs compile in the source-authority suite; execution uses
 the host ABI. Its negative controls reject a missing native scalar capture,
 returned-bit substitution, reported-work substitution, zero reported work,
@@ -1026,9 +1032,11 @@ cross-image capture acquisition, duplicate taking and replay.
 Independent `test/test_binary64_conversion.ml` supplies bit-pattern checks
 of the post-Call integer/binary64 conversion function, without an OCaml
 floating-point round trip. Exact/one-below step and default-payload limits
-retain their separate failure paths. The public CLI also retains negative
-tests for isolated and outer AOT F64 default preparation. These are
-source-derived and hosted observations, not original TempleOS runtime captures.
+retain their separate failure paths. Public CLI rejection controls cover
+isolated defaults requiring live prior declarations and ordinary AOT defaults
+that call output-module functions before executable authority is available.
+These tests use source-derived expectations and hosted execution; they add no
+original TempleOS runtime captures.
 
 Native function tests extend the program suite with both-mode `Add(20,22)=42`
 under its exact 29-step budget, high-bit words, automatic local mutation,
@@ -1364,8 +1372,11 @@ opam exec -- pwsh -NoProfile -File tools/test-installed-compiler.ps1
 `tools/test-installed-compiler.ps1` copies the binary section into a private
 temporary prefix with `dune install`. It checks SHA-256 equality across the
 built executable, Dune's staged public executable and the installed copy.
-Each binary runs its `version` command and every configured native fixture from
-the pinned TempleOS checkout. The checks require the real compiler HEAD,
+Each binary runs its `version` command and the 18 configured native fixture
+cases, producing 54 native JSON reports across the three copies. The commands
+run from the pinned TempleOS checkout and use the compiler repository's example
+files. Four cases exercise `native-f64-storage-execution.hc` across both native
+targets and JIT/AOT modes. The checks require the real compiler HEAD,
 reject an `HOLYC_IMPLEMENTATION_COMMIT` override, and compare the distinct
 TempleOS commit, result type and bits, and saved-default bytes in JSON reports.
 The temporary installation is removed afterward. CI runs this gate after
@@ -2693,8 +2704,9 @@ producer link orientation and direct condition roles. Real-source arithmetic
 NaNs, signed zeros, precision boundaries, source zero normalization, integer
 conversions and mixed register pressure accompany exact quotas and repeated
 x87 cleanup. Saved and fresh receipts reject altered source owners, types,
-options, graphs and branches. Raw signaling/arbitrary-payload NaN probes use a
-separate controlled instruction harness and do not claim public source coverage.
+options, graphs and branches. A separate controlled instruction harness checks
+FCOMIP flags with raw NaN payloads. The persistent-storage source cases below
+separately cover exact quiet-NaN predicates and signaling-NaN word transport.
 See [F64 comparisons](native-float-comparisons.md) and
 `examples/native-float-comparisons.hc`.
 
@@ -2739,3 +2751,68 @@ Original option and typed-source mutations invalidate saved and freshly requeste
 raw graphs and foreign source owners still reject. Zero and one retain their
 original rules. These are pinned source-derived expectations, without a new
 TempleOS runtime capture.
+
+The linked F64 and comparison CLI suites check comparison results converted to
+F64 at direct returns, local initializers and typed assignments in both native
+targets and source modes. Fixed expected bits distinguish true and false returns,
+left and right extended operands, asymmetric materialization of two arithmetic
+children, store barriers and raw-word equality. The comparison suite also checks
+global and static stores and the x87 capability required to convert an integer
+Boolean, including comparisons that use no floating instruction themselves.
+Returned-comparison authority tests change the typed conversion and original
+instruction flags; both cached and fresh receipts must reject those changes.
+Comparison results consumed by F64 arithmetic or passed directly as fixed
+arguments remain negative cases. The expectations follow the comparison event
+at `CN_INST` and subsequent result conversion at `CN_RES`, as documented in
+[F64 comparisons](native-float-comparisons.md).
+
+`test/persistent_f64_execution_cases.ml` supplies source programs to the native
+API suite `test/native/test_native_persistent_f64_execution.ml` and the public
+CLI suite `test/test_persistent_f64_execution_cli.ml`. Their matrix includes
+global and static scalars, fixed arrays, multidimensional elements, automatic
+arrays and packed members. It checks arithmetic, numeric assignment and return
+conversions, prefix/postfix and compound updates, comparisons, raw-word truth
+and loops in both source modes and native targets. The maintained
+`examples/native-f64-storage-execution.hc` combines those paths and expects
+I64 `42`.
+
+Precision fixtures distinguish extended arithmetic from binary64 stores and
+the old postfix word from the new value supplied to a linked operation. Stored
+quiet-NaN fixtures check value and direct-condition predicates; a packed
+signaling-NaN fixture checks bitwise equality and payload transport. Effect
+fixtures capture each destination address once before the RHS and read its old
+value after the RHS effects. Retained JIT functions keep their original globals
+across later source replacement.
+
+The native API suite mutates source owners, graph identities, index paths,
+types and flags to check admission. It also exercises exact and one-below code,
+frame, global, instruction and output limits, every interrupted operation in a
+retained image, independent arenas, GC compaction and released mappings.
+Unread bytes, partial writes, out-of-range indices, retired owners and
+overwritten pointer or callback ownership keep their existing reached faults.
+These hosted checks do not claim TempleOS fault behavior.
+
+`test/native/test_native_f64_extended.ml` covers FPREM reduction with large
+exponent differences, subnormal divisors, signed zero and masked invalid
+operations. Its update cases check integer-destination rounding and truncation,
+materialized remainder operands, exact converted RHS values, builtin pi and
+original option snapshots. Raw-word bitwise and shift compounds distinguish
+integer counts from ordinary mixed-F64 operands. Negative literal comparisons
+check immediate folding and preserved extended links. Rejection cases require
+the specific result-supplier diagnostic for observed indirect arithmetic
+compounds, explicit address wrappers, dynamic narrow destinations and JIT
+data-heap globals.
+
+Run the two native API suites directly with:
+
+```text
+opam exec -- dune exec test/native/test_native_persistent_f64_execution.exe
+opam exec -- dune exec test/native/test_native_f64_extended.exe
+```
+
+The CLI suite participates in `dune runtest`; the native suites participate in
+`@native-tests`. Expected words derive from the pinned TempleOS compiler and
+instruction semantics. These fixtures add no TempleOS runtime captures and do
+not qualify power, the integer interpreter, unproved normalization or remaining
+floating ABI work. See [native F64 storage](native-f64-storage.md) for the
+current expression and result-supplier boundaries.

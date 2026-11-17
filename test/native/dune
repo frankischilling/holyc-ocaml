@@ -1334,6 +1334,30 @@
  (modules test_native_numeric_initializers)
  (libraries holyc_lib alcotest))
 
+(copy_files ../persistent_f64_execution_cases.ml)
+
+(executable
+ (name test_native_persistent_f64_execution)
+ (modules
+  test_native_persistent_f64_execution
+  persistent_f64_execution_cases)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_persistent_f64_execution.exe})))
+
+(executable
+ (name test_native_f64_extended)
+ (modules test_native_f64_extended)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_f64_extended.exe})))
+
 (rule
  (alias native-tests)
  (action

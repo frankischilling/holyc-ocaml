@@ -4806,6 +4806,429 @@ let unused_explicit_reservation t ~frame ~body ~symbol =
           | _ -> None)
   | Some Register_candidate | Some Stack | Some Unknown | None -> None
 
+module Source_disabled_member = struct
+  module Ast = Frontend.Ast
+  module Typed = Sema.Function_call_expression_result
+  module Headers = Sema.Function_type_resolution
+  module Local = Sema.Local_type_resolution
+  module Binding = Sema.Function_binding_index
+  module Record = Sema.Compiler_record
+
+  exception Unproved
+
+  let require condition = if not condition then raise Unproved
+
+  let get = function
+    | Some value -> value
+    | None -> raise Unproved
+
+  let origin = Sema.Initializer_source.origin_of_location
+
+  let requests_match qualifiers requests =
+    same_list
+      (fun (qualifier : Ast.register_qualifier) request ->
+        (match (qualifier.kind, Request.kind request) with
+          | Ast.Reg, Request.Allocate | Noreg, Disable -> true
+          | _ -> false)
+        && (match (qualifier.position, Request.position request) with
+          | Ast.Before_type, Request.Before_type | After_type, After_type ->
+              true
+          | _ -> false)
+        && qualifier.spelling = Request.spelling request
+        && origin qualifier.location = Request.origin request
+        &&
+        match
+          (qualifier.explicit_register, Request.explicit_register request)
+        with
+        | None, None -> true
+        | Some identifier, Some register ->
+            identifier.Ast.spelling
+            = Request.explicit_register_spelling register
+            && origin identifier.location
+               = Request.explicit_register_origin register
+            && Request.canonical_u64_register_number identifier.spelling
+               = Some (Request.explicit_register_number register)
+        | _ -> false)
+      qualifiers requests
+
+  let source_type location reference specifier layers =
+    let type_ = Frame.location_checked_type location in
+    let spelling, source_origin =
+      match specifier with
+      | Ast.Primitive_type_specifier original ->
+          require
+            (Sema.Type.base type_
+            = Sema.Type.Primitive (Sema.Type.Public_spelling, original.primitive)
+            );
+          (original.spelling, origin original.location)
+      | Internal_type_specifier original ->
+          require
+            (Sema.Type.base type_
+            = Sema.Type.Primitive
+                (Sema.Type.Internal_storage, original.primitive));
+          (original.spelling, origin original.location)
+      | Named_type_specifier original ->
+          require
+            (match Sema.Type.base type_ with
+            | Aggregate _ -> true
+            | _ -> false);
+          (original.spelling, origin original.location)
+    in
+    require
+      (Sema.Type.pointer_depth type_ = List.length layers
+      && Sema.Type.equal type_ (Sema.Type_reference.resolved_type reference)
+      && Option.equal ( == ) (Some reference)
+           (Frame.location_type_reference location)
+      && Sema.Type_reference.spelling reference = spelling
+      && Sema.Type_reference.spelling_origin reference = source_origin
+      && List.mapi
+           (fun index (layer : Ast.pointer_layer) ->
+             require (layer.depth = index + 1 && layer.spelling = "*");
+             origin layer.location)
+           layers
+         = Sema.Type_reference.pointer_origins reference)
+
+  let declarations ~budget definition =
+    let found = ref [] in
+    let rec visit depth statement =
+      Budget.enter budget depth;
+      let visit = visit (depth - 1) in
+      match statement with
+      | Ast.Local_declaration_statement local -> found := local :: !found
+      | Block_statement block -> List.iter visit block.block_statements
+      | Sequence_statement sequence ->
+          List.iter
+            (fun element -> visit element.Ast.sequence_statement)
+            sequence.sequence_elements
+      | If_statement conditional ->
+          visit conditional.if_then_branch;
+          Option.iter
+            (fun branch -> visit branch.Ast.else_branch)
+            conditional.if_else_clause
+      | While_statement loop -> visit loop.while_body
+      | Do_while_statement loop -> visit loop.do_body
+      | For_statement loop ->
+          visit loop.for_initializer;
+          Option.iter visit loop.for_update;
+          visit loop.for_body
+      | Lock_statement locked -> visit locked.lock_body
+      | Try_catch_statement _ | Switch_statement _ -> raise Unproved
+      | _ -> ()
+    in
+    Option.iter (visit Budget.max_depth) definition.Ast.body;
+    List.rev !found
+
+  let closed_dimension ~budget expression =
+    let rec visit depth expression =
+      Budget.enter budget depth;
+      (* Reserve the conversion and evaluation walks before entering either
+         unbounded helper. Only closed scalar trees reach those helpers. *)
+      Budget.charge budget 2;
+      let visit = visit (depth - 1) in
+      match expression with
+      | Ast.Integer_literal _ | Character_literal _ | Float_literal _ -> ()
+      | Parenthesized_expression group -> visit group.grouped_expression
+      | Prefix_expression prefix ->
+          require
+            (List.mem prefix.prefix_operator_kind
+               [ Ast.Unary_plus; Unary_minus; Logical_not; Bitwise_not ]);
+          visit prefix.prefix_operand
+      | Binary_expression binary ->
+          visit binary.binary_left;
+          visit binary.binary_right
+      | _ -> raise Unproved
+    in
+    visit Budget.max_depth expression;
+    Sema.Aggregate_layout.evaluate_expression
+      ~context:Sema.Aggregate_layout.Array_dimension ~current_position:0L
+      (Sema.Closed_layout_expression.of_ast expression)
+
+  let eligible ~frame ~body location =
+    Frame.location_register_selection location = Request.Disabled
+    && Frame.location_declarator_shape location = Frame.Object
+    && Sema.Type.pointer_depth (Frame.location_checked_type location) = 0
+    && Mixed_scalar_source.scalar (Frame.location_checked_type location)
+    && (match Sema.Type.base (Frame.location_checked_type location) with
+      | Primitive (_, primitive) ->
+          Frame.location_element_size location
+          = Int64.of_int (Sema.Primitive_type.info primitive).byte_size
+      | _ -> false)
+    && Frame.location_callback_pointer location = None
+    && Frame.location_aggregate_allocation location = None
+    && Option.equal ( == ) (Some location)
+         (Frame.find_location frame (Frame.location_symbol location))
+    && Function_body.definition_matches_frame body frame
+    && supported_options body
+    && Int64.logand
+         (Function_body.stored_flags body)
+         (Int64.lognot Function_body.ordinary_calling_flag_mask)
+       = 0L
+
+  let parameter_coverage ~budget ~frame =
+    (* Complete coverage searches the signature and binding lists for each
+       named member. Reserve both quadratic walks once for the batch; repeated
+       charges cannot overflow an intermediate product. *)
+    let parameters = signature_parameters frame in
+    let parameter_count = List.length parameters in
+    List.iter
+      (fun _ ->
+        Budget.charge budget parameter_count;
+        Budget.charge budget parameter_count)
+      parameters;
+    complete_parameter_coverage ~frame
+
+  let prove ~budget ~frame ~body ~location =
+    try
+      (* PrsVar.HC:462-465,513-518 sets REG_NONE. OptPass3.HC:29-42
+         excludes that member before access scoring, independently of the
+         expressions or other members in the function. *)
+      require (eligible ~frame ~body location);
+      let source = get (Function_body.definition_source body) in
+      let definition = get (Typed.function_source_body source) in
+      require
+        (Typed.function_source_body_valid source
+        && Some definition.location.span = Function_body.span body
+        && Typed.function_symbol source == Frame.function_symbol frame
+        && Function_body.symbol body == Frame.function_symbol frame
+        && Typed.function_scope source == Frame.function_scope frame
+        && Typed.function_item_index source = Frame.function_item_index frame
+        && Option.is_some definition.body
+        && definition.variadic = None
+        && source_owned_requests ~frame ~body
+             (get (location_stamp ~frame location)));
+      let locations = Frame.function_locations frame in
+      let parameters =
+        List.filter
+          (fun item -> Frame.location_kind item = Frame.Named_parameter)
+          locations
+      and locals =
+        List.filter
+          (fun item ->
+            List.mem (Frame.location_kind item)
+              [ Frame.Automatic_local; Static_local ])
+          locations
+      in
+      require (same_list ( == ) (parameters @ locals) locations);
+      let members_match members locations =
+        same_list
+          (fun (index, member) item ->
+            Function_body.member_position member = index
+            && Function_body.member_symbol member == Frame.location_symbol item
+            && Sema.Type.equal
+                 (Function_body.member_type member)
+                 (Frame.location_checked_type item))
+          (List.mapi (fun index member -> (index, member)) members)
+          locations
+      in
+      require
+        (members_match (Function_body.parameters body) parameters
+        && members_match
+             (Function_body.locals body)
+             (List.filter
+                (fun item -> Frame.location_kind item = Frame.Automatic_local)
+                locals));
+      let originals =
+        declarations ~budget definition
+        |> List.mapi (fun declaration_index declaration ->
+            List.mapi
+              (fun declarator_index declarator ->
+                (declaration_index, declarator_index, declaration, declarator))
+              declaration.Ast.local_declarators)
+        |> List.concat
+      in
+      require (List.length originals = List.length locals);
+      let target_qualifiers = ref None in
+      List.iter2
+        (fun parameter item ->
+          Budget.charge budget 1;
+          let original = get (Headers.parameter_source parameter) in
+          require
+            (original.function_pointer = None
+            && Frame.location_declarator_shape item = Frame.Object
+            && Frame.location_value_shape item = Frame.Scalar
+            && Frame.location_dimensions item = []);
+          source_type item
+            (Headers.parameter_type_reference parameter)
+            original.type_specifier original.pointer_layers;
+          let slot = get (Frame.location_frame_slot item) in
+          require
+            (Frame.frame_slot_displacement slot
+             = Int64.add 16L
+                 (Int64.mul 8L
+                    (Int64.of_int (Headers.parameter_index parameter)))
+            && Frame.frame_slot_size slot = 8L
+            && Frame.location_allocated_size item = 8L
+            && Frame.location_alignment item = 8);
+          if item == location then
+            target_qualifiers :=
+              Some
+                ( original.register_qualifiers,
+                  Headers.parameter_register_requests parameter ))
+        (signature_parameters frame)
+        parameters;
+      let cursor = ref 0L in
+      List.iter2
+        (fun (declaration_index, declarator_index, declaration, declarator) item
+           ->
+          Budget.charge budget 1;
+          let local = get (Frame.location_local_source item) in
+          let binding = Frame.location_binding item in
+          let automatic = declaration.Ast.local_storage = Ast.Automatic_local in
+          require
+            (Local.local_declaration_index local = declaration_index
+            && Local.local_declarator_index local = declarator_index
+            && Binding.binding_local_declaration_index binding
+               = Some declaration_index
+            && Binding.binding_local_declarator_index binding
+               = Some declarator_index
+            && Local.local_symbol local == Frame.location_symbol item
+            && (Local.local_storage local
+               = if automatic then Local.Automatic else Static)
+            && (Frame.location_kind item
+               = if automatic then Frame.Automatic_local else Static_local)
+            && declarator.Ast.local_function_pointer = None
+            && Frame.location_declarator_shape item = Frame.Object
+            && declarator.local_name.spelling
+               = Sema.Symbol.name (Frame.location_symbol item)
+            && origin declarator.local_name.location
+               = Sema.Symbol.origin (Frame.location_symbol item)
+            && Local.local_declaration_origin local
+               = origin declaration.local_declaration_location
+            && Local.local_declarator_origin local
+               = origin declarator.local_declarator_location);
+          source_type item
+            (Local.local_type_reference local)
+            declaration.local_type_specifier declarator.local_pointer_layers;
+          if item == location then
+            target_qualifiers :=
+              Some
+                ( declarator.local_register_qualifiers,
+                  Local.local_register_requests local );
+          if automatic then (
+            let type_ = Frame.location_checked_type item in
+            let element =
+              if Sema.Type.pointer_depth type_ > 0 then 8L
+              else
+                match Sema.Type.base type_ with
+                | Primitive (_, primitive) ->
+                    Int64.of_int (Sema.Primitive_type.info primitive).byte_size
+                | Aggregate _ ->
+                    let receipt =
+                      get (Frame.location_aggregate_allocation item)
+                    in
+                    require
+                      (Record.automatic_aggregate_local_name receipt
+                       == declarator.local_name
+                      && Sema.Type.equal
+                           (Record.automatic_aggregate_type receipt)
+                           type_);
+                    Record.automatic_aggregate_size receipt
+            in
+            require (element > 0L);
+            let dimensions = Frame.location_dimensions item in
+            require
+              (Frame.location_source_dimensions_checked item
+              && (Frame.location_value_shape item
+                 = if dimensions = [] then Frame.Scalar else Array)
+              && List.length declarator.local_array_dimensions
+                 = List.length dimensions);
+            let bytes = ref element in
+            List.iter2
+              (fun (original : Ast.array_dimension) dimension ->
+                Budget.charge budget 1;
+                let expression = get original.dimension_expression in
+                let count = Frame.dimension_value dimension in
+                require
+                  (count > 0L
+                  && count <= Int64.div Int64.max_int !bytes
+                  && Frame.dimension_kind dimension = Frame.Source_extent
+                  && Frame.dimension_runtime_dependencies dimension = []
+                  && Frame.dimension_offset_dependencies dimension = []
+                  && closed_dimension ~budget expression = Ok count);
+                bytes := Int64.mul !bytes count)
+              declarator.local_array_dimensions dimensions;
+            let alignment =
+              if !bytes >= 8L then 8
+              else if !bytes >= 4L then 4
+              else if !bytes >= 2L then 2
+              else 1
+            in
+            require (Int64.sub Int64.min_int !cursor <= Int64.neg !bytes);
+            let next = Int64.sub !cursor !bytes in
+            require (next >= Int64.add Int64.min_int (Int64.of_int alignment));
+            cursor := Int64.logand next (Int64.neg (Int64.of_int alignment));
+            let slot = get (Frame.location_frame_slot item) in
+            require
+              (Frame.location_element_size item = element
+              && Frame.location_allocated_size item = !bytes
+              && Frame.location_alignment item = alignment
+              && Frame.frame_slot_size slot = !bytes
+              && Frame.frame_slot_displacement slot = !cursor))
+          else require (Frame.location_frame_slot item = None))
+        originals locals;
+      require
+        (Frame.function_frame_size frame
+        = Int64.neg (Int64.logand !cursor (-8L)));
+      List.iteri
+        (fun ordinal item ->
+          let binding = Frame.location_binding item in
+          require
+            (Binding.binding_ordinal binding = ordinal
+            && Binding.binding_symbol binding == Frame.location_symbol item
+            && Option.equal ( == ) (Some item)
+                 (Frame.find_binding_location frame binding)))
+        locations;
+      let qualifiers, requests = get !target_qualifiers in
+      require
+        (requests_match qualifiers requests
+        &&
+        match List.rev qualifiers with
+        | last :: _ -> last.kind = Ast.Noreg && last.explicit_register = None
+        | [] -> false);
+      true
+    with Unproved -> false
+end
+
+let source_disabled_registers_result ~frame ~body =
+  let original =
+    Option.bind
+      (Function_body.definition_source body)
+      Sema.Function_call_expression_result.function_source_body
+  in
+  match (original, Function_body.span body) with
+  | Some definition, Some span
+    when Function_body.definition_matches_frame body frame
+         && span = definition.Frontend.Ast.location.span
+         && span.start >= 0 && span.stop >= span.start -> (
+      try
+        let budget = Budget.create body in
+        let eligible =
+          List.filter
+            (fun location ->
+              Budget.charge budget 1;
+              Source_disabled_member.eligible ~frame ~body location)
+            (Frame.function_locations frame)
+        in
+        if eligible = [] then Ok []
+        else if not (Source_disabled_member.parameter_coverage ~budget ~frame)
+        then Ok []
+        else
+          Ok
+            (List.filter
+               (fun location ->
+                 (* Revalidating each source seal also consumes the common
+                    allowance; a fresh target cannot restart that work. *)
+                 Budget.charge budget (span.stop - span.start);
+                 Source_disabled_member.prove ~budget ~frame ~body ~location)
+               eligible)
+      with Budget.Exhausted -> Error Proof_limit_exceeded)
+  | _ -> Ok []
+
+let source_disables_register_result ~frame ~body ~location =
+  Result.map
+    (List.exists (( == ) location))
+    (source_disabled_registers_result ~frame ~body)
+
 let physical_register t ~frame ~body ~symbol =
   match selection t ~frame ~body ~symbol with
   | Some Register_candidate

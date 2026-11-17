@@ -70,6 +70,8 @@ type instruction =
           use the rounding mode in the x87 control word. Callers own the
           conversion domain and floating environment. *)
   | Fld64 of x87_memory
+  | Fst64 of x87_memory
+      (** Store ST0 as binary64 without popping its original extended value. *)
   | Fstp64 of x87_memory
   | Fbinary64 of x87_binary * x87_memory
   | Fbinary_st0 of x87_binary * x87_register
@@ -82,6 +84,12 @@ type instruction =
   | Ffree of x87_register
   | Fincstp
   | Fchs
+  | Fprem
+      (** Reduce ST0 by a truncated integer quotient of ST1. The caller must
+          repeat while status C2 is set and retain both original operands. *)
+  | Fstsw_ax
+      (** Copy the x87 status word to AX using the pinned FSTSW form, DF E0,
+          without an added WAIT. Only AX is overwritten. *)
   | Fld_constant of x87_constant
       (** x87 arithmetic and numeric conversion, never raw F64 bit transport.
           Memory operands use aligned checked RBP/RSP slots. [Fbinary_st0]

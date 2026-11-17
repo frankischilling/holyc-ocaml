@@ -1,5 +1,5 @@
-(** Source-backed admission for scalar F64 and authenticated pure linked
-    regions. Unproved normalization and extended-precision links reject. *)
+(** Source-backed admission for scalar F64 and authenticated linked regions.
+    Unproved normalization and extended-precision links reject. *)
 type load =
   | Bits
   | Zero
@@ -31,17 +31,29 @@ type intrinsic_entry = private {
   intrinsic_conversion : Ir.Numeric_intrinsic.conversion;
 }
 
+type update_kind =
+  | Add_update
+  | Subtract_update
+  | Multiply_update
+  | Divide_update
+  | Remainder_update
+  | Increment_update
+  | Decrement_update
+
 type operation =
   | Normalized of Ir.Numeric_normalization.t
   | Convert_to_float
   | Literal_bits of int64
-      (** The source-authenticated unary minus of an immediate F64 positive zero
-          in a comparison region. Other constant folds remain closed. *)
+      (** The source-authenticated unary minus of an immediate non-NaN F64 in a
+          comparison region, with no result conversion. The folded word
+          preserves negative zero; other constant folds remain closed. *)
   | Negate
   | Add
   | Subtract
   | Multiply
   | Divide
+  | Modulo
+  | Update of update_kind
   | Copy_left
   | Copy_right
   | Alias_left
@@ -62,6 +74,28 @@ type entry = private {
   live_steps : Ir.Instruction_sequence.Value_id.t list list;
   result_conversion : conversion option;
 }
+
+type update_entry = private {
+  update_instruction : Ir.Instruction_sequence.Instruction_id.t;
+  update_result : Ir.Instruction_sequence.Value_id.t;
+  update_address : Ir.Instruction_sequence.Value_id.t;
+  update_input : Ir.Instruction_sequence.Value_id.t option;
+  update_load : load option;
+  update_kind : update_kind;
+  update_destination_is_f64 : bool;
+  update_old_result : bool;
+  update_live_before : Ir.Instruction_sequence.Value_id.t list;
+  update_live_after : Ir.Instruction_sequence.Value_id.t list;
+  update_peak_depth : int;
+  update_result_conversion : conversion option;
+}
+(** An original addressed numeric update. Prefix/postfix operations can retain
+    the new extended value while their ordinary result word remains available;
+    postfix word consumers receive the old value. Compound operations always
+    materialize their result. Immediate floating RHS loads preserve the original
+    builtin-constant option owner; integer destinations and remainder updates
+    retain materialized operands. The address retains the existing storage
+    proof. *)
 
 type comparison_kind =
   | Bitwise
@@ -107,6 +141,7 @@ type comparison_entry = private {
 
 type emission = {
   arithmetic_entries : entry list;
+  update_entries : update_entry list;
   conversion_entries : conversion_entry list;
   intrinsic_entries : intrinsic_entry list;
   comparison_entries : comparison_entry list;

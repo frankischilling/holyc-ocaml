@@ -366,6 +366,18 @@ val call_result_conversion_kind :
   call_result_conversion ->
   Sema.Function_call_expression_result.intrinsic_conversion
 
+val original_expression_globals : t -> owner:owner -> Integer_globals.t option
+(** Return the original storage snapshot after validating this owner's sealed
+    graph and source batch. Canonical expression replay must still select an
+    original checked expression and match its complete instruction sequence. A
+    snapshot alone grants no address, conversion or floating-link authority. *)
+
+val original_ordinary_entry : t -> bool
+(** The sealed entry includes an original executable statement or ordinary
+    initializer. Preparation fragments retain their separate lowering proof;
+    this query does not promote a default, bound or member-metadata fragment to
+    ordinary execution. Each admitted numeric region must still be replayed. *)
+
 val original_expression_call_source :
   t ->
   owner:owner ->
