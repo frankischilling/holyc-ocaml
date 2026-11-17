@@ -10,6 +10,7 @@ let destination t = t.destination_
 let entry t = t.entry_
 let initialization t = t.initialization_
 let runtime_calls t = t.runtime_calls_
+let scalar_lowered t = t.scalar_lowered_
 let is_scalar_evaluation t = Option.is_some t.scalar_lowered_
 
 let create ?scalar_lowered ~destination ~entry ~initialization ~runtime_calls ()

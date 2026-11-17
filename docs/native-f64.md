@@ -209,13 +209,20 @@ proved event order. Value results and direct conditions can differ on NaN.
 
 ## Current exclusions
 
+Closed [numeric initializers](native-numeric-initializers.md) prepare through
+both native targets in either source mode. Live JIT declaration copies and
+original nonconstant AOT load assignments retain their separate conversion
+boundaries. [Numeric defaults](native-f64-defaults.md) have their own closed and
+live preparation paths.
+
 Unproved conversion normalization, comparison chains, floating short circuit,
-constant-only comparisons without a normalization proof, comparison results
-converted to F64, arithmetic-wrapped comparison conditions, remainder, power,
+constant-only comparisons without a normalization proof,
+arithmetic-wrapped comparison conditions, remainder, power,
 shifts, compound updates, increment/decrement, other floating intrinsics,
-variadic F64 arguments, `%f`, deeper F64 pointers, pointer arrays, closed
-AOT/isolated F64 initializer preparation and F64 default preparation outside
-the admitted live JIT native source-task path remain unsupported.
+variadic F64 arguments, `%f`, deeper F64 pointers and pointer arrays remain
+unsupported.
+Converting comparison results to F64 within general expressions remains
+unsupported outside the admitted initializer conversion paths.
 Mixed functions containing F64 also reject narrow integer frame
 members unless their register or stack selection has an authenticated allocation
 proof; `noreg` alone does not supply that proof. I64/U64 control variables do not

@@ -23,3 +23,15 @@ val discards_value : t -> bool
 val requires_evaluation : t -> bool
 val stores_pointer : t -> bool
 val stores_same_f64 : t -> bool
+val expression_is_f64 : t -> bool
+
+val numeric_scalar : t -> Sema.Initializer_type.scalar option
+(** Select the original numeric class, including primitive integer cell storage
+    whose raw layout entry has no byte-leaf scalar. This leaves layout geometry
+    and its receipt unchanged. *)
+
+val stores_native_numeric : t -> bool
+
+val convert_native_word : t -> int64 -> int64
+(** Convert the completed expression word before copying its scalar bytes. The
+    original native capture remains necessary for publication. *)

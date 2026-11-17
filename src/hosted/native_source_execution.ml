@@ -1300,6 +1300,49 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             in
             Ok ()
         in
+        let native_source_initializer request =
+          let module VM = Ir.Integer_interpreter in
+          let initializer_span =
+            VM.native_constant_program request
+            |> Ir.Numeric_initializer_program.span
+          in
+          let diagnose result =
+            Result.map_error
+              (fun message ->
+                [
+                  Driver.Integer_source.message_diagnostic
+                    ~span:initializer_span message;
+                ])
+              result
+          in
+          let allowance = VM.native_constant_remaining request in
+          if allowance <= 0 then
+            Error
+              [
+                diagnostic ~span:initializer_span "HCIRVM0007"
+                  "native source initializer exhausted its preparation \
+                   allowance";
+              ]
+          else
+            let* image =
+              remaining (fun ~max_ir_instructions ~max_code_bytes ->
+                  Image.compile_source_initializer ?status_abi ~max_stack_bytes
+                    ~max_blocks ~max_ir_instructions ~max_code_bytes request)
+            in
+            let before = native_steps () in
+            let* _, _ =
+              execute ~max_activation_steps:allowance
+                ~after_report:(fun report ->
+                  if not (VM.native_constant_entered request) then Ok ()
+                  else
+                    VM.finish_native_constant request
+                      ~steps:(native_steps () - before)
+                      (Native.source_initializer_capture report)
+                    |> diagnose)
+                Initializer image
+            in
+            Ok ()
+        in
         let native_static_allocation request =
           let* _, arena =
             context (Task.Native_static_allocation.context request)
@@ -1468,6 +1511,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                 let* checked =
                   Native_program.compile_with_preparation ~compiler_exception
                     ~streams ~native_default:native_source_default
+                    ~native_initializer:native_source_initializer
                     ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
                     ~max_blocks ~max_initializer_steps ~max_default_bytes
                     ~max_switch_work ~max_dimension_work ~max_global_bytes

@@ -106,6 +106,7 @@ type t = {
   scalar_static_initializer_ : Ir.Static_initializer_program.t option;
   internal_binding_ : Ir.Internal_binding_fragment_program.t option;
   scalar_default_ : Ir.Default_fragment_program.t option;
+  scalar_source_initializer_ : Ir.Numeric_initializer_program.t option;
 }
 
 let generation value = value.generation_
@@ -118,6 +119,7 @@ let member_metadata value = value.member_metadata_
 let scalar_initializer value = value.scalar_initializer_
 let scalar_static_initializer value = value.scalar_static_initializer_
 let scalar_default value = value.scalar_default_
+let scalar_source_initializer value = value.scalar_source_initializer_
 
 let scalar_program value =
   match (value.scalar_initializer_, value.scalar_static_initializer_) with
@@ -188,6 +190,7 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         scalar_static_initializer_ = None;
         internal_binding_ = None;
         scalar_default_ = None;
+        scalar_source_initializer_ = None;
       })
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
@@ -218,6 +221,7 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         scalar_static_initializer_ = None;
         internal_binding_ = None;
         scalar_default_ = None;
+        scalar_source_initializer_ = None;
       })
 
 let compile_source_default ?status_abi ?max_stack_bytes ?max_blocks
@@ -266,6 +270,42 @@ let compile_source_default ?status_abi ?max_stack_bytes ?max_blocks
       scalar_default_ = Some program;
     }
 
+let compile_source_initializer ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes request =
+  let module Request = Ir.Integer_interpreter in
+  let module Program = Ir.Numeric_initializer_program in
+  let ( let* ) = Result.bind in
+  let program = Request.native_constant_program request in
+  let* () =
+    Request.check_native_constant request
+    |> Result.map_error (fun message ->
+        [ { code = "HCBACK0003"; message; span = Some (Program.span program) } ])
+  in
+  let float_entry_source =
+    X86_64_float_plan.
+      {
+        lowered = Program.lowered program;
+        globals = Program.globals program;
+        value =
+          Sema.Function_call_expression_result.top_level_root_value
+            (Program.root program);
+      }
+  in
+  let* image =
+    compile_callable ?status_abi ?max_stack_bytes ?max_blocks
+      ~float_entry_source ~max_ir_instructions ~max_code_bytes
+      ~runtime_calls:(Program.runtime_calls program)
+      ~initialization:(Program.initialization program)
+      ~entry:(Program.entry program) ~functions:[] ()
+  in
+  Ok
+    {
+      image with
+      task_check_ = Some (fun () -> Request.check_native_constant request);
+      task_claim_ = Some (fun () -> Request.claim_native_constant request);
+      scalar_source_initializer_ = Some program;
+    }
+
 let project_storage_errors errors =
   List.map
     (fun (error : Task_storage.error) ->
@@ -304,18 +344,42 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
   in
   let* image =
     let float_entry_source =
-      Option.map
-        (fun program ->
+      let source lowered globals root =
+        X86_64_float_plan.
+          {
+            lowered;
+            globals;
+            value =
+              Sema.Function_call_expression_result.top_level_root_value root;
+          }
+      in
+      match (scalar_default, scalar_initializer, scalar_static_initializer) with
+      | Some program, None, None ->
           let destination = Ir.Default_fragment_program.destination program in
-          X86_64_float_plan.
-            {
-              lowered = Ir.Default_fragment_program.lowered program;
-              globals = Ir.Default_fragment_destination.globals destination;
-              value =
-                Sema.Function_call_expression_result.top_level_root_value
-                  (Ir.Default_fragment_destination.root destination);
-            })
-        scalar_default
+          Some
+            (source
+               (Ir.Default_fragment_program.lowered program)
+               (Ir.Default_fragment_destination.globals destination)
+               (Ir.Default_fragment_destination.root destination))
+      | None, Some program, None ->
+          let destination =
+            Ir.Initializer_fragment_program.destination program
+          in
+          Option.map
+            (fun lowered ->
+              source lowered
+                (Ir.Initializer_fragment_destination.globals destination)
+                (Ir.Initializer_fragment_destination.root destination))
+            (Ir.Initializer_fragment_program.scalar_lowered program)
+      | None, None, Some program ->
+          let destination = Ir.Static_initializer_program.destination program in
+          Option.map
+            (fun lowered ->
+              source lowered
+                (Ir.Static_initializer_destination.globals destination)
+                (Ir.Static_initializer_destination.root destination))
+            (Ir.Static_initializer_program.scalar_lowered program)
+      | _ -> None
     in
     Codegen.compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
       ?float_entry_source
@@ -357,6 +421,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         scalar_static_initializer_ = scalar_static_initializer;
         internal_binding_ = internal_binding;
         scalar_default_ = scalar_default;
+        scalar_source_initializer_ = None;
         data_default_misc_ =
           Option.is_some data_default
           && Ir.X87_stack.graph entry |> Ir.Block_graph.blocks

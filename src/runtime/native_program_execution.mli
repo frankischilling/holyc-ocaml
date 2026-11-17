@@ -34,6 +34,12 @@ val source_default_capture :
 (** Actual closed native default result. Consume it before releasing the exact
     retained image; a later or foreign completion cannot reuse the capture. *)
 
+val source_initializer_capture :
+  report -> Ir.Numeric_initializer_program.t Ir.Native_scalar_capture.t option
+(** Actual closed native initializer result, retaining the original expression
+    type. Completion consumes this capture before releasing its retained image.
+*)
+
 val retain :
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->

@@ -46,6 +46,10 @@ type storage_region =
   | Fragment_region of fragment_region
   | Static_fragment_region of static_fragment_region
 
+type load_source =
+  | Global_load of Typed.top_level_root_result
+  | Static_load of Integer_globals.static_slot * Typed.initializer_result
+
 type prepared_root = Initializer_publication.prepared_root =
   | Prepared_global of Typed.top_level_root_result
   | Prepared_static of Integer_globals.static_slot * Typed.initializer_result
@@ -166,6 +170,20 @@ let storage_root = function
   | Global_region region -> Some region.description.root
   | Fragment_region region -> Some region.fragment_description.root
   | Static_region _ -> None
+
+let load_source context region =
+  if
+    Integer_globals.compilation_mode context.globals
+    <> Sema.Global_resolution.Aot
+    || storage_phase region <> Load_initializer
+    || not (List.exists (( == ) region) context.regions_)
+  then None
+  else
+    match region with
+    | Global_region region -> Some (Global_load (root region))
+    | Static_region region ->
+        Some (Static_load (static_slot region, static_root region))
+    | Fragment_region _ | Static_fragment_region _ -> None
 
 let matches context ~globals ~entry =
   context.globals == globals && context.entry == entry
@@ -758,7 +776,7 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                                  || aggregate_operation
                                     = Aggregate_initializer_store
                                       .Load_assignment
-                                    && Initializer_value.same_f64
+                                    && Initializer_value.native_numeric
                                          ~scalar:(Some scalar) original_value
                             -> (
                               match first.result with
@@ -805,7 +823,11 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                                      original_value) -> false
                       | None, Some (scalar, byte_offset)
                         when Typed.result_class original_value
-                             <> Typed.F64_result -> (
+                             <> Typed.F64_result
+                             || aggregate_operation
+                                = Aggregate_initializer_store.Load_assignment
+                                && Initializer_value.native_numeric
+                                     ~scalar:(Some scalar) original_value -> (
                           let count =
                             Aggregate_initializer_store.instruction_count
                               ~operation:aggregate_operation scalar

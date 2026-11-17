@@ -1223,6 +1223,18 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
               | None, None -> Ok None
               | Some initial, Some (owner, [ root ]) ->
                   let value = Typed.top_level_root_value root in
+                  let native_numeric =
+                    Option.is_none callback
+                    && Option.is_some (Integer_scalar_storage.of_type type_)
+                    && Option.fold ~none:false
+                         ~some:(fun selected ->
+                           match Sema.Initializer_type.view selected with
+                           | Ok (Sema.Initializer_type.Scalar scalar) ->
+                               Initializer_value.native_numeric
+                                 ~scalar:(Some scalar) value
+                           | _ -> false)
+                         (Shape.initializer_type shape)
+                  in
                   if
                     Global.initializer_kind initial <> Global.Scalar_initializer
                   then
@@ -1256,13 +1268,14 @@ let create_impl ?task_view ?headers ?members ?layout ?initializers
                          | Some type_ ->
                              Option.is_some
                                (Integer_scalar_storage.of_type type_)
+                             || native_numeric
                              || Option.is_some callback
                                 && (Typed.result_is_callback_storage value
                                    || Typed.result_is_numeric_callback value)
                          | _ -> false)
                   then
                     fail "HCRUN0001"
-                      "global initializer requires a nonzero scalar integer \
+                      "global initializer requires a scalar integer or F64 \
                        value"
                   else Ok (Some root)
               | _ ->

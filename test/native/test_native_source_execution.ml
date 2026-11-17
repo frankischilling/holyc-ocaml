@@ -595,7 +595,20 @@ let unsupported_domains () =
   Alcotest.(check int)
     "failed floating copy preserves reached native instructions" 3
     (Native.executed_steps below);
-  ignore (expect_error "HCRUN0006" (run ~mode:Preprocessor.Aot floating));
+  let prepared_aot =
+    run ~mode:Preprocessor.Aot ~max_global_bytes:8 ~max_initializer_steps:11
+      floating
+  in
+  let value = expect_value 0x4045000000000000L prepared_aot in
+  Alcotest.(check bool)
+    "AOT closed floating preparation retains F64 result class" true
+    ((Option.get value.final_value).type_ = Image.F64);
+  Alcotest.(check int)
+    "AOT closed floating preparation charges expression and copy" 11
+    (Native.preparation_steps prepared_aot);
+  ignore
+    (expect_error "HCIRVM0007"
+       (run ~mode:Preprocessor.Aot ~max_initializer_steps:10 floating));
   let aot =
     run ~mode:Preprocessor.Aot ~max_global_bytes:8 "F64 A; A=42.0; A;"
   in

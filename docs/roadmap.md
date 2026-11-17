@@ -113,6 +113,16 @@ Wider defaults, synchronous native StreamExePrint and AOT reference relocation
 remain open. See
 [native source tasks](native-source-tasks.md).
 
+Issue #690 now includes closed native integer/F64 initializers for global and
+static scalars, fixed arrays and packed leaves in JIT and AOT. Original temporary
+programs supply captured words; declaration conversion precedes the selected
+byte copy. Live native JIT leaves use the same conversion order. Nonconstant
+AOT leaves preserve their original runtime assignment conversion and source
+order. Exact payload, narrow-copy, unused-static, fault and quota cases are in
+the [numeric initializer tests](native-numeric-initializers.md).
+Broader initializer acceptance remains under #690, floating normalization under
+#689, and native source-session requirements under #704.
+
 Issue #797 adds [conditional integer chains](conditional-comparison-chains.md)
 with original middle values, branch-skipped effects, cumulative classes and
 checked cross-block definitions. Pending reductions and floating chains remain

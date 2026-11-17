@@ -433,6 +433,7 @@ type constant_execution = {
     * Sema.Initializer_type.scalar option)
     option;
   constant_static_snapshot : Integer_initializer_layout.static_snapshot option;
+  constant_native_source : Numeric_initializer_program.t option;
 }
 
 (* Experimental source-time copy arena. Unknown bytes remain explicitly unknown;
@@ -492,6 +493,7 @@ type constant_receipt_seal = {
     * Sema.Initializer_type.scalar option)
     option;
   sealed_constant_snapshot : Integer_initializer_layout.static_snapshot option;
+  sealed_constant_native_source : Numeric_initializer_program.t option;
   mutable sealed_constant_consumed : bool;
 }
 
@@ -590,6 +592,23 @@ type initializer_attempt_state =
   | Executing_initializer
   | Successful_initializer
   | Failed_initializer
+
+type native_constant_preparation = {
+  numeric_program : Numeric_initializer_program.t;
+  numeric_before : int;
+  numeric_limit : int;
+  numeric_scalar : Sema.Initializer_type.scalar option;
+  numeric_geometry :
+    (int
+    * int
+    * Integer_initializer_layout.operation
+    * Sema.Initializer_type.scalar option)
+    option;
+  numeric_static_snapshot : Integer_initializer_layout.static_snapshot option;
+  mutable numeric_state : initializer_attempt_state;
+  mutable numeric_entered : bool;
+  mutable numeric_receipt : constant_execution option;
+}
 
 type task_initializer = {
   initializer_catalog : Integer_globals.task_catalog;
@@ -885,6 +904,7 @@ and task_state = {
   task_identity : unit ref;
   task_owner : task_state option ref;
   constant_receipts : constant_receipt_seal Constant_receipt_set.t;
+  mutable native_constants : native_constant_preparation list;
   copy_receipts : copy_receipt_seal Copy_receipt_set.t;
   mutable aot_peer : task_state option;
   mutable aot_invocation : Sema.Aot_invocation.t option;
@@ -1094,6 +1114,7 @@ let make_task_state ~resources ~native_storage_authority ~table =
       task_identity = ref ();
       task_owner = owner;
       constant_receipts = Constant_receipt_set.create 32;
+      native_constants = [];
       copy_receipts = Copy_receipt_set.create 32;
       aot_peer = None;
       aot_invocation = None;
@@ -1190,6 +1211,7 @@ let seal_constant_receipt receipt =
     sealed_constant_source = receipt.constant_source;
     sealed_constant_geometry = copy_geometry receipt.constant_geometry;
     sealed_constant_snapshot = receipt.constant_static_snapshot;
+    sealed_constant_native_source = receipt.constant_native_source;
     sealed_constant_consumed = false;
   }
 
@@ -1210,6 +1232,8 @@ let valid_constant_receipt task receipt =
       && same_geometry seal.sealed_constant_geometry receipt.constant_geometry
       && same_option_identity seal.sealed_constant_snapshot
            receipt.constant_static_snapshot
+      && same_option_identity seal.sealed_constant_native_source
+           receipt.constant_native_source
       && seal.sealed_constant_consumed = receipt.constant_consumed_by_task
 
 let seal_copy_receipt copy =
@@ -4212,21 +4236,26 @@ let prepare_native_static_initializer_copy task program capture ~work =
       else Ok ()
     in
     let* bytes =
-      let scalar =
-        Option.get (Static_initializer_destination.scalar destination)
+      let* scalar =
+        match
+          match Static_initializer_destination.scalar destination with
+          | Some _ as scalar -> scalar
+          | None -> Static_initializer_destination.numeric_scalar destination
+        with
+        | Some scalar -> Ok scalar
+        | None -> Error "native static copy has no original scalar destination"
       in
       match bits with
       | Some bits ->
           if
-            Static_initializer_destination.stores_same_f64 destination
-            && Initializer_value.same_f64 ~scalar:(Some scalar)
+            Static_initializer_destination.stores_native_numeric destination
+            && Initializer_value.native_numeric ~scalar:(Some scalar)
                  (Sema.Function_call_expression_result.top_level_root_value
                     (Static_initializer_destination.root destination))
           then
-            Ok
-              (String.init 8 (fun i ->
-                   Int64.shift_right_logical bits (8 * i)
-                   |> Int64.logand 255L |> Int64.to_int |> Char.chr))
+            Integer_initializer_layout.word_bytes scalar
+              (Static_initializer_destination.convert_native_word destination
+                 bits)
           else Integer_initializer_layout.word_bytes scalar bits
       | None
         when Static_initializer_destination.discards_value destination
@@ -6175,21 +6204,28 @@ let prepare_native_initializer_copy task attempt execution program capture ~work
       else Ok (attempt.attempt_next, attempt.attempt_destination)
     in
     let* bytes =
-      let scalar = Option.get (Integer_initializer_layout.scalar layout) in
+      let destination = Initializer_fragment_program.destination program in
+      let* scalar =
+        match
+          match Integer_initializer_layout.scalar layout with
+          | Some _ as scalar -> scalar
+          | None -> Initializer_fragment_destination.numeric_scalar destination
+        with
+        | Some scalar -> Ok scalar
+        | None ->
+            Error "native initializer copy has no original scalar destination"
+      in
       match bits with
       | Some bits ->
-          let destination = Initializer_fragment_program.destination program in
           if
-            Initializer_fragment_destination.stores_same_f64 destination
-            && Sema.Initializer_type.scalar_equal scalar
-                 (Option.get
-                    (Integer_initializer_layout.scalar
-                       (Initializer_fragment_destination.layout destination)))
+            Initializer_fragment_destination.stores_native_numeric destination
+            && Option.fold ~none:false
+                 ~some:(Sema.Initializer_type.scalar_equal scalar)
+                 (Initializer_fragment_destination.numeric_scalar destination)
           then
-            Ok
-              (String.init 8 (fun i ->
-                   Int64.shift_right_logical bits (8 * i)
-                   |> Int64.logand 255L |> Int64.to_int |> Char.chr))
+            Integer_initializer_layout.word_bytes scalar
+              (Initializer_fragment_destination.convert_native_word destination
+                 bits)
           else Integer_initializer_layout.word_bytes scalar bits
       | None
         when Initializer_fragment_destination.discards_value
@@ -16404,6 +16440,25 @@ let execute_task_static_initializer ?(use_active_stream = true)
       result
   in
   let* () = begin_interpreted_static task destination |> diagnose in
+  let* () =
+    if
+      Destination.stores_native_numeric destination
+      || Option.is_some
+           (Initializer_value.native_numeric_conversion
+              ~scalar:(Destination.numeric_scalar destination)
+              (Sema.Function_call_expression_result.top_level_root_value
+                 (Destination.root destination)))
+         && List.exists Initializer_value.expression_is_f64
+              (Sema.Function_call_expression_result.top_level_all_results
+                 (Destination.typed destination))
+    then
+      Error
+        [
+          make_error ~stage:Preflight ~span ~executed_steps:0 "HCRUN0006"
+            "floating initializer execution requires a native target";
+        ]
+    else Ok ()
+  in
   let* result =
     execute_program_with_output ~task ~initializer_mode:true ~use_active_stream
       ~capture_fragment_value:(Program.is_scalar_evaluation program)
@@ -16582,6 +16637,19 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
       invalid "HCIRVM0026"
         "initializer execution has another attempt, source, destination or \
          preparation"
+    else if
+      Destination.stores_native_numeric destination
+      || Option.is_some
+           (Initializer_value.native_numeric_conversion
+              ~scalar:(Destination.numeric_scalar destination)
+              (Sema.Function_call_expression_result.top_level_root_value
+                 (Destination.root destination)))
+         && List.exists Initializer_value.expression_is_f64
+              (Sema.Function_call_expression_result.top_level_all_results
+                 (Destination.typed destination))
+    then
+      invalid "HCRUN0006"
+        "floating initializer execution requires a native target"
     else Ok ()
   in
   attempt.attempt_state <- Executing_initializer;
@@ -17977,6 +18045,7 @@ let execute_constant_receipt ~max_steps checked =
         constant_source = None;
         constant_geometry = None;
         constant_static_snapshot = None;
+        constant_native_source = None;
       })
 
 let execute_task_constant_receipt ?static_snapshot task ~max_steps ~source
@@ -18111,11 +18180,330 @@ let execute_task_constant_receipt ?static_snapshot task ~max_steps ~source
             constant_source = Some source;
             constant_geometry;
             constant_static_snapshot = static_snapshot;
+            constant_native_source = None;
           }
         in
         Constant_receipt_set.add task.constant_receipts receipt
           (seal_constant_receipt receipt);
         Ok receipt
+
+type native_constant_request = {
+  numeric_runtime : task_state;
+  numeric_preparation : native_constant_preparation;
+  numeric_domain : Domain.id;
+  numeric_owner : native_constant_request option ref;
+}
+
+let native_constant_program request =
+  request.numeric_preparation.numeric_program
+
+let native_constant_entered request =
+  request.numeric_preparation.numeric_entered
+
+let native_constant_remaining request =
+  min request.numeric_preparation.numeric_limit
+    (task_initializer_remaining request.numeric_runtime)
+
+let numeric_constant_source program =
+  match Numeric_initializer_program.source program with
+  | Numeric_initializer_program.Global (authority, root) ->
+      Global_constant (authority, root)
+  | Numeric_initializer_program.Static (fragment, root) ->
+      Static_constant (fragment, root)
+
+let numeric_constant_context program =
+  let module Program = Numeric_initializer_program in
+  let globals = Program.globals program in
+  match Program.source program with
+  | Program.Global (authority, _) ->
+      let fragment = Sema.Initializer_fragment.authorized_fragment authority in
+      let current =
+        Sema.Initializer_fragment.leaf fragment
+        |> Sema.Initializer_source.leaf_parser_receipt
+        |> Option.fold ~none:false
+             ~some:Frontend.Parser.initializer_leaf_is_current
+      in
+      ( Sema.Initializer_fragment.authorized_namespace authority,
+        current
+        && Option.fold ~none:false ~some:(( == ) fragment)
+             (Integer_globals.native_global_initializer_fragment globals) )
+  | Program.Static (fragment, _) ->
+      ( Sema.Static_initializer_fragment.namespace fragment,
+        Sema.Static_initializer_fragment.is_current fragment
+        && Option.fold ~none:false ~some:(( == ) fragment)
+             (Integer_globals.native_static_initializer_fragment globals) )
+
+let numeric_constant_geometry ?static_snapshot task source =
+  match source with
+  | Global_constant (authority, _) ->
+      let fragment = Sema.Initializer_fragment.authorized_fragment authority in
+      global_source_geometry ~cache:task.aot_global_geometry
+        (Sema.Initializer_fragment.declaration fragment)
+        (Sema.Initializer_fragment.leaf fragment)
+      |> Result.map_error (fun () ->
+          "native initializer has no original global destination geometry")
+      |> Result.map (fun (_, cell, byte, operation, scalar) ->
+          (cell, byte, operation, scalar))
+  | Static_constant (fragment, _) -> (
+      match static_snapshot with
+      | Some snapshot ->
+          Integer_initializer_layout.static_snapshot_leaf_destination snapshot
+            (Sema.Static_initializer_fragment.receipt fragment)
+      | None ->
+          static_source_geometry ~cache:task.aot_static_geometry fragment
+          |> Result.map_error (fun () ->
+              "native initializer has no original static destination geometry")
+          |> Result.map (fun (_, cell, byte, operation, scalar) ->
+              (cell, byte, operation, scalar)))
+
+let same_numeric_source left right =
+  match (left, right) with
+  | Global_constant (left, _), Global_constant (right, _) ->
+      Sema.Initializer_fragment.leaf
+        (Sema.Initializer_fragment.authorized_fragment left)
+      == Sema.Initializer_fragment.leaf
+           (Sema.Initializer_fragment.authorized_fragment right)
+  | Static_constant (left, _), Static_constant (right, _) ->
+      Sema.Static_initializer_fragment.receipt left
+      == Sema.Static_initializer_fragment.receipt right
+  | _ -> false
+
+let numeric_constant_scalar program scalar =
+  match scalar with
+  | Some _ -> scalar
+  | None ->
+      let type_ =
+        match Numeric_initializer_program.source program with
+        | Numeric_initializer_program.Global (authority, _) ->
+            let declaration =
+              Sema.Initializer_fragment.authorized_fragment authority
+              |> Sema.Initializer_fragment.declaration
+            in
+            if
+              Option.is_some
+                (Sema.Compiler_record.declared_global_source declaration)
+                  .global_function_pointer
+            then None
+            else
+              Some
+                (Sema.Compiler_record.declared_global_type declaration
+                |> Sema.Type_reference.resolved_type)
+        | Numeric_initializer_program.Static (fragment, _) ->
+            if
+              Option.is_some
+                (Sema.Static_initializer_fragment.callback_source fragment)
+            then None
+            else Some (Sema.Static_initializer_fragment.type_ fragment)
+      in
+      Option.bind type_ (fun type_ ->
+          if Option.is_none (Integer_scalar_storage.of_type type_) then None
+          else
+            match
+              Result.bind
+                (Sema.Initializer_type.of_type type_)
+                Sema.Initializer_type.view
+            with
+            | Ok (Sema.Initializer_type.Scalar scalar) -> Some scalar
+            | Error _ | Ok (Sema.Initializer_type.Aggregate _) -> None)
+
+let begin_native_constant_preparation ?static_snapshot task ~max_steps ~scalar
+    ~program =
+  let ( let* ) = Result.bind in
+  let module Program = Numeric_initializer_program in
+  let source = numeric_constant_source program in
+  let namespace, current = numeric_constant_context program in
+  let namespace_available =
+    Integer_globals.task_catalog_owns_namespace task.catalog namespace
+    || Result.is_ok
+         (Integer_globals.check_task_namespace task.catalog namespace)
+  in
+  if
+    (not (task_is_original task))
+    || (not current) || (not namespace_available)
+    || task_source_attempted task source
+    || List.exists
+         (fun prior ->
+           same_numeric_source source
+             (numeric_constant_source prior.numeric_program))
+         task.native_constants
+    || (not (constant_preparation_graph_is_closed (Program.entry program)))
+    || not
+         (Integer_program_lowering.owns_expression (Program.lowered program)
+            ~globals:(Program.globals program)
+            ~value:
+              (Sema.Function_call_expression_result.top_level_root_value
+                 (Program.root program)))
+  then Error "native initializer requires its original closed source and graph"
+  else if max_steps <= 0 || task_initializer_remaining task <= 0 then
+    Error "HCIRVM0007: native initializer preparation allowance was exhausted"
+  else
+    let* geometry = numeric_constant_geometry ?static_snapshot task source in
+    let _, _, operation, original_scalar = geometry in
+    let selected_scalar = numeric_constant_scalar program scalar in
+    if
+      operation <> Integer_initializer_layout.Scalar_store
+      || (not
+            (Option.equal Sema.Initializer_type.scalar_equal scalar
+               original_scalar))
+      || Option.is_none
+           (Initializer_value.native_numeric_conversion ~scalar:selected_scalar
+              (Sema.Function_call_expression_result.top_level_root_value
+                 (Program.root program)))
+    then Error "native initializer has another original numeric destination"
+    else
+      let preparation =
+        {
+          numeric_program = program;
+          numeric_before = task.resources.initializer_steps;
+          numeric_limit = min max_steps (task_initializer_remaining task);
+          numeric_scalar = selected_scalar;
+          numeric_geometry = Some geometry;
+          numeric_static_snapshot = static_snapshot;
+          numeric_state = Preparing_initializer;
+          numeric_entered = false;
+          numeric_receipt = None;
+        }
+      in
+      let request =
+        {
+          numeric_runtime = task;
+          numeric_preparation = preparation;
+          numeric_domain = Domain.self ();
+          numeric_owner = ref None;
+        }
+      in
+      request.numeric_owner := Some request;
+      task.native_constants <- preparation :: task.native_constants;
+      Ok request
+
+let native_constant_matches request state =
+  let task = request.numeric_runtime in
+  let proof = request.numeric_preparation in
+  let _, current = numeric_constant_context proof.numeric_program in
+  Domain.self () = request.numeric_domain
+  && Option.fold ~none:false ~some:(( == ) request) !(request.numeric_owner)
+  && task_is_original task && current
+  && List.exists (( == ) proof) task.native_constants
+  && proof.numeric_state = state
+  && task.resources.initializer_steps = proof.numeric_before
+
+let check_native_constant request =
+  if native_constant_matches request Preparing_initializer then Ok ()
+  else Error "native initializer has another owner or expired preparation phase"
+
+let claim_native_constant request =
+  let ( let* ) = Result.bind in
+  let* () = check_native_constant request in
+  let task = request.numeric_runtime in
+  let proof = request.numeric_preparation in
+  let source = numeric_constant_source proof.numeric_program in
+  let namespace, _ = numeric_constant_context proof.numeric_program in
+  if task_source_attempted task source then
+    Error "native initializer evaluation cannot replay"
+  else
+    let* () =
+      if Integer_globals.task_catalog_owns_namespace task.catalog namespace then
+        Ok ()
+      else Integer_globals.bind_task_namespace task.catalog namespace
+    in
+    task.source_promotion_open <- false;
+    task_record_source_attempt task source;
+    proof.numeric_state <- Executing_initializer;
+    proof.numeric_entered <- true;
+    Ok ()
+
+let finish_native_constant request ~steps capture =
+  let ( let* ) = Result.bind in
+  let task = request.numeric_runtime in
+  let proof = request.numeric_preparation in
+  if
+    (not (native_constant_matches request Executing_initializer))
+    || steps < 0
+    || steps > native_constant_remaining request
+  then Error "native initializer completion has another entry or work allowance"
+  else (
+    proof.numeric_state <- Failed_initializer;
+    task.resources.initializer_steps <- proof.numeric_before + steps;
+    match capture with
+    | None -> Ok ()
+    | Some capture ->
+        let* original =
+          Native_scalar_capture.consume capture ~program:proof.numeric_program
+            ~work:steps
+        in
+        let expression =
+          Numeric_initializer_program.root proof.numeric_program
+          |> Sema.Function_call_expression_result.top_level_root_value
+        in
+        let* conversion =
+          match
+            Initializer_value.native_numeric_conversion
+              ~scalar:proof.numeric_scalar expression
+          with
+          | Some conversion -> Ok conversion
+          | None -> Error "native initializer lost its original numeric classes"
+        in
+        let bits = Initializer_value.convert_native_word conversion original in
+        let scalar = Option.get proof.numeric_scalar in
+        let* bytes = Integer_initializer_layout.word_bytes scalar bits in
+        let copy_work = String.length bytes in
+        if
+          copy_work > task_initializer_remaining task
+          || copy_work > proof.numeric_limit - steps
+        then Error "HCIRVM0007: native initializer copy allowance was exhausted"
+        else
+          let work = steps + copy_work in
+          task.resources.initializer_steps <- proof.numeric_before + work;
+          (* PrsVarInit receives Call's completed word in I64 r, converts it,
+             then copies its low destination bytes. This report transports that
+             word; the retained native program identifies its real evaluation. *)
+          let result =
+            {
+              termination_ = Stream_end;
+              executed_steps_ = work;
+              final_value_ = Some { type_ = I64; bits };
+              final_callback_ = None;
+              final_pointer_ = None;
+              compiled_initializer_steps_ = 0;
+            }
+          in
+          let receipt =
+            {
+              constant_graph =
+                Numeric_initializer_program.entry proof.numeric_program;
+              constant_result = result;
+              constant_owner = Some task.task_identity;
+              constant_resources = Some task.resources.initializer_identity;
+              constant_before = Some proof.numeric_before;
+              constant_consumed_by_task = false;
+              constant_source =
+                Some (numeric_constant_source proof.numeric_program);
+              constant_geometry = proof.numeric_geometry;
+              constant_static_snapshot = proof.numeric_static_snapshot;
+              constant_native_source = Some proof.numeric_program;
+            }
+          in
+          Constant_receipt_set.add task.constant_receipts receipt
+            (seal_constant_receipt receipt);
+          proof.numeric_receipt <- Some receipt;
+          proof.numeric_state <- Successful_initializer;
+          Ok ())
+
+let native_constant_receipt request =
+  let proof = request.numeric_preparation in
+  match proof.numeric_receipt with
+  | Some receipt
+    when proof.numeric_state = Successful_initializer
+         && Domain.self () = request.numeric_domain
+         && Option.fold ~none:false ~some:(( == ) request)
+              !(request.numeric_owner)
+         && List.exists (( == ) proof) request.numeric_runtime.native_constants
+         && valid_constant_receipt request.numeric_runtime receipt -> Ok receipt
+  | _ -> Error "native initializer lacks its original completed evaluation"
+
+let abandon_native_constant request =
+  if request.numeric_preparation.numeric_state <> Successful_initializer then
+    request.numeric_preparation.numeric_state <- Failed_initializer
 
 let constant_receipt_graph value = value.constant_graph
 let constant_receipt_result value = value.constant_result

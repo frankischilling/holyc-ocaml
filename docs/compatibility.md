@@ -318,6 +318,19 @@ share class-name storage in JIT and copy each omitted occurrence in AOT.
 General ordinary AOT function/data dependencies, copied string defaults in
 isolated compilation and the full default-value domain remain open under #685.
 
+[Native numeric initializers](native-numeric-initializers.md) prepare closed
+integer/F64 expressions for globals, statics, fixed arrays and packed leaves
+through both native targets in either source mode. Declaration preparation
+converts the completed expression word before copying the selected scalar
+width. Native JIT tasks also accept original reference-bearing numeric leaves.
+Nonconstant AOT leaves retain their separate runtime `IC_ASSIGN` conversion.
+Negative zero and same-class signaling-NaN payloads survive exact copies;
+narrow integer destinations copy the low bytes after numeric conversion.
+Unused static declarations prepare once, and later failures retain earlier
+effects and charged work. Integer-interpreter F64 execution, isolated JIT
+reference preparation and the remaining initializer, floating and session
+requirements stay open under #690, #689 and #704.
+
 Retained task functions use their original source context for Print and PutChars.
 Owned array and original literal formats, nested calls and initializer output share cumulative native
 instruction, output-byte and output-work limits. Print faults preserve earlier

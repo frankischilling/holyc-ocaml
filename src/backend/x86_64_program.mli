@@ -193,6 +193,18 @@ val compile_source_default :
   Driver.Native_default_preparation.native_request ->
   (t, error list) result
 
+val compile_source_initializer :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  max_ir_instructions:int ->
+  max_code_bytes:int ->
+  Ir.Integer_interpreter.native_constant_request ->
+  (t, error list) result
+(** Compile one original closed numeric initializer expression. Its private
+    capture belongs to the live preparation request and retains the expression
+    return class until the initializer copy completes. *)
+
 val compile_task_default :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
@@ -386,6 +398,7 @@ type scalar_program =
 
 val scalar_program : t -> scalar_program option
 val scalar_default : t -> Ir.Default_fragment_program.t option
+val scalar_source_initializer : t -> Ir.Numeric_initializer_program.t option
 val dimension : t -> Ir.Dimension_fragment_program.t option
 val switch_case : t -> Ir.Switch_case_fragment_program.t option
 val offset : t -> Ir.Offset_fragment_program.t option

@@ -31,3 +31,15 @@ val discards_value : t -> bool
 val requires_evaluation : t -> bool
 val stores_pointer : t -> bool
 val stores_same_f64 : t -> bool
+val expression_is_f64 : t -> bool
+
+val numeric_scalar : t -> Sema.Initializer_type.scalar option
+(** Return the selected numeric class while preserving the original raw scalar
+    and stream geometry used by the preparation receipt. *)
+
+val stores_native_numeric : t -> bool
+
+val convert_native_word : t -> int64 -> int64
+(** Convert the completed expression word with the original selected scalar
+    class. Final-size settlement and publication still require their receipts.
+*)

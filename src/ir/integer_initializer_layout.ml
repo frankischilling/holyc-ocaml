@@ -57,6 +57,10 @@ let requires_settlement entry =
 
 let normalized_word scalar bits =
   if Sema.Initializer_type.scalar_byte_size scalar = 0 then Ok bits
+  else if
+    Sema.Initializer_type.scalar_byte_size scalar = 8
+    && Sema.Type.is_f64 (Sema.Initializer_type.scalar_value_type scalar)
+  then Ok bits
   else
     match
       Integer_scalar_storage.of_type

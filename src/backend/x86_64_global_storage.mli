@@ -56,7 +56,7 @@ val check_static_copy :
 
 val static_copy_payload : static_copy -> int * int * int * string
 (** Checked arena prefix, byte destination, first initialization flag and a
-    detached original payload. Flags descend by eight bytes per element. This
+    detached original payload. Flags descend by one byte per copied byte. This
     plan grants no entry or write authority; the host must claim its original
     live request while holding the exact arena lease. *)
 

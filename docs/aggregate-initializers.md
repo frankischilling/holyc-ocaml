@@ -414,13 +414,16 @@ holyc run --target=host-jit-task --mode=jit --code-byte-limit=524288 examples/na
 
 The static capture checks the actual decoded F64 result, original image, arena,
 domain and recorded work before its single-use copy. Tests cover collection and
-compaction between execution and copy. The interpreter, isolated native path,
-AOT constant preparation and F64/integer conversions remain outside this JIT
-copy path. Original nonconstant same-class F64 leaves have a separate
+compaction between execution and copy. [Native numeric initializers](native-numeric-initializers.md)
+extend declaration preparation to closed F64 and mixed numeric leaves on both
+native targets in either source mode. Live JIT tasks also convert original
+retained expression results before copying the selected destination width.
+Original nonconstant numeric leaves have a separate
 [AOT load assignment path](native-f64-storage.md#aot-load-initializers) on both
-native targets. It keeps the selected sequential destination and emits a typed
-eight-byte store, including packed members and fixed arrays. Load-time effects
+native targets. It keeps the selected sequential destination and its assignment
+conversion, including packed members and fixed arrays. Load-time effects
 use the runtime budget and statics run even in unused functions.
+The integer interpreter still does not execute floating expressions.
 Standalone F64 roots use the same original scalar-copy receipts and byte cursor;
 see [persistent F64 storage](native-f64-storage.md#persistent-storage) for storage
 policies, retained execution and the remaining preparation boundaries.

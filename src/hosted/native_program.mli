@@ -36,6 +36,9 @@ val compile_with_preparation :
   dimension_work:int ref ->
   default_bytes:int ref ->
   ?native_default:Native_default_preparation.native_executor ->
+  ?native_initializer:
+    (Ir.Integer_interpreter.native_constant_request ->
+    (unit, Common.Diagnostic.t list) Stdlib.result) ->
   ?native_code_remaining:
     (unit -> (int * int, Common.Diagnostic.t list) Stdlib.result) ->
   ?streams:
@@ -49,11 +52,11 @@ val compile_with_preparation :
 (** Shared native source compiler. A stream adapter owns its original directive
     task separately from the AOT module and supplies only parser execution and
     cumulative resource checkpoints. It cannot replace module syntax, checked
-    preparation receipts or backend admission. An optional native-default
-    executor receives only an original live closed-expression request;
-    completion requires its actual capture. [native_code_remaining] accounts for
-    emitted preparation images when no stream adapter owns the cumulative code
-    limit. *)
+    preparation receipts or backend admission. Optional native default and
+    initializer executors receive original live closed-expression requests;
+    completion requires their actual captures. [native_code_remaining] accounts
+    for emitted preparation images when no stream adapter owns the cumulative
+    code limit. *)
 
 val compile :
   ?max_ir_instructions:int ->

@@ -281,19 +281,37 @@ let () =
               let result = json_path ~target ~mode ~status:1 path in
               require
                 (member "outcome" result = `String "error")
-                "unimplemented floating initializer target stays gated")
-            [ ("ir", "jit"); ("ir", "aot"); ("host-jit-task", "aot") ]))
+                "IR floating initializer stays outside native preparation")
+            [ ("ir", "jit"); ("ir", "aot") ];
+          List.iter
+            (fun (target, mode) ->
+              let result = json_path ~target ~mode path in
+              require
+                (member "outcome" result = `String "success"
+                && final_bits result = "0x0000000000000001")
+                ("native closed floating leaf bytes: " ^ expression))
+            [
+              ("host-jit", "jit"); ("host-jit", "aot"); ("host-jit-task", "aot");
+            ]))
     cases;
   List.iter
     (fun source ->
       with_file ".hc" source (fun path ->
-          let result = json_path ~status:1 path in
-          require
-            (member "outcome" result = `String "error")
-            "cross-class initializer conversion remains gated"))
+          List.iter
+            (fun target ->
+              List.iter
+                (fun mode ->
+                  let result = json_path ~target ~mode path in
+                  require
+                    (member "outcome" result = `String "success"
+                    && final_bits result = "0x0000000000000001")
+                    "numeric member initializer converts before byte copy")
+                [ "jit"; "aot" ])
+            [ "host-jit"; "host-jit-task" ]))
     [
-      "class Box{F64 x;I64 y;};Box b={1,42};42;";
-      "class Box{I64 x;I64 y;};Box b={1.5,42};42;";
+      "class Box{F64 x;I64 y;};Box \
+       b={1,42};(&b.x)(U64*)[0]==0x3ff0000000000000 && b.y==42;";
+      "class Box{I64 x;I64 y;};Box b={1.5,42};b.x==1 && b.y==42;";
     ]
 
 let () =
@@ -369,8 +387,18 @@ let () =
               let result = json_path ~target ~mode ~status:1 path in
               require
                 (member "outcome" result = `String "error")
-                "unimplemented static floating target stays gated")
-            [ ("ir", "jit"); ("ir", "aot"); ("host-jit-task", "aot") ]))
+                "IR floating static stays outside native preparation")
+            [ ("ir", "jit"); ("ir", "aot") ];
+          List.iter
+            (fun (target, mode) ->
+              let result = json_path ~target ~mode path in
+              require
+                (member "outcome" result = `String "success"
+                && final_bits result = "0x0000000000000002")
+                ("native closed static floating bytes: " ^ expression))
+            [
+              ("host-jit", "jit"); ("host-jit", "aot"); ("host-jit-task", "aot");
+            ]))
     [
       ("1.5", [ 0; 0; 0; 0; 0; 0; 248; 63 ]);
       ("-0.0", [ 0; 0; 0; 0; 0; 0; 0; 128 ]);
@@ -380,13 +408,21 @@ let () =
   List.iter
     (fun source ->
       with_file ".hc" source (fun path ->
-          let report = json_path ~status:1 path in
-          require
-            (member "outcome" report = `String "error")
-            "static cross-class conversion stays gated"))
+          List.iter
+            (fun target ->
+              List.iter
+                (fun mode ->
+                  let report = json_path ~target ~mode path in
+                  require
+                    (member "outcome" report = `String "success"
+                    && final_bits report = "0x0000000000000002")
+                    "static numeric leaf conversion survives repeated calls")
+                [ "jit"; "aot" ])
+            [ "host-jit"; "host-jit-task" ]))
     [
-      "class Box{F64 x;};I64 F(){static Box b={1};return 0;}42;";
-      "class Box{I64 x;};I64 F(){static Box b={1.5};return 0;}42;";
+      "class Box{F64 x;};I64 F(){static Box b={1};return \
+       (&b.x)(U64*)[0]==0x3ff0000000000000;}F()+F();";
+      "class Box{I64 x;};I64 F(){static Box b={1.5};return b.x;}F()+F();";
     ]
 
 let () =

@@ -30,14 +30,18 @@ $cases = @(
   @{ Example = 'aot-intrinsic-defaults.hc'; Target = 'host-jit-task'; Mode = 'aot'; Type = 'f64'; Bits = '0x4045000000000000'; DefaultBytes = 24 },
   @{ Example = 'aot-intrinsic-defaults.hc'; Target = 'host-jit'; Mode = 'aot'; Type = 'f64'; Bits = '0x4045000000000000'; DefaultBytes = 24 },
   @{ Example = 'native-lastclass-defaults.hc'; Target = 'host-jit-task'; Mode = 'jit'; Type = 'i64'; Bits = '0x00000000000000dd'; DefaultBytes = 8 },
-  @{ Example = 'native-lastclass-defaults.hc'; Target = 'host-jit-task'; Mode = 'aot'; Type = 'i64'; Bits = '0x00000000000000dd'; DefaultBytes = 8 }
+  @{ Example = 'native-lastclass-defaults.hc'; Target = 'host-jit-task'; Mode = 'aot'; Type = 'i64'; Bits = '0x00000000000000dd'; DefaultBytes = 8 },
+  @{ Example = 'native-numeric-initializers.hc'; Target = 'host-jit'; Mode = 'jit'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
+  @{ Example = 'native-numeric-initializers.hc'; Target = 'host-jit'; Mode = 'aot'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
+  @{ Example = 'native-numeric-initializers.hc'; Target = 'host-jit-task'; Mode = 'jit'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
+  @{ Example = 'native-numeric-initializers.hc'; Target = 'host-jit-task'; Mode = 'aot'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 }
 )
 
 $fixtureDirectory = New-Item -ItemType Directory -Path $fixtureRoot
 try {
   Push-Location -LiteralPath $repositoryRoot
   try {
-    & $Dune install --root . --prefix $fixtureRoot --sections=bin
+    & $Dune install --root $repositoryRoot --build-dir (Join-Path $repositoryRoot '_build') --prefix $fixtureRoot --sections=bin
     if ($LASTEXITCODE -ne 0) { throw 'Private compiler installation failed; build @install first' }
   } finally { Pop-Location }
 

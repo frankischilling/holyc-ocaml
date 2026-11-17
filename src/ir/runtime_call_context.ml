@@ -144,6 +144,7 @@ type call_result_conversion = {
   conversion_source : Typed.expression_result;
   conversion_consumer : Typed.expression_result;
   conversion_kind : Typed.intrinsic_conversion;
+  conversion_initializer_ : bool;
   conversion_valid : unit -> bool;
 }
 
@@ -743,9 +744,37 @@ let original_call_result_conversion context ~owner description =
         Option.bind
           (Instructions.find_opt description.Seq.instruction_id
              graph.call_result_conversions) (fun (original, conversion) ->
-            if original == description && conversion.conversion_valid () then
-              Some conversion
+            if
+              original == description
+              && (not conversion.conversion_initializer_)
+              && conversion.conversion_valid ()
+            then Some conversion
             else None))
+
+let original_initializer_region context ~owner description =
+  if owner <> Entry || not (source_producers_match context) then None
+  else
+    Option.bind (find_graph context owner) (fun graph ->
+        if
+          List.exists
+            (fun (_, original, _) -> List.exists (( == ) description) original)
+            graph.original_blocks
+          &&
+          match
+            Instructions.find_opt description.Seq.instruction_id
+              graph.call_result_conversions
+          with
+          | Some (original, conversion) when conversion.conversion_initializer_
+            -> original == description && conversion.conversion_valid ()
+          | _ -> true
+        then
+          Option.bind
+            (Global_initialization.find_storage context.initialization
+               description.Seq.instruction_id) (fun region ->
+              Option.map
+                (fun _ -> (context.initialization, region))
+                (Global_initialization.load_source context.initialization region))
+        else None)
 
 let call_result_conversion_source conversion = conversion.conversion_source
 let call_result_conversion_consumer conversion = conversion.conversion_consumer
@@ -3533,6 +3562,157 @@ let create_with_exceptions ?entry_exceptions ?(function_exceptions = [])
             (Option.to_list (Target.output_supplied_fixed_value target)
             @ Target.output_arguments target)
     in
+    (* A declaration's direct assignment can convert the final call result.
+       This admits only that call scope; the backend still replays the complete
+       original initializer before it may emit the conversion. *)
+    let initializer_call_conversion owner description source =
+      let ( let* ) = Option.bind in
+      let* () = if owner = Entry then Some () else None in
+      let* region = entry_region description in
+      let first = description.first and last = description.last in
+      let original_description_source = description.source in
+      let scalar arrays root type_ =
+        let declared_scalar () =
+          match
+            Result.bind
+              (Sema.Initializer_type.of_type type_)
+              Sema.Initializer_type.view
+          with
+          | Ok (Sema.Initializer_type.Scalar scalar) -> Some scalar
+          | _ -> None
+        in
+        match arrays with
+        | Some arrays -> (
+            let* leaf = Integer_array_initializers.find arrays root in
+            match
+              Integer_initializer_layout.scalar
+                (Integer_array_initializers.destination leaf)
+            with
+            | Some _ as scalar -> scalar
+            | None ->
+                if Option.is_some (Integer_scalar_storage.of_type type_) then
+                  declared_scalar ()
+                else None)
+        | None -> declared_scalar ()
+      in
+      let selection () =
+        let* current =
+          Global_initialization.find_storage initialization description.last
+        in
+        let* () =
+          if
+            current == region && description.first = first
+            && description.last = last
+            && description.source == original_description_source
+            && Seq.Instruction_id.compare first
+                 (Global_initialization.storage_first current)
+               >= 0
+          then Some ()
+          else None
+        in
+        let* original =
+          Global_initialization.load_source initialization current
+        in
+        match original with
+        | Global_initialization.Global_load root ->
+            let* slot =
+              Integer_globals.find globals
+                (Global_initialization.storage_symbol current)
+            in
+            let* scalar =
+              scalar
+                (Integer_globals.slot_array_initializers slot)
+                root
+                (Integer_globals.slot_type slot)
+            in
+            Some (original, Typed.top_level_root_value root, scalar)
+        | Static_load (slot, root) ->
+            let* scalar =
+              scalar
+                (Integer_globals.static_array_initializers slot)
+                root
+                (Typed.initializer_target_type root)
+            in
+            Some (original, Typed.initializer_value root, scalar)
+      in
+      let rec aliases depth value =
+        if depth > 256 then None
+        else if value == source then Some [ value ]
+        else
+          let* source_operand =
+            match
+              Typed.result_source value |> Resolution.argument_expression_kind
+            with
+            | Resolution.Parenthesized_expression source -> Some source
+            | Prefix_expression prefix
+              when Resolution.prefix_operator prefix = Resolution.Unary_plus ->
+                Some (Resolution.prefix_operand prefix)
+            | _ -> None
+          in
+          let* operand = Typed.result_operand value in
+          let* () =
+            if
+              Typed.result_source operand == source_operand
+              && Typed.result_array_rank value = 0
+              && Typed.result_class value = Typed.result_class operand
+              && Option.equal Type.equal
+                   (Typed.result_value_type value)
+                   (Typed.result_value_type operand)
+            then Some ()
+            else None
+          in
+          Option.map (fun rest -> value :: rest) (aliases (depth + 1) operand)
+      in
+      let* original, consumer, destination = selection () in
+      let* path = aliases 0 consumer in
+      let kind scalar value =
+        match
+          Initializer_value.native_numeric_conversion ~scalar:(Some scalar)
+            value
+        with
+        | Some Initializer_value.To_f64 -> Some Typed.Result_to_f64
+        | Some To_integer -> Some Typed.Result_to_int
+        | Some Same_class | None -> None
+      in
+      let* conversion_kind = kind destination consumer in
+      let destination_type =
+        Sema.Initializer_type.scalar_value_type destination
+      in
+      let destination_size =
+        Sema.Initializer_type.scalar_byte_size destination
+      in
+      let same_original left right =
+        match (left, right) with
+        | ( Global_initialization.Global_load left,
+            Global_initialization.Global_load right ) -> left == right
+        | Static_load (left_slot, left), Static_load (right_slot, right) ->
+            left_slot == right_slot && left == right
+        | _ -> false
+      in
+      Some
+        {
+          conversion_source = source;
+          conversion_consumer = consumer;
+          conversion_kind;
+          conversion_initializer_ = true;
+          conversion_valid =
+            (fun () ->
+              match selection () with
+              | Some (current, value, scalar)
+                when same_original current original && value == consumer -> (
+                  match aliases 0 value with
+                  | Some current_path ->
+                      List.length path = List.length current_path
+                      && List.for_all2 ( == ) path current_path
+                      && Type.equal destination_type
+                           (Sema.Initializer_type.scalar_value_type scalar)
+                      && destination_size
+                         = Sema.Initializer_type.scalar_byte_size scalar
+                      && kind scalar value = Some conversion_kind
+                  | None -> false)
+              | _ -> false);
+        }
+    in
     let call_result_source owner description =
       let sources () =
         match owner with
@@ -3568,27 +3748,46 @@ let create_with_exceptions ?entry_exceptions ?(function_exceptions = [])
         | Function_output _ | Top_level_output _ -> false
       in
       match List.filter matches (sources ()) with
-      | [ source ] ->
-          sources ()
-          |> List.find_map (fun consumer ->
+      | [ source ] -> (
+          let ordinary =
+            sources ()
+            |> List.find_map (fun consumer ->
+                Option.map
+                  (fun proof ->
+                    {
+                      conversion_source = source;
+                      conversion_consumer = consumer;
+                      conversion_kind =
+                        Expression_lowering.operand_conversion_kind proof;
+                      conversion_initializer_ = false;
+                      conversion_valid =
+                        (fun () ->
+                          let current = sources () in
+                          (match List.filter matches current with
+                            | [ actual ] -> actual == source
+                            | _ -> false)
+                          && List.exists (( == ) consumer) current
+                          && Expression_lowering.valid_operand_conversion proof);
+                    })
+                  (Expression_lowering.prepare_operand_conversion ~consumer
+                     ~operand:source))
+          in
+          match ordinary with
+          | Some _ -> ordinary
+          | None ->
               Option.map
-                (fun proof ->
+                (fun conversion ->
+                  let valid = conversion.conversion_valid in
                   {
-                    conversion_source = source;
-                    conversion_consumer = consumer;
-                    conversion_kind =
-                      Expression_lowering.operand_conversion_kind proof;
+                    conversion with
                     conversion_valid =
                       (fun () ->
-                        let current = sources () in
-                        (match List.filter matches current with
+                        (match List.filter matches (sources ()) with
                           | [ actual ] -> actual == source
                           | _ -> false)
-                        && List.exists (( == ) consumer) current
-                        && Expression_lowering.valid_operand_conversion proof);
+                        && valid ());
                   })
-                (Expression_lowering.prepare_operand_conversion ~consumer
-                   ~operand:source))
+                (initializer_call_conversion owner description source))
       | _ -> None
     in
     let rec checked_functions seen = function

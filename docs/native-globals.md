@@ -40,17 +40,22 @@ unused declarations. They use the same checked constant-preparation engine and
 work budget as scalar defaults. The compiled unit reuses each prepared value
 without reevaluating its expression. Declared widths normalize stored bytes;
 each execution restores these bytes and their initialized flags.
+[Closed numeric preparation](native-numeric-initializers.md) also accepts F64
+expressions and integer/F64 conversions through original temporary native
+programs. Their actual expression work shares the native instruction allowance;
+initializer work also charges the selected destination copy width.
 
 `Native_global_initializers` binds successful preparation to the original
 ordered leaves, symbols, types, initialization, entry and call bundle. Missing,
 duplicate, reordered or foreign evidence rejects. Ordinary batch preparation
 and caller-supplied initial bits cannot supply this certificate. Preparation
-faults occur before native entry and retain earlier declaration work.
+faults occur before final program entry and retain earlier declaration work.
 
-In AOT mode, original reference-bearing integer, callback or same-class F64
+In AOT mode, original reference-bearing numeric or callback
 leaves can retain their checked load-time regions instead of a prepared value.
 Generated code executes their stores and direct or indirect calls against
-zeroed global storage. Their output, calls and faults use the runtime meter.
+zeroed global storage. Numeric leaves retain the original assignment conversion.
+Their output, calls and faults use the runtime meter.
 Exact original source and destination receipts join every scheduled region to
 the complete bundle. See
 [global callback initializers](global-callback-initializers.md) and
@@ -102,13 +107,16 @@ initializer expression, then seals the saved value to the compiled storage and
 call bundle. An incomplete declaration cannot authorize an image, even if its
 expression already consumed preparation work.
 
-Static expressions use the same closed numeric engine and invocation budget as
-globals and defaults. They cannot read globals or locals, call functions, use
-floating values, or bypass the existing shift-optimizer restriction. Fixed byte
-arrays can copy original string bytes through their checked initializer layout.
-Preparation remains separate from runtime instruction work and never runs again
-on a function call. A statically prepared neighbor does not initialize an object
-whose declaration has no initializer.
+Static expressions share the declaration-work budget with globals and defaults.
+Closed preparation cannot read globals or locals, call
+module functions, or bypass the existing shift-optimizer restriction. Floating
+leaves and integer/F64 conversions use their original native expression and
+completed-word conversion. Fixed byte arrays can copy original string bytes
+through their checked initializer layout.
+Native expression work shares the cumulative instruction allowance, while
+declaration preparation also charges its copy width. Prepared expressions never
+run again on a function call. A statically prepared neighbor does not initialize
+an object whose declaration has no initializer.
 
 ## Limits and reports
 
@@ -116,9 +124,11 @@ whose declaration has no initializer.
 with a positive configuration range capped at 16,777,216. Static allocations
 round each declared width up to eight bytes. Unused objects count.
 The compiler checks this bound before allocating the private image; execution
-checks it again before native entry. Scalars retain one initialization byte per
-object; arrays add eight-byte per-element flag slots. Literal objects have a
-separate data quota and arena descriptors. All private metadata is charged
+checks it again before native entry. Initialization is tracked per data byte.
+Ordinary integer scalars reserve an eight-byte flag word; arrays and
+byte-addressed aggregate/F64 roots reserve flag storage from their original
+physical cell count. Literal objects have a separate data quota and arena
+descriptors. All private metadata is charged
 in an arena capped at 33,554,432 bytes. The private
 layout does not expose static padding or raw pointers.
 
@@ -145,8 +155,8 @@ Nonconstant AOT load initializers retain their order among executable top-level
 statements. Later constant or byte-copy preparation still rejects before it
 begins. Supported F64 globals and statics retain their eight-byte scalar or
 fixed-array storage and execute native assignments and reads in both source
-modes. Floating declaration preparation follows the separate
-[F64 storage boundary](native-f64-storage.md).
+modes. Floating declaration preparation follows the
+[numeric initializer boundary](native-numeric-initializers.md).
 The integer interpreter can retain unused F64 storage without admitting floating
 instructions. Pointer-valued initializers and unresolved initializer
 shift-optimizer behavior remain outside this path.

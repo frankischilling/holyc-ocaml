@@ -2735,8 +2735,10 @@ let rec postfix_pointer_destination pointer =
         postfix_pointer_destination
   | _ -> Ok None
 
-let plan ?frame ?globals ~allow_calls root =
-  let root_conversion = requested_conversion root in
+let plan ?frame ?globals ?root_conversion ~allow_calls root =
+  let root_conversion =
+    Option.value root_conversion ~default:(requested_conversion root)
+  in
   let pending = ref [] in
   let reversed = ref [] in
   let unsupported = ref false in
@@ -5949,10 +5951,13 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                            })
                   | Error item, _ | _, Error item -> Error [ item ]))))
 
-let lower_typed_result ?frame ?globals ?lower_call ?(optimize_shifts = false)
-    ?(optimize_division = false) ~instruction_id ~value_id result =
+let lower_typed_result_with_conversion ?frame ?globals ?lower_call
+    ?root_conversion ?(optimize_shifts = false) ?(optimize_division = false)
+    ~instruction_id ~value_id result =
   match
-    plan ?frame ?globals ~allow_calls:(Option.is_some lower_call) result
+    plan ?frame ?globals ?root_conversion
+      ~allow_calls:(Option.is_some lower_call)
+      result
   with
   | Error items -> Error items
   | Ok Unsupported_plan -> Ok Unsupported_expression
@@ -5962,6 +5967,11 @@ let lower_typed_result ?frame ?globals ?lower_call ?(optimize_shifts = false)
       |> Result.map (function
         | Some t -> Lowered t
         | None -> Unsupported_expression)
+
+let lower_typed_result ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id result =
+  lower_typed_result_with_conversion ?frame ?globals ?lower_call
+    ?optimize_shifts ?optimize_division ~instruction_id ~value_id result
 
 let sequence lowered = lowered.sequence_
 
@@ -6190,11 +6200,32 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
           Result.is_ok (Integer_initializer_layout.normalized_word scalar 0L)
     in
     let target_is_callback = callback && callback_word_type target_type in
+    let numeric_scalar =
+      match aggregate_destination with
+      | Some (scalar, _) -> Some scalar
+      | None -> (
+          match
+            Result.bind
+              (Sema.Initializer_type.of_type target_type)
+              Sema.Initializer_type.view
+          with
+          | Ok (Sema.Initializer_type.Scalar scalar) -> Some scalar
+          | _ -> None)
+    in
     let floating_assignment =
       aggregate_operation = Aggregate_initializer_store.Load_assignment
-      && Initializer_value.same_f64
-           ~scalar:(Option.map fst aggregate_destination)
-           value
+      && Initializer_value.native_numeric ~scalar:numeric_scalar value
+    in
+    let root_conversion =
+      if not floating_assignment then None
+      else
+        match
+          Initializer_value.native_numeric_conversion ~scalar:numeric_scalar
+            value
+        with
+        | Some Initializer_value.To_f64 -> Some Result_to_f64
+        | Some To_integer -> Some Result_to_int
+        | Some Same_class | None -> None
     in
     let* value_type =
       checked_frame_value value |> Result.map_error (fun error -> [ error ])
@@ -6221,9 +6252,9 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
           lower_address ~instruction_id ~value_id
         in
         let* lowered =
-          lower_typed_result ?frame ?globals ?lower_call ?optimize_shifts
-            ?optimize_division ~instruction_id:next_instruction
-            ~value_id:next_value value
+          lower_typed_result_with_conversion ?frame ?globals ?lower_call
+            ?root_conversion ?optimize_shifts ?optimize_division
+            ~instruction_id:next_instruction ~value_id:next_value value
         in
         match lowered with
         | Unsupported_expression -> Ok Unsupported_expression
