@@ -110,7 +110,11 @@ check preparation and promotion costs. Live integer metadata tests cover calls,
 updates, lookahead, reverse arguments, uncalled function parsing, callback
 selection, preserved output on failure and nested source quotas. The metadata
 authority test checks saved values, foreign owners, graph substitution, work
-counts and replay. Other runtime value families remain explicit errors.
+counts and replay. Closed raw-word tests cover signed zero, both infinities and
+NaN bit patterns. Native F64 metadata tests inspect actual captures and reject
+substituted programs, images, work counts and arenas, including replay and owner
+expiry. Live F64 metadata in the integer interpreter and runtime address values
+remain explicit errors.
 See [member metadata preparation](member-metadata.md).
 
 The shared aggregate suites exercise [class pointer views](class-pointer-views.md)
@@ -495,6 +499,14 @@ arenas, collection, expiration and replay. The maintained
 initializer, global and output limits; API tests check cumulative code and IR
 limits too. Class declarations inside functions publish during parsing, even
 when their functions are never called.
+
+Native F64 offset tests distinguish raw words from numeric conversion with a
+finite word and a subnormal whose bits equal 16. They check reached output,
+exact and one-below preparation limits, native capture ownership and nested
+`#exe` tasks in both outer modes. The runtime-layout CLI suite runs
+`native-f64-member-preparation.hc` and checks closed non-finite offset and metadata
+preparation across IR and both native targets. Installed compiler checks run the
+new example through all three binary consumers outside the compiler checkout.
 
 Live internal bindings share fixtures in `test/internal_binding_cases.ml`.
 Three IR groups and four native groups exercise every supported integer

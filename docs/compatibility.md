@@ -265,6 +265,15 @@ requires the actual original scalar capture. Closed AOT dimensions retain
 their numeric conversion; runtime-dependent AOT bounds still need relocation
 and execution authority.
 
+Native [F64 offsets and member metadata](native-f64-member-preparation.md)
+retain the raw word returned by their original declaration-time expression.
+These results use the same original capture and work checks as integer
+preparation. Closed preparation also retains non-finite raw words. The independent
+integer interpreter still rejects live F64 expressions. Ordinary AOT offset and
+metadata expressions that refer to output-module code or storage still need
+execution and relocation authority; isolated native live preparation needs its
+original source-task context.
+
 Ordinary JIT [live internal bindings](native-internal-bindings.md) evaluate
 integer targets before type validation in both IR and native tasks. Supported
 numeric and pointed internal operations retain original call authority and

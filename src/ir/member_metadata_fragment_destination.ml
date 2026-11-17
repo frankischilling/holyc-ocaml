@@ -17,7 +17,7 @@ let globals value = value.globals_
 let type_ value = value.type_
 let span value = value.span_
 
-let create_with_globals globals typed =
+let create_with_globals ?(native_numeric = false) globals typed =
   let ( let* ) = Result.bind in
   let* root_ =
     match
@@ -51,20 +51,18 @@ let create_with_globals globals typed =
   in
   let* () =
     if
-      Option.is_some (Integer_scalar_storage.of_type type_)
+      (Option.is_some (Integer_scalar_storage.of_type type_)
+      || (native_numeric && Sema.Type.is_f64 type_))
       && Typed.result_array_rank value = 0
-      && (match Typed.result_category value with
-        | Typed.Object_value | Typed.Lvalue -> true
-        | _ -> false)
-      && Option.fold ~none:false
-           ~some:(fun type_ ->
-             Option.is_some (Integer_scalar_storage.of_type type_))
-           (Typed.result_value_type value)
+      &&
+      match Typed.result_category value with
+      | Typed.Object_value | Typed.Lvalue -> true
+      | _ -> false
     then Ok ()
     else
       Error
-        "HCRUN0006: member metadata preparation requires a checked scalar \
-         integer value"
+        ("HCRUN0006: member metadata preparation requires a checked scalar "
+        ^ if native_numeric then "numeric value" else "integer value")
   in
   let* globals_ = globals fragment_ in
   Ok
@@ -79,3 +77,7 @@ let create_with_globals globals typed =
 
 let create ~task_view =
   create_with_globals (Integer_globals.member_metadata_context task_view)
+
+let create_native ~task_view =
+  create_with_globals ~native_numeric:true
+    (Integer_globals.member_metadata_context task_view)

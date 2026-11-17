@@ -26,6 +26,7 @@ $cases = @(
   @{ Example = 'aot-native-defaults.hc'; Target = 'host-jit'; Mode = 'aot'; Type = 'f64'; Bits = '0x4015000000000000'; DefaultBytes = 32 },
   @{ Example = 'aot-native-defaults.hc'; Target = 'host-jit'; Mode = 'jit'; Type = 'f64'; Bits = '0x4015000000000000'; DefaultBytes = 32 },
   @{ Example = 'native-f64-runtime-dimensions.hc'; Target = 'host-jit-task'; Mode = 'jit'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
+  @{ Example = 'native-f64-member-preparation.hc'; Target = 'host-jit-task'; Mode = 'jit'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
   @{ Example = 'aot-intrinsic-defaults.hc'; Target = 'host-jit-task'; Mode = 'aot'; Type = 'f64'; Bits = '0x4045000000000000'; DefaultBytes = 24 },
   @{ Example = 'aot-intrinsic-defaults.hc'; Target = 'host-jit'; Mode = 'aot'; Type = 'f64'; Bits = '0x4045000000000000'; DefaultBytes = 24 },
   @{ Example = 'native-lastclass-defaults.hc'; Target = 'host-jit-task'; Mode = 'jit'; Type = 'i64'; Bits = '0x00000000000000dd'; DefaultBytes = 8 },

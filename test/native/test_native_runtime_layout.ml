@@ -11,19 +11,19 @@ let checked = function
   | Ok value -> value
   | Error errors -> Alcotest.fail (describe errors)
 
-let inputs text =
+let inputs ?(mode = Preprocessor.Jit) text =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-layout.hc" ~contents:text
   in
   let config =
-    Preprocessor.Config.create ~compilation_mode:Jit () |> Result.get_ok
+    Preprocessor.Config.create ~compilation_mode:mode () |> Result.get_ok
   in
   (session, source, config)
 
-let run ?max_initializer_steps ?max_code_bytes ?max_ir_instructions ?max_steps
-    text =
-  let session, source, config = inputs text in
+let run ?(mode = Preprocessor.Jit) ?max_initializer_steps ?max_code_bytes
+    ?max_ir_instructions ?max_steps text =
+  let session, source, config = inputs ~mode text in
   Native.evaluate ?max_initializer_steps
     ~max_code_bytes:(Option.value ~default:262_144 max_code_bytes)
     ?max_ir_instructions session ~source ~config
@@ -51,6 +51,27 @@ let failure code report =
         (describe errors) true
         (List.exists (fun (d : Diagnostic.t) -> d.code = code) errors)
   | Ok _ -> Alcotest.fail ("expected " ^ code)
+
+let captured_scalar_words kind report =
+  Native.fragments report
+  |> List.filter (fun (fragment : Native.fragment) -> fragment.kind = kind)
+  |> List.map (fun (fragment : Native.fragment) ->
+      match fragment.native_outcome with
+      | Some (Ok (X86_64_program.Completed execution)) -> (
+          match execution.final_value with
+          | Some (word : X86_64_program.word) -> (word.type_, word.bits)
+          | None -> Alcotest.fail "native numeric preparation lost its scalar")
+      | _ -> Alcotest.fail "native numeric preparation did not complete")
+
+let check_float_capture label kind expected report =
+  let words = captured_scalar_words kind report in
+  Alcotest.(check (list int64))
+    (label ^ " retains exact captured binary64 bits")
+    [ expected ] (List.map snd words);
+  Alcotest.(check bool)
+    (label ^ " retains the original F64 result class")
+    true
+    (List.for_all (fun (type_, _) -> type_ = X86_64_program.F64) words)
 
 let values () =
   List.iter
@@ -195,6 +216,170 @@ let floating_failures () =
     "floating bound consumed initializer work" true (prep > 0);
   value 42L (run ~max_initializer_steps:prep source);
   failure "HCIRVM0007" (run ~max_initializer_steps:(prep - 1) source)
+
+let raw_floating_offsets () =
+  let finite =
+    "F64 Offset(){return 3.75;}class C{U8 \
+     first;$$=Offset();$$=$$-0x400e000000000000+16;I64 last;};sizeof(C)+18;"
+  in
+  let subnormal =
+    "F64 Offset(){F64 x;(&x)(U64*)[0]=16;return x;}class C{U8 \
+     first;$$=Offset();I64 last;};sizeof(C)+18;"
+  in
+  List.iter
+    (fun (label, source, expected) ->
+      let baseline = run source in
+      value 42L baseline;
+      check_float_capture label Native.Offset expected baseline;
+      let work = Native.preparation_steps baseline in
+      Alcotest.(check bool)
+        (label ^ " executes declaration-time offset work")
+        true (work > 0);
+      value 42L (run ~max_initializer_steps:work source);
+      failure "HCIRVM0007" (run ~max_initializer_steps:(work - 1) source))
+    [
+      ("finite raw offset", finite, 0x400e_0000_0000_0000L);
+      ("subnormal raw offset", subnormal, 16L);
+    ];
+  let independent_session, independent_source, config = inputs finite in
+  let independent =
+    run_integer_program_report independent_session ~source:independent_source
+      ~config ~max_steps:100_000
+  in
+  Alcotest.(check bool)
+    "independent integer VM retains its F64 offset execution boundary" true
+    (Result.is_error (integer_program_report_outcome independent));
+  let reached =
+    run
+      "extern U0 Print(U8 *s,...);F64 Offset(){Print(\"kept\");return \
+       3.75;}class C{U8 first;$$=Offset();$$=$$-0x400e000000000000+16;Missing \
+       last;};"
+  in
+  Alcotest.(check bool)
+    "later member error rejects after evaluating the native F64 offset" true
+    (Result.is_error (Native.outcome reached));
+  Alcotest.(check string)
+    "original floating offset effects survive the later declaration error"
+    "kept"
+    (Native.output_bytes reached);
+  List.iter
+    (fun (label, source, bits, code, message, work) ->
+      let report = run source in
+      (match Native.outcome report with
+      | Error (first :: _) ->
+          Alcotest.(check string) (label ^ " first diagnostic") code first.code;
+          Alcotest.(check string)
+            (label ^ " checked geometry")
+            message first.message
+      | _ -> Alcotest.fail (label ^ " must fail at the reached layout check"));
+      check_float_capture label Native.Offset bits report;
+      Alcotest.(check int)
+        (label ^ " retains consumed preparation work")
+        work
+        (Native.preparation_steps report);
+      Alcotest.(check string)
+        (label ^ " preserves prior output")
+        "kept"
+        (Native.output_bytes report))
+    [
+      ( "negative-zero offset",
+        "extern U0 Print(U8 *s,...);F64 Offset(){Print(\"kept\");return \
+         -0.0;}class C{$$=Offset();I64 n;};sizeof(C);",
+        Int64.min_int,
+        "HCSEMA0008",
+        "aggregate layout overflows while calculating the negative member \
+         displacement",
+        18 );
+      ( "infinite offset with overflowing member",
+        "extern U0 Print(U8 *s,...);F64 Offset(){Print(\"kept\");return \
+         1.0/0.0;}class C{$$=Offset();U8 huge[4503599627370496];};sizeof(C);",
+        0x7ff0_0000_0000_0000L,
+        "HCRUN0001",
+        "HCSEMA0008: aggregate layout overflows while calculating the class \
+         size",
+        20 );
+    ]
+
+let raw_floating_metadata () =
+  List.iter
+    (fun (label, bits) ->
+      let source =
+        Printf.sprintf
+          "F64 Mark(){F64 x;(&x)(U64*)[0]=0x%Lx;return x;}class Box{I64 field \
+           marker Mark();};sizeof(Box)+34;"
+          bits
+      in
+      let baseline = run source in
+      value 42L baseline;
+      check_float_capture label Native.Metadata bits baseline;
+      let work = Native.preparation_steps baseline in
+      Alcotest.(check bool)
+        (label ^ " executes original member metadata preparation")
+        true (work > 0);
+      value 42L (run ~max_initializer_steps:work source);
+      failure "HCIRVM0007" (run ~max_initializer_steps:(work - 1) source))
+    [
+      ("finite metadata", 0x400e_0000_0000_0000L);
+      ("negative-zero metadata", Int64.min_int);
+      ("positive-infinity metadata", 0x7ff0_0000_0000_0000L);
+      ("NaN-payload metadata", 0x7ff8_0000_0000_0042L);
+    ];
+  let reached =
+    run
+      "extern U0 Print(U8 *s,...);F64 Mark(){Print(\"kept\");return \
+       3.75;}class Box{I64 field marker Mark();Missing tail;};"
+  in
+  Alcotest.(check bool)
+    "later member error rejects after native F64 metadata" true
+    (Result.is_error (Native.outcome reached));
+  Alcotest.(check string)
+    "original F64 metadata effects survive the later declaration error" "kept"
+    (Native.output_bytes reached)
+
+let nested_floating_layouts () =
+  let uncalled_source =
+    "I64 N=0;F64 Offset(){N++;return 3.75;}F64 Mark(){N++;return -0.0;}I64 \
+     Never(){class C{U8 head;$$=Offset();$$=$$-0x400e000000000000+16;I64 tail \
+     marker Mark();};return sizeof(C);}N+40;"
+  in
+  let uncalled = run uncalled_source in
+  value 42L uncalled;
+  check_float_capture "offset in an uncalled function" Native.Offset
+    0x400e_0000_0000_0000L uncalled;
+  check_float_capture "metadata in an uncalled function" Native.Metadata
+    Int64.min_int uncalled;
+  let work = Native.preparation_steps uncalled in
+  value 42L (run ~max_initializer_steps:work uncalled_source);
+  failure "HCIRVM0007" (run ~max_initializer_steps:(work - 1) uncalled_source);
+  let offset =
+    {|#exe {F64 Offset(){return 3.75;}class C{U8 first;$$=Offset();$$=$$-0x400e000000000000+16;I64 last;};StreamPrint("42;");}|}
+  and metadata =
+    {|#exe {F64 Mark(){return -0.0;}class Box{I64 field marker Mark();};StreamPrint("42;");}|}
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, kind, bits) ->
+          let report = run ~mode source in
+          let completed = Native.outcome report |> checked in
+          Alcotest.(check (option int64))
+            (label ^ " injects the original completed outer value")
+            (Some 42L)
+            (Option.map
+               (fun (word : Native.word) -> word.bits)
+               completed.value.final_value);
+          check_float_capture label kind bits report)
+        [
+          ("nested F64 offset", offset, Native.Offset, 0x400e_0000_0000_0000L);
+          ("nested F64 metadata", metadata, Native.Metadata, Int64.min_int);
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  failure "HCRUN0004"
+    (run ~mode:Preprocessor.Aot
+       "F64 Offset(){return 3.75;}class C{$$=Offset();I64 n;};42;");
+  failure "HCRUN0006"
+    (run ~mode:Preprocessor.Aot
+       "F64 Mark(){return 3.75;}class C{I64 n value Mark();};42;")
 
 let dimension_capture_authority_case ~floating expire =
   let module Task = Holyc_lib__Driver.Integer_task in
@@ -361,7 +546,7 @@ let dimension_capture_authority_case ~floating expire =
          else "completed scalar capture cannot be replayed")
         (Capture.consume capture ~program ~work))
 
-let offset_capture_authority_case expire =
+let offset_capture_authority_case ~floating expire =
   let module Task = Holyc_lib__Driver.Integer_task in
   let module Source = Holyc_lib__Driver.Integer_source_execution in
   let module Request = Task.Native_offset in
@@ -431,8 +616,14 @@ let offset_capture_authority_case expire =
     let before = (Runtime.budget_progress budget).executed_steps in
     let reached = execute image |> completed in
     Alcotest.(check (option int64))
-      "actual original scalar" (Some 16L)
+      "actual original offset scalar"
+      (Some (if floating then 0x400e_0000_0000_0000L else 16L))
       (Option.map (fun (word : Image.word) -> word.bits) reached.final_value);
+    Alcotest.(check bool)
+      "the native offset result preserves its original F64 class" floating
+      (Option.fold ~none:false
+         ~some:(fun (word : Image.word) -> word.type_ = Image.F64)
+         reached.final_value);
     let work = (Runtime.budget_progress budget).executed_steps - before in
     rejects "foreign arena cannot take capture"
       (Runtime.finish_task_offset foreign image);
@@ -491,7 +682,12 @@ let offset_capture_authority_case expire =
     (fun () ->
       let session, source, config =
         inputs
-          "I64 Next(){return 16;}class C{U8 a;$$=Next();I64 b;};sizeof(C)+18;"
+          (if floating then
+             "F64 Next(){return 3.75;}class C{U8 \
+              a;$$=Next();$$=$$-0x400e000000000000+16;I64 b;};sizeof(C)+18;"
+           else
+             "I64 Next(){return 16;}class C{U8 a;$$=Next();I64 \
+              b;};sizeof(C)+18;")
       in
       let report =
         Source.run ~native_dispatch:dispatch ~native_offset session ~source
@@ -513,13 +709,183 @@ let offset_capture_authority_case expire =
          else "completed scalar capture cannot be replayed")
         (Capture.consume capture ~program ~work))
 
+let metadata_capture_authority_case ~floating expire =
+  let module Task = Holyc_lib__Driver.Integer_task in
+  let module Source = Holyc_lib__Driver.Integer_source_execution in
+  let module Request = Task.Native_member_metadata in
+  let module Program = Holyc_lib__Ir.Member_metadata_fragment_program in
+  let module Capture = Holyc_lib__Ir.Native_scalar_capture in
+  let module Runtime = Native_program_execution in
+  let module Image = X86_64_program in
+  let unwrap = function
+    | Ok value -> value
+    | Error message -> Alcotest.fail message
+  in
+  let compiled = function
+    | Ok value -> value
+    | Error errors ->
+        Alcotest.fail
+          (String.concat "; "
+             (List.map (fun (error : Image.error) -> error.message) errors))
+  in
+  let rejects label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  let layout () =
+    Image.create_task_layout_with_literals ~max_global_bytes:64
+      ~max_literal_bytes:64
+    |> compiled
+  in
+  let original_layout = layout () in
+  let arena =
+    Runtime.create_task_arena ~max_arena_bytes:2048 original_layout |> unwrap
+  in
+  let arena_released = ref false in
+  let foreign =
+    Runtime.create_task_arena ~max_arena_bytes:2048 (layout ()) |> unwrap
+  in
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> unwrap in
+  let execute image =
+    let retained = Runtime.retain_task_fragment arena image |> unwrap in
+    Fun.protect
+      ~finally:(fun () -> Runtime.release retained |> unwrap)
+      (fun () -> Runtime.execute_retained_budget_report budget retained)
+  in
+  let completed report =
+    match Runtime.outcome report |> unwrap with
+    | Image.Completed result -> result
+    | Image.Fault _ -> Alcotest.fail "unexpected native metadata fault"
+  in
+  let consumed_capture = ref None in
+  let native_member_metadata request =
+    rejects "foreign domain cannot claim original member metadata"
+      (Domain.join (Domain.spawn (fun () -> Request.claim request)));
+    let host, other =
+      match Runtime.platform () with
+      | Runtime.Windows_x86_64 -> (Image.Windows_x64, Image.System_v_x64)
+      | _ -> (Image.System_v_x64, Image.Windows_x64)
+    in
+    let substituted =
+      Image.compile_task_member_metadata ~status_abi:other
+        ~layout:original_layout request
+      |> compiled
+    in
+    let image =
+      Image.compile_task_member_metadata ~status_abi:host
+        ~layout:original_layout request
+      |> compiled
+    in
+    rejects "metadata cannot authorize an unevaluated member expression"
+      (Runtime.finish_task_member_metadata arena image);
+    let before = (Runtime.budget_progress budget).executed_steps in
+    let reached = execute image |> completed in
+    Alcotest.(check (option int64))
+      "actual original member metadata word"
+      (Some (if floating then 0x400e_0000_0000_0000L else 16L))
+      (Option.map (fun (word : Image.word) -> word.bits) reached.final_value);
+    Alcotest.(check bool)
+      "native member metadata retains the original F64 class" floating
+      (Option.fold ~none:false
+         ~some:(fun (word : Image.word) -> word.type_ = Image.F64)
+         reached.final_value);
+    let work = (Runtime.budget_progress budget).executed_steps - before in
+    rejects "foreign arena cannot supply member metadata capture"
+      (Runtime.finish_task_member_metadata foreign image);
+    rejects "equal metadata on another ABI cannot substitute the original image"
+      (Runtime.finish_task_member_metadata arena substituted);
+    let capture = Runtime.finish_task_member_metadata arena image |> unwrap in
+    rejects "member metadata capture cannot be taken twice"
+      (Runtime.finish_task_member_metadata arena image);
+    let original = Request.program request in
+    let reconstructed =
+      Program.create
+        ~authority:(Program.source_authority original)
+        ~destination:(Program.destination original)
+        ~lowered:(Program.lowered original) ~entry:(Program.entry original)
+        ~initialization:(Program.initialization original)
+        ~runtime_calls:(Program.runtime_calls original)
+      |> unwrap
+    in
+    rejects "reconstructed member metadata program cannot take original capture"
+      (Capture.consume capture ~program:reconstructed ~work);
+    rejects "guessed member metadata work cannot take original capture"
+      (Capture.consume capture ~program:original ~work:(work + 1));
+    Gc.full_major ();
+    Request.record_steps request work |> unwrap;
+    consumed_capture := Some (capture, original, work);
+    if expire then (
+      Runtime.release_task_arena arena |> unwrap;
+      arena_released := true);
+    Ok capture
+  in
+  let dispatch : Task.Native_dispatch.t =
+    {
+      execute_initializer = (fun _ -> Alcotest.fail "unexpected initializer");
+      execute_command =
+        (fun request ->
+          let image =
+            Image.compile_task_command ~layout:original_layout request
+            |> compiled
+          in
+          let result = execute image |> completed in
+          Ok
+            (Task.Native_dispatch.Captured
+               (Option.map
+                  (fun (word : Image.word) ->
+                    match word.type_ with
+                    | Image.I64 -> Task.Native_dispatch.I64 word.bits
+                    | U64 -> Task.Native_dispatch.U64 word.bits
+                    | F64 -> Task.Native_dispatch.F64 word.bits)
+                  result.final_value)));
+    }
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      Runtime.release_task_arena foreign |> unwrap;
+      if not !arena_released then Runtime.release_task_arena arena |> unwrap)
+    (fun () ->
+      let session, source, config =
+        inputs
+          (if floating then
+             "F64 Mark(){return 3.75;}class C{I64 value data \
+              Mark();};sizeof(C)+34;"
+           else
+             "I64 Mark(){return 16;}class C{I64 value data \
+              Mark();};sizeof(C)+34;")
+      in
+      let report =
+        Source.run ~native_dispatch:dispatch ~native_member_metadata session
+          ~source ~config ~max_steps:100_000
+      in
+      if expire then
+        Alcotest.(check bool)
+          "expired original arena cannot publish member metadata" true
+          (Result.is_error (Source.outcome report))
+      else (
+        Source.outcome report |> checked |> ignore;
+        Alcotest.(check bool)
+          "authentic member metadata allows the following source command" true
+          (Source.native_final_value report
+          = Some (Task.Native_dispatch.I64 42L)));
+      let capture, program, work = Option.get !consumed_capture in
+      rejects
+        (if expire then "expired member metadata capture cannot be consumed"
+         else "completed member metadata capture cannot be replayed")
+        (Capture.consume capture ~program ~work))
+
 let captures () =
   dimension_capture_authority_case ~floating:false false;
   dimension_capture_authority_case ~floating:false true;
   dimension_capture_authority_case ~floating:true false;
   dimension_capture_authority_case ~floating:true true;
-  offset_capture_authority_case false;
-  offset_capture_authority_case true
+  offset_capture_authority_case ~floating:false false;
+  offset_capture_authority_case ~floating:false true;
+  offset_capture_authority_case ~floating:true false;
+  offset_capture_authority_case ~floating:true true;
+  metadata_capture_authority_case ~floating:false false;
+  metadata_capture_authority_case ~floating:false true;
+  metadata_capture_authority_case ~floating:true false;
+  metadata_capture_authority_case ~floating:true true
 
 let effects () =
   let report = run Cases.output in
@@ -571,6 +937,15 @@ let () =
             `Quick floating_values;
           Alcotest.test_case "native F64 truncation, failures and charged work"
             `Quick floating_failures;
+          Alcotest.test_case
+            "native F64 offsets retain raw words, work and reached effects"
+            `Quick raw_floating_offsets;
+          Alcotest.test_case
+            "native F64 field metadata retains raw binary64 payloads" `Quick
+            raw_floating_metadata;
+          Alcotest.test_case
+            "nested JIT F64 layouts in both outer modes and outer AOT boundary"
+            `Quick nested_floating_layouts;
           Alcotest.test_case "once-only output and reached failures" `Quick
             effects;
           Alcotest.test_case
