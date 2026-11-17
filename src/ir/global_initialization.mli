@@ -4,6 +4,16 @@ type static_region
 type storage_region
 type t
 
+type load_source =
+  | Global_load of Sema.Function_call_expression_result.top_level_root_result
+  | Static_load of
+      Integer_globals.static_slot
+      * Sema.Function_call_expression_result.initializer_result
+
+val load_source : t -> storage_region -> load_source option
+(** Return the original source of a load-time region owned by this AOT module.
+    This selection grants no execution or numeric-conversion authority. *)
+
 type prepared_root = Initializer_publication.prepared_root =
   | Prepared_global of
       Sema.Function_call_expression_result.top_level_root_result

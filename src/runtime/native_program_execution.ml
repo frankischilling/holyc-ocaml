@@ -199,9 +199,9 @@ external execute_retained_budget_source_program :
   retained_handle ->
   int * int * int * int * int * int * int * int * int ->
   int * int * int ->
-  bool ref * Ir.Default_fragment_program.t ->
+  bool ref * 'program ->
   ((int64 * int64 * int64 * int64 * int64) * string * int)
-  * Ir.Default_fragment_program.t Ir.Native_scalar_capture.t option
+  * 'program Ir.Native_scalar_capture.t option
   = "holyc_native_execute_retained_budget_source_program"
 
 type scalar_capture =
@@ -276,6 +276,8 @@ type report = {
     option;
   source_default_capture_ :
     Ir.Default_fragment_program.t Ir.Native_scalar_capture.t option;
+  source_initializer_capture_ :
+    Ir.Numeric_initializer_program.t Ir.Native_scalar_capture.t option;
 }
 
 let outcome report = report.outcome_
@@ -284,6 +286,11 @@ let output_work report = report.output_work_
 let generation_capture report = report.generation_capture_
 let value_captured report = report.value_captured_
 let source_default_capture report = report.source_default_capture_
+let source_initializer_capture report = report.source_initializer_capture_
+
+let numeric_result_matches ~floating = function
+  | Some word -> word.Image.type_ = Image.F64 = floating
+  | None -> false
 
 let error_report message =
   {
@@ -293,6 +300,7 @@ let error_report message =
     value_captured_ = false;
     generation_capture_ = None;
     source_default_capture_ = None;
+    source_initializer_capture_ = None;
   }
 
 let bind_task_budget arena identity =
@@ -470,11 +478,13 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                   match task_binding with
                   | None ->
                       if
-                        Option.is_some (Image.scalar_default image)
+                        (Option.is_some (Image.scalar_default image)
+                        || Option.is_some
+                             (Image.scalar_source_initializer image))
                         && (Option.is_none retained || Option.is_none consumed)
                       then
                         Error
-                          "native source default requires its retained budget \
+                          "native source scalar requires its retained budget \
                            entry"
                       else
                         let ( let* ) = Result.bind in
@@ -536,6 +546,7 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                 | Ok () -> (
                     let scalar_capture = ref None in
                     let source_default_capture = ref None in
+                    let source_initializer_capture = ref None in
                     let generated_capture = ref None in
                     let generation = Image.generation image in
                     let generation_state =
@@ -579,19 +590,34 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                             execute_retained_program (Option.get retained)
                               limits
                         | Some consumed, None -> (
-                            match Image.scalar_default image with
-                            | None ->
+                            match
+                              ( Image.scalar_default image,
+                                Image.scalar_source_initializer image )
+                            with
+                            | None, None ->
                                 execute_retained_budget_program
                                   (Option.get retained) limits consumed
                                   (Option.get entered)
-                            | Some program ->
+                            | Some program, None ->
                                 let report, capture =
                                   execute_retained_budget_source_program
                                     (Option.get retained) limits consumed
                                     (Option.get entered, program)
                                 in
                                 source_default_capture := capture;
-                                report)
+                                report
+                            | None, Some program ->
+                                let report, capture =
+                                  execute_retained_budget_source_program
+                                    (Option.get retained) limits consumed
+                                    (Option.get entered, program)
+                                in
+                                source_initializer_capture := capture;
+                                report
+                            | Some _, Some _ ->
+                                invalid_arg
+                                  "native source image has conflicting scalar \
+                                   owners")
                         | Some consumed, Some binding -> (
                             let task =
                               ( binding.task_arena_.handle_,
@@ -888,6 +914,27 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                             source_default_capture_ =
                               (match outcome_ with
                               | Image.Completed _ -> !source_default_capture
+                              | Image.Fault _ -> None);
+                            source_initializer_capture_ =
+                              (match outcome_ with
+                              | Image.Completed completed ->
+                                  Option.bind
+                                    (Image.scalar_source_initializer image)
+                                    (fun program ->
+                                      let value =
+                                        Ir.Numeric_initializer_program.root
+                                          program
+                                        |> Sema.Function_call_expression_result
+                                           .top_level_root_value
+                                      in
+                                      if
+                                        numeric_result_matches
+                                          ~floating:
+                                            (Ir.Initializer_value
+                                             .expression_is_f64 value)
+                                          completed.final_value
+                                      then !source_initializer_capture
+                                      else None)
                               | Image.Fault _ -> None);
                           }
                       | Error message ->
@@ -1262,12 +1309,13 @@ let finish_task_initializer ?scope arena image =
              && domain = Domain.self ()
              && entered == image
              && ((not
-                    (Ir.Initializer_fragment_destination.stores_same_f64
+                    (Ir.Initializer_fragment_destination.stores_native_numeric
                        (Ir.Initializer_fragment_program.destination program)))
-                ||
-                match result with
-                | Some word -> word.Image.type_ = Image.F64
-                | None -> false)
+                || numeric_result_matches
+                     ~floating:
+                       (Ir.Initializer_fragment_destination.expression_is_f64
+                          (Ir.Initializer_fragment_program.destination program))
+                     result)
              && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
              && Atomic.compare_and_set arena.scalar_capture_ reached None ->
           Ok captured
@@ -1294,12 +1342,13 @@ let finish_task_static_initializer ?scope arena image =
              && domain = Domain.self ()
              && entered == image
              && ((not
-                    (Ir.Static_initializer_destination.stores_same_f64
+                    (Ir.Static_initializer_destination.stores_native_numeric
                        (Ir.Static_initializer_program.destination program)))
-                ||
-                match result with
-                | Some word -> word.Image.type_ = Image.F64
-                | None -> false)
+                || numeric_result_matches
+                     ~floating:
+                       (Ir.Static_initializer_destination.expression_is_f64
+                          (Ir.Static_initializer_program.destination program))
+                     result)
              && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
              && Atomic.compare_and_set arena.scalar_capture_ reached None ->
           Ok capture

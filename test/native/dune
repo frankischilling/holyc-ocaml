@@ -1330,6 +1330,16 @@
    %{dep:../../examples/aot-native-defaults.hc})))
 
 (executable
+ (name test_native_numeric_initializers)
+ (modules test_native_numeric_initializers)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_numeric_initializers.exe})))
+
+(executable
  (name test_native_source_intrinsic_defaults)
  (modules test_native_source_intrinsic_defaults)
  (libraries holyc_lib alcotest yojson unix))

@@ -642,11 +642,14 @@ let direct_call_numeric_argument_warnings () =
                object={Get(7),42};I64 F(){return object.value;}F();"
               type_
           in
-          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          let diagnostics, result, output =
+            run native Preprocessor.Aot source
+          in
           let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
-          if type_ = "F64" then (
+          Alcotest.(check string) (type_ ^ " argument output") "" output;
+          if type_ = "F64" && not native then (
             Alcotest.(check bool)
-              "F64 frame remains unsupported" true (Result.is_error result);
+              "IR F64 frame remains unsupported" true (Result.is_error result);
             Alcotest.(check string)
               "warning precedes frame boundary" "HCSEMA0080" (List.hd codes))
           else (
@@ -678,11 +681,14 @@ let direct_call_numeric_global_warnings () =
                object.value;}F();"
               type_
           in
-          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          let diagnostics, result, output =
+            run native Preprocessor.Aot source
+          in
           let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
-          if type_ = "F64" then (
+          Alcotest.(check string) (type_ ^ " global argument output") "" output;
+          if type_ = "F64" && not native then (
             Alcotest.(check bool)
-              "F64 frame remains unsupported" true (Result.is_error result);
+              "IR F64 frame remains unsupported" true (Result.is_error result);
             Alcotest.(check string)
               "warning precedes frame boundary" "HCSEMA0080" (List.hd codes))
           else (
@@ -819,15 +825,18 @@ let direct_call_global_type_warnings () =
               type_
               (if type_ = "Bool" then "1" else "7")
           in
-          let diagnostics, result, _ = run native Preprocessor.Aot source in
+          let diagnostics, result, output =
+            run native Preprocessor.Aot source
+          in
           let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
-          if type_ = "F64" then (
+          Alcotest.(check string) (type_ ^ " global output") "" output;
+          if type_ = "F64" && not native then (
             Alcotest.(check bool)
-              "F64 global path remains unsupported" true
+              "IR F64 global path remains unsupported" true
               (Result.is_error result);
             Alcotest.(check (list string))
               "F64 boundary and reached warnings"
-              (if native then [ "HCRUN0006" ] else [ "HCSEMA0080"; "HCRUN0001" ])
+              [ "HCSEMA0080"; "HCRUN0001" ]
               codes)
           else (
             Alcotest.(check (option int64))

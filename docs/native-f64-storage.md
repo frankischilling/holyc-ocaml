@@ -23,15 +23,17 @@ separate from the U8 units used by allocation and initialization cursors.
 | --- | --- | --- | --- |
 | Uninitialized declaration followed by assignment | Supported | Supported | Supported in both modes |
 | Same-class F64 initializer with an original reference | Supported | Supported at load time | Supported in AOT mode |
-| Closed F64 declaration initializer | Supported | Unsupported preparation | Unsupported preparation |
+| Closed F64 declaration initializer | Supported | Supported during preparation | Supported in both modes |
+| Closed integer/F64 initializer conversion | Supported | Supported during preparation | Supported in both modes |
+| Integer/F64 initializer conversion with an original reference | Supported | Supported at load time | Supported in AOT mode |
 
 JIT leaves execute once during declaration preparation, including statics in
 unused functions. Scalar copies preserve all eight bytes, then later calls reuse
 the stored value. The [persistent example](../examples/native-persistent-f64.hc)
 prints `A` once and returns F64 3.75 through `host-jit-task --mode=jit`.
 Earlier output and preparation work survive a later initializer fault, including
-in an unused function's static array. F64/integer initializer conversions remain
-unsupported.
+in an unused function's static array. [Numeric initializer conversion](native-numeric-initializers.md)
+uses the completed expression word before copying the selected leaf's bytes.
 
 Unread JIT bytes still fault. Original AOT zero images remain initialized;
 partial byte writes do not erase that distinction. Native source-task replacement
@@ -46,9 +48,11 @@ and eight copy bytes: 11 succeeds and 10 fails before the copy.
 In AOT mode, an original nonconstant F64 initializer can retain a load-time
 assignment to its global or static destination. Both `host-jit` and
 `host-jit-task` support same-class scalar, fixed-array, multidimensional and
-packed aggregate leaves. Each assignment uses the original sequential byte
-cursor and stores eight F64 bytes without an integer conversion. Negative zero
-and signaling-NaN payloads survive unchanged.
+packed aggregate leaves and integer/F64 conversions. Each assignment uses the
+original sequential byte cursor and selected scalar type. Same-class F64 stores
+preserve eight bytes without a conversion, including negative zero and
+signaling-NaN payloads. Mixed leaves use the original `IC_ASSIGN` conversion
+flags and runtime floating plan.
 Static leaf expressions retain their own result class while the enclosing
 declaration keeps its storage identity. A packed class containing an F64 member
 therefore does not impose an integer conversion on that member's initializer.
@@ -72,11 +76,12 @@ returns F64 3.75. Run it with either native target:
 holyc run --target=host-jit --mode=aot examples/native-aot-f64-initializers.hc
 ```
 
-The original source expression must select the nonconstant path. A closed F64
-literal still needs compile-time preparation, which remains unsupported in AOT
-and isolated native execution. F64/integer initializer conversions also remain
-unsupported. `Globals_on_data_heap` retains its original global rejection and
-static compile-time preparation boundary.
+The original source expression selects either the nonconstant load path or
+declaration preparation. Closed F64 and mixed numeric leaves prepare through
+their original temporary native programs in both modes. Their completed-word
+conversion and copy remain separate from the AOT assignment boundary.
+`Globals_on_data_heap` retains its original global rejection and static
+nonconstant preparation boundary.
 
 ## Addresses and ownership
 
@@ -95,9 +100,10 @@ writes and reached instruction charges survive a later fault.
 The hosted guards still reject unread bytes, out-of-window accesses and retired
 stack owners. These are hosted safety rules, not claims about TempleOS fault
 behavior. Pointer-array storage, deeper pointers, general floating compound
-updates, closed AOT/isolated floating initializer preparation and arbitrary
-linked floating regions remain outside this increment. The JIT aggregate
-initializer path is described in [aggregate initializers](aggregate-initializers.md).
+updates and arbitrary linked floating regions retain separate requirements.
+Isolated JIT reference-bearing initializer preparation also remains outside the
+supported paths. The JIT aggregate initializer path is described in
+[aggregate initializers](aggregate-initializers.md).
 
 ## Source basis
 
@@ -113,6 +119,8 @@ The reference is TempleOS commit
 - `Compiler/PrsVar.HC:53-112` separates original nonconstant AOT leaves from
   compile-time copies. It emits an assignment routine registered as `IET_MAIN`;
   `PrsStaticInit` at lines 215-246 shares that traversal for static declarations.
+- `Compiler/OptPass012.HC:866-873` selects numeric conversion flags for the
+  original AOT `IC_ASSIGN`, independently of the post-Call declaration copy.
 - `Compiler/PrsExp.HC:15-63`, `Compiler/OptLib.HC:484-506` and
   `Compiler/OptPass012.HC:1259-1265` produce and resolve pointer offset scaling
   and the division used for pointer difference.
@@ -128,6 +136,9 @@ public CLI in both modes and both native targets. Expectations come from the
 pinned source and exact binary64 words; no new TempleOS runtime capture is
 claimed.
 The AOT cases also check source order, unused statics, later faults, exact runtime
-limits and separate conversion/preparation rejections.
+limits and the distinct closed-preparation and load-assignment conversions.
+`test/native/test_native_numeric_initializers.ml` covers closed numeric global,
+static and packed leaves, narrow copies, exceptional words and preparation
+limits through both native APIs.
 `test/native_initializer_authority/test_native_initializer_authority.ml` checks
 original declaration receipts and typed stores before native image emission.

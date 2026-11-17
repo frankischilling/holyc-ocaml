@@ -57,6 +57,11 @@ type native_static_preparation
 type native_preparation
 
 val prepare_native :
+  context:Initializer_fragment_typing.context ->
+  native_executor:
+    (Ir.Integer_interpreter.native_constant_request ->
+    (unit, Common.Diagnostic.t list) result)
+    option ->
   runtime:Ir.Integer_interpreter.task_state ->
   scalar:Sema.Initializer_type.scalar option ->
   authority:Sema.Initializer_fragment.authority ->
@@ -208,6 +213,11 @@ val prepare_member_metadata :
   (classification * int, Common.Diagnostic.t list) result
 
 val prepare_native_static :
+  context:Initializer_fragment_typing.context ->
+  native_executor:
+    (Ir.Integer_interpreter.native_constant_request ->
+    (unit, Common.Diagnostic.t list) result)
+    option ->
   static_snapshot:Ir.Integer_initializer_layout.static_snapshot option ->
   runtime:Ir.Integer_interpreter.task_state ->
   scalar:Sema.Initializer_type.scalar option ->

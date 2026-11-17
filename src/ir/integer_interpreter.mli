@@ -1175,6 +1175,37 @@ val execute_task_constant_receipt :
   lowered:Integer_program_lowering.t ->
   (constant_execution, error list) result
 
+type native_constant_request
+
+val begin_native_constant_preparation :
+  ?static_snapshot:Integer_initializer_layout.static_snapshot ->
+  task_state ->
+  max_steps:int ->
+  scalar:Sema.Initializer_type.scalar option ->
+  program:Numeric_initializer_program.t ->
+  (native_constant_request, string) result
+
+val native_constant_program :
+  native_constant_request -> Numeric_initializer_program.t
+
+val native_constant_entered : native_constant_request -> bool
+val native_constant_remaining : native_constant_request -> int
+val check_native_constant : native_constant_request -> (unit, string) result
+val claim_native_constant : native_constant_request -> (unit, string) result
+
+val finish_native_constant :
+  native_constant_request ->
+  steps:int ->
+  Numeric_initializer_program.t Native_scalar_capture.t option ->
+  (unit, string) result
+(** Consume the original native result, convert the completed word according to
+    the selected leaf classes, and charge its destination-width copy. The saved
+    receipt retains native provenance and grants no interpreter arithmetic. *)
+
+val native_constant_receipt :
+  native_constant_request -> (constant_execution, string) result
+
+val abandon_native_constant : native_constant_request -> unit
 val constant_receipt_graph : constant_execution -> X87_stack.t
 val constant_receipt_result : constant_execution -> t
 val constant_receipt_owned_by : task_state -> constant_execution -> bool

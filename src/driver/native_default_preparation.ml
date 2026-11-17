@@ -68,6 +68,9 @@ type t = {
   state : VM.task_state;
   max_default_bytes : int;
   native_default : native_executor option;
+  native_initializer :
+    (VM.native_constant_request -> (unit, Common.Diagnostic.t list) result)
+    option;
   mutable saved_bytes : int;
   mutable ledger : Task_declarations.t option;
   mutable completed_rev : completion list;
@@ -119,7 +122,7 @@ let initializers value =
 
 let create ?max_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
-    ?native_default ~compilation_mode ~max_initializer_steps
+    ?native_default ?native_initializer ~compilation_mode ~max_initializer_steps
     ?(max_default_bytes = 65_536) session =
   if max_initializer_steps <= 0 || max_default_bytes <= 0 then
     Error
@@ -139,6 +142,7 @@ let create ?max_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
         state;
         max_default_bytes;
         native_default;
+        native_initializer;
         saved_bytes = 0;
         ledger = None;
         completed_rev = [];
@@ -685,7 +689,8 @@ let prepare_initializer ?(require_load = false) value ~session ~ledger receipt =
     in
     let before = work value in
     let* prepared =
-      Integer_initializers.prepare_native ~runtime:value.state ~scalar
+      Integer_initializers.prepare_native ~context
+        ~native_executor:value.native_initializer ~runtime:value.state ~scalar
         ~authority ~typed ~cell_offset ~byte_offset ~operation
         ~on_progress:(fun steps ->
           VM.record_task_preparation value.state ~before ~steps)
@@ -816,7 +821,8 @@ let prepare_static ?(require_load = false) value ~session ~ledger receipt =
     in
     let before = work value in
     let* static_preparation =
-      Integer_initializers.prepare_native_static ~static_snapshot
+      Integer_initializers.prepare_native_static ~context
+        ~native_executor:value.native_initializer ~static_snapshot
         ~runtime:value.state ~scalar ~fragment ~typed ~cell_offset ~byte_offset
         ~operation
         ~on_progress:(fun steps ->

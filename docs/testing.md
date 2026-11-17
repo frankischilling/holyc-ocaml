@@ -1364,8 +1364,8 @@ opam exec -- pwsh -NoProfile -File tools/test-installed-compiler.ps1
 `tools/test-installed-compiler.ps1` copies the binary section into a private
 temporary prefix with `dune install`. It checks SHA-256 equality across the
 built executable, Dune's staged public executable and the installed copy.
-Each binary runs its `version` command and nine maintained native source cases
-from the pinned TempleOS checkout. The checks require the real compiler HEAD,
+Each binary runs its `version` command and every configured native fixture from
+the pinned TempleOS checkout. The checks require the real compiler HEAD,
 reject an `HOLYC_IMPLEMENTATION_COMMIT` override, and compare the distinct
 TempleOS commit, result type and bits, and saved-default bytes in JSON reports.
 The temporary installation is removed afterward. CI runs this gate after
@@ -2702,13 +2702,27 @@ Native F64 initializer tests exercise original nonconstant AOT scalar, fixed
 array, multidimensional and packed aggregate leaves on both native targets.
 They check exact binary64 payloads, source order across globals, unused statics
 and ordinary top-level effects, storage reuse, prior effects after faults and
-exact runtime limits with zero compile-time preparation work. Closed constants,
-numeric conversions, enclosing call frames and data-heap option phases retain
-separate rejection controls. Late constant and byte-copy leaves reject before
-preparation begins.
+exact runtime limits with zero compile-time preparation work for the load
+leaves. Mixed integer/F64 assignments retain their original runtime conversions.
+Enclosing call frames and data-heap option phases retain rejection controls.
+Late constant and byte-copy leaves reject before preparation begins.
 Authority tests compile the original initializer bundle for both
 private ABIs before checking foreign receipts and altered typed stores. See
 [AOT F64 load initializers](native-f64-storage.md#aot-load-initializers).
+
+`test/native/test_native_numeric_initializers.ml` exercises closed declaration
+preparation and live numeric leaves through both native APIs. Fixed global and
+static arrays and packed fields check exact destination widths. Independent
+words cover signed integer-to-F64 conversion, rounding ties, F64 truncation,
+negative zero, signaling NaNs, infinities and conversion overflow. Unused static
+declarations, repeated calls, later parse errors and expression faults check
+when work and effects become visible. Exact and one-below native-instruction
+and initializer allowances distinguish expression execution from the final
+copy. The maintained `examples/native-numeric-initializers.hc` returns I64 `42`
+through the CLI in both source modes and native targets. See
+[native numeric initializers](native-numeric-initializers.md) for the separate
+declaration-copy and AOT assignment rules. These expectations do not claim a new
+TempleOS runtime capture.
 
 The native scalar F64 CLI suite also checks all five option-dependent builtin
 constants with `No_builtin_const` enabled at original compilation. Cases retain

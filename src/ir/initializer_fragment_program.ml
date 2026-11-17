@@ -12,6 +12,7 @@ let destination value = value.destination_
 let entry value = value.entry_
 let initialization value = value.initialization_
 let runtime_calls value = value.runtime_calls_
+let scalar_lowered value = value.scalar_lowered_
 let is_scalar_evaluation value = Option.is_some value.scalar_lowered_
 
 let create ?scalar_lowered ~authority ~destination ~entry ~initialization

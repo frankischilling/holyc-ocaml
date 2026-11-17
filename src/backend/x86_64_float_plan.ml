@@ -624,6 +624,221 @@ let source_regions source entry_source runtime_context graph =
     selected;
   (!covered, !comparisons)
 
+let initializer_conversion_source ~runtime ~owner graph description =
+  let module R = Ir.Runtime_call_context in
+  let module Initial = Ir.Global_initialization in
+  let ( let* ) = Option.bind in
+  let* initialization, region =
+    R.original_initializer_region runtime ~owner description
+  in
+  let* original = Initial.load_source initialization region in
+  let value, frame =
+    match original with
+    | Initial.Global_load root -> (Typed.top_level_root_value root, None)
+    | Static_load (slot, root) ->
+        ( Typed.initializer_value root,
+          Some (Ir.Integer_globals.static_frame slot) )
+  in
+  let globals = Initial.globals initialization in
+  let calls = Physical.create 16 in
+  let call_source value =
+    match Physical.find_opt calls value with
+    | Some original -> original
+    | None ->
+        let original = R.original_expression_call_source runtime ~owner value in
+        Physical.add calls value original;
+        original
+  in
+  let provided = function
+    | Typed.Provided_result value -> Some value
+    | Declared_default_result _ -> None
+  in
+  let call_children = function
+    | R.Function_call target ->
+        let call = Sema.Function_call_target_classification.source target in
+        ( Typed.direct_source call
+          |> Sema.Function_call_conversion_policy.direct_source
+          |> Source.direct_source,
+          List.filter_map
+            (fun fixed -> provided (Typed.fixed_path fixed))
+            (Typed.direct_fixed_results call)
+          @ Typed.direct_variadic_results call )
+    | Top_level_call target ->
+        let call =
+          Sema.Top_level_function_call_target_classification.source target
+        in
+        ( Typed.top_level_direct_source call
+          |> Sema.Top_level_expression_tree.call_source,
+          List.filter_map
+            (fun fixed -> provided (Typed.top_level_fixed_path fixed))
+            (Typed.top_level_direct_fixed_results call)
+          @ Typed.top_level_direct_variadic_results call )
+    | Callback_call call ->
+        ( Ir.Callback_source.source call,
+          Option.to_list (Ir.Callback_source.callee call)
+          @ List.filter_map snd (Ir.Callback_source.fixed_arguments call)
+          @ Ir.Callback_source.variadic_arguments call )
+    | Function_output _ | Top_level_output _ -> assert false
+  in
+  let seen = Physical.create 16 in
+  let callees = ref [] in
+  let rec collect depth value =
+    if depth > 256 || Physical.mem seen value then None
+    else (
+      Physical.add seen value ();
+      let selected, children =
+        match call_source value with
+        | Some (source, _) ->
+            let call, arguments = call_children source in
+            (match source with
+            | R.Callback_call source ->
+                Option.iter
+                  (fun callee -> callees := (call, callee) :: !callees)
+                  (Ir.Callback_source.callee_source source)
+            | _ -> ());
+            (Some (call, Typed.result_source value), arguments)
+        | None ->
+            ( None,
+              Option.to_list (Typed.result_operand value)
+              @ Option.fold ~none:[]
+                  ~some:(fun (left, right) -> [ left; right ])
+                  (Typed.result_binary_operands value) )
+      in
+      List.fold_left
+        (fun collected child ->
+          let* collected = collected in
+          let* nested = collect (depth + 1) child in
+          Some (collected @ nested))
+        (Some (Option.to_list selected))
+        children)
+  in
+  let* pairs = collect 0 value in
+  let pairs =
+    List.sort
+      (fun (left, _) (right, _) ->
+        Int.compare (Source.call_index left) (Source.call_index right))
+      pairs
+  in
+  let expression = Typed.result_source value in
+  let* ast = Source.argument_expression_source expression in
+  let* () =
+    if
+      Source.validate_source_expression ~source:ast ~expression
+        ~calls:(List.map fst pairs) ~call_expressions:pairs
+        ~callee_expressions:!callees ()
+      = Ok ()
+    then Some ()
+    else None
+  in
+  let rec lower_call ~instruction_id ~value_id value =
+    let lowered =
+      match call_source value with
+      | Some (R.Function_call target, _) ->
+          Ir.Direct_call_lowering.lower ?frame ~globals ~lower_call
+            ~optimize_shifts:true ~optimize_division:true ~instruction_id
+            ~value_id ~target value
+      | Some (Top_level_call target, _) ->
+          Ir.Direct_call_lowering.lower_top_level ?frame ~globals ~lower_call
+            ~optimize_shifts:true ~optimize_division:true ~instruction_id
+            ~value_id ~target value
+      | Some (Callback_call call, _) ->
+          Ir.Direct_call_lowering.lower_callback ?frame ~globals ~lower_call
+            ~optimize_shifts:true ~optimize_division:true ~instruction_id
+            ~value_id ~call value
+      | _ -> Ok Ir.Direct_call_lowering.Unsupported_call
+    in
+    Result.map
+      (function
+        | Ir.Direct_call_lowering.Lowered call ->
+            Some (Ir.Direct_call_lowering.sequence call)
+        | Unsupported_call -> None)
+      lowered
+  in
+  let first = Initial.storage_first region in
+  let last = Initial.storage_last region in
+  let* actual =
+    match
+      G.blocks graph
+      |> List.filter_map (fun block ->
+          let items =
+            S.instructions (G.instructions block)
+            |> List.map S.description
+            |> List.filter (fun item ->
+                S.Instruction_id.compare item.S.instruction_id first >= 0
+                && S.Instruction_id.compare item.instruction_id last <= 0)
+          in
+          if items = [] then None else Some items)
+    with
+    | [ items ] -> Some items
+    | _ -> None
+  in
+  let* first_value =
+    match actual with
+    | first :: _ -> Option.map (fun r -> r.S.value_id) first.result
+    | [] -> None
+  in
+  let lowered =
+    match original with
+    | Initial.Global_load root ->
+        Ir.Expression_lowering.lower_global_initializer ~globals ~lower_call
+          ~optimize_shifts:true ~optimize_division:true ~instruction_id:first
+          ~value_id:first_value root
+    | Static_load (slot, root) ->
+        Ir.Expression_lowering.lower_static_initializer ~globals ~root
+          ~lower_call ~optimize_shifts:true ~optimize_division:true
+          ~instruction_id:first ~value_id:first_value slot
+  in
+  let* expected =
+    match lowered with
+    | Ok (Ir.Expression_lowering.Lowered lowered) ->
+        Some
+          (S.instructions (Ir.Expression_lowering.sequence lowered)
+          |> List.map S.description)
+    | _ -> None
+  in
+  let same_payload left right =
+    match (left, right) with
+    | None, None -> true
+    | Some (S.Integer left), Some (S.Integer right)
+    | Some (S.Float_bits left), Some (S.Float_bits right) -> left = right
+    | Some (S.Bytes left), Some (S.Bytes right) -> left = right
+    | Some (S.Symbol left), Some (S.Symbol right) -> left == right
+    | Some (S.Callback left), Some (S.Callback right) -> left == right
+    | Some (S.Member_projection left), Some (S.Member_projection right)
+    | Some (S.Backing_projection left), Some (S.Backing_projection right) ->
+        left == right
+    | Some (S.Pointee_stride left), Some (S.Pointee_stride right) ->
+        left == right
+    | Some (S.Empty_frame_root left), Some (S.Empty_frame_root right) ->
+        left == right
+    | ( Some (S.Class_pointer_view (left, x)),
+        Some (S.Class_pointer_view (right, y)) ) -> left == right && x = y
+    | Some (S.Retained_global left), Some (S.Retained_global right) ->
+        left == right
+    | ( Some (S.Saved_parameter_default left),
+        Some (S.Saved_parameter_default right) ) -> left == right
+    | ( Some (S.Saved_callback_default left),
+        Some (S.Saved_callback_default right) ) -> left == right
+    | _ -> false
+  in
+  let same (left : S.description) (right : S.description) =
+    left.instruction_id = right.instruction_id
+    && left.opcode = right.opcode
+    && left.operands = right.operands
+    && left.result = right.result
+    && Option.equal Sema.Type.equal left.target_type right.target_type
+    && same_payload left.payload right.payload
+    && left.flags = right.flags && left.span = right.span
+  in
+  match List.rev actual with
+  | ending :: reversed
+    when ending.instruction_id = last
+         && ending.opcode = O.Ic_end_exp
+         && List.length reversed = List.length expected
+         && List.for_all2 same expected (List.rev reversed)
+         && List.exists (( == ) description) reversed -> Some (region, value)
+  | _ -> None
+
 let prepare ?source ?entry_source ?runtime ?owner graph =
   let runtime_context =
     match (runtime, owner, source) with
@@ -955,6 +1170,14 @@ let prepare ?source ?entry_source ?runtime ?owner graph =
     (G.blocks graph);
   let conversions = ref I.empty in
   let call_conversions = ref I.empty in
+  let initializer_conversions = ref I.empty in
+  let initializer_comparisons = ref I.empty in
+  let original_initializer_conversion description =
+    Option.bind runtime_context (fun (runtime, owner) ->
+        if runtime_valid () then
+          initializer_conversion_source ~runtime ~owner graph description
+        else None)
+  in
   let original_call_conversion (d : S.description) =
     Option.bind runtime_context (fun (runtime, owner) ->
         if not (runtime_valid ()) then None
@@ -980,8 +1203,10 @@ let prepare ?source ?entry_source ?runtime ?owner graph =
       if bits <> 0L then
         let direction = if bits = 1L then To_float else To_integer in
         let call_source = original_call_conversion d in
+        let initializer_source = original_initializer_conversion d in
         if
-          ((not authenticated) && Option.is_none call_source)
+          (not authenticated) && Option.is_none call_source
+          && Option.is_none initializer_source
           || bits = 3L
           || not
                (Option.fold ~none:false
@@ -995,6 +1220,11 @@ let prepare ?source ?entry_source ?runtime ?owner graph =
               call_conversions :=
                 I.add d.instruction_id (d, original) !call_conversions)
             call_source;
+          Option.iter
+            (fun original ->
+              initializer_conversions :=
+                I.add d.instruction_id (d, original) !initializer_conversions)
+            initializer_source;
           let deferred =
             match users id with
             | [ consumer ]
@@ -1223,7 +1453,12 @@ let prepare ?source ?entry_source ?runtime ?owner graph =
          an extended value. PUSH and END_EXP are transport flags only. *)
             let allowed_flags =
               if d.opcode = O.Ic_end_exp then 0x200L
-              else if comparison_opcode d.opcode then 0x2040L
+              else if comparison_opcode d.opcode then
+                if
+                  I.mem d.instruction_id !initializer_conversions
+                  && Int64.logand d.flags 3L = 1L
+                then 0x2041L
+                else 0x2040L
               else if Option.is_some (conversion d) then 0x2003L
               else 0x2000L
             in
@@ -1725,6 +1960,31 @@ let prepare ?source ?entry_source ?runtime ?owner graph =
                 consumers -> Some Comparison_value
     | _ -> None
   in
+  let initializer_comparison (d : S.description) original =
+    let rec selected depth value =
+      if depth > 256 then false
+      else if value == original then true
+      else
+        match Source.argument_expression_kind (Typed.result_source value) with
+        | Source.Parenthesized_expression _ ->
+            Option.fold ~none:false
+              ~some:(selected (depth + 1))
+              (Typed.result_operand value)
+        | Prefix_expression prefix
+          when Source.prefix_operator prefix = Source.Unary_plus ->
+            Option.fold ~none:false
+              ~some:(selected (depth + 1))
+              (Typed.result_operand value)
+        | _ -> false
+    in
+    match
+      (I.find_opt d.instruction_id !initializer_conversions, conversion d)
+    with
+    | Some (_, (_, value)), Some receipt
+      when receipt.conversion = To_float && Int64.logand d.flags 3L = 1L ->
+        selected 0 value
+    | _ -> false
+  in
   V.iter
     (fun _ (d : S.description) ->
       if comparison_opcode d.opcode && List.exists float_value d.operands then
@@ -1732,8 +1992,8 @@ let prepare ?source ?entry_source ?runtime ?owner graph =
           (d.result, d.operands, I.find_opt d.instruction_id comparison_sources)
         with
         | Some result, [ left; right ], Some original
-          when authenticated
-               && Int64.logand d.flags 3L = 0L
+          when ((authenticated && Int64.logand d.flags 3L = 0L)
+               || initializer_comparison d original)
                && Int64.logand d.flags 0x40L = 0x40L
                && d.payload = None
                && Option.fold ~none:false
@@ -1745,6 +2005,9 @@ let prepare ?source ?entry_source ?runtime ?owner graph =
                 fail d
                   "F64 comparison lacks its original terminal consumer context"
             | Some comparison_context ->
+                if initializer_comparison d original then
+                  initializer_comparisons :=
+                    I.add d.instruction_id original !initializer_comparisons;
                 let direct_public_float id =
                   match producer id with
                   | Some p ->
@@ -2241,9 +2504,31 @@ let prepare ?source ?entry_source ?runtime ?owner graph =
                    Option.fold ~none:false ~some:(( == ) original)
                      (original_call_conversion description))
                  !call_conversions
-            && (I.for_all (fun id _ -> I.mem id !call_conversions) !conversions
-                && I.is_empty !comparisons && (not !canonical_consumer)
-                && not !option_consumer
+            && I.for_all
+                 (fun _ (description, (region, value)) ->
+                   Option.fold ~none:false
+                     ~some:(fun (current_region, current_value) ->
+                       current_region == region && current_value == value)
+                     (original_initializer_conversion description))
+                 !initializer_conversions
+            && I.for_all
+                 (fun id original ->
+                   match I.find_opt id !comparisons with
+                   | Some (description, _) ->
+                       Option.fold ~none:false ~some:(( == ) original)
+                         (I.find_opt id comparison_sources)
+                       && initializer_comparison description original
+                   | None -> false)
+                 !initializer_comparisons
+            && (I.for_all
+                  (fun id _ ->
+                    I.mem id !call_conversions
+                    || I.mem id !initializer_conversions)
+                  !conversions
+                && I.for_all
+                     (fun id _ -> I.mem id !initializer_comparisons)
+                     !comparisons
+                && (not !canonical_consumer) && not !option_consumer
                || authentic_source ())
             && (I.is_empty !intrinsics || runtime_valid ())
       in

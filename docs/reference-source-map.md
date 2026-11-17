@@ -15,8 +15,8 @@ The public [F64 default example](../examples/native-f64-defaults.hc)
 and [tests](../test/native/test_native_f64_defaults.ml) cover pure F64 bits,
 integer/F64 conversion, selected anonymous headers and retained calls.
 Nested JIT `#exe` retains this task behavior under either outer source mode.
-Isolated and ordinary outer AOT F64 default preparation remain separate
-unsupported paths.
+Closed [numeric defaults](native-f64-defaults.md) also retain original temporary
+native programs in isolated and ordinary outer AOT preparation.
 
 Fixed F64 callback calls follow `PrsFunCall`
 (`Compiler/PrsExp.HC:383-591`): capture the original callee before arguments,
@@ -47,15 +47,15 @@ reaching `PrsGlblInit`. `Compiler/PrsVar.HC:1-246,536-587` supplies the shared
 scalar/array copy consumer and static declaration preparation. The native task
 uses those same-class F64 copies for global/static scalars and fixed arrays in
 JIT. AOT zero images and unknown JIT bytes remain distinct. Original nonconstant
-same-class F64 leaves also use AOT load assignments on both native targets;
-closed AOT and isolated floating preparation remain unsupported.
+same-class F64 leaves also use AOT load assignments on both native targets.
+Closed F64 and mixed numeric leaves prepare in isolated and source-task native
+execution in either mode.
 Unused F64 declarations still allocate their full extent. The public global CLI
 checks eight- and sixteen-byte limits independently of floating execution;
 native assignment/read execution and the integer interpreter's earlier floating
 instruction rejection remain separate controls.
 The native source-task API also checks three reached F64 initializer instructions
 and eight copy bytes: eleven units succeed, while ten fail before the copy.
-Closed AOT floating declaration preparation retains its separate rejection.
 
 `PrsVarInit` at `Compiler/PrsVar.HC:53-112` emits an `IET_MAIN` assignment for
 original nonconstant AOT leaves when globals are not on the data heap.
@@ -63,10 +63,21 @@ original nonconstant AOT leaves when globals are not on the data heap.
 load assignments preserve eight-byte scalar types, original destinations and
 source order, including statics in unused functions. Reached effects and faults
 use the runtime meter; scheduling itself consumes no initializer preparation
-work. Closed floating constants and numeric initializer conversions remain
-separate. Static source leaves preserve their expression result before the
-reached scalar consumer, rather than selecting a conversion from the enclosing
-aggregate class. See [AOT F64 load initializers](native-f64-storage.md#aot-load-initializers).
+work. Mixed integer/F64 load assignments retain the original conversion flags
+from `Compiler/OptPass012.HC:866-873`. Static source leaves preserve their own
+expression result before the reached scalar consumer; the enclosing aggregate
+does not select a member's numeric conversion. See
+[AOT F64 load initializers](native-f64-storage.md#aot-load-initializers).
+
+The other `PrsVarInit` branch executes `Call`, converts the completed word at
+`Compiler/PrsVar.HC:97-107`, then copies the selected width. Native closed
+preparation retains that original expression and consumes its actual private
+image capture before conversion. Live JIT source-task leaves apply the same
+conversion to their completed native captures. Integer-to-F64 conversion reads
+the full signed return word; F64-to-integer conversion precedes narrow byte
+copies. Same-class floating words preserve their payload. These declaration
+copies remain separate from the AOT runtime assignment boundary. See
+[native numeric initializers](native-numeric-initializers.md).
 
 F64 aggregate initializer leaves follow `PrsVarInit` and `PrsVarInit2`
 (`Compiler/PrsVar.HC:1-204`). `LexExpression2Bin`
@@ -75,8 +86,10 @@ F64 aggregate initializer leaves follow `PrsVarInit` and `PrsVarInit2`
 branch. `PrsGlblInit` and `PrsStaticInit` (`PrsVar.HC:206-246`) share that
 consumer. The static declaration branch (`PrsVar.HC:536-587`) prepares it before
 the function is published. Native JIT tasks support same-class eight-byte F64
-leaves in globals and statics, including packed fields and fixed arrays. Hosted
-capture ownership and work limits remain separate from these source rules.
+leaves and numeric conversions in globals and statics, including packed fields
+and fixed arrays. Closed native preparation supports those leaves in both source
+modes. Hosted capture ownership and work limits remain separate from these source
+rules.
 See [aggregate initializers](aggregate-initializers.md).
 
 Assignment observations follow complete `PrsExpression2`

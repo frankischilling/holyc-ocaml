@@ -109,6 +109,14 @@ let successful label bits report =
     | _ -> false)
     (label ^ ": " ^ Yojson.Safe.to_string report)
 
+let successful_numeric label type_ bits report =
+  let word = member "final_value" report in
+  require
+    (member "outcome" report = `String "success"
+    && member "type" word = `String type_
+    && member "bits" word = `String (Printf.sprintf "0x%016Lx" bits))
+    (label ^ ": " ^ Yojson.Safe.to_string report)
+
 let rejected label report =
   require
     (member "outcome" report = `String "error"
@@ -612,16 +620,15 @@ let persistent_limits mode target =
     ~options:[ "--global-byte-limit=7" ]
     "one-below persistent extent" source
   |> rejected "one-below persistent extent";
-  if mode = "jit" && target = "host-jit-task" then (
-    let source = "F64 value=1.5;value;" in
-    invoke ~target ~mode
-      ~options:[ "--initializer-step-limit=11" ]
-      "exact floating copy allowance" source
-    |> successful "exact floating copy allowance" 0x3ff8000000000000L;
-    invoke ~status:1 ~target ~mode
-      ~options:[ "--initializer-step-limit=10" ]
-      "one-below floating copy allowance" source
-    |> rejected "one-below floating copy allowance")
+  let source = "F64 value=1.5;value;" in
+  invoke ~target ~mode
+    ~options:[ "--initializer-step-limit=11" ]
+    "exact floating copy allowance" source
+  |> successful "exact floating copy allowance" 0x3ff8000000000000L;
+  invoke ~status:1 ~target ~mode
+    ~options:[ "--initializer-step-limit=10" ]
+    "one-below floating copy allowance" source
+  |> rejected "one-below floating copy allowance"
 
 let cli_step_quota ?(source = "F64 Add(F64 a,F64 b){return a+b;}Add(1.5,2.25);")
     ?(expected = 0x400e000000000000L) mode target =
@@ -706,33 +713,47 @@ let aot_initializers target =
     (has_code report "HCRUN0006" && member "output_hex" report = `String "")
     (label ^ ": original frame boundary changed");
   List.iter
-    (fun (label, source) ->
-      let report = invoke ~status:1 ~target ~mode label source in
-      rejected label report;
+    (fun (label, source, type_, bits) ->
+      let report = invoke ~target ~mode label source in
+      successful_numeric label type_ bits report;
       require
-        (member "final_value" report = `Null
-        && member "output_hex" report = `String "")
-        (label ^ ": unsupported conversion published a value"))
+        (member "output_hex" report = `String ""
+        && member "compiled_initializer_steps" report = `Int 0)
+        (label ^ ": load conversion changed phase or output"))
     [
-      ( "AOT F64 initializer cannot reinterpret an integer call result",
-        "I64 Value(){return 42;}F64 value=Value();value;" );
-      ( "AOT integer initializer cannot reinterpret an F64 call result",
-        "F64 Value(){return 1.5;}I64 value=Value();value;" );
-      ( "AOT integer member initializer cannot reinterpret an F64 call result",
+      ( "AOT F64 initializer converts an integer call result",
+        "I64 Value(){return 42;}F64 value=Value();value;",
+        "f64",
+        0x4045_0000_0000_0000L );
+      ( "AOT integer initializer truncates an F64 call result",
+        "F64 Value(){return 1.5;}I64 value=Value();value;",
+        "i64",
+        1L );
+      ( "AOT integer member initializer truncates an F64 call result",
         "F64 Value(){return 1.5;}class Box{I64 value;};Box \
-         box={Value()};box.value;" );
-      ( "AOT F64 static initializer cannot reinterpret an integer call result",
+         box={Value()};box.value;",
+        "i64",
+        1L );
+      ( "AOT F64 static initializer converts an integer call result",
         "I64 Value(){return 42;}F64 Read(){static F64 value=Value();return \
-         value;}Read();" );
-      ( "AOT F64 static member cannot reinterpret an integer call result",
+         value;}Read();",
+        "f64",
+        0x4045_0000_0000_0000L );
+      ( "AOT F64 static member converts an integer call result",
         "I64 Value(){return 42;}class Box{F64 value;};F64 Read(){static Box \
-         box={Value()};return box.value;}Read();" );
-      ( "AOT integer static initializer cannot reinterpret an F64 call result",
+         box={Value()};return box.value;}Read();",
+        "f64",
+        0x4045_0000_0000_0000L );
+      ( "AOT integer static initializer truncates an F64 call result",
         "F64 Value(){return 1.5;}I64 Read(){static I64 value=Value();return \
-         value;}Read();" );
-      ( "AOT integer static member cannot reinterpret an F64 call result",
+         value;}Read();",
+        "i64",
+        1L );
+      ( "AOT integer static member truncates an F64 call result",
         "F64 Value(){return 1.5;}class Box{I64 value;};I64 Read(){static Box \
-         box={Value()};return box.value;}Read();" );
+         box={Value()};return box.value;}Read();",
+        "i64",
+        1L );
     ];
   List.iter
     (fun (label, declaration) ->
@@ -752,6 +773,10 @@ let aot_initializers target =
         "I64 value=42;value;" );
       ( "AOT late closed static retains its preparation boundary",
         "I64 Read(){static I64 value=42;return value;}Read();" );
+      ( "AOT late closed F64 global retains its preparation boundary",
+        "F64 value=1.5;value;" );
+      ( "AOT late numeric static retains its preparation boundary",
+        "F64 Read(){static F64 value=42;return value;}Read();" );
       ( "AOT late global byte copy retains its preparation boundary",
         "U8 bytes[2]=\"A\";bytes[0];" );
       ( "AOT late static byte copy retains its preparation boundary",
@@ -812,6 +837,44 @@ let aot_initializers target =
     && member "compiled_initializer_steps" failed = `Int 0
     && member "output_hex" failed = `String "41")
     "AOT floating load step fault lost exact runtime work or prior output"
+
+let numeric_initializers mode target =
+  List.iter
+    (fun (label, source, type_, bits) ->
+      let report = invoke ~target ~mode label source in
+      successful_numeric label type_ bits report;
+      require
+        (member "compiled_initializer_steps" report |> to_int > 0)
+        (label ^ ": declaration preparation was not charged"))
+    [
+      ( "closed scalar floating initializer",
+        "F64 value=1.5;value;",
+        "f64",
+        0x3ff8_0000_0000_0000L );
+      ( "closed static floating initializer",
+        "F64 Read(){static F64 value=1.5;return value;}Read();Read();",
+        "f64",
+        0x3ff8_0000_0000_0000L );
+      ( "integer initializer converts to F64",
+        "F64 value=9007199254740995;value;",
+        "f64",
+        0x4340_0000_0000_0002L );
+      ( "F64 initializer converts before narrowing",
+        "U8 value=257.75;I64 Read(){return value;}Read();",
+        "i64",
+        1L );
+      ( "closed F64 array preserves negative zero",
+        "F64 values[2]={42,-0.0};values[1];",
+        "f64",
+        Int64.min_int );
+    ];
+  let path =
+    if Sys.file_exists "examples/native-numeric-initializers.hc" then
+      "examples/native-numeric-initializers.hc"
+    else "../examples/native-numeric-initializers.hc"
+  in
+  invoke ~target ~mode "numeric initializer example" (read path)
+  |> successful_numeric "numeric initializer example" "i64" 42L
 
 let capability mode =
   let pure = image mode "F64 Id(F64 x){return x;}Id(1.5);" in
@@ -985,6 +1048,53 @@ let builtin_precision mode target =
          0x3ca1a80000000000L
 
 let () =
+  List.iter
+    (fun (label, source, output) ->
+      let report = invoke ~status:1 ~target:"ir" ~mode:"jit" label source in
+      rejected label report;
+      require
+        (report |> member "diagnostics" |> to_list
+         |> List.exists (fun d -> member "code" d = `String "HCRUN0006")
+        && member "output_hex" report = `String output)
+        (label ^ ": " ^ Yojson.Safe.to_string report))
+    [
+      ( "IR rejects integer-to-F64 global preparation after a statement",
+        "42;F64 value=42;",
+        "" );
+      ( "IR rejects integer-to-F64 static preparation after a statement",
+        "42;I64 Read(){static F64 value=42;return 1;}",
+        "" );
+      ( "IR global conversion guard precedes initializer call effects",
+        "extern U0 Print(U8 *fmt,...);#exe{Print(\"A\");I64 \
+         Seed(){Print(\"B\");return 42;}F64 value=Seed();Print(\"C\");}42;",
+        "41" );
+      ( "IR static conversion guard precedes initializer call effects",
+        "extern U0 Print(U8 *fmt,...);#exe{Print(\"A\");I64 \
+         Seed(){Print(\"B\");return 42;}I64 Read(){static F64 \
+         value=Seed();return 0;}Print(\"C\");}42;",
+        "41" );
+    ];
+  List.iter
+    (fun (label, source) ->
+      let report = invoke ~status:1 ~target:"ir" ~mode:"jit" label source in
+      rejected label report;
+      let has_code code =
+        report |> member "diagnostics" |> to_list
+        |> List.exists (fun d -> member "code" d = `String code)
+      in
+      require
+        (has_code "HCIRVM0004" && has_code "HCIRVM0006"
+        && (not (has_code "HCRUN0006"))
+        && member "output_hex" report = `String "")
+        (label ^ ": " ^ Yojson.Safe.to_string report))
+    [
+      ( "existing IR global pointer address boundary",
+        "F64 target;class Box{U8 *p;};Box object={(&target)(U8*)};I64 \
+         F(){return object.p==(&target)(U8*);}F();" );
+      ( "existing IR static pointer address boundary",
+        "F64 target;class Box{U8 *p;};I64 F(){static Box \
+         object={(&target)(U8*)};return object.p==(&target)(U8*);}F();F();" );
+    ];
   List.iter
     (fun mode ->
       let arithmetic = "F64 Add(F64 a,F64 b){return a+b;}Add(1.5,2.25);" in
@@ -1170,16 +1280,7 @@ let () =
                   |> successful "AOT persistent zero image" 0L)
               [ "F64 value;value;"; "F64 value;(&value)(U8*)[0]=0;value;" ];
             if has_x87 && mode = "aot" then aot_initializers target;
-            if target <> "host-jit-task" || mode <> "jit" then
-              List.iter
-                (fun source ->
-                  invoke ~status:1 ~target ~mode
-                    "floating preparation remains separate" source
-                  |> rejected "floating preparation remains separate")
-                [
-                  "F64 value=1.5;value;";
-                  "F64 F(){static F64 value=1.5;return value;}F();";
-                ];
+            if has_x87 then numeric_initializers mode target;
             if has_x87 then
               let report =
                 invoke ~target ~mode "NaN rendering"

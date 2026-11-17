@@ -2,6 +2,20 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-NATIVE-NUMERIC-INITIALIZERS"
+description = "Original native numeric initializer leaves retain declaration-time completed-word conversion and separate AOT assignment conversion."
+sources = ["Compiler/PrsVar.HC:53-112 original temporary expression, Call, full-word conversion, selected-width copy and nonconstant AOT assignment", "Compiler/PrsVar.HC:215-246 original static traversal and load routine", "Compiler/OptPass012.HC:866-873 IC_ASSIGN numeric result conversion flags"]
+implementation = ["src/ir/numeric_initializer_program.ml", "src/ir/initializer_value.ml", "src/ir/initializer_fragment_destination.ml", "src/ir/static_initializer_destination.ml", "src/ir/aggregate_initializer_store.ml", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/integer_task.ml", "src/driver/native_default_preparation.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_global_storage.ml", "src/runtime/native_program_execution.ml", "src/hosted/native_program.ml", "src/hosted/native_source_execution.ml"]
+tests = ["test/native/test_native_numeric_initializers.ml", "test/test_native_f64_cli.ml", "test/native/test_native_source_cli.ml", "test/native/test_native_source_execution.ml", "examples/native-numeric-initializers.hc", "tools/test-installed-compiler.ps1"]
+documentation = ["docs/native-numeric-initializers.md", "docs/native-f64-storage.md", "docs/native-f64.md", "docs/native-globals.md", "docs/aggregate-initializers.md", "docs/compiler-status.md", "docs/compatibility.md", "docs/roadmap.md", "docs/reference-source-map.md", "docs/testing.md"]
+status = "partial"
+issue = 690
+source_identity = "Closed preparation retains the exact global authority or static fragment, typed root, empty original storage context and lowered expression graph. Its live request owns a private native image and consumes the actual program/image/work capture once before release. The decoded numeric class must match the original expression, independently of destination. Live task copies keep their original image, arena and destination receipts."
+execution = "Both native targets prepare closed numeric global, static, fixed-array and packed leaves in either source mode. Declaration copies convert the completed full word before selecting low destination bytes; integer-to-F64 reads signed I64 bits and F64-to-integer truncates with the original invalid-conversion word. Same-class F64 copies preserve payloads. Original nonconstant AOT leaves use their separate IC_ASSIGN conversion plan. Unused statics prepare or load in source order and later calls reuse bytes. Native expression work shares cumulative instruction, IR and code limits; initializer work also charges the selected copy width."
+verification = "Independent source expectations cover all integer storage widths, fixed and multidimensional layouts, packed neighbors, signed full-word conversion and ties, negative zero, signaling NaNs, infinity and finite overflow, unused declarations, repeated calls, later parser/runtime failures and exact or one-below preparation and instruction limits. API and CLI cases exercise both source modes and native targets; the installed compiler matrix includes the maintained example on built, staged and installed binaries with exact revision and result provenance."
+evidence_limit = "Pinned-source analysis and hosted tests supply the evidence; no new TempleOS runtime capture or emitted-byte equivalence is claimed. Integer-interpreter F64 execution, isolated JIT reference preparation, inferred-size multi-pass initialization, general floating normalization, wider value families, exported ABI and loader acceptance retain separate requirements. This increment does not close issues 690, 689 or 704."
+
+[[feature]]
 id = "HC-NATIVE-CALL-NUMERIC-CONVERSIONS"
 description = "Original call-result consumers authenticate numeric conversion and source-selected post-call x87 links."
 sources = ["Compiler/PrsExp.HC:479-484,548-552 fixed argument conversion and word push", "Compiler/OptLib.HC:124-140,545-553 mixed conversion flags and linked operand selection", "Compiler/OptPass3.HC:173-175,249-257 floating addition and return conversion", "Compiler/OptPass789A.HC:779-785,1026-1056 return-word movement and result conversion", "Compiler/BackFA.HC:21-50,123-166 conversion events and linked x87 templates"]
@@ -12797,7 +12811,7 @@ documentation = ["docs/native-globals.md", "docs/native-programs.md", "docs/SECU
 status = "implemented"
 issue = 667
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-resources = "Declared widths count against the positive global-byte limit (16 MiB hard cap); one initialization byte per object has a separate 32 MiB arena cap. Native images without named functions still use the arena bridge when storage is present."
+resources = "Declared widths count against the positive global-byte limit (16 MiB hard cap); per-byte initialization flags occupy private flag words charged to the separate 32 MiB arena cap. Native images without named functions still use the arena bridge when storage is present."
 identity = "Exact initialization/entry/call/default bundles and original symbol objects select checked scalar slots, address opcodes and pointer types. Exported image bytes are copies."
 excluded = ["effectful declaration initializers", "static locals", "arrays and pointers", "aggregates", "aliases and extern/import/data-heap storage", "retained task storage", "full ABI and runtime", "object/BIN output and loader acceptance"]
 native_oracle_status = "Pinned source plus checked interpreter and generated host execution; no new TempleOS oracle capture. JIT unknown reads and quotas are hosted policies."
@@ -12813,8 +12827,8 @@ status = "implemented"
 issue = 673
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 identity = "Original ordered leaves, source symbols, declared types and successful opaque preparation must match the exact storage, initialization, entry and runtime-call bundle."
-resources = "Defaults and global initializers share the declaration-work budget. Global payloads use declared-byte and private-arena quotas. Reached preparation survives later faults and does not consume native runtime steps."
-excluded = ["initializers after executable top-level statements", "effectful or call-dependent initializers", "unresolved shift optimizer behavior", "strings and floating values", "arrays, statics, pointers and data-heap storage", "object/BIN loading and bootstrap"]
+resources = "Defaults and global initializers share the declaration-work budget. Global payloads use declared-byte and private-arena quotas. Reached preparation survives later faults. Closed integer VM preparation has its separate meter; native numeric preparation under HC-NATIVE-NUMERIC-INITIALIZERS also charges actual native instructions."
+excluded = ["initializers after executable top-level statements", "isolated JIT effectful or call-dependent initializers", "unresolved shift optimizer behavior", "strings and pointer values", "data-heap storage", "object/BIN loading and bootstrap"]
 native_oracle_status = "Pinned source and hosted interpreter/native tests; no new TempleOS oracle capture."
 
 [[feature]]
@@ -12829,7 +12843,7 @@ tests = ["test/test_native_program.ml", "test/native/test_native_global_executio
 documentation = ["docs/native-globals.md", "docs/native-defaults.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "docs/SECURITY.md"]
 semantics = "Uninitialized scalar statics share exact owned arena objects across direct and recursive calls; separate executions restore AOT zero or hosted JIT unknown state. Declared widths control accesses and each static allocation rounds to eight bytes."
 authority = "Exact symbol, checked type, frame/location and unique supplied definition; complete static location coverage; address access restricted to the owning compiled body."
-resources = "Padded unused statics count toward max_global_bytes before native entry; one flag per object counts toward the separate arena cap; semantic activation frames and instruction work remain independent."
+resources = "Padded unused statics count toward max_global_bytes before native entry; per-byte initialization flags occupy private flag words charged to the separate arena cap; semantic activation frames and instruction work remain independent."
 excluded = ["static declaration initializers", "arrays and pointers", "explicit registers and data-heap options", "retained tasks", "full ABI", "object/BIN output, loader acceptance and bootstrap"]
 
 [[feature]]
@@ -12843,8 +12857,8 @@ implementation = ["src/frontend/parser.ml", "src/sema/static_initializer_fragmen
 tests = ["test/native_initializer_authority/test_native_initializer_authority.ml", "test/native/test_native_global_execution.ml", "test/native/test_native_global_cli.ml", "examples/native-static-initializers.hc"]
 documentation = ["docs/native-globals.md", "docs/native-defaults.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "docs/SECURITY.md"]
 authority = "Exact original allocation, function, initializer AST and completed local declarator; ordered successful preparation; checked scalar type and final storage, entry, initialization and callable bundle."
-resources = "Static expressions share the global/default preparation budget and retain reached work on failure. Saved bytes occupy eight-byte-padded static storage with one initialized flag per object. Runtime steps and activation frames remain independent."
-excluded = ["value references and calls", "strings and floating values", "unresolved shift optimizer behavior", "arrays and pointers", "explicit registers and data-heap options", "initializers after executable top-level statements", "retained tasks", "full ABI and object/BIN loading"]
+resources = "Static expressions share the global/default preparation budget and retain reached work on failure. Saved bytes occupy eight-byte-padded static storage; each data byte has a corresponding initialization flag within separately charged private metadata. Native numeric preparation under HC-NATIVE-NUMERIC-INITIALIZERS also charges actual native instructions; activation frames retain their separate limits."
+excluded = ["isolated JIT value references and calls", "strings and pointer values", "unresolved shift optimizer behavior", "explicit registers and nonconstant data-heap preparation", "initializers after executable top-level statements", "full ABI and object/BIN loading"]
 native_oracle_status = "Pinned source plus hosted interpreter/native execution; no new TempleOS oracle capture."
 
 [[feature]]
@@ -15027,17 +15041,17 @@ remaining = ["nonzero copies from unspecified U0 register contents", "original A
 
 [[feature]]
 id = "HC-NATIVE-JIT-F64-AGGREGATE-LEAVES"
-description = "Native JIT source tasks copy actual same-class F64 initializer results into global and static aggregate leaves."
+description = "Native JIT source tasks convert and copy actual numeric initializer results into global and static aggregate leaves."
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsVar.HC:1-204 scalar and recursive initializer execution, conversion and copy", "Compiler/PrsVar.HC:206-246 global and static consumers", "Compiler/PrsVar.HC:536-587 declaration-time static preparation", "Compiler/PrsExp.HC:1117-1133 expression return fragment"]
 implementation = ["src/driver/integer_task.ml", "src/hosted/native_source_execution.ml", "src/ir/initializer_fragment_destination.ml", "src/ir/initializer_value.ml", "src/ir/static_initializer_destination.ml", "src/ir/integer_interpreter.ml", "src/runtime/native_program_execution.ml"]
-tests = ["test/native/test_native_source_cli.ml", "test/native/test_native_source_authority.ml"]
-documentation = ["docs/aggregate-initializers.md"]
+tests = ["test/native/test_native_source_cli.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_numeric_initializers.ml"]
+documentation = ["docs/aggregate-initializers.md", "docs/native-numeric-initializers.md"]
 status = "partial"
 issue = 690
-execution = "A same-class F64 source result executes through its original live native JIT task and eight bytes are copied to the selected global or static aggregate leaf. The actual decoded F64 capture, original image, task arena, source attempt, work and copy receipt are checked before completion. Static preparation precedes function publication and calls retain its bytes and subsequent mutations."
+execution = "A numeric source result executes through its original live native JIT task. The decoded capture must retain the original expression class; the completed word then follows PrsVarInit conversion before the selected global or static leaf bytes are copied. Same-class F64 copies preserve all eight payload bytes. Original image, task arena, source attempt, work and copy receipt are checked before completion. Static preparation precedes function publication and calls retain its bytes and subsequent mutations."
 verification = "Hosted CLI controls check all bytes for finite expressions and negative zero, neighboring storage, unaligned fixed arrays, reached output, late faults, repeated calls, exact/one-below and zero-remaining initializer work. Global scalar-copy phases reserve and record actual expression work on success or fault before charging copy bytes. The source authority suite compiles both private ABIs and rejects copied, foreign, repeated and expired evidence, including unrecorded or duplicate work and static capture across collection and compaction. examples/native-static-f64-leaves.hc prints A once and returns 42."
-evidence_limit = "No new TempleOS runtime capture or emitted-byte equivalence is claimed. IR, AOT, isolated native preparation, F64/integer conversions and general floating storage remain outside this slice."
+evidence_limit = "No new TempleOS runtime capture or emitted-byte equivalence is claimed. Integer-interpreter floating execution and general floating normalization retain separate requirements. Closed native preparation and numeric conversions have additional evidence under HC-NATIVE-NUMERIC-INITIALIZERS; AOT load assignments remain a separate source phase."
 
 [[feature]]
 id = "HC-OWNED-AGGREGATE-POINTER-INITIALIZERS"
@@ -15609,7 +15623,7 @@ documentation = ["docs/native-f64-storage.md", "docs/native-f64.md", "docs/nativ
 status = "partial"
 issue = 690
 verification = "Public native source cases cover persistent scalar/array assignments, owned byte views, source-task JIT declaration copies, static lifetime, saved global selection, AOT zero images, unread JIT bytes and exact/one-below logical global and initializer limits. Retained native mappings preserve writes across compaction and fault recovery; ordinary executions use separate arenas. Allocation cursor units remain separate from the original F64 value type."
-evidence_limit = "Source-derived expectations, not new TempleOS runtime captures. No floating execution through the integer interpreter, F64/integer initializer conversions, closed AOT or isolated native floating initializer preparation, persistent F64 pointer slots or new x87 linking authority. Nonconstant AOT load assignments have separate evidence under HC-NATIVE-AOT-F64-INITIALIZERS."
+evidence_limit = "Source-derived expectations, not new TempleOS runtime captures. Integer-interpreter floating execution, persistent F64 pointer slots and general x87 linking retain separate requirements. Closed native preparation and numeric conversion are recorded under HC-NATIVE-NUMERIC-INITIALIZERS. Nonconstant AOT load assignments have separate evidence under HC-NATIVE-AOT-F64-INITIALIZERS."
 
 [[feature]]
 id = "HC-NATIVE-F64-CALLBACKS"
@@ -15625,12 +15639,12 @@ evidence_limit = "Source-derived expectations, not new TempleOS runtime captures
 
 [[feature]]
 id = "HC-NATIVE-AOT-F64-INITIALIZERS"
-description = "Original nonconstant F64 globals, statics and aggregate leaves execute as typed AOT load assignments."
-sources = ["Compiler/PrsVar.HC:53-112,215-246,536-587", "Compiler/PrsStmt.HC:350-463", "Compiler/BackC.HC:159-211", "Compiler/BackLib.HC:445-708"]
-implementation = ["src/sema/function_call_expression_result.ml", "src/ir/initializer_value.ml", "src/ir/aggregate_initializer_store.ml", "src/ir/expression_lowering.ml", "src/ir/global_initialization.ml", "src/driver/integer_initializers.ml", "src/driver/native_default_preparation.ml", "src/hosted/native_program.ml"]
-tests = ["test/test_native_f64_cli.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "examples/native-aot-f64-initializers.hc"]
-documentation = ["docs/native-f64-storage.md", "docs/native-f64.md", "docs/native-globals.md", "docs/aggregate-initializers.md", "docs/compiler-status.md", "docs/reference-source-map.md", "docs/testing.md"]
+description = "Original nonconstant F64 and mixed numeric globals, statics and aggregate leaves execute as typed AOT load assignments."
+sources = ["Compiler/PrsVar.HC:53-112,215-246,536-587", "Compiler/OptPass012.HC:866-873", "Compiler/PrsStmt.HC:350-463", "Compiler/BackC.HC:159-211", "Compiler/BackLib.HC:445-708"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/initializer_value.ml", "src/ir/aggregate_initializer_store.ml", "src/ir/expression_lowering.ml", "src/ir/global_initialization.ml", "src/driver/integer_initializers.ml", "src/driver/native_default_preparation.ml", "src/backend/x86_64_float_plan.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_native_f64_cli.ml", "test/native/test_native_numeric_initializers.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "examples/native-aot-f64-initializers.hc", "examples/native-numeric-initializers.hc"]
+documentation = ["docs/native-f64-storage.md", "docs/native-numeric-initializers.md", "docs/native-f64.md", "docs/native-globals.md", "docs/aggregate-initializers.md", "docs/compiler-status.md", "docs/reference-source-map.md", "docs/testing.md"]
 status = "partial"
 issue = 690
-verification = "Public CLI cases on both native targets cover scalar, fixed-array, multidimensional and packed global/static leaves, exact binary64 words including negative zero and signaling NaN, source order with ordinary top-level effects, unused statics, repeated calls, later faults and exact runtime quotas. Scheduling charges no compile-time initializer work. Source-owned authority controls compile the original bundle for both private ABIs before rejecting foreign receipts and mutated typed stores. Closed constants, numeric initializer conversions, enclosing call frames and data-heap option phases retain separate controls. Late constant and byte-copy leaves reject before preparation begins; only original AOT load receipts pass the later-declaration gate."
-evidence_limit = "Source-derived expectations, not new TempleOS runtime captures. Closed F64 AOT/isolated preparation, F64/integer initializer conversions, integer-interpreter floating execution and new x87 linking authority remain unsupported. Same-class load assignments require their original nonconstant expression, ordered completed parser receipt, exact destination and authenticated native bundle. Issue 690 remains open."
+verification = "Public API and CLI cases on both native targets cover scalar, fixed-array, multidimensional and packed global/static leaves, exact binary64 words including negative zero and signaling NaN, integer/F64 assignment conversions, source order with ordinary top-level effects, unused statics, repeated calls, later faults and exact runtime quotas. Scheduling charges no compile-time initializer work. Source-owned authority controls compile the original bundle for both private ABIs before rejecting foreign receipts and mutated typed stores. Enclosing call frames and data-heap option phases retain rejection controls. Late constant and byte-copy leaves reject before preparation begins; only original AOT load receipts pass the later-declaration gate."
+evidence_limit = "Source-derived expectations, not new TempleOS runtime captures. Closed numeric declaration preparation has separate evidence under HC-NATIVE-NUMERIC-INITIALIZERS. Load assignments require their original nonconstant expression, ordered completed parser receipt, exact destination and authenticated native bundle; their conversion plan remains separate from declaration-time completed-word copying. Integer-interpreter floating execution and general x87 normalization remain unfinished. Issue 690 remains open."

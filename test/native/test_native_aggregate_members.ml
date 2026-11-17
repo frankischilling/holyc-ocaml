@@ -330,6 +330,10 @@ let boundaries () =
        @ Inherited.source_unsupported @ Backed.unsupported @ Default.unsupported
        @ Parameters.unsupported @ Casts.unsupported @ Returns.unsupported
        @ Persistent.unsupported);
+      List.iter
+        (fun (_, source, expected, output) ->
+          ignore (value expected output (run mode source)))
+        Persistent.native_numeric_values;
       let original =
         Aggregate_member_fixture.compile ~contents:Returns.quota_source mode
       in
@@ -650,6 +654,12 @@ let persistent_storage () =
         "native aggregate initializer remains gated" true
         (Result.is_error (Native_source_execution.outcome (run_task source))))
     Persistent.unsupported;
+  List.iter
+    (fun (_, source, expected, output) ->
+      List.iter
+        (fun mode -> task_value expected output (run_task ~mode source))
+        modes)
+    Persistent.native_numeric_values;
   List.iter
     (fun (_, source, expected, output) ->
       ignore (value expected output (run Preprocessor.Aot source)))

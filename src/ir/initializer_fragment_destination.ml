@@ -39,9 +39,49 @@ let stores_same_f64 value =
     ~scalar:(Layout.scalar value.layout_)
     (Typed.top_level_root_value value.root_)
 
+let expression_is_f64 value =
+  Initializer_value.expression_is_f64 (Typed.top_level_root_value value.root_)
+
+let scalar_for_numeric ~storage scalar =
+  match scalar with
+  | Some _ -> scalar
+  | None ->
+      let shape = Globals.storage_shape storage in
+      if
+        Integer_storage_shape.has_byte_leaves shape
+        || Globals.storage_is_callback storage
+        || Option.is_none
+             (Integer_scalar_storage.of_type (Globals.storage_type storage))
+      then None
+      else
+        Option.bind (Integer_storage_shape.initializer_type shape) (fun type_ ->
+            match Sema.Initializer_type.view type_ with
+            | Ok (Sema.Initializer_type.Scalar scalar) -> Some scalar
+            | _ -> None)
+
+let numeric_scalar value =
+  scalar_for_numeric ~storage:value.storage_ (Layout.scalar value.layout_)
+
+let stores_native_numeric value =
+  Initializer_value.native_numeric ~scalar:(numeric_scalar value)
+    (Typed.top_level_root_value value.root_)
+
+let convert_native_word value bits =
+  Initializer_value.native_numeric_conversion ~scalar:(numeric_scalar value)
+    (Typed.top_level_root_value value.root_)
+  |> Option.fold ~none:bits ~some:(fun conversion ->
+      Initializer_value.convert_native_word conversion bits)
+
 let requires_evaluation value =
   Layout.requires_settlement value.layout_
-  || discards_value value || stores_same_f64 value
+  || discards_value value
+  || stores_native_numeric value
+  || Option.is_some
+       (Initializer_value.native_numeric_conversion
+          ~scalar:(numeric_scalar value)
+          (Typed.top_level_root_value value.root_))
+     && List.exists Initializer_value.expression_is_f64
+          (Typed.top_level_all_results value.typed_)
   || Integer_storage_shape.is_storage_free
        (Globals.storage_shape value.storage_)
 
@@ -100,7 +140,10 @@ let create ~task_view ~reference ~slot ~layout typed =
                value
           || Initializer_value.stores_pointer ~scalar:(Layout.scalar layout)
                value
-          || Initializer_value.same_f64 ~scalar:(Layout.scalar layout) value
+          || Initializer_value.native_numeric
+               ~scalar:
+                 (scalar_for_numeric ~storage:storage_ (Layout.scalar layout))
+               value
         then Ok ()
         else if
           Typed.result_array_rank value = 0
@@ -122,7 +165,8 @@ let create ~task_view ~reference ~slot ~layout typed =
         then Ok ()
         else
           Error
-            "HCRUN0001: initializer fragment requires a scalar integer value"
+            "HCRUN0001: initializer fragment requires a scalar integer or F64 \
+             value"
   in
   let* span_ =
     match Typed.result_origin value with

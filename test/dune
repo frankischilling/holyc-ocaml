@@ -5887,7 +5887,8 @@
   ../examples/native-f64-storage.hc
   ../examples/native-f64-callbacks.hc
   ../examples/native-persistent-f64.hc
-  ../examples/native-aot-f64-initializers.hc)
+  ../examples/native-aot-f64-initializers.hc
+  ../examples/native-numeric-initializers.hc)
  (action
   (run %{exe:test_native_f64_cli.exe} %{exe:../bin/holyc.exe})))
 
@@ -5898,7 +5899,8 @@
   ../examples/native-f64-storage.hc
   ../examples/native-f64-callbacks.hc
   ../examples/native-persistent-f64.hc
-  ../examples/native-aot-f64-initializers.hc)
+  ../examples/native-aot-f64-initializers.hc
+  ../examples/native-numeric-initializers.hc)
  (action
   (run %{exe:test_native_f64_cli.exe} %{exe:../bin/holyc.exe} --native)))
 

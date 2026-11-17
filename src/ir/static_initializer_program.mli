@@ -15,3 +15,4 @@ val destination : t -> Static_initializer_destination.t
 val entry : t -> X87_stack.t
 val initialization : t -> Global_initialization.t
 val runtime_calls : t -> Runtime_call_context.t
+val scalar_lowered : t -> Integer_program_lowering.t option

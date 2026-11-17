@@ -565,6 +565,20 @@ let pointer_faults =
       "" );
   ]
 
+let native_numeric_values =
+  [
+    ( "packed integer-to-F64 initializer",
+      {|class Box{U8 tag;F64 value;};Box object={7,42};0;|},
+      0L,
+      "" );
+  ]
+
+let ir_unsupported =
+  List.map
+    (fun (name, source, _, _) ->
+      (name ^ " requires native preparation", source))
+    native_numeric_values
+
 let unsupported =
   [
     ( "U0 completion cannot initialize a nonzero byte",
@@ -572,8 +586,6 @@ let unsupported =
     ( "U0 completion cannot initialize a nonzero static byte",
       {|U0 Effect(){}class Box{U8 value;};I64 F(){static Box object={Effect()};return 0;}F();|}
     );
-    ( "aggregate floating initializer leaves keep their execution boundary",
-      {|class Box{U8 tag;F64 value;};Box object={7,42};0;|} );
     ( "aggregate pointer initializer leaves cannot construct numeric ownership",
       {|class Box{U8 tag;U16 *value;};Box object={7,0};0;|} );
     ( "numeric callback initializer words cannot authorize a field call",

@@ -42,11 +42,12 @@ arrays, packed members and one-level owned pointers to native loads and stores.
 Fixed pointer arguments borrow the original allocation across calls. Both source
 modes retain hosted initialization, extent and activation checks. The integer
 interpreter's floating execution remains outside this slice. Standalone globals
-and static locals now have byte-addressed F64 storage; live declaration
-initializers execute in native source-task JIT. Original nonconstant same-class
-F64 leaves also run as AOT load assignments on both native targets, including
-fixed arrays and packed aggregates. General floating initializer preparation in
-ordinary AOT and isolated compilation remains unfinished.
+and static locals retain byte-addressed F64 storage. [Native numeric initializers](native-numeric-initializers.md)
+prepare closed integer/F64 leaves through both native targets in either source
+mode, including fixed arrays and packed aggregates. Live JIT declaration copies
+convert the completed expression word; original nonconstant AOT leaves use their
+separate runtime assignment conversion. Isolated JIT preparation with module
+data or callable dependencies remains unsupported.
 
 [Local-index normalization](local-index-normalization.md) extends array-bearing
 register allocation to bounded pure computed indices and full multidimensional

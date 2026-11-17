@@ -1350,6 +1350,14 @@ let static_copy_payload copy =
     copy.copy_flag,
     Bytes.to_string (Bytes.of_string copy.copy_bytes) )
 
+let initializer_copy_fits slot ~cell ~byte ~count =
+  let width = Scalar.byte_size slot.scalar in
+  cell >= 0 && cell <= slot.element_count && byte >= 0
+  && byte <= slot.extent_bytes
+  && byte / width = cell
+  && byte mod width = 0
+  && count <= slot.extent_bytes - byte
+
 let prepare_initializer_copy layout request token ~admitted_arena_bytes =
   let ( let* ) = Result.bind in
   let module Request = Driver.Integer_task.Native_dispatch in
@@ -1381,9 +1389,7 @@ let prepare_initializer_copy layout request token ~admitted_arena_bytes =
              ~some:(fun owner ->
                Globals.same_task_storage owner (Destination.globals destination))
              state.task_owner))
-    || Scalar.byte_size slot.scalar <> 1
-    || byte <> cell || byte < 0 || byte > slot.extent_bytes
-    || count > slot.extent_bytes - byte
+    || not (initializer_copy_fits slot ~cell ~byte ~count)
   then Error "native initializer copy leaves its original admitted byte extent"
   else
     Ok
@@ -1393,7 +1399,7 @@ let prepare_initializer_copy layout request token ~admitted_arena_bytes =
         initializer_copy_request = request;
         initializer_copy_token = token;
         initializer_copy_data = slot.data_offset + byte;
-        initializer_copy_flag = slot.flag_offset + 7 - cell;
+        initializer_copy_flag = slot.flag_offset + 7 - byte;
         initializer_copy_bytes = bytes;
       }
 
@@ -1445,9 +1451,7 @@ let prepare_static_initializer_copy layout request token ~admitted_arena_bytes =
              ~some:(fun owner ->
                Globals.same_task_storage owner (Destination.globals destination))
              state.task_owner))
-    || Scalar.byte_size slot.scalar <> 1
-    || byte <> cell || byte < 0 || byte > slot.extent_bytes
-    || String.length bytes > slot.extent_bytes - byte
+    || not (initializer_copy_fits slot ~cell ~byte ~count:(String.length bytes))
   then
     Error "native static scalar copy leaves its original admitted byte extent"
   else
@@ -1458,7 +1462,7 @@ let prepare_static_initializer_copy layout request token ~admitted_arena_bytes =
         scalar_static_request = request;
         scalar_static_token = token;
         scalar_static_data = slot.data_offset + byte;
-        scalar_static_flag = slot.flag_offset + 7 - cell;
+        scalar_static_flag = slot.flag_offset + 7 - byte;
         scalar_static_bytes = bytes;
       }
 

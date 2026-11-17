@@ -836,8 +836,8 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
     ?(max_default_bytes = 65_536) ?(max_global_bytes = 1_048_576)
     ?(max_literal_bytes = 1_048_576) ?status_abi ~preparation_steps ~switch_work
-    ~dimension_work ~default_bytes ?native_default ?native_code_remaining
-    ?streams session ~config ~source =
+    ~dimension_work ~default_bytes ?native_default ?native_initializer
+    ?native_code_remaining ?streams session ~config ~source =
   let span = Integer_source.source_span source in
   let* () =
     if
@@ -864,8 +864,8 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
   in
   let compilation_mode = Frontend.Preprocessor.Config.compilation_mode config in
   let* preparation =
-    Native_default_preparation.create ?native_default ~compilation_mode
-      ~max_initializer_steps ~max_default_bytes session
+    Native_default_preparation.create ?native_default ?native_initializer
+      ~compilation_mode ~max_initializer_steps ~max_default_bytes session
     |> Result.map_error (fun message ->
         [ diagnostic ~span "HCIRVM0001" message ])
   in
@@ -1504,13 +1504,57 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
           Error [ fault_diagnostic ~fallback:default_span fault ]
       | Ok (Image.Completed _) -> Ok ()
     in
+    let native_initializer request =
+      let module VM = Ir.Integer_interpreter in
+      let initializer_span =
+        VM.native_constant_program request
+        |> Ir.Numeric_initializer_program.span
+      in
+      let remaining = VM.native_constant_remaining request in
+      let* () =
+        if remaining > 0 then Ok ()
+        else
+          Error
+            [
+              diagnostic ~span:initializer_span "HCIRVM0007"
+                "native source initializer exhausted its preparation allowance";
+            ]
+      in
+      let* ir, code = native_code_remaining () in
+      let* image =
+        Image.compile_source_initializer ?status_abi ?max_stack_bytes
+          ?max_blocks ~max_ir_instructions:ir ~max_code_bytes:code request
+        |> Result.map_error (image_errors ~fallback:initializer_span)
+      in
+      preparation_ir := !preparation_ir + Image.ir_instructions image;
+      preparation_code := !preparation_code + Image.code_bytes image;
+      let* report =
+        execute_native ~max_activation_steps:remaining
+          ~finish:(fun ~steps report ->
+            if not (VM.native_constant_entered request) then Ok ()
+            else
+              VM.finish_native_constant request ~steps
+                (Native.source_initializer_capture report)
+              |> Result.map_error (fun message ->
+                  [
+                    Integer_source.message_diagnostic ~span:initializer_span
+                      message;
+                  ]))
+          image
+      in
+      match Native.outcome report with
+      | Error message -> Error (host_error message)
+      | Ok (Image.Fault fault) ->
+          Error [ fault_diagnostic ~fallback:initializer_span fault ]
+      | Ok (Image.Completed _) -> Ok ()
+    in
     match
       compile_with_preparation ~max_ir_instructions ~max_code_bytes
         ?max_stack_bytes ?max_blocks ~max_initializer_steps ~max_switch_work
         ~max_dimension_work ~max_default_bytes ~max_global_bytes
         ~max_literal_bytes ?status_abi ~preparation_steps ~switch_work
-        ~dimension_work ~default_bytes ~native_default ~native_code_remaining
-        session ~config ~source
+        ~dimension_work ~default_bytes ~native_default ~native_initializer
+        ~native_code_remaining session ~config ~source
     with
     | Error diagnostics ->
         {

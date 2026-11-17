@@ -51,13 +51,52 @@ let stores_same_f64 value =
   Initializer_value.same_f64 ~scalar:value.scalar_
     (Typed.top_level_root_value value.root_)
 
+let expression_is_f64 value =
+  Initializer_value.expression_is_f64 (Typed.top_level_root_value value.root_)
+
+let scalar_for_numeric ~allocation scalar =
+  match scalar with
+  | Some _ -> scalar
+  | None ->
+      let storage = Globals.declared_static_storage allocation in
+      let shape = Globals.storage_shape storage in
+      if
+        Integer_storage_shape.has_byte_leaves shape
+        || Globals.storage_is_callback storage
+        || Option.is_none
+             (Integer_scalar_storage.of_type (Globals.storage_type storage))
+      then None
+      else
+        Option.bind (Integer_storage_shape.initializer_type shape) (fun type_ ->
+            match Sema.Initializer_type.view type_ with
+            | Ok (Sema.Initializer_type.Scalar scalar) -> Some scalar
+            | _ -> None)
+
+let numeric_scalar value =
+  scalar_for_numeric ~allocation:value.allocation_ value.scalar_
+
+let stores_native_numeric value =
+  Initializer_value.native_numeric ~scalar:(numeric_scalar value)
+    (Typed.top_level_root_value value.root_)
+
+let convert_native_word value bits =
+  Initializer_value.native_numeric_conversion ~scalar:(numeric_scalar value)
+    (Typed.top_level_root_value value.root_)
+  |> Option.fold ~none:bits ~some:(fun conversion ->
+      Initializer_value.convert_native_word conversion bits)
+
 let requires_settlement t =
   Option.fold ~none:false
     ~some:Integer_initializer_layout.stream_preparation_requires_settlement
     t.preparation_
 
 let requires_evaluation t =
-  requires_settlement t || discards_value t || stores_same_f64 t
+  requires_settlement t || discards_value t || stores_native_numeric t
+  || Option.is_some
+       (Initializer_value.native_numeric_conversion ~scalar:(numeric_scalar t)
+          (Typed.top_level_root_value t.root_))
+     && List.exists Initializer_value.expression_is_f64
+          (Typed.top_level_all_results t.typed_)
   || Integer_storage_shape.is_storage_free
        (Integer_static_allocation.shape t.allocation_)
 
@@ -155,7 +194,9 @@ let create ~allocation ~task_view ~cursor typed =
           Initializer_value.discards ~scalar:scalar_ value
           || Initializer_value.discards_reference ~scalar:scalar_ value
           || Initializer_value.stores_pointer ~scalar:scalar_ value
-          || Initializer_value.same_f64 ~scalar:scalar_ value
+          || Initializer_value.native_numeric
+               ~scalar:(scalar_for_numeric ~allocation scalar_)
+               value
         then Ok ()
         else if
           Typed.result_array_rank value = 0
@@ -176,7 +217,9 @@ let create ~allocation ~task_view ~cursor typed =
                    || Typed.result_is_numeric_callback value))
         then Ok ()
         else
-          Error "HCRUN0001: static initializer requires a scalar integer value"
+          Error
+            "HCRUN0001: static initializer requires a scalar integer or F64 \
+             value"
   in
   let* globals_ =
     Globals.static_fragment_context task_view allocation fragment_

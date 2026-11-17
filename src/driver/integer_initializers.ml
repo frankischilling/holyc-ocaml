@@ -173,10 +173,10 @@ let value_instructions graph =
       | _ -> true)
 
 let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
-    ?native_authority ?static_snapshot ?internal_binding ?dimension ?switch_case
-    ?offset ?member_metadata ?native_global ?native_static
-    ?(already_prepared = []) ?(statics_prepared = []) ?(function_calls = [])
-    ?(callback_calls = []) ?(top_callback_calls = [])
+    ?native_initializer ?native_authority ?static_snapshot ?internal_binding
+    ?dimension ?switch_case ?offset ?member_metadata ?native_global
+    ?native_static ?(already_prepared = []) ?(statics_prepared = [])
+    ?(function_calls = []) ?(callback_calls = []) ?(top_callback_calls = [])
     ?(allow_zero_budget = false) ?(check_only = false)
     ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
     ~max_steps ~span ~globals ~top_calls ~functions () =
@@ -1089,6 +1089,21 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                 |> Option.fold ~none:destination_type
                      ~some:Sema.Initializer_type.scalar_value_type
               in
+              let* () =
+                if
+                  constant && (not check_only)
+                  && Sema.Type.is_f64 destination_type
+                  && Option.is_none native_initializer
+                  &&
+                  match root_ with
+                  | Global _ | Static _ | Native_global _ | Native_static _ ->
+                      true
+                  | _ -> false
+                then
+                  invalid ~at ~notes "HCRUN0006"
+                    "floating initializer execution requires a native target"
+                else Ok ()
+              in
               let* terminal =
                 instructions (Ir.X87_stack.graph value_graph_)
                 |> List.filter_map (fun (item : Seq.description) ->
@@ -1399,6 +1414,44 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                            ()))
                     result
                 in
+                let native_preparation =
+                  let selected scalar =
+                    Ir.Initializer_value.native_numeric ~scalar value
+                    || List.exists
+                         (fun (item : Seq.description) ->
+                           Option.fold ~none:false ~some:Sema.Type.is_f64
+                             item.target_type)
+                         value_code
+                  in
+                  match (root_, native_initializer, constant_runtime) with
+                  | ( Native_global (fragment, root, destination),
+                      Some native,
+                      Some runtime )
+                    when selected destination.scalar ->
+                      Option.bind native_authority (fun authority ->
+                          if
+                            Sema.Initializer_fragment.authorized_fragment
+                              authority
+                            == fragment
+                          then
+                            Some
+                              ( Ir.Numeric_initializer_program.Global
+                                  (authority, root),
+                                destination.scalar,
+                                native,
+                                runtime )
+                          else None)
+                  | ( Native_static (fragment, root, destination),
+                      Some native,
+                      Some runtime )
+                    when selected destination.scalar ->
+                      Some
+                        ( Ir.Numeric_initializer_program.Static (fragment, root),
+                          destination.scalar,
+                          native,
+                          runtime )
+                  | _ -> None
+                in
                 let* default_constant_, execution_, bits, steps =
                   match (root_, default_execution) with
                   | Default destination, Some (runtime, authority) ->
@@ -1413,29 +1466,89 @@ let prepare_internal ?fragment ?default ?default_execution ?constant_runtime
                             VM.default_constant_steps proof ))
                   | _ -> (
                       let* receipt =
-                        (match constant_runtime with
-                          | None ->
-                              VM.execute_constant_receipt
-                                ~max_steps:(max_steps - total) value_graph_
-                          | Some runtime ->
-                              let source =
-                                match (root_, native_authority) with
-                                | ( Native_global (fragment, root, _),
-                                    Some authority )
-                                  when Sema.Initializer_fragment
-                                       .authorized_fragment authority
-                                       == fragment ->
-                                    VM.Global_constant (authority, root)
-                                | Native_static (fragment, root, _), _ ->
-                                    VM.Static_constant (fragment, root)
-                                | _ ->
-                                    invalid_arg
-                                      "constant runtime has another source"
-                              in
-                              VM.execute_task_constant_receipt ?static_snapshot
-                                runtime ~max_steps:(max_steps - total) ~source
-                                ~globals ~lowered:value_lowered)
-                        |> diagnose
+                        match native_preparation with
+                        | Some
+                            (source, scalar, (context, typed, execute), runtime)
+                          ->
+                            let native_diagnose result =
+                              Result.map_error
+                                (fun message ->
+                                  [
+                                    Integer_source.message_diagnostic ~span:at
+                                      message;
+                                  ])
+                                result
+                            in
+                            let* initialization =
+                              Ir.Global_initialization.create ~span:at ~globals
+                                ~entry:value_graph_ []
+                            in
+                            let* runtime_calls =
+                              Ir.Runtime_call_context.create
+                                ~records:
+                                  (Initializer_fragment_typing.records context)
+                                ~function_sources:
+                                  (Initializer_fragment_typing.function_sources
+                                     context)
+                                ~top_level:typed ~initialization
+                                ~entry:value_graph_
+                                ~entry_calls:
+                                  (Ir.Integer_program_lowering.runtime_calls
+                                     value_lowered)
+                                ~functions:[]
+                            in
+                            let* program =
+                              Ir.Numeric_initializer_program.create ~source
+                                ~globals ~lowered:value_lowered ~initialization
+                                ~runtime_calls
+                              |> native_diagnose
+                            in
+                            let before = VM.task_initializer_steps runtime in
+                            let* request =
+                              VM.begin_native_constant_preparation
+                                ?static_snapshot runtime
+                                ~max_steps:(max_steps - total) ~scalar ~program
+                              |> native_diagnose
+                            in
+                            let completed =
+                              Fun.protect
+                                ~finally:(fun () ->
+                                  VM.abandon_native_constant request)
+                                (fun () ->
+                                  let* () = execute request in
+                                  VM.native_constant_receipt request
+                                  |> native_diagnose)
+                            in
+                            on_progress
+                              (total
+                              + VM.task_initializer_steps runtime
+                              - before);
+                            completed
+                        | None ->
+                            (match constant_runtime with
+                              | None ->
+                                  VM.execute_constant_receipt
+                                    ~max_steps:(max_steps - total) value_graph_
+                              | Some runtime ->
+                                  let source =
+                                    match (root_, native_authority) with
+                                    | ( Native_global (fragment, root, _),
+                                        Some authority )
+                                      when Sema.Initializer_fragment
+                                           .authorized_fragment authority
+                                           == fragment ->
+                                        VM.Global_constant (authority, root)
+                                    | Native_static (fragment, root, _), _ ->
+                                        VM.Static_constant (fragment, root)
+                                    | _ ->
+                                        invalid_arg
+                                          "constant runtime has another source"
+                                  in
+                                  VM.execute_task_constant_receipt
+                                    ?static_snapshot runtime
+                                    ~max_steps:(max_steps - total) ~source
+                                    ~globals ~lowered:value_lowered)
+                            |> diagnose
                       in
                       let result = VM.constant_receipt_result receipt in
                       match VM.final_value result with
@@ -1548,8 +1661,9 @@ let prepare_native_load ~scalar ~declaration ~leaf ~cell_offset ~byte_offset
   | _ ->
       invalid "native load initializer requires its current original AOT leaf"
 
-let prepare_native ~runtime ~scalar:destination_scalar ~authority ~typed
-    ~cell_offset ~byte_offset ~operation ~on_progress ~max_steps =
+let prepare_native ~context ~native_executor ~runtime ~scalar:destination_scalar
+    ~authority ~typed ~cell_offset ~byte_offset ~operation ~on_progress
+    ~max_steps =
   let fragment = Sema.Initializer_fragment.authorized_fragment authority in
   let leaf = Sema.Initializer_fragment.leaf fragment in
   let destination =
@@ -1592,6 +1706,9 @@ let prepare_native ~runtime ~scalar:destination_scalar ~authority ~typed
   in
   let value = Typed.top_level_root_value root in
   let scalar type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_) in
+  let numeric type_ =
+    scalar type_ || (Option.is_some native_executor && Sema.Type.is_f64 type_)
+  in
   let* value_type =
     (match destination_scalar with
       | Some scalar -> Ok (Sema.Initializer_type.scalar_value_type scalar)
@@ -1611,9 +1728,9 @@ let prepare_native ~runtime ~scalar:destination_scalar ~authority ~typed
       match operation with
       | Layout.Scalar_store ->
           if
-            scalar value_type
+            numeric value_type
             && Typed.result_array_rank value = 0
-            && Option.fold ~none:false ~some:scalar (Typed.result_type value)
+            && Option.fold ~none:false ~some:numeric (Typed.result_type value)
           then Ok ()
           else
             invalid
@@ -1632,10 +1749,13 @@ let prepare_native ~runtime ~scalar:destination_scalar ~authority ~typed
         ])
   in
   let copy_before = VM.task_initializer_steps runtime in
+  let native_initializer =
+    Option.map (fun execute -> (context, typed, execute)) native_executor
+  in
   let* prepared =
     prepare_internal
       ~native_global:(fragment, root, destination)
-      ~constant_runtime:runtime ~native_authority:authority
+      ?native_initializer ~constant_runtime:runtime ~native_authority:authority
       ~allow_zero_budget:true ~on_progress ~max_steps ~span ~globals
       ~top_calls:[] ~functions:[] ()
   in
@@ -1731,9 +1851,9 @@ let prepare_native_static_load ~source ~scalar ~cell_offset ~byte_offset
             (Frontend.Parser.static_initializer_leaf_location receipt).span ();
       ]
 
-let prepare_native_static ~static_snapshot ~runtime ~scalar:destination_scalar
-    ~fragment ~typed ~cell_offset ~byte_offset ~operation ~on_progress
-    ~max_steps =
+let prepare_native_static ~context ~native_executor ~static_snapshot ~runtime
+    ~scalar:destination_scalar ~fragment ~typed ~cell_offset ~byte_offset
+    ~operation ~on_progress ~max_steps =
   let module Fragment = Sema.Static_initializer_fragment in
   let expression = Fragment.expression fragment in
   let destination =
@@ -1769,6 +1889,9 @@ let prepare_native_static ~static_snapshot ~runtime ~scalar:destination_scalar
   in
   let value = Typed.top_level_root_value root in
   let scalar type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_) in
+  let numeric type_ =
+    scalar type_ || (Option.is_some native_executor && Sema.Type.is_f64 type_)
+  in
   let* () =
     if Sema.Initializer_source.expression_identifier_nodes expression <> [] then
       invalid "native static preparation requires a closed source leaf"
@@ -1776,13 +1899,13 @@ let prepare_native_static ~static_snapshot ~runtime ~scalar:destination_scalar
       match operation with
       | Layout.Scalar_store ->
           if
-            (scalar
+            (numeric
                (Option.fold ~none:(Fragment.type_ fragment)
                   ~some:Sema.Initializer_type.scalar_value_type
                   destination_scalar)
             || Option.is_some (Fragment.callback_source fragment))
             && Typed.result_array_rank value = 0
-            && Option.fold ~none:false ~some:scalar (Typed.result_type value)
+            && Option.fold ~none:false ~some:numeric (Typed.result_type value)
           then Ok ()
           else
             invalid "native static preparation requires a scalar integer leaf"
@@ -1800,11 +1923,15 @@ let prepare_native_static ~static_snapshot ~runtime ~scalar:destination_scalar
         ])
   in
   let copy_before = VM.task_initializer_steps runtime in
+  let native_initializer =
+    Option.map (fun execute -> (context, typed, execute)) native_executor
+  in
   let* prepared =
     prepare_internal
       ~native_static:(fragment, root, destination)
-      ?static_snapshot ~constant_runtime:runtime ~allow_zero_budget:true
-      ~on_progress ~max_steps ~span ~globals ~top_calls:[] ~functions:[] ()
+      ?native_initializer ?static_snapshot ~constant_runtime:runtime
+      ~allow_zero_budget:true ~on_progress ~max_steps ~span ~globals
+      ~top_calls:[] ~functions:[] ()
   in
   match (prepared.native_items_, prepared.copies_) with
   | ( [
@@ -2246,7 +2373,11 @@ let prepare ?native_preparations ?native_static_preparations ?function_calls
            Option.fold ~none:false
              ~some:(fun leaf ->
                match Sema.Initializer_source.leaf_expression_ast leaf with
-               | Frontend.Ast.Integer_literal _ -> true
+               | Frontend.Ast.Integer_literal _ ->
+                   not
+                     (List.exists
+                        (fun proof -> native_leaf proof == leaf)
+                        (Option.value native_preparations ~default:[]))
                | _ -> false)
              (Typed.top_level_root_source root
              |> Sema.Top_level_expression_tree.root_initializer_leaf))
@@ -2448,6 +2579,7 @@ let prepare_fragment ?top_callback_calls ?retained_function_source ?on_progress
   else
     let* prepared =
       prepare_internal ~fragment:destination ~allow_zero_budget:true
+        ~check_only:(Destination.requires_evaluation destination)
         ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
         ~span:(Destination.span destination)
         ~globals:(Destination.globals destination)

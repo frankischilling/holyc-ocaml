@@ -378,6 +378,15 @@ val original_expression_call_source :
     without replaying their complete source region and matching the original
     instruction sequence. *)
 
+val original_initializer_region :
+  t ->
+  owner:owner ->
+  Instruction_sequence.description ->
+  (Global_initialization.t * Global_initialization.storage_region) option
+(** Select the original AOT load region for this physical entry instruction. Its
+    source, complete lowered sequence and numeric decision must still be
+    replayed before using it as conversion authority. *)
+
 val original_expression_results :
   t ->
   owner:owner ->

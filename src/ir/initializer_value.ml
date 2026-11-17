@@ -1,5 +1,7 @@
 module Typed = Sema.Function_call_expression_result
 
+type numeric_conversion = Same_class | To_f64 | To_integer
+
 let floating_destination scalar =
   Option.bind scalar (fun scalar ->
       let type_ = Sema.Initializer_type.scalar_value_type scalar in
@@ -9,13 +11,14 @@ let floating_destination scalar =
       then Some type_
       else None)
 
-let same_f64 ~scalar expression =
+let expression_is_f64 expression =
   Typed.result_array_rank expression = 0
   && Typed.result_class expression = Typed.F64_result
-  &&
-  match (floating_destination scalar, Typed.result_value_type expression) with
-  | Some _, Some result_type -> Sema.Type.is_f64 result_type
-  | _ -> false
+  && Option.fold ~none:false ~some:Sema.Type.is_f64
+       (Typed.result_value_type expression)
+
+let same_f64 ~scalar expression =
+  expression_is_f64 expression && Option.is_some (floating_destination scalar)
 
 (* A U0 expression can supply effects to a zero-byte initializer leaf. It does
    not supply a word, and cannot authorize a later nonzero copy. *)
@@ -92,3 +95,33 @@ let has_integer_word value =
        ~some:(fun type_ ->
          Option.is_some (Integer_scalar_storage.of_type type_))
        (Typed.result_storage_type value)
+
+let native_numeric_conversion ~scalar expression =
+  let source_f64 = expression_is_f64 expression in
+  Option.bind scalar (fun scalar ->
+      let target_f64 = Option.is_some (floating_destination (Some scalar)) in
+      if
+        Sema.Type.pointer_depth (Sema.Initializer_type.scalar_type scalar) = 0
+        && Sema.Initializer_type.scalar_byte_size scalar <= 8
+        && (source_f64 || has_integer_word expression)
+        && (target_f64
+           || Option.is_some
+                (Integer_scalar_storage.of_type
+                   (Sema.Initializer_type.scalar_value_type scalar)))
+      then
+        Some
+          (match (source_f64, target_f64) with
+          | false, true -> To_f64
+          | true, false -> To_integer
+          | _ -> Same_class)
+      else None)
+
+let native_numeric ~scalar expression =
+  (expression_is_f64 expression || Option.is_some (floating_destination scalar))
+  && Option.is_some (native_numeric_conversion ~scalar expression)
+
+let convert_native_word conversion bits =
+  match conversion with
+  | Same_class -> bits
+  | To_f64 -> Common.Binary64_conversion.of_signed_word bits
+  | To_integer -> Common.Binary64_conversion.to_signed_word bits

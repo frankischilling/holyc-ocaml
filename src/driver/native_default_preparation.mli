@@ -42,6 +42,9 @@ val create :
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
   ?native_default:native_executor ->
+  ?native_initializer:
+    (Ir.Integer_interpreter.native_constant_request ->
+    (unit, Common.Diagnostic.t list) result) ->
   compilation_mode:Frontend.Preprocessor.compilation_mode ->
   max_initializer_steps:int ->
   ?max_default_bytes:int ->
