@@ -354,9 +354,9 @@ let evaluate_expression ?(consume = fun () -> Ok ()) ~query_origin ~query_value
         | Switch_case ->
             float_to_i64 (expression_origin ~query_origin expression) value
         | Aggregate_offset | Member_metadata ->
-            if Float.is_finite value then Ok (Int64.bits_of_float value)
-            else Error (non_finite (expression_origin ~query_origin expression))
-        ))
+            (* PrsVar.HC uses LexExpression for these two contexts. Its
+               completed word is retained without conversion or a finite test. *)
+            Ok (Int64.bits_of_float value)))
 
 let rec equal ~equal_query (left : 'query expression)
     (right : 'query expression) =

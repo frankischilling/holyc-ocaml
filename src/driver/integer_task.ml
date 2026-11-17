@@ -2485,7 +2485,10 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
       Initializer_fragment_typing.prepare_offset context fragment |> diagnose
     in
     let* destination =
-      Ir.Offset_fragment_destination.create ~task_view typed |> diagnose
+      (if Option.is_some task.native_offset then
+         Ir.Offset_fragment_destination.create_native ~task_view typed
+       else Ir.Offset_fragment_destination.create ~task_view typed)
+      |> diagnose
     in
     match task.native_offset with
     | Some evaluate ->
@@ -2565,7 +2568,9 @@ let execute_runtime_member_metadata ?(use_active_stream = true)
       |> diagnose
     in
     let* destination =
-      Ir.Member_metadata_fragment_destination.create ~task_view typed
+      (if Option.is_some task.native_member_metadata then
+         Ir.Member_metadata_fragment_destination.create_native ~task_view typed
+       else Ir.Member_metadata_fragment_destination.create ~task_view typed)
       |> diagnose
     in
     match task.native_member_metadata with

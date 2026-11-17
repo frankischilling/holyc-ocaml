@@ -6,6 +6,11 @@ and static bounds, primitive class and union member bounds, direct and callback
 calls, saved arguments, and supported internal calls. Their results set fixed
 dimensions, strides and layout metadata. Function calls reuse those results.
 
+Native [F64 array bounds](native-f64-runtime-dimensions.md) convert the completed
+result to a signed count. Native [F64 offsets](native-f64-member-preparation.md)
+retain the raw result word, as does numeric member metadata. The two paths
+follow the original `LexExpressionI64` and `LexExpression` entry points.
+
 ```text
 holyc run --mode=jit --report-version=2 --format=json examples/runtime-layout-expressions.hc
 holyc run --target=host-jit-task --mode=jit --code-byte-limit=262144 --report-version=2 --format=json examples/runtime-layout-expressions.hc
@@ -49,5 +54,5 @@ also evaluate original runtime bounds and offsets during parsing, including in
 uncalled functions. [Automatic objects declared in functions](function-local-aggregate-objects.md)
 use those completed layouts during IR and native JIT source execution. The
 captured dimensions and offsets are reused when the function runs, with their
-original preparation dependencies. AOT runtime relocation, runtime floating
-bounds, exported ABI, loader acceptance and bootstrap remain separate work.
+original preparation dependencies. AOT runtime relocation, exported ABI,
+loader acceptance and bootstrap remain separate work.

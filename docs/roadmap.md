@@ -41,9 +41,10 @@ operations share the existing IR and native storage paths. See
 [function-local objects](function-local-aggregate-objects.md).
 General object copies remain part of the broader work under #686.
 [Member metadata](member-metadata.md) now retains closed preparation results.
-Live integer metadata now executes in original JIT tasks. Data/code addresses,
-live floating expressions, ordinary AOT metadata evaluation and runtime
-reflection consumers remain unfinished.
+Live integer metadata executes in original JIT tasks; native tasks also retain
+[live F64 metadata words](native-f64-member-preparation.md). Data/code addresses,
+IR floating execution, AOT metadata that reads output-module storage or calls
+module functions, and runtime reflection consumers remain unfinished.
 [Owned reference returns](reference-returns.md) now preserve caller storage and
 activation lifetimes through named calls and callbacks in IR and native code.
 One-level [callback fields](callback-fields.md) now use their selected headers
@@ -72,9 +73,10 @@ Aggregate object storage and member-index admission remain open. See
 
 Issue #704 now connects integer runtime array bounds and aggregate `$$` offsets
 to original IR and native JIT task execution. Primitive member layouts retain
-runtime dependencies through completed sizes and derived frames. AOT relocation,
-floating bounds, aggregate object execution and synchronous native StreamExePrint
-remain open. See [runtime layout expressions](runtime-layout-expressions.md).
+runtime dependencies through completed sizes and derived frames. Native F64
+bounds use numeric conversion, while native F64 offsets retain raw words.
+AOT runtime relocation and wider ABI and loader acceptance remain open. See
+[runtime layout expressions](runtime-layout-expressions.md).
 
 Issue #704 now connects integer `_intern` target expressions to original JIT
 task execution in IR and native code. Supported internal calls share the native

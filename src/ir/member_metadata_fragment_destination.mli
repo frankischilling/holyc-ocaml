@@ -5,6 +5,13 @@ val create :
   Sema.Function_call_expression_result.top_level_t ->
   (t, string) result
 
+val create_native :
+  task_view:Integer_globals.task_view ->
+  Sema.Function_call_expression_result.top_level_t ->
+  (t, string) result
+(** Admit native numeric results while retaining LexExpression's raw completed
+    word. F64 metadata is neither converted to I64 nor normalized. *)
+
 val fragment : t -> Sema.Member_metadata_fragment.t
 val typed : t -> Sema.Function_call_expression_result.top_level_t
 val root : t -> Sema.Function_call_expression_result.top_level_root_result

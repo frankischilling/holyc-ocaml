@@ -108,14 +108,16 @@
  (alias native-tests)
  (deps
   ../../examples/runtime-layout-expressions.hc
-  ../../examples/native-f64-runtime-dimensions.hc)
+  ../../examples/native-f64-runtime-dimensions.hc
+  ../../examples/native-f64-member-preparation.hc)
  (action
   (run
    %{exe:../test_runtime_layout_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/runtime-layout-expressions.hc}
    --native
-   %{dep:../../examples/native-f64-runtime-dimensions.hc})))
+   %{dep:../../examples/native-f64-runtime-dimensions.hc}
+   %{dep:../../examples/native-f64-member-preparation.hc})))
 
 (library
  (name runtime_layout_fixture)

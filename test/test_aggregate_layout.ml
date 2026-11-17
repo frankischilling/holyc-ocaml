@@ -336,6 +336,44 @@ let f64_array_dimension_conversion () =
        (floating 9223372036854775808.0)
     |> check_error_code "HCSEMA0007")
 
+let f64_raw_declaration_words () =
+  List.iter
+    (fun context ->
+      List.iter
+        (fun (label, bits) ->
+          let result =
+            Semantic_aggregate_layout.evaluate_expression ~context
+              ~current_position:0L
+              (floating (Int64.float_of_bits bits))
+          in
+          Alcotest.(check int64)
+            label bits
+            (match result with
+            | Ok value -> value
+            | Error error ->
+                Alcotest.fail (Semantic_aggregate_layout.error_to_string error)))
+        [
+          ("positive zero", 0L);
+          ("negative zero", Int64.min_int);
+          ("finite fraction", 0x400e_0000_0000_0000L);
+          ("positive infinity", 0x7ff0_0000_0000_0000L);
+          ("negative infinity", 0xfff0_0000_0000_0000L);
+          ("quiet NaN payload", 0x7ff8_0000_0000_0042L);
+          ("signaling NaN payload", 0x7ff0_0000_0000_0042L);
+        ];
+      let divided =
+        Semantic_aggregate_layout.evaluate_expression ~context
+          ~current_position:0L
+          (binary Divide (floating 1.0) (floating 0.0))
+      in
+      Alcotest.(check int64)
+        "LexExpression keeps a non-finite arithmetic result"
+        0x7ff0_0000_0000_0000L (Result.get_ok divided))
+    [
+      Semantic_aggregate_layout.Aggregate_offset;
+      Semantic_aggregate_layout.Member_metadata;
+    ]
+
 let expression_failures_are_typed () =
   let dependency =
     Semantic_aggregate_layout.Dependency_expression
@@ -514,6 +552,8 @@ let tests =
       closed_expression_operators;
     Alcotest.test_case "array F64 conversion and exact work" `Quick
       f64_array_dimension_conversion;
+    Alcotest.test_case "raw F64 offset and metadata words" `Quick
+      f64_raw_declaration_words;
     Alcotest.test_case "typed expression failures" `Quick
       expression_failures_are_typed;
     Alcotest.test_case "visible layout failures" `Quick

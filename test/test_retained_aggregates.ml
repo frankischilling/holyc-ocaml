@@ -875,7 +875,7 @@ let member_metadata_authority () =
   let source =
     Session.add_source session ~path:"member-metadata-authority.hc"
       ~contents:
-        {|class Box{U8 x data 40+2 note "A\0" "B" data 43 bits 1.5 at $$ zero 0;I64 y data 44;};class Box{I64 x data 7;};union U{$$=4;I64 x at $$;};|}
+        {|class Box{U8 x data 40+2 note "A\0" "B" data 43 bits 1.5 at $$ zero 0 positive_inf 1.0/0.0 negative_inf -1.0/0.0 negative_zero -0.0;I64 y data 44;};class Box{I64 x data 7;};union U{$$=4;I64 x at $$;};|}
   in
   ignore
     (Parser.parse
@@ -905,8 +905,11 @@ let member_metadata_authority () =
   word x "bits" (Int64.bits_of_float 1.5);
   word x "at" 1L;
   word x "zero" 0L;
+  word x "positive_inf" 0x7ff0_0000_0000_0000L;
+  word x "negative_inf" 0xfff0_0000_0000_0000L;
+  word x "negative_zero" Int64.min_int;
   Alcotest.(check int)
-    "duplicate names remain in the prepended chain" 6
+    "duplicate names remain in the prepended chain" 9
     (List.length (Record.aggregate_field_metadata x));
   (match
      Record.aggregate_field_metadata_find x "note"
@@ -922,6 +925,7 @@ let member_metadata_authority () =
     List.nth (List.rev !completed) 1 |> Record.aggregate_fields |> List.hd
   in
   word newer "data" 7L;
+  word x "positive_inf" 0x7ff0_0000_0000_0000L;
   let union = List.hd !completed |> Record.aggregate_fields |> List.hd in
   word union "at" 4L;
   word x "data" 43L;

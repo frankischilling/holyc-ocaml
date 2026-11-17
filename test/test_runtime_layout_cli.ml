@@ -22,13 +22,13 @@ let with_file suffix contents action =
 let () =
   require
     (Array.length Sys.argv = 3
-    || (Array.length Sys.argv = 5 && Sys.argv.(3) = "--native"))
+    || (Array.length Sys.argv = 6 && Sys.argv.(3) = "--native"))
     "expected compiler and runtime-layout example, optionally --native \
-     F64-example"
+     F64-bounds-example F64-member-example"
 
 let compiler = Sys.argv.(1)
 let example = Sys.argv.(2)
-let native = Array.length Sys.argv = 5
+let native = Array.length Sys.argv = 6
 
 let invoke ?(status = 0) ?(options = []) target mode path =
   let args =
@@ -126,6 +126,88 @@ let closed_aot_float () =
       ("I64 A[4294967296.0*2147483648.0];sizeof(A);", 3, Int64.min_int);
       ("I64 A[1.0/0.0];sizeof(A);", 3, Int64.min_int);
       ("I64 A[0.0/0.0];sizeof(A);", 3, Int64.min_int);
+    ]
+
+let closed_raw_float () =
+  List.iter
+    (fun target ->
+      List.iter
+        (fun mode ->
+          List.iter
+            (fun (source, work) ->
+              with_file ".hc" source (fun path ->
+                  let report =
+                    invoke
+                      ~options:
+                        [ Printf.sprintf "--initializer-step-limit=%d" work ]
+                      target mode path
+                  in
+                  word "42" report;
+                  require
+                    (member "compiled_initializer_steps" report = `Int work)
+                    "raw F64 declaration retains every expression visit";
+                  let failed =
+                    invoke ~status:1
+                      ~options:
+                        [
+                          Printf.sprintf "--initializer-step-limit=%d" (work - 1);
+                        ]
+                      target mode path
+                  in
+                  error "HCIRVM0007" failed;
+                  require
+                    (member "compiled_initializer_steps" failed
+                    = `Int (work - 1))
+                    "raw F64 preparation preserves reached work on exhaustion"))
+            [
+              ("class C{I64 n value 1.0/0.0;};42;", 3);
+              ( "class C{$$=1.0/0.0;$$=$$-0x7ff0000000000000+16;I64 \
+                 n;};sizeof(C)+18;",
+                8 );
+            ])
+        [ "jit"; "aot" ])
+    (if native then [ "ir"; "host-jit"; "host-jit-task" ] else [ "ir" ])
+
+let native_raw_float () =
+  let declarations =
+    "I64 N=0;F64 Offset(){N++;return 3.75;}F64 Meta(){N++;return 2.75;}class \
+     C{U8 head;$$=Offset();$$=$$-0x400e000000000000+16;I64 tail value \
+     Meta();};"
+  in
+  List.iter
+    (fun (mode, source) ->
+      with_file ".hc" source (fun path ->
+          let baseline = invoke "host-jit-task" mode path in
+          word "42" baseline;
+          let fragments =
+            baseline |> member "native" |> member "fragments" |> to_list
+          in
+          List.iter
+            (fun kind ->
+              let reached =
+                List.filter (fun f -> member "kind" f = `String kind) fragments
+              in
+              require
+                (List.length reached = 1)
+                ("one original native F64 " ^ kind);
+              require
+                (member "outcome" (List.hd reached) = `String "success")
+                ("F64 " ^ kind ^ " completed"))
+            [ "offset"; "metadata" ];
+          let work = member "compiled_initializer_steps" baseline |> to_int in
+          word "42"
+            (invoke
+               ~options:[ Printf.sprintf "--initializer-step-limit=%d" work ]
+               "host-jit-task" mode path);
+          error "HCIRVM0007"
+            (invoke ~status:1
+               ~options:
+                 [ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ]
+               "host-jit-task" mode path)))
+    [
+      ("jit", read Sys.argv.(5));
+      ("jit", "#exe {" ^ declarations ^ "StreamPrint(\"%d;\",sizeof(C)+N+16);}");
+      ("aot", "#exe {" ^ declarations ^ "StreamPrint(\"%d;\",sizeof(C)+N+16);}");
     ]
 
 let () =
@@ -239,5 +321,7 @@ let () =
           (member "output_hex" report = `String "6b657074")
           "native F64 failure preserves earlier output"));
   closed_aot_float ();
+  closed_raw_float ();
+  if native then native_raw_float ();
   Printf.printf "%d original runtime-layout CLI reports passed\n"
-    (if native then 27 else 15)
+    (if native then 60 else 23)
