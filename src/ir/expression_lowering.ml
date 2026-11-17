@@ -532,6 +532,14 @@ let checked_frame_value result =
         checked_f64_type result
     | _ -> checked_frame_integer result
 
+let checked_frame_numeric result =
+  match checked_frame_integer result with
+  | Error _ as error -> error
+  | Ok (Checked_type _) as checked -> checked
+  | Ok Unsupported_type when Semantic_result.result_array_rank result = 0 ->
+      checked_f64_type result
+  | Ok Unsupported_type -> Ok Unsupported_type
+
 let checked_frame_scalar result =
   match Semantic_result.result_category result with
   | Semantic_result.Callback_value
@@ -1766,36 +1774,89 @@ let validate_f64_binary_with checked_result_type ~allow_integer_pair
               (Supported_binary
                  { left_conversion; right_conversion; operation_flags }))
 
-let validate_binary result opcode left right =
-  match validate_binary_with checked_integer_type result left right with
+let compound_assignment = function
+  | Opcode.Ic_add_equ
+  | Ic_sub_equ
+  | Ic_mul_equ
+  | Ic_div_equ
+  | Ic_mod_equ
+  | Ic_and_equ
+  | Ic_or_equ
+  | Ic_xor_equ
+  | Ic_shl_equ
+  | Ic_shr_equ -> true
+  | _ -> false
+
+let arithmetic_compound_assignment = function
+  | Opcode.Ic_add_equ | Ic_sub_equ | Ic_mul_equ | Ic_div_equ | Ic_mod_equ ->
+      true
+  | _ -> false
+
+let validate_compound_assignment result opcode left right =
+  match validate_binary_with checked_frame_numeric result left right with
   | Error _ as error -> error
-  | Ok true ->
-      Ok
-        (Supported_binary
-           {
-             left_conversion = Keep_result;
-             right_conversion = Keep_result;
-             operation_flags = 0L;
-           })
-  | Ok false when accepted_f64_arithmetic_opcode opcode ->
-      validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
-        ~operation_flags:0L result left right
-  | Ok false when accepted_f64_bitwise_opcode opcode ->
-      validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
-        ~operation_flags:0L result left right
-  | Ok false when accepted_f64_shift_opcode opcode ->
-      validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
-        ~operation_flags:0L result left right
-  | Ok false when accepted_f64_comparison_opcode opcode ->
-      validate_f64_binary_with checked_integer_type ~allow_integer_pair:false
-        ~operation_flags:use_f64_flag result left right
-  | Ok false when accepted_f64_logical_opcode opcode ->
-      validate_f64_binary_with checked_integer_type ~allow_integer_pair:false
-        ~operation_flags:0L result left right
-  | Ok false when opcode = Opcode.Ic_power ->
-      validate_f64_binary_with checked_f64_type ~allow_integer_pair:true
-        ~operation_flags:0L result left right
   | Ok false -> Ok Unsupported_binary
+  | Ok true ->
+      let left_type = Option.get (Semantic_result.result_value_type left) in
+      let result_type = Option.get (Semantic_result.result_value_type result) in
+      if not (Type.equal left_type result_type) then Ok Unsupported_binary
+      else
+        let left_f64 = Type.is_f64 left_type in
+        let right_f64 =
+          Semantic_result.result_class right = Semantic_result.F64_result
+        in
+        let arithmetic = arithmetic_compound_assignment opcode in
+        (* OptPass012.HC:859-894 converts the RHS before the update. Floating
+           arithmetic on an integer destination converts the old stored word
+           and the completed result inside ICFOpEqu, not the RHS to integer. *)
+        let right_conversion =
+          if arithmetic then
+            if left_f64 && not right_f64 then Result_to_f64 else Keep_result
+          else if right_f64 then Result_to_int
+          else Keep_result
+        in
+        Ok
+          (Supported_binary
+             {
+               left_conversion = Keep_result;
+               right_conversion;
+               operation_flags =
+                 (if arithmetic && right_f64 then use_f64_flag else 0L);
+             })
+
+let validate_binary result opcode left right =
+  if compound_assignment opcode then
+    validate_compound_assignment result opcode left right
+  else
+    match validate_binary_with checked_integer_type result left right with
+    | Error _ as error -> error
+    | Ok true ->
+        Ok
+          (Supported_binary
+             {
+               left_conversion = Keep_result;
+               right_conversion = Keep_result;
+               operation_flags = 0L;
+             })
+    | Ok false when accepted_f64_arithmetic_opcode opcode ->
+        validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
+          ~operation_flags:0L result left right
+    | Ok false when accepted_f64_bitwise_opcode opcode ->
+        validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
+          ~operation_flags:0L result left right
+    | Ok false when accepted_f64_shift_opcode opcode ->
+        validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
+          ~operation_flags:0L result left right
+    | Ok false when accepted_f64_comparison_opcode opcode ->
+        validate_f64_binary_with checked_integer_type ~allow_integer_pair:false
+          ~operation_flags:use_f64_flag result left right
+    | Ok false when accepted_f64_logical_opcode opcode ->
+        validate_f64_binary_with checked_integer_type ~allow_integer_pair:false
+          ~operation_flags:0L result left right
+    | Ok false when opcode = Opcode.Ic_power ->
+        validate_f64_binary_with checked_f64_type ~allow_integer_pair:true
+          ~operation_flags:0L result left right
+    | Ok false -> Ok Unsupported_binary
 
 type operand_conversion = {
   operand_conversion_kind_ : Semantic_result.intrinsic_conversion;
@@ -2666,19 +2727,6 @@ let validate_frame_assignment result left right =
         || data_pointer_type r && Type.equal r l
            && Integer_scalar_storage.compatible_pointer l v)
 
-let compound_assignment = function
-  | Opcode.Ic_add_equ
-  | Ic_sub_equ
-  | Ic_mul_equ
-  | Ic_div_equ
-  | Ic_mod_equ
-  | Ic_and_equ
-  | Ic_or_equ
-  | Ic_xor_equ
-  | Ic_shl_equ
-  | Ic_shr_equ -> true
-  | _ -> false
-
 let prepare_update_address ?frame ?globals result operand =
   if Semantic_result.result_is_callback_storage operand then
     if
@@ -2705,7 +2753,7 @@ let prepare_update_address ?frame ?globals result operand =
       -> prepare_assignment_address ?frame ?globals operand
     | _ -> Ok None
   else
-    match (checked_frame_integer result, checked_frame_integer operand) with
+    match (checked_frame_numeric result, checked_frame_numeric operand) with
     | Error item, _ | _, Error item -> Error [ item ]
     | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok None
     | Ok (Checked_type result_type), Ok (Checked_type operand_type) ->
@@ -3574,8 +3622,10 @@ let plan ?frame ?globals ?root_conversion ~allow_calls root =
                             Semantic_result.result_is_callback_storage left
                           then validate_frame_assignment result left right
                           else
-                            validate_binary_with checked_frame_integer result
-                              left right
+                            match validate_binary result opcode left right with
+                            | Error _ as error -> error
+                            | Ok Unsupported_binary -> Ok false
+                            | Ok (Supported_binary _) -> Ok true
                         with
                         | Error item -> error := Some item
                         | Ok true -> (
@@ -3593,6 +3643,27 @@ let plan ?frame ?globals ?root_conversion ~allow_calls root =
                                        "assignment address validation failed")
                             | Ok None -> unsupported := true
                             | Ok (Some address) -> (
+                                let right_conversion, operation_flags =
+                                  if
+                                    compound_assignment opcode
+                                    && not
+                                         (Semantic_result
+                                          .result_is_callback_storage left)
+                                  then
+                                    match
+                                      validate_binary result opcode left right
+                                    with
+                                    | Ok
+                                        (Supported_binary
+                                           {
+                                             right_conversion;
+                                             operation_flags;
+                                             _;
+                                           }) ->
+                                        (right_conversion, operation_flags)
+                                    | _ -> assert false
+                                  else (Keep_result, 0L)
+                                in
                                 let ordinary () =
                                   address_tasks left address
                                     [
@@ -3601,7 +3672,7 @@ let plan ?frame ?globals ?root_conversion ~allow_calls root =
                                           result = right;
                                           conversion =
                                             (if opcode <> Opcode.Ic_assign then
-                                               Keep_result
+                                               right_conversion
                                              else
                                                (* OptPass012.HC:866-872 converts the RHS
                                                   before storing, never the lvalue bits. *)
@@ -3646,7 +3717,7 @@ let plan ?frame ?globals ?root_conversion ~allow_calls root =
                                           left;
                                           right;
                                           conversion;
-                                          operation_flags = 0L;
+                                          operation_flags;
                                         };
                                     ]
                                 in

@@ -153,6 +153,17 @@ let cases =
     ( "reverse divide",
       "F64 F(F64 a,F64 b){return b/a;}F(2.0,7.0);",
       0x400c000000000000L );
+    ( "remainder",
+      "F64 F(F64 a,F64 b){return a%b;}F(1.0,2.0);",
+      0x3ff0000000000000L );
+    ( "compound update",
+      "F64 F(F64 x){x+=1.0;return x;}F(1.0);",
+      0x4000000000000000L );
+    (* OptLib:124-139 promotes the count to F64. BackA:573-600 shifts the raw
+       word; the low six bits of binary64 1.0 select a zero-bit shift. *)
+    ( "shift uses the promoted count word",
+      "F64 F(F64 x){return x<<1;}F(1.0);",
+      0x3ff0000000000000L );
     ("negative zero", "F64 Neg(F64 x){return -x;}Neg(0.0);", Int64.min_int);
     ("negative", "F64 Neg(F64 x){return -x;}Neg(1.5);", 0xbff8000000000000L);
     ( "infinity",
@@ -462,8 +473,6 @@ let excluded =
   [
     ( "unproved literal reassociation",
       "F64 F(F64 a){return (a+0.5)+0.5;}F(1.0);" );
-    ("remainder", "F64 F(F64 a,F64 b){return a%b;}F(1.0,2.0);");
-    ("compound update", "F64 F(F64 x){x+=1.0;return x;}F(1.0);");
     ("deeper pointer", "F64 F(F64 **x){return **x;}42;");
     ("pointer array", "F64 F(){F64 *x[2];return 1.0;}42;");
     ("global pointer", "F64 *x;42;");
@@ -473,7 +482,6 @@ let excluded =
     );
     ("unsupported fixed register", "F64 F(){F64 reg RAX x=1.0;return x;}42;");
     ("float format", "extern U0 Print(U8 *fmt,...);Print(\"%f\",1.0);");
-    ("shift", "F64 F(F64 x){return x<<1;}F(1.0);");
     ("power", "F64 F(F64 x){return x**2.0;}F(1.0);");
   ]
 

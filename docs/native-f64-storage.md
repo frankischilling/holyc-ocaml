@@ -1,15 +1,79 @@
 # Native F64 storage
 
-Both native source targets can read and write automatic F64 arrays, packed F64
-members and one-level owned F64 pointers in JIT and AOT source modes. Fixed
-parameters can borrow these pointers across generated calls and recursion.
-Storage transports eight binary64 bytes; floating arithmetic continues to use
-the separately authenticated x87 plan. The integer interpreter remains outside
-this execution subset.
+Both native source targets can use F64 scalars, fixed arrays and packed members
+in automatic, global and static storage in JIT and AOT source modes. One-level
+owned F64 pointers can borrow that storage across generated calls and recursion.
+Reads feed arithmetic, comparisons, control flow and numeric conversions through
+the original source expression's x87 plan. Stores retain eight binary64 bytes.
+The integer interpreter remains outside this execution subset.
 
 The [storage example](../examples/native-f64-storage.hc) returns F64 3.75. It
 borrows an unaligned packed array through a pointer parameter, reads the next
 element with pointer addition, and adds two materialized values.
+
+The [storage execution example](../examples/native-f64-storage-execution.hc)
+returns I64 `42`. It combines global and static arrays, an unaligned packed
+record, compound updates, numeric member conversions and loops. Both native
+targets run it in either source mode:
+
+```sh
+holyc run --target=host-jit-task --mode=jit examples/native-f64-storage-execution.hc
+```
+
+## Expressions and updates
+
+Each operand keeps its original storage owner, selected type and address proof.
+The planner replays the checked source region before admitting its floating
+operations. Global, static, array and member reads can therefore feed the same
+extended arithmetic links as proved frame reads. A stored read supplies a
+binary64 word; an arithmetic result can remain extended only until the next
+source-selected boundary. For `a=9007199254740992.0` and `b=1.0`, `(a+b)-a`
+returns `1.0`, while storing `a+b` in an F64 element before subtracting `a`
+returns positive zero. See [native scalar F64](native-f64.md) for link selection.
+
+| Operation | Storage behavior |
+| --- | --- |
+| `=` | Converts between integer and F64 when the original assignment requires it, then writes the selected destination width |
+| `-x`, `+`, `-`, `*`, `/` | Uses the original x87 operand order and proved extended links |
+| `%` and `%=` | Uses repeated FPREM reduction and materializes binary64; integer destinations then truncate |
+| Prefix and postfix `++` / `--` | Updates the stored binary64 word and retains the original prefix/postfix result rules |
+| `+=`, `-=`, `*=`, `/=` | Captures the address once, evaluates the RHS, then reads and updates that destination |
+| `&=`, `\|=`, `^=`, `<<=`, `>>=` | Changes the raw destination word after converting an F64 RHS to an integer |
+| Comparisons and conditions | Uses the original bitwise equality, ordered predicate and raw-word truth rules |
+
+An F64 arithmetic compound update can consume a proved extended RHS, but its
+store rounds to binary64. Remainder updates materialize both operands. For an
+integer destination, the source first converts the old integer to binary64,
+performs the operation, stores its F64 result and truncates it before the
+integer store. Thus `I64 value=9007199254740993; value%=3.0;` stores `2`.
+The remainder operator follows the dividend's sign, including negative zero,
+and masked invalid operations produce NaN instead of an integer divide fault.
+
+Prefix and postfix updates can donate their new extended value to a later
+floating operation. A materialized postfix result still contains the old word.
+With `value=9007199254740992.0`, `(value++)-9007199254740992.0` can return `1.0`
+through the proved link even though the store rounds back to `9007199254740992.0`.
+Saving the postfix result in a separate F64 local preserves the old materialized
+word. These rules follow `Compiler/BackFB.HC:573-614` and
+`Compiler/Templates.HC:178-190`.
+
+Immediate arithmetic-update operands also retain the original function's
+`No_builtin_const` setting. Starting with stored `-3.141592653589793`, adding
+the immediate `3.141592653589793` leaves bits `0x3ca1a80000000000` when FLDPI
+is selected, or positive zero with `Option(36,1)` active during function
+compilation. Later option changes do not replace that function's snapshot.
+
+The value of an arithmetic compound expression needs its own source proof.
+Fixed frame locations and proved code-heap globals, members and constant array
+indices can use the source's `ICF_BY_VAL` result reload. Observed indirect
+`+=`, `-=`, `*=` and `/=` results reject when their original register supplier
+is unproved; this includes explicit `*(&value)` wrappers. Dynamic narrow integer
+compound results with an F64 operand have the same boundary. Discarding those
+results still permits the supported store. A JIT global allocated with
+`Option(35,1)` lacks the code-heap address guarantee. Increment, decrement and
+remainder retain their separately proved result paths. The source distinction
+is in `Compiler/BackFB.HC:123-126,220-222` and
+`Compiler/BackFA.HC:549-605`.
 
 ## Persistent storage
 
@@ -99,8 +163,8 @@ writes and reached instruction charges survive a later fault.
 
 The hosted guards still reject unread bytes, out-of-window accesses and retired
 stack owners. These are hosted safety rules, not claims about TempleOS fault
-behavior. Pointer-array storage, deeper pointers, general floating compound
-updates and arbitrary linked floating regions retain separate requirements.
+behavior. Pointer-array storage, deeper pointers, unproved compound result
+suppliers and arbitrary linked floating regions retain separate requirements.
 Isolated JIT reference-bearing initializer preparation also remains outside the
 supported paths. The JIT aggregate initializer path is described in
 [aggregate initializers](aggregate-initializers.md).
@@ -129,6 +193,15 @@ The reference is TempleOS commit
 - `Compiler/BackLib.HC:445-691,693-708` implements `ICMov` and `ICDeref`;
   `Compiler/BackC.HC:159-211` implements `ICAssign`. Same-class RT_F64 memory
   transport uses the eight-byte move path without an arithmetic conversion.
+- `Compiler/OptPass012.HC:859-894` selects arithmetic-update and bitwise/shift
+  RHS conversions. `Compiler/OptLib.HC:535-554` and
+  `Compiler/OptPass3.HC:165-228` select links from the original producers.
+- `Compiler/BackFB.HC:1-224,573-614` implements arithmetic compound and
+  increment/decrement updates. `Compiler/BackFA.HC:549-605` and
+  `Compiler/Templates.HC:23-37` implement remainder updates and FPREM reduction.
+- `Compiler/BackA.HC:603-658` and `Compiler/BackC.HC:539-599` implement raw-word
+  shift and bitwise updates. `Kernel/KernelA.HH:1555-1557` defines the data-heap
+  and builtin-constant options.
 
 `test/test_native_f64_cli.ml` exercises exact values, packed fields, negative
 zero, recursive borrowing, pointer fields and hosted storage faults through the
@@ -142,3 +215,13 @@ static and packed leaves, narrow copies, exceptional words and preparation
 limits through both native APIs.
 `test/native_initializer_authority/test_native_initializer_authority.ml` checks
 original declaration receipts and typed stores before native image emission.
+
+`test/persistent_f64_execution_cases.ml` supplies shared storage, precision,
+conversion, comparison, effect and fault programs to
+`test/native/test_native_persistent_f64_execution.ml` and
+`test/test_persistent_f64_execution_cli.ml`. The native suite also checks
+retained images, source-owner mutations, exact resource limits, GC and release.
+`test/native/test_native_f64_extended.ml` covers remainder reduction, compound
+conversion and option boundaries, raw-word shifts, negative literal comparisons
+and rejected result suppliers. Expected words come from the pinned compiler and
+instruction semantics; these fixtures add no TempleOS runtime captures.

@@ -261,3 +261,33 @@ val analyze_with_work_limit :
   (t option, proof_error) result
 (** As [analyze_result], with a stricter per-attempt work allowance. This can
     reduce, but never expand, the size-derived hosted limit. *)
+
+val source_disabled_registers_result :
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  (Sema.Function_frame_layout.location list, proof_error) result
+(** Collect the exact original primitive scalar and closed array [noreg] members
+    using one cumulative proof allowance for the entire function. Every repeated
+    source, member and dimension walk consumes that shared allowance; exhaustion
+    revokes the whole result. Execution callers should request this batch once
+    per function. *)
+
+val source_disables_register_result :
+  frame:Sema.Function_frame_layout.function_layout ->
+  body:Function_body.t ->
+  location:Sema.Function_frame_layout.location ->
+  (bool, proof_error) result
+(** Test exact location membership in [source_disabled_registers_result].
+    Authenticate an original explicit [noreg] primitive scalar or closed array
+    member independently of access scoring. The sealed source qualifiers, exact
+    frame/member owners, declared type, complete member order and frame geometry
+    must still agree. Other members may include closed arrays and aggregates
+    with their original allocation receipts. Unproved dimensions or source
+    shapes fail closed.
+
+    [Ok true] proves only the member's exclusion from register allocation in
+    PrsVar.HC and OptPass3.HC. It grants no physical register, expression,
+    instruction, conversion or storage-access authority. Execution callers must
+    independently authenticate and replay the original runtime graph. Changed
+    declarations, qualifiers, target types or slot geometry reject on every
+    query. [Error Proof_limit_exceeded] must reject execution. *)

@@ -138,7 +138,12 @@ let boundaries () =
       O.Ic_imm_i64
   in
   rejects "implicit conversion rejected" [ a; integer; binary 3 O.Ic_add 1 2 ];
-  rejects "float remainder rejected" [ a; b; binary 3 O.Ic_mod 1 2 ];
+  let modulo = binary 3 O.Ic_mod 1 2 in
+  let modulo_graph = graph [ a; b; modulo ] in
+  let modulo_entry = entry modulo_graph (prepare modulo_graph) modulo in
+  Alcotest.(check bool)
+    "remainder materializes its result" true
+    (modulo_entry.operation = Plan.Modulo && modulo_entry.live_after = []);
   List.iter
     (fun opcode ->
       rejects "raw graphs cannot authorize floating comparison"

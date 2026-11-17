@@ -340,10 +340,18 @@ type indirect_call = {
   target_call : int -> bool * direct_call;
 }
 
+type float_update_result = Stored_update_result | Computed_update_result
+
+type float_update = {
+  update_plan : X86_64_float_plan.update_entry;
+  update_result_source : float_update_result;
+}
+
 type frame_update =
   | Update_binary of Encoder.binary
   | Update_shift of Encoder.shift
   | Update_division of arithmetic_operation
+  | Update_float of float_update
 
 type callback_access =
   | Callback_frame of frame_access * int
@@ -653,7 +661,17 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
     ~values ~fault_sites ~position ~site (description : Sequence.description) =
   let operand = operand values description position in
   let define = define values description position in
-  let require_type = require_type ~allow_public in
+  let require_type description expected actual =
+    (* OptLib.HC:95-140 selects the internal F64 computation class for word
+       operations on floating operands. Keep the producer's public spelling
+       intact: it also controls the source zero-literal shortcut. *)
+    if
+      allow_narrow
+      && X86_64_float_plan.is_f64 expected
+      && X86_64_float_plan.is_f64 actual
+    then ()
+    else require_type ~allow_public description expected actual
+  in
   let checked_value type_ =
     if allow_narrow then
       (checked_scalar ~allow_public description type_).word_type
@@ -753,19 +771,25 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               Some result,
               Some target_type,
               Some (Sequence.Integer count) ) ) ->
-            let word = checked_word description target_type in
+            let word =
+              if allow_narrow && X86_64_float_plan.is_f64 target_type then
+                checked_value target_type
+              else checked_word description target_type
+            in
             let input = operand input_id in
-            ignore (checked_word ~allow_public description input.declared_type);
+            if word = F64 && X86_64_float_plan.is_f64 input.declared_type then
+              ignore (checked_value input.declared_type)
+            else
+              ignore
+                (checked_word ~allow_public description input.declared_type);
             require_type description
               (Computation.forward input.computation_type)
               target_type;
             let shift =
               match (direction, word) with
-              | `Left, (I64 | U64) -> Encoder.Shl
-              | `Right, I64 -> Encoder.Sar
+              | `Left, (I64 | U64 | F64) -> Encoder.Shl
+              | `Right, (I64 | F64) -> Encoder.Sar
               | `Right, U64 -> Encoder.Shr
-              | _, F64 ->
-                  unsupported description "native F64 shifts are unsupported"
             in
             let result =
               define result target_type (Computation.forward target_type)
@@ -779,13 +803,14 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
             require_type description
               (promoted_type description left right)
               target_type;
+            (* BackA.HC:573-600 shifts the materialized register words. For F64,
+               OptLib.HC:124-139 has already converted any integer count to an
+               F64 word; CL consumes its low bits without another conversion. *)
             let shift =
               match (direction, word) with
-              | `Left, (I64 | U64) -> Encoder.Shl
-              | `Right, I64 -> Encoder.Sar
+              | `Left, (I64 | U64 | F64) -> Encoder.Shl
+              | `Right, (I64 | F64) -> Encoder.Sar
               | `Right, U64 -> Encoder.Shr
-              | _, F64 ->
-                  unsupported description "native F64 shifts are unsupported"
             in
             let result =
               define result target_type (Computation.forward target_type)
@@ -1926,6 +1951,14 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
     | Expression_control _ ->
         reject "HCBACK0003" "native expression contains program control"
   in
+  let copy_update_operand span update input =
+    match (update, input) with
+    | Update_float { update_plan = plan; _ }, Some input
+      when plan.update_live_before = [ input.value_id ] -> ()
+    | _, Some input -> copy_value_to span input rcx
+    | Update_float _, None -> ()
+    | _, None -> emit span (Encoder.Mov_imm64 (Encoder.Rcx, 1L))
+  in
   let emit_update span update word (arithmetic_site : fault_site option) =
     let emit = emit span in
     match update with
@@ -1965,6 +1998,121 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
         match arithmetic_operation with
         | Divide -> rax
         | Remainder -> rdx)
+    | Update_float { update_plan = plan; _ } ->
+        if !extended_owner <> plan.update_live_before then
+          reject ?span "HCBACK0003"
+            "floating update differs from its sealed extended value";
+        let scratch = fixed_stack_slot span float_scratch_index in
+        let memory = Encoder.X87_stack scratch in
+        let load_rhs () =
+          if plan.update_live_before = [] then
+            match plan.update_load with
+            | Some X86_64_float_plan.Zero ->
+                emit (Encoder.Fld_constant Encoder.Fzero)
+            | Some One -> emit (Encoder.Fld_constant Encoder.Fone)
+            | Some (Builtin constant) -> emit (Encoder.Fld_constant constant)
+            | Some ((Bits | Signed_integer) as load) ->
+                emit (Encoder.Store_stack (scratch, Encoder.Rcx));
+                emit
+                  (if load = Signed_integer then Encoder.Fild64 memory
+                   else Encoder.Fld64 memory)
+            | None ->
+                reject ?span "HCBACK0003"
+                  "floating compound update lost its RHS load"
+        in
+        let old_as_float () =
+          emit (Encoder.Store_stack (scratch, Encoder.Rax));
+          if not plan.update_destination_is_f64 then (
+            (* ICFCvt2 rounds the old integer to binary64 before the operation. *)
+            emit (Encoder.Fild64 memory);
+            emit (Encoder.Fstp64 memory))
+        in
+        let completed_integer () =
+          if not plan.update_destination_is_f64 then (
+            (* ICFOpEqu first materializes F64, then ICFCvt2 truncates it. *)
+            emit (Encoder.Fld64 memory);
+            emit (Encoder.Fisttp64 memory))
+        in
+        (match plan.update_kind with
+        | Increment_update | Decrement_update ->
+            if plan.update_live_before <> [] then
+              reject ?span "HCBACK0003"
+                "floating increment cannot consume an unrelated extended value";
+            emit (Encoder.Store_stack (scratch, Encoder.Rax));
+            emit (Encoder.Fld_constant Encoder.Fone);
+            emit
+              (Encoder.Fbinary64
+                 ( (if plan.update_kind = Increment_update then Encoder.Fadd
+                    else Encoder.Fsubr),
+                   memory ));
+            emit
+              (if
+                 plan.update_live_after <> []
+                 || Option.is_some plan.update_result_conversion
+               then Encoder.Fst64 memory
+               else Encoder.Fstp64 memory);
+            emit (Encoder.Load_stack (Encoder.Rax, scratch))
+        | Remainder_update ->
+            if plan.update_live_before <> [] then
+              reject ?span "HCBACK0003"
+                "floating remainder update requires materialized operands";
+            if not plan.update_destination_is_f64 then (
+              old_as_float ();
+              emit (Encoder.Load_stack (Encoder.Rax, scratch)));
+            let loop = fresh_label supply in
+            X86_64_float_extended.emit_modulo ~emit
+              ~mark_loop:(fun () -> mark loop)
+              ~repeat_on_carry:(fun () -> emit_branch Below loop)
+              ~scratch ~left:Encoder.Rax ~right:Encoder.Rcx ~result:Encoder.Rax
+              ~truncate_result:(not plan.update_destination_is_f64)
+        | Add_update | Subtract_update | Multiply_update | Divide_update ->
+            load_rhs ();
+            old_as_float ();
+            let binary =
+              match plan.update_kind with
+              | Add_update -> Encoder.Fadd
+              | Subtract_update -> Encoder.Fsubr
+              | Multiply_update -> Encoder.Fmul
+              | Divide_update -> Encoder.Fdivr
+              | _ -> assert false
+            in
+            emit (Encoder.Fbinary64 (binary, memory));
+            emit (Encoder.Fstp64 memory);
+            completed_integer ();
+            emit (Encoder.Load_stack (Encoder.Rax, scratch)));
+        rax
+  in
+  let update_reloads_stored_word = function
+    | Update_float { update_result_source = Stored_update_result; _ } -> true
+    | _ -> false
+  in
+  let finish_update span update ~old_result ~computed_index =
+    let result_index = if old_result then r8 else computed_index in
+    match update with
+    | Update_binary _ | Update_shift _ | Update_division _ -> result_index
+    | Update_float { update_plan = plan; _ } ->
+        let scratch = fixed_stack_slot span float_scratch_index in
+        let memory = Encoder.X87_stack scratch in
+        let emit = emit span in
+        (match plan.update_result_conversion with
+        | None -> ()
+        | Some X86_64_float_plan.To_integer ->
+            if
+              plan.update_kind <> Increment_update
+              && plan.update_kind <> Decrement_update
+            then (
+              emit (Encoder.Store_stack (scratch, registers.(result_index)));
+              emit (Encoder.Fld64 memory));
+            emit (Encoder.Fisttp64 memory);
+            emit (Encoder.Load_stack (registers.(result_index), scratch))
+        | Some To_float ->
+            emit (Encoder.Store_stack (scratch, registers.(result_index)));
+            emit (Encoder.Fild64 memory);
+            if plan.update_live_after = [] then (
+              emit (Encoder.Fstp64 memory);
+              emit (Encoder.Load_stack (registers.(result_index), scratch))));
+        extended_owner := plan.update_live_after;
+        result_index
   in
   let fault_label kind site =
     let label = fresh_label supply in
@@ -2209,7 +2357,8 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
           match update with
           | Update_binary ((Encoder.Add | Sub | And | Or | Xor) as binary) ->
               binary
-          | Update_binary Imul | Update_shift _ | Update_division _ ->
+          | Update_binary Imul
+          | Update_shift _ | Update_division _ | Update_float _ ->
               reject ?span:instruction.span "HCLOCK0001"
                 "LOCK update lost its checked memory operation"
         in
@@ -2462,6 +2611,23 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
               emit
                 (Encoder.Mov
                    (registers.(Option.get destination), registers.(source value)))
+          | Modulo, [ left; right ], [ Bits; Bits ] ->
+              if plan.live_before <> [] || plan.live_after <> [] then
+                reject ?span:instruction.span "HCBACK0003"
+                  "F64 remainder cannot retain an extended operand or result";
+              if plan.result_conversion = Some X86_64_float_plan.To_float then
+                reject ?span:instruction.span "HCBACK0003"
+                  "F64 remainder has an invalid result conversion";
+              let loop = fresh_label supply in
+              X86_64_float_extended.emit_modulo ~emit
+                ~mark_loop:(fun () -> mark loop)
+                ~repeat_on_carry:(fun () -> emit_branch Below loop)
+                ~scratch
+                ~left:registers.(source left)
+                ~right:registers.(source right)
+                ~result:registers.(Option.get destination)
+                ~truncate_result:
+                  (plan.result_conversion = Some X86_64_float_plan.To_integer)
           | Negate, [ value ], [ loading ] ->
               load value loading;
               emit Encoder.Fchs;
@@ -3586,9 +3752,7 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             Option.iter
               (require_numeric_owner ~protected:[ rax; rdx; r8 ])
               input;
-            (match input with
-            | Some input -> copy_value_to instruction.span input rcx
-            | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+            copy_update_operand instruction.span update input;
             let computed_index =
               emit_update instruction.span update word arithmetic_site
             in
@@ -3597,7 +3761,8 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
                  registers.(computed_index));
             if
               (not old_result)
-              && (Option.is_none input || narrow_result)
+              && (Option.is_none input || narrow_result
+                 || update_reloads_stored_word update)
               && access.frame_bytes < 8
             then
               emit
@@ -3607,7 +3772,10 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
               ~temporaries:
                 (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
               ();
-            assign position (if old_result then r8 else computed_index) result)
+            let result_index =
+              finish_update instruction.span update ~old_result ~computed_index
+            in
+            assign position result_index result)
       | Update_callback_value
           (access, update, input, old_result, result, arithmetic_site) -> (
           spill_all_registers instruction.span;
@@ -3728,7 +3896,7 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
               | Update_division _ ->
                   emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
                   Encoder.R8
-              | Update_binary _ | Update_shift _ -> Encoder.Rdx
+              | Update_binary _ | Update_shift _ | Update_float _ -> Encoder.Rdx
             in
             let computed_index =
               emit_update instruction.span update I64 arithmetic_site
@@ -3778,9 +3946,7 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             Option.iter
               (require_numeric_owner ~protected:[ rax; rdx; r8 ])
               input;
-            (match input with
-            | Some input -> copy_value_to instruction.span input rcx
-            | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+            copy_update_operand instruction.span update input;
             let computed_index =
               emit_update instruction.span update word arithmetic_site
             in
@@ -3789,7 +3955,8 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
                  registers.(computed_index));
             if
               (not old_result)
-              && (Option.is_none input || narrow_result)
+              && (Option.is_none input || narrow_result
+                 || update_reloads_stored_word update)
               && access.arena_bytes < 8
             then
               emit
@@ -3799,7 +3966,10 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
               ~temporaries:
                 (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
               ();
-            assign position (if old_result then r8 else computed_index) result)
+            let result_index =
+              finish_update instruction.span update ~old_result ~computed_index
+            in
+            assign position result_index result)
       | Update_indexed_object_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
@@ -3825,15 +3995,13 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             Option.iter
               (require_numeric_owner ~protected:[ rax; rdx; r8 ])
               input;
-            (match input with
-            | Some input -> copy_value_to instruction.span input rcx
-            | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+            copy_update_operand instruction.span update input;
             let target =
               match update with
               | Update_division _ ->
                   emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
                   Encoder.R8
-              | Update_binary _ | Update_shift _ -> Encoder.Rdx
+              | Update_binary _ | Update_shift _ | Update_float _ -> Encoder.Rdx
             in
             let computed_index =
               emit_update instruction.span update word arithmetic_site
@@ -3841,13 +4009,19 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             emit
               (store_reference_scalar instruction.span target scalar
                  registers.(computed_index));
-            if (not old_result) && Option.is_none input && scalar.byte_size < 8
+            if
+              (not old_result)
+              && (Option.is_none input || update_reloads_stored_word update)
+              && scalar.byte_size < 8
             then
               emit
                 (load_reference_scalar instruction.span
                    registers.(computed_index) target scalar);
             note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
-            assign position (if old_result then r8 else computed_index) result)
+            let result_index =
+              finish_update instruction.span update ~old_result ~computed_index
+            in
+            assign position result_index result)
       | Update_reference_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
@@ -3877,15 +4051,13 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
             Option.iter
               (require_numeric_owner ~protected:[ rax; rdx; r8 ])
               input;
-            (match input with
-            | Some input -> copy_value_to instruction.span input rcx
-            | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+            copy_update_operand instruction.span update input;
             let target =
               match update with
               | Update_division _ ->
                   emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
                   Encoder.R8
-              | Update_binary _ | Update_shift _ -> Encoder.Rdx
+              | Update_binary _ | Update_shift _ | Update_float _ -> Encoder.Rdx
             in
             let computed_index =
               emit_update instruction.span update word arithmetic_site
@@ -3894,14 +4066,18 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
               (store_reference_scalar instruction.span target access.scalar
                  registers.(computed_index));
             if
-              (not old_result) && Option.is_none input
+              (not old_result)
+              && (Option.is_none input || update_reloads_stored_word update)
               && access.scalar.byte_size < 8
             then
               emit
                 (load_reference_scalar instruction.span
                    registers.(computed_index) target access.scalar);
             note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
-            assign position (if old_result then r8 else computed_index) result)
+            let result_index =
+              finish_update instruction.span update ~old_result ~computed_index
+            in
+            assign position result_index result)
       | Call_start | Call_cleanup -> release_through position
       | Internal_numeric (plan, input, stage) -> (
           if !extended_owner <> [] then
@@ -6236,7 +6412,7 @@ let callable_frame_update opcode word =
   | Opcode.Ic_shl_equ -> Some (Update_shift Encoder.Shl, false, true)
   | Opcode.Ic_shr_equ ->
       Some
-        ( Update_shift (if word = I64 then Encoder.Sar else Encoder.Shr),
+        ( Update_shift (if word = U64 then Encoder.Shr else Encoder.Sar),
           false,
           true )
   | Opcode.Ic_pp_ -> Some (Update_binary Encoder.Add, false, false)
@@ -6285,9 +6461,38 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
              (Sequence.instructions (Graph.instructions block)))
          (Graph.blocks (Function.body body))
   in
+  let explicit_stack_homes =
+    lazy
+      (match
+         Ir.Register_variable_analysis.source_disabled_registers_result ~frame
+           ~body
+       with
+      | Ok locations ->
+          List.fold_left
+            (fun homes location ->
+              Int_map.add
+                (Symbol.Id.to_int (Symbol.id (Frame.location_symbol location)))
+                location homes)
+            Int_map.empty locations
+      | Error Ir.Register_variable_analysis.Proof_limit_exceeded ->
+          reject ?span "HCBACK0001"
+            "explicit stack proof exceeds the hosted work or nesting allowance")
+  in
+  let source_disables_register location =
+    if
+      Frame.location_register_selection location
+      <> Sema.Register_request.Disabled
+    then false
+    else
+      let key = Symbol.Id.to_int (Symbol.id (Frame.location_symbol location)) in
+      match Int_map.find_opt key (Lazy.force explicit_stack_homes) with
+      | Some original -> original == location
+      | None -> false
+  in
   let require_mixed_storage_proof location scalar =
     if
       has_float_storage_or_code && scalar.byte_size < 8
+      && (not (source_disables_register location))
       && not
            (Option.fold ~none:false
               ~some:(fun proof ->
@@ -6403,12 +6608,13 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
     (* Authenticated stack selection enables direct assignment reloads and
        the separate addition/subtraction compound-result rule. Unknown
        allocation is not evidence of stack storage. *)
-    Option.fold ~none:false
-      ~some:(fun proof ->
-        Ir.Register_variable_analysis.selection proof ~frame ~body
-          ~symbol:(Frame.location_symbol location)
-        = Some Ir.Register_variable_analysis.Stack)
-      register_proof
+    source_disables_register location
+    || Option.fold ~none:false
+         ~some:(fun proof ->
+           Ir.Register_variable_analysis.selection proof ~frame ~body
+             ~symbol:(Frame.location_symbol location)
+           = Some Ir.Register_variable_analysis.Stack)
+         register_proof
   in
   let allowed_flags =
     (* PrsFunJoin retains Ff_DOT_DOT_DOT when a replacement header is fixed.
@@ -7097,6 +7303,12 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
           map)
       Instruction_map.empty float_emission.conversion_entries
   in
+  let float_updates =
+    List.fold_left
+      (fun map entry ->
+        Instruction_map.add entry.X86_64_float_plan.update_instruction entry map)
+      Instruction_map.empty float_emission.update_entries
+  in
   let numeric_intrinsics =
     List.fold_left
       (fun map entry ->
@@ -7113,6 +7325,82 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
   in
   let float_entry description =
     Instruction_map.find_opt description.Sequence.instruction_id float_entries
+  in
+  let observed_values, integer_literals =
+    List.fold_left
+      (fun facts block ->
+        List.fold_left
+          (fun (observed, literals) instruction ->
+            let description = Sequence.description instruction in
+            let discarded =
+              description.opcode = Opcode.Ic_end_exp
+              && ((not is_entry)
+                 || Runtime.is_implicit_discard runtime_calls
+                      ~owner:runtime_owner description.instruction_id)
+            in
+            let observed =
+              if discarded then observed
+              else
+                List.fold_left
+                  (fun values id -> Value_set.add id values)
+                  observed description.operands
+            in
+            let literals =
+              match description with
+              | {
+               opcode = Opcode.Ic_imm_i64;
+               flags = 0L;
+               operands = [];
+               result = Some result;
+               target_type = Some type_;
+               payload = Some (Sequence.Integer bits);
+               _;
+              }
+                when Type.pointer_depth type_ = 0
+                     && not (X86_64_float_plan.is_f64 type_) ->
+                  Value_map.add result.value_id bits literals
+              | _ -> literals
+            in
+            (observed, literals))
+          facts
+          (Sequence.instructions (Graph.instructions block)))
+      (Value_set.empty, Value_map.empty)
+      (Graph.blocks graph)
+  in
+  let storage_update description ~by_value ~byte_size word =
+    match
+      Instruction_map.find_opt description.Sequence.instruction_id float_updates
+    with
+    | None -> Option.get (callable_frame_update description.opcode word)
+    | Some plan ->
+        let increment =
+          match plan.update_kind with
+          | Increment_update | Decrement_update -> true
+          | _ -> false
+        in
+        let result_source =
+          if by_value then Stored_update_result
+          else if
+            increment
+            || byte_size = 8
+               && ((not plan.update_destination_is_f64)
+                  || plan.update_kind = Remainder_update)
+          then Computed_update_result
+          else if
+            Option.fold ~none:false
+              ~some:(fun result ->
+                not (Value_set.mem result.Sequence.value_id observed_values))
+              description.result
+          then Computed_update_result
+          else
+            unsupported description
+              "addressed floating compound result requires its original native \
+               address mode and register supplier"
+        in
+        ( Update_float
+            { update_plan = plan; update_result_source = result_source },
+          plan.update_old_result,
+          not increment )
   in
   let lock_validation = Lock_validation.of_graph graph in
   let function_addresses =
@@ -7141,6 +7429,20 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
   next_site := first_site + instruction_count;
   let values = ref Value_map.empty in
   let frame_values = ref Value_map.empty in
+  (* OptPass012.HC folds literal strides and constant object offsets;
+     OptPass3.HC:178-200 forms frame LEA, and OptPass4.HC:363-412 selects
+     BY_VAL. Preserve that source fact through our checked pointer descriptors.
+     A dynamic index, pointer load or private arena address grants no fact. *)
+  let fixed_addresses = ref Value_map.empty in
+  let scaled_constants = ref Value_map.empty in
+  let extend_fixed_address result base delta =
+    match Value_map.find_opt base !fixed_addresses with
+    | Some offset when delta >= -0x8000_0000L && delta <= 0x7fff_ffffL ->
+        let total = Int64.add offset delta in
+        if total >= -0x8000_0000L && total <= 0x7fff_ffffL then
+          fixed_addresses := Value_map.add result total !fixed_addresses
+    | Some _ | None -> ()
+  in
   let void_values = ref Value_set.empty in
   (* Static target sets bound dispatch; private dynamic owner words distinguish
      original code from numeric bits through callback cells and parameters. *)
@@ -7408,7 +7710,7 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
           in
           arithmetic_sites := fault_site :: !arithmetic_sites;
           Some fault_site
-      | Update_binary _ | Update_shift _ -> None
+      | Update_binary _ | Update_shift _ | Update_float _ -> None
     in
     ( Update_callback_value
         (access, update, input, old_result, value, arithmetic_site),
@@ -9494,6 +9796,12 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                            inconsistent";
                       define_frame frame_values values void_values description
                         result (Global_address slot);
+                      if
+                        description.opcode = Opcode.Ic_abs_addr
+                        || Ir.Integer_globals.storage_is_code_heap source_slot
+                      then
+                        fixed_addresses :=
+                          Value_map.add result.value_id 0L !fixed_addresses;
                       (Frame_tick, None))
               | _ ->
                   malformed description "invalid native global address producer"
@@ -9575,6 +9883,18 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                             index_value = index;
                           })
                   in
+                  (match Value_map.find_opt index_id integer_literals with
+                  | Some index
+                    when index >= 0L
+                         && (stride = 0
+                            || index
+                               <= Int64.div 0x7fff_ffffL (Int64.of_int stride))
+                    ->
+                      scaled_constants :=
+                        Value_map.add result.value_id
+                          (Int64.mul index (Int64.of_int stride))
+                          !scaled_constants
+                  | _ -> ());
                   ( Scale_index (index_word, Int64.of_int stride, index, scaled),
                     None )
               | _ -> malformed description "invalid native index scaling")
@@ -9686,6 +10006,7 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                     malformed description
                       "member projection disagrees with its selected aggregate \
                        and field";
+                  extend_fixed_address result.value_id base_id delta;
                   let value =
                     define values description position result target_type
                       (Computation.forward target_type)
@@ -9769,6 +10090,9 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                                 ->
                                   define_frame frame_values values void_values
                                     description result (Frame_address slot);
+                                  fixed_addresses :=
+                                    Value_map.add result.value_id 0L
+                                      !fixed_addresses;
                                   (Frame_tick, None)
                               | _ ->
                                   malformed description
@@ -10023,6 +10347,16 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                                     | [] -> None);
                               })
                       in
+                      Option.iter
+                        (fun delta ->
+                          (* OptPass012 folds ABS_ADDR + constant, but a
+                             nonzero subtraction can remain SUB_CONST and
+                             lose BY_VAL in AOT. Zero subtraction vanishes. *)
+                          if description.opcode = Opcode.Ic_add || delta = 0L
+                          then
+                            extend_fixed_address result.value_id base_id delta)
+                        (Value_map.find_opt scaled.index_offset.value_id
+                           !scaled_constants);
                       ( Apply_index_offset
                           ( (if description.opcode = Opcode.Ic_sub then
                                Encoder.Sub
@@ -10564,7 +10898,14 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
           | Opcode.Ic_mm_
           | Opcode.Ic__pp
           | Opcode.Ic__mm -> (
-              if description.flags <> 0L || Option.is_some description.payload
+              let admitted_float =
+                Instruction_map.mem description.instruction_id float_updates
+              in
+              if
+                (if admitted_float then
+                   Int64.logand description.flags (Int64.lognot 0x40L) <> 0L
+                 else description.flags <> 0L)
+                || Option.is_some description.payload
               then malformed description "invalid scalar frame update";
               match
                 ( description.operands,
@@ -10619,9 +10960,8 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                         (checked_scalar ~allow_public:true description
                            target_type);
                       let update, old_result, expects_operand =
-                        Option.get
-                          (callable_frame_update description.opcode
-                             slot.slot_word)
+                        storage_update description ~by_value:true
+                          ~byte_size:slot.access.frame_bytes slot.slot_word
                       in
                       let input =
                         match (expects_operand, operands) with
@@ -10657,7 +10997,8 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                             in
                             arithmetic_sites := fault_site :: !arithmetic_sites;
                             Some fault_site
-                        | Update_binary _ | Update_shift _ -> None
+                        | Update_binary _ | Update_shift _ | Update_float _ ->
+                            None
                       in
                       ( Update_frame_value
                           ( slot.access,
@@ -10679,9 +11020,9 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                     ->
                       let access = arena_access slot in
                       let update, old_result, expects_operand =
-                        Option.get
-                          (callable_frame_update description.opcode
-                             access.arena_word)
+                        storage_update description
+                          ~by_value:(Value_map.mem address_id !fixed_addresses)
+                          ~byte_size:access.arena_bytes access.arena_word
                       in
                       let input =
                         match (expects_operand, operands) with
@@ -10717,7 +11058,8 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                             in
                             arithmetic_sites := fault_site :: !arithmetic_sites;
                             Some fault_site
-                        | Update_binary _ | Update_shift _ -> None
+                        | Update_binary _ | Update_shift _ | Update_float _ ->
+                            None
                       in
                       ( Update_arena_value
                           ( access,
@@ -10744,9 +11086,11 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                           operands site arithmetic_sites
                       else
                         let update, old_result, expects_operand =
-                          Option.get
-                            (callable_frame_update description.opcode
-                               access.scalar.word_type)
+                          storage_update description
+                            ~by_value:
+                              (Value_map.mem address_id !fixed_addresses)
+                            ~byte_size:access.scalar.byte_size
+                            access.scalar.word_type
                         in
                         let input =
                           match (expects_operand, operands) with
@@ -10783,7 +11127,8 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                               arithmetic_sites :=
                                 fault_site :: !arithmetic_sites;
                               Some fault_site
-                          | Update_binary _ | Update_shift _ -> None
+                          | Update_binary _ | Update_shift _ | Update_float _ ->
+                              None
                         in
                         ( Update_reference_value
                             ( access,
@@ -10840,8 +11185,12 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                               "indexed update changes its checked frame type"
                       in
                       let update, old_result, expects_operand =
-                        Option.get
-                          (callable_frame_update description.opcode word)
+                        storage_update description
+                          ~by_value:(Value_map.mem address_id !fixed_addresses)
+                          ~byte_size:
+                            (checked_scalar ~allow_public:true description
+                               target_type)
+                              .byte_size word
                       in
                       let input =
                         match (expects_operand, operands) with
@@ -10877,7 +11226,8 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                             in
                             arithmetic_sites := fault_site :: !arithmetic_sites;
                             Some fault_site
-                        | Update_binary _ | Update_shift _ -> None
+                        | Update_binary _ | Update_shift _ | Update_float _ ->
+                            None
                       in
                       match operation with
                       | `Object object_ ->
@@ -11253,6 +11603,7 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
               let entry = float_entry raw in
               if
                 receipt.deferred || receipt.elided
+                || Instruction_map.mem raw.instruction_id float_updates
                 || Option.fold ~none:false
                      ~some:(fun e ->
                        e.X86_64_float_plan.operation <> Convert_to_float)
@@ -13519,7 +13870,12 @@ let compile_callable_internal ?float_entry_source ?task_snapshot
                   Option.is_some instruction.numeric_conversion
                   ||
                   match instruction.operation with
-                  | Apply_float _ | Apply_float_comparison _ -> true
+                  | Apply_float _ | Apply_float_comparison _
+                  | Update_frame_value (_, Update_float _, _, _, _, _, _, _)
+                  | Update_arena_value (_, Update_float _, _, _, _, _, _, _)
+                  | Update_reference_value (_, Update_float _, _, _, _, _, _)
+                  | Update_indexed_object_value
+                      (_, Update_float _, _, _, _, _, _) -> true
                   | _ -> false)
                 block.program_instructions)
             prepared.callable_blocks
@@ -14503,6 +14859,7 @@ let compile_callable_internal ?float_entry_source ?task_snapshot
                 List.exists
                   (function
                     | Encoder.Fld64 _
+                    | Fst64 _
                     | Fstp64 _
                     | Fild64 _
                     | Fisttp64 _
@@ -14514,6 +14871,8 @@ let compile_callable_internal ?float_entry_source ?task_snapshot
                     | Ffree _
                     | Fincstp
                     | Fchs
+                    | Fprem
+                    | Fstsw_ax
                     | Fld_constant _ -> true
                     | _ -> false)
                   instructions;

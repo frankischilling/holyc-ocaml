@@ -47,6 +47,7 @@ type instruction =
   | Fild64 of x87_memory
   | Fisttp64 of x87_memory
   | Fld64 of x87_memory
+  | Fst64 of x87_memory
   | Fstp64 of x87_memory
   | Fbinary64 of x87_binary * x87_memory
   | Fbinary_st0 of x87_binary * x87_register
@@ -56,6 +57,8 @@ type instruction =
   | Ffree of x87_register
   | Fincstp
   | Fchs
+  | Fprem
+  | Fstsw_ax
   | Fld_constant of x87_constant
   | Mov_imm64 of register * int64
   | Mov of register * register
@@ -357,8 +360,11 @@ let return = source_form "RET" 961
 let fild64 = source_form "FILD" 1161
 let fisttp64 = source_form "FISTTP" 1165
 let fld64 = source_form "FLD" 1168
+let fst64 = source_form "FST" 1176
 let fstp64 = source_form "FSTP" 1172
 let fchs = source_form "FCHS" 1189
+let fprem = source_form "FPREM" 1216
+let fstsw_ax = source_form "FSTSW" 1239
 let fcomip = source_form "FCOMIP" 1235
 let ffree = source_form "FFREE" 1242
 let fincstp = source_form "FINCSTP" 1241
@@ -437,6 +443,7 @@ let form = function
   | Fild64 _ -> fild64
   | Fisttp64 _ -> fisttp64
   | Fld64 _ -> fld64
+  | Fst64 _ -> fst64
   | Fstp64 _ -> fstp64
   | Fbinary64 (operation, _) ->
       let memory, _, _, _ = List.assoc operation x87_binary_forms in
@@ -454,6 +461,8 @@ let form = function
   | Ffree _ -> ffree
   | Fincstp -> fincstp
   | Fchs -> fchs
+  | Fprem -> fprem
+  | Fstsw_ax -> fstsw_ax
   | Fld_constant constant -> List.assoc constant x87_constant_forms
   | Mov_imm64 _ -> mov_immediate
   | Mov _ -> mov_register
@@ -563,6 +572,7 @@ let validate = function
   | Fild64 (X87_frame slot)
   | Fisttp64 (X87_frame slot)
   | Fld64 (X87_frame slot)
+  | Fst64 (X87_frame slot)
   | Fstp64 (X87_frame slot)
   | Fbinary64 (_, X87_frame slot)
     when slot.frame_offset mod 8 <> 0 ->
@@ -761,6 +771,7 @@ let plans instruction =
   | Fild64 operand
   | Fisttp64 operand
   | Fld64 operand
+  | Fst64 operand
   | Fstp64 operand
   | Fbinary64 (_, operand) ->
       let base, offset =
@@ -781,7 +792,7 @@ let plans instruction =
   | Fcomip register
   | Ffree register ->
       one ~opcode_patch:(Encoding.Add_low3 register.x87_index) ()
-  | Fincstp | Fchs | Fld_constant _ -> one ()
+  | Fincstp | Fchs | Fprem | Fstsw_ax | Fld_constant _ -> one ()
   | Mov_imm64 (destination, immediate) ->
       let destination = register_number destination in
       one

@@ -801,6 +801,33 @@ let original_expression_results context ~owner =
                 context.function_source_owners)
       (find_graph context owner)
 
+let original_expression_globals context ~owner =
+  if not (source_producers_match context) then None
+  else
+    Option.map
+      (fun _ -> Global_initialization.globals context.initialization)
+      (find_graph context owner)
+
+let original_ordinary_entry context =
+  source_producers_match context
+  && Option.is_some (find_graph context Entry)
+  && List.exists
+       (fun statement ->
+         List.exists
+           (fun root ->
+             match
+               Typed.top_level_root_source root
+               |> Sema.Top_level_expression_tree.root_role
+             with
+             | Expression_statement _
+             | Condition _
+             | Return_value _
+             | Local_initializer _
+             | Global_initializer _ -> true
+             | _ -> false)
+           (Typed.top_level_statement_roots statement))
+       (Typed.top_level_statements context.typed_top_level)
+
 let original_expression_call_source context ~owner value =
   Option.bind (original_expression_results context ~owner) (fun owned ->
       Option.bind (find_graph context owner) (fun graph ->

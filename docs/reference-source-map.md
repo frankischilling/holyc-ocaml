@@ -41,6 +41,43 @@ Native F64 storage follows member/stride production in `PrsUnaryModifier`
 transport eight raw bytes. See [native F64 storage](native-f64-storage.md) for
 the hosted ownership boundary and supported consumers.
 
+Stored F64 expressions retain those address receipts while replaying their
+original typed regions. `Compiler/OptLib.HC:535-554` and
+`Compiler/OptPass3.HC:165-228` select extended links for arithmetic, ordered
+comparisons and F64 arithmetic updates. A global, static, array or packed read
+can be an original MOV operand; its arithmetic consumer still needs the exact
+source region and graph. The [storage execution example](../examples/native-f64-storage-execution.hc)
+combines these reads with updates, conversions and loops on both native targets.
+
+`Compiler/OptPass012.HC:859-894` separates arithmetic-update promotion, assignment
+conversion and the integer RHS required by bitwise/shift compounds.
+`Compiler/BackFB.HC:1-224` consumes an arithmetic update's RHS before the old
+destination and materializes its store. It selects immediate builtin loads
+through `Compiler/BackLib.HC:423-442`, using the original function options.
+The postfix path at `BackFB.HC:573-614` saves the old word, while the linked
+templates at `Compiler/Templates.HC:178-190` can leave the new extended value
+for an arithmetic consumer. A stored postfix word and a linked floating result
+therefore have distinct source suppliers.
+
+`Compiler/BackFA.HC:242-264,549-605` and `Compiler/Templates.HC:23-37` implement
+floating remainder and `%=`. The template repeats FPREM while C2 is set,
+materializes binary64 and removes both x87 operands. Integer destinations pass
+through `ICFCvt2` before the operation and truncate its stored result afterward.
+`Compiler/BackA.HC:573-658` shifts the selected raw words, and
+`Compiler/BackC.HC:539-599` implements bitwise compounds. Ordinary mixed shifts
+first promote integer operands to F64; compound shifts instead truncate an F64
+count to an integer. The host backend preserves that difference.
+
+Observed arithmetic compound results follow the final address mode.
+`Compiler/OptPass4.HC:363-413` selects `ICF_BY_VAL` from eligible source address
+forms. `Compiler/BackFB.HC:123-126` reloads that destination for the expression
+result; lines 220-222 use the indirect path's RAX supplier. Hosted proofs admit
+fixed frame and code-heap offsets, including proved members and constant
+indices. Unproved indirect suppliers and dynamic narrow integer results reject.
+`Kernel/KernelA.HH:1555-1557` defines the public data-heap and builtin-constant
+options as 35 and 36. A JIT data-heap global has no code-heap low-address proof.
+These implementation rules and tests do not add TempleOS runtime captures.
+
 Standalone F64 roots retain their original declaration and extent.
 `Compiler/PrsStmt.HC:350-463` allocates, fills and publishes global storage before
 reaching `PrsGlblInit`. `Compiler/PrsVar.HC:1-246,536-587` supplies the shared

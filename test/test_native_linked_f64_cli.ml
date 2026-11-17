@@ -147,6 +147,12 @@ let precision_cases =
     ( "assignment then linked region",
       function_source "F64 t=a+b;return (t+b)-a;",
       0x3ff0000000000000L );
+    (* BackFA's remainder path materializes both operands, so a+b rounds to a.
+       BackFB's compound path consumes the extended RHS, then stores binary64. *)
+    ("remainder materializes arithmetic", expression "(a+b)%a", 0L);
+    ( "compound update consumes linked RHS",
+      function_source "a+=(a+b);return a;",
+      0x4350000000000000L );
   ]
 
 let normalized_sibling_cases =
@@ -224,8 +230,6 @@ let excluded =
     ("constant division identity", expression "((a+b)+(1.0/1.0))-a");
     ("constant multiplication identity", expression "((a+b)+(1.0*1.0))-a");
     ("comparison result converted to F64", function_source "return (a+b)<a;");
-    ("linked remainder", expression "(a+b)%a");
-    ("linked update", function_source "a+=(a+b);return a;");
   ]
 
 let config mode =

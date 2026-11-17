@@ -34,7 +34,11 @@ $cases = @(
   @{ Example = 'native-numeric-initializers.hc'; Target = 'host-jit'; Mode = 'jit'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
   @{ Example = 'native-numeric-initializers.hc'; Target = 'host-jit'; Mode = 'aot'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
   @{ Example = 'native-numeric-initializers.hc'; Target = 'host-jit-task'; Mode = 'jit'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
-  @{ Example = 'native-numeric-initializers.hc'; Target = 'host-jit-task'; Mode = 'aot'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 }
+  @{ Example = 'native-numeric-initializers.hc'; Target = 'host-jit-task'; Mode = 'aot'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
+  @{ Example = 'native-f64-storage-execution.hc'; Target = 'host-jit'; Mode = 'jit'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
+  @{ Example = 'native-f64-storage-execution.hc'; Target = 'host-jit'; Mode = 'aot'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
+  @{ Example = 'native-f64-storage-execution.hc'; Target = 'host-jit-task'; Mode = 'jit'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 },
+  @{ Example = 'native-f64-storage-execution.hc'; Target = 'host-jit-task'; Mode = 'aot'; Type = 'i64'; Bits = '0x000000000000002a'; DefaultBytes = 0 }
 )
 
 $fixtureDirectory = New-Item -ItemType Directory -Path $fixtureRoot

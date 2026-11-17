@@ -24,6 +24,11 @@ val matches :
   offset:int64 ->
   bool
 
+val same_source : t -> t -> bool
+(** Compare canonical replays of the same physical member lookup or backing
+    selection, including their types, byte offset and complete stride sequence.
+    Equal field names or offsets from another source do not match. *)
+
 val of_backing : Sema.Aggregate_backing_storage.t -> t
 val offset : t -> int64
 val strides : t -> int64 list

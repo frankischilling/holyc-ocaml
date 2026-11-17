@@ -978,6 +978,278 @@ let floating_comparison_mutations () =
         (Analysis.authenticates_mixed_scalar_source ~runtime ~frame:fn.frame
            ~body:fn.body))
 
+let source_noreg_storage () =
+  let admitted fn name =
+    Analysis.source_disables_register_result
+      ~frame:fn.Ir_integer_interpreter.frame ~body:fn.body
+      ~location:(location fn name)
+  in
+  modes (fun mode ->
+      List.iter
+        (fun (label, prefix, setup, value) ->
+          let fn =
+            compile mode
+              (prefix ^ "I64 F(){" ^ setup ^ "I8 noreg small=" ^ value
+             ^ ";U8 noreg wrapped=" ^ value ^ ";return small+wrapped;}42;")
+          in
+          List.iter
+            (fun name ->
+              Alcotest.(check bool)
+                (label ^ " authenticates " ^ name)
+                true
+                (admitted fn name = Ok true))
+            [ "small"; "wrapped" ])
+        [
+          ("global", "F64 value;", "", "value");
+          ("static", "", "static F64 value;", "value");
+          ("global array", "F64 values[2];", "", "values[1]");
+          ("static array", "", "static F64 values[2];", "values[1]");
+          ( "packed global",
+            "class Box{U8 tag;F64 value;};Box box;",
+            "",
+            "box.value" );
+          ( "packed static",
+            "class Box{U8 tag;F64 value;};",
+            "static Box box;",
+            "box.value" );
+          ("automatic array", "", "F64 values[2];values[1]=-3.75;", "values[1]");
+          ( "packed automatic",
+            "class Box{U8 tag;F64 value;};",
+            "Box box;box.value=-3.75;",
+            "box.value" );
+        ];
+      let parameter =
+        compile mode "F64 value;I64 F(I8 noreg small){return small+value;}42;"
+      in
+      Alcotest.(check bool)
+        "source noreg parameter" true
+        (admitted parameter "small" = Ok true);
+      let plain =
+        compile mode "F64 value;I64 F(){I8 small=value;return small;}42;"
+      in
+      Alcotest.(check bool)
+        "ordinary narrow member has no noreg authority" true
+        (admitted plain "small" = Ok false);
+      let module Request = Holyc_lib__Sema.Register_request in
+      Obj.set_field
+        (Obj.repr (location plain "small"))
+        12
+        (Obj.repr Request.Disabled);
+      Alcotest.(check bool)
+        "forged disabled frame selection rejects" true
+        (admitted plain "small" = Ok false))
+
+let source_noreg_arrays () =
+  let admitted fn =
+    Analysis.source_disables_register_result
+      ~frame:fn.Ir_integer_interpreter.frame ~body:fn.body
+      ~location:(location fn "values")
+  in
+  modes (fun mode ->
+      List.iter
+        (fun declaration ->
+          let fn =
+            compile mode ("I64 F(){" ^ declaration ^ ";return 42;}42;")
+          in
+          Alcotest.(check bool)
+            "source noreg array exclusion" true
+            (admitted fn = Ok true))
+        [
+          "I8 noreg values[2]"; "U8 noreg values[1+1]"; "I16 noreg values[2][2]";
+        ];
+      let ordinary = compile mode "I64 F(){I8 values[2];return 42;}42;" in
+      Alcotest.(check bool)
+        "ordinary array receives no noreg authority" true
+        (admitted ordinary = Ok false);
+      let module Request = Holyc_lib__Sema.Register_request in
+      Obj.set_field
+        (Obj.repr (location ordinary "values"))
+        12
+        (Obj.repr Request.Disabled);
+      Alcotest.(check bool)
+        "forged array exclusion rejects" true
+        (admitted ordinary = Ok false);
+      List.iter
+        (fun (label, mutate) ->
+          let fn = compile mode "I64 F(){I8 noreg values[2];return 42;}42;" in
+          Alcotest.(check bool)
+            (label ^ " starts authenticated")
+            true
+            (admitted fn = Ok true);
+          mutate (location fn "values");
+          Alcotest.(check bool)
+            (label ^ " rejects changed array")
+            true
+            (admitted fn = Ok false))
+        [
+          ( "dimension extent",
+            fun member ->
+              let dimension = List.hd (Frame.location_dimensions member) in
+              Obj.set_field (Obj.repr dimension) 1 (Obj.repr 3L) );
+          ( "array shape",
+            fun member ->
+              Obj.set_field (Obj.repr member) 8 (Obj.repr Frame.Scalar) );
+          ( "array allocation",
+            fun member -> Obj.set_field (Obj.repr member) 14 (Obj.repr 8L) );
+        ])
+
+let source_noreg_dimension_budget () =
+  modes (fun mode ->
+      let dimensions =
+        [
+          ("(1+1)", Ok true);
+          ( "2" ^ String.concat "" (List.init 300 (fun _ -> "+0")),
+            Error Analysis.Proof_limit_exceeded );
+        ]
+      in
+      List.iter
+        (fun (dimension, expected) ->
+          let fn =
+            compile mode
+              ("I64 F(){F64 values[" ^ dimension
+             ^ "];I8 noreg small=1;return small;}42;")
+          in
+          Alcotest.(check bool)
+            "closed dimension respects proof work/depth" true
+            (Analysis.source_disables_register_result ~frame:fn.frame
+               ~body:fn.body ~location:(location fn "small")
+            = expected))
+        dimensions)
+
+let source_noreg_parameter_budget () =
+  modes (fun mode ->
+      List.iter
+        (fun count ->
+          let parameters =
+            List.init count (fun index -> "I8 noreg p" ^ string_of_int index)
+            |> String.concat ","
+          in
+          let fn = compile mode ("I64 F(" ^ parameters ^ "){return 42;}42;") in
+          let result =
+            Analysis.source_disabled_registers_result ~frame:fn.frame
+              ~body:fn.body
+          in
+          let matches =
+            if count = 1024 then result = Error Analysis.Proof_limit_exceeded
+            else
+              match result with
+              | Ok members ->
+                  List.length members = count
+                  && List.for_all2 ( == ) members
+                       (Frame.function_locations fn.frame)
+              | Error _ -> false
+          in
+          Alcotest.(check bool)
+            (string_of_int count
+           ^ " flat formals respect the shared proof allowance")
+            true matches)
+        [ 8; 1024 ])
+
+let source_noreg_authority () =
+  let contents =
+    "F64 value;I64 F(){F64 values[2];I8 noreg small=value;U8 noreg \
+     wrapped=value;return small+wrapped;}42;"
+  in
+  let admitted fn member =
+    Analysis.source_disables_register_result
+      ~frame:fn.Ir_integer_interpreter.frame ~body:fn.body ~location:member
+  in
+  modes (fun mode ->
+      let original = compile mode contents in
+      let foreign = compile mode contents in
+      Alcotest.(check bool)
+        "foreign location rejects noreg authority" true
+        (admitted original (location foreign "small") = Ok false);
+      Alcotest.(check bool)
+        "foreign frame rejects noreg authority" true
+        (Analysis.source_disables_register_result ~frame:foreign.frame
+           ~body:original.body
+           ~location:(location original "small")
+        = Ok false);
+      List.iter
+        (fun (label, mutate) ->
+          let fn = compile mode contents in
+          let member = location fn "small" in
+          Alcotest.(check bool)
+            (label ^ " starts authenticated")
+            true
+            (admitted fn member = Ok true);
+          mutate fn member;
+          Alcotest.(check bool)
+            (label ^ " rejects changed evidence")
+            true
+            (admitted fn member = Ok false))
+        [
+          ( "slot displacement",
+            fun _ member ->
+              let slot = Option.get (Frame.location_frame_slot member) in
+              Obj.set_field (Obj.repr slot) 0
+                (Obj.repr (Int64.sub (Frame.frame_slot_displacement slot) 1L))
+          );
+          ( "slot size",
+            fun _ member ->
+              let slot = Option.get (Frame.location_frame_slot member) in
+              Obj.set_field (Obj.repr slot) 1 (Obj.repr 8L) );
+          ( "declared type",
+            fun fn member ->
+              Obj.set_field (Obj.repr member) 5
+                (Obj.repr (Frame.location_checked_type (location fn "wrapped")))
+          );
+          ( "omitted preceding member",
+            fun fn _ ->
+              Obj.set_field
+                (Obj.repr fn.Ir_integer_interpreter.frame)
+                4
+                (Obj.repr (List.tl (Frame.function_locations fn.frame))) );
+          ( "member order",
+            fun fn _ ->
+              Obj.set_field
+                (Obj.repr fn.Ir_integer_interpreter.frame)
+                4
+                (Obj.repr (List.rev (Frame.function_locations fn.frame))) );
+          ( "semantic qualifier",
+            fun _ member ->
+              let module Local = Holyc_lib__Sema.Local_type_resolution in
+              let module Request = Holyc_lib__Sema.Register_request in
+              let local = Option.get (Frame.location_local_source member) in
+              let request = List.hd (Local.local_register_requests local) in
+              Obj.set_field (Obj.repr request) 0 (Obj.repr Request.Allocate) );
+          ( "original qualifier",
+            fun fn _ ->
+              let module Ast = Holyc_lib__Frontend.Ast in
+              let source =
+                Option.get
+                  (Body.definition_source fn.Ir_integer_interpreter.body)
+              in
+              let definition = Option.get (Typed.function_source_body source) in
+              let rec find_qualifier = function
+                | Ast.Block_statement block ->
+                    List.find_map find_qualifier block.block_statements
+                | Sequence_statement sequence ->
+                    List.find_map
+                      (fun element ->
+                        find_qualifier element.Ast.sequence_statement)
+                      sequence.sequence_elements
+                | Local_declaration_statement declaration ->
+                    List.find_map
+                      (fun (declarator : Ast.local_declarator) ->
+                        if declarator.local_name.spelling = "small" then
+                          match declarator.local_register_qualifiers with
+                          | qualifier :: _ -> Some qualifier
+                          | [] -> None
+                        else None)
+                      declaration.local_declarators
+                | _ -> None
+              in
+              let qualifier =
+                match Option.bind definition.Ast.body find_qualifier with
+                | Some qualifier -> qualifier
+                | None ->
+                    Alcotest.fail "original small declaration has no qualifier"
+              in
+              Obj.set_field (Obj.repr qualifier) 0 (Obj.repr Ast.Reg) );
+        ])
+
 let () =
   Alcotest.run "mixed scalar register authority"
     [
@@ -999,5 +1271,15 @@ let () =
             floating_comparison_pressure;
           Alcotest.test_case "floating comparison authority mutations" `Quick
             floating_comparison_mutations;
+          Alcotest.test_case "source noreg storage exclusion" `Quick
+            source_noreg_storage;
+          Alcotest.test_case "source noreg declaration authority" `Quick
+            source_noreg_authority;
+          Alcotest.test_case "source noreg array exclusion authority" `Quick
+            source_noreg_arrays;
+          Alcotest.test_case "source noreg dimension proof allowance" `Quick
+            source_noreg_dimension_budget;
+          Alcotest.test_case "source noreg parameter proof allowance" `Quick
+            source_noreg_parameter_budget;
         ] );
     ]

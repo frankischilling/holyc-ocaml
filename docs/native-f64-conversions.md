@@ -2,8 +2,8 @@
 
 This implementation is audited against TempleOS commit
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`. Numerical expectations in its tests
-are deductions from that source and instruction semantics, **not fresh TempleOS
-runtime captures**.
+are deductions from that source and instruction semantics. These tests add no
+TempleOS runtime captures.
 
 The runnable example is [native-numeric-conversions.hc](../examples/native-numeric-conversions.hc).
 
@@ -11,9 +11,20 @@ The runnable example is [native-numeric-conversions.hc](../examples/native-numer
 
 Original checked callable source can convert scalar integer/F64 values at fixed
 provided arguments, returns, local initialization and ordinary assignment.
-Mixed `+`, `-`, `*` and `/` admit proved conversion events. Integer results still
-follow the existing destination storage and register-selection rules; a register
-variable must not be assumed to behave like a narrow stack store.
+Assignments include proved global/static scalars, array elements, packed
+members and owned indirect destinations. Mixed `+`, `-`, `*`, `/` and `%`, and
+their supported compound updates, admit their original conversion events.
+Integer results follow the existing destination storage and register-selection
+rules; a register variable must not be assumed to behave like a narrow stack
+store.
+
+Explicit `noreg` scalar locals and closed primitive arrays can establish stack
+storage even when the function uses globals or packed objects outside the general
+allocation proof. The compiler checks the original qualifier, member order,
+dimensions and frame geometry with one cumulative proof allowance. Unproved
+automatic narrow-register choices still reject. This follows the `REG_NONE`
+selection in `Compiler/PrsVar.HC:462-465,513-518` and its exclusion from scoring in
+`Compiler/OptPass3.HC:29-42`.
 
 Conversions are numeric operations, not HolyC suffix bit reinterpretation.
 F64 values still travel through general-purpose registers and eight-byte call
@@ -101,6 +112,34 @@ requirement, and runtime CPU checks reject them before execution or retention
 when SSE3 is unavailable. Pure floating images retain their existing host
 capability contract.
 
+## Storage and compound conversion events
+
+The source assignment flags in `Compiler/OptPass012.HC:866-873` select conversion
+before a typed store. F64-to-integer assignment truncates before the destination
+width is written; a later signed or unsigned load uses that stored width.
+This applies to packed members and array elements as well as scalar frame,
+global and static locations. Declaration preparation retains its separate
+[completed-word copy rule](native-numeric-initializers.md).
+
+For an F64 arithmetic compound destination, an eligible integer RHS read can
+remain exact through FILD until the update stores binary64
+(`Compiler/OptLib.HC:535-539`, `Compiler/OptPass789A.HC:65-71`). With stored
+`value=-9007199254740992.0` and integer `delta=9007199254740993`, `value+=delta`
+stores `1.0`. A later read of the destination begins at its binary64 boundary.
+
+An integer destination follows `ICFCvt2` in `Compiler/BackFB.HC:1-224` or
+`Compiler/BackFA.HC:549-605`: materialize the old integer as binary64, compute
+and store the floating result, then truncate it for the integer destination.
+Remainder also materializes an integer RHS before FPREM. Consequently
+`I64 value=9007199254740993; value%=3.0;` stores `2`, and
+`I16 value=-7; value%=2.75;` stores `-1` after truncating the remainder `-1.5`.
+
+Bitwise and shift compounds use a different RHS rule. `&=`, `|=`, `^=`, `<<=`
+and `>>=` truncate an F64 RHS to an integer before editing the destination's raw
+word (`Compiler/OptPass012.HC:888-894`). Ordinary mixed floating operators first
+promote their integer operand to F64. In particular, `x<<1` and `x<<=1` can use
+different shift counts; see [raw-word operators](native-f64.md#remainder-updates-and-raw-word-operators).
+
 ## Proof and current exclusions
 
 Conversion receipts are private, tied to original instruction/result identities,
@@ -124,10 +163,13 @@ floating arithmetic would silently change precision.
 integer operand conversions. Ordered predicates can retain signed FILD precision;
 bitwise equality materializes the converted word. The comparison's original
 source event determines its link orientation, including conversions within the
-comparison itself. Comparison-result conversion to F64, comparison chains,
-floating short circuit, arithmetic-wrapped comparison conditions,
-conversion-bearing aggregate/indirect storage, variadic
-conversion and other unproved normalization forms remain outside this subset.
+comparison itself. General comparison-result conversion to F64, comparison
+chains, floating short circuit, arithmetic-wrapped comparison conditions,
+variadic conversion and other unproved normalization forms remain outside this
+subset. Observed indirect arithmetic compound results and dynamic narrow
+integer compound results with floating operands require additional proof of
+the original result supplier. The [storage contract](native-f64-storage.md)
+distinguishes these results from supported discarded updates and typed stores.
 
 Boundary fixtures use short-mantissa scientific notation or exact bit patterns
 where applicable. TempleOS's lexer accumulates decimal mantissa digits in a

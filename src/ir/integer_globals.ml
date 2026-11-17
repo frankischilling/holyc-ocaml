@@ -626,6 +626,21 @@ let storage_type = function
   | Global slot -> slot.type_
   | Static slot -> Integer_statics.type_ slot
 
+let storage_is_code_heap = function
+  | Static _ | Declared_static _ -> true
+  | Global slot ->
+      Resolution.global_record_storage
+        (Records.classified_record_source slot.record)
+      = Resolution.Code_heap
+  | Declared slot ->
+      let source =
+        Sema.Compiler_record.declared_global_source slot.declaration
+      in
+      not
+        (Sema.Compiler_option.is_enabled
+           ~mask:source.global_header.declaration_compiler_options
+           Sema.Compiler_option.Globals_on_data_heap)
+
 let storage_callback_pointer = function
   | Declared_static allocation ->
       Integer_static_allocation.callback_pointer allocation
