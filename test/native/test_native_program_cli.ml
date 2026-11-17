@@ -401,8 +401,63 @@ let default_failure_reporting () =
           ("I64 F(I64 n=1/0){return n;} F(42);", "HCIRVM0009", true);
           ("I64 F(I64 n=1/0){return n;} 42;", "HCIRVM0009", true);
           ("I64 N;I64 F(I64 n=N<<3){return n;} F();", "HCRUN0006", false);
-          ("1/0; I64 F(I64 n=42){return n;} F();", "HCRUN0006", false);
         ];
+      with_file ".hc" "1/0; I64 F(I64 n=42){return n;} F();" (fun source ->
+          (* TempleOS c26482bb: PrsVar.HC:635-656 evaluates and saves the
+             parameter default while parsing. CMain.HC:82-93 records AOT
+             statements as IET_MAIN entries without executing them. The
+             earlier division therefore faults after declaration preparation. *)
+          let report = native_json ~status:1 ~mode source in
+          let code, preparation, default_bytes, executed =
+            if mode = "jit" then ("HCRUN0006", 0, 0, `Null)
+            else ("HCIRVM0009", 3, 8, `Int 3)
+          in
+          require
+            (first_code report = code
+            && report
+               |> member "compiled_initializer_steps"
+               |> to_int = preparation
+            && report
+               |> member "prepared_default_bytes"
+               |> to_int = default_bytes
+            && member "executed_steps" report = executed
+            && member "final_value" report = `Null
+            && report |> member "output_byte_length" |> to_int = 0
+            && report |> member "output_work" |> to_int = 0
+            && report |> member "output_hex" |> to_string = "")
+            (mode ^ " preceding statement preserves the declaration phase");
+          let primary = List.hd (diagnostics report) |> member "primary" in
+          require
+            (primary |> member "path" |> to_string = source)
+            "interleaved default failure retains its original source path";
+          if mode = "aot" then (
+            require
+              (primary |> member "line" |> to_int = 1
+              && primary |> member "column" |> to_int = 2
+              && primary |> member "start" |> to_int = 1
+              && primary |> member "stop" |> to_int = 2)
+              "AOT faults at the earlier module division after saving the \
+               default";
+            List.iter
+              (fun (option, code, preparation) ->
+                let bounded =
+                  native_json ~status:1 ~mode ~options:[ option ] source
+                in
+                require
+                  (first_code bounded = code
+                  && bounded
+                     |> member "compiled_initializer_steps"
+                     |> to_int = preparation
+                  && bounded |> member "prepared_default_bytes" |> to_int = 0
+                  && member "executed_steps" bounded = `Null
+                  && member "final_value" bounded = `Null
+                  && bounded |> member "native" |> member "image" = `Null)
+                  "AOT declaration allowance fails before the earlier module \
+                   division")
+              [
+                ("--initializer-step-limit=2", "HCIRVM0007", 2);
+                ("--default-byte-limit=7", "HCIRVM0011", 0);
+              ]));
       with_file ".hc" "I64 F(I64 n=42){return n;} 1/0;" (fun source ->
           let report = native_json ~status:1 ~mode source in
           require

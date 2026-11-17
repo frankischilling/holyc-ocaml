@@ -417,6 +417,51 @@ let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
   let* typed =
     Initializer_fragment_typing.prepare_default context fragment |> diagnose
   in
+  let* () =
+    let module Outer = Sema.Outer_environment in
+    let environment = Sema.Default_fragment.environment fragment in
+    let* () =
+      if
+        Sema.Default_fragment.owns_table fragment value.table
+        && Outer.owns_table environment value.table
+      then Ok ()
+      else
+        fail "HCRUN0004" "native default references have another semantic table"
+    in
+    let rec validate = function
+      | [] -> Ok ()
+      | ((identifier : Ast.identifier), selection) :: rest ->
+          let* () =
+            Sema.Reference_selection.validate ~table:value.table
+              ~name:identifier.spelling selection
+            |> Result.map_error (fun message ->
+                [ Integer_source.diagnostic ~span "HCRUN0004" message ])
+          in
+          let* () =
+            match Sema.Reference_selection.kind selection with
+            | Sema.Reference_selection.Outer (owner, binding)
+              when owner == environment
+                   && Outer.owns_binding environment binding
+                   && String.equal identifier.spelling
+                        (Outer.binding_entry binding
+                        |> Outer.entry_symbol |> Sema.Symbol.name) -> Ok ()
+            | _ ->
+                fail "HCRUN0004"
+                  "native default reference has another original environment"
+          in
+          validate rest
+    in
+    let* () = validate (Sema.Default_fragment.references fragment) in
+    (* A pending extern can be an intrinsic's original predecessor, but cannot
+       itself execute during closed preparation. Keep this subset check after
+       typing so unresolved AOT addresses retain their semantic diagnostic. *)
+    if Sema.Default_fragment.native_source_references_supported fragment then
+      Ok ()
+    else
+      fail "HCRUN0006"
+        "native defaults require closed values or original numeric internal \
+         calls"
+  in
   let* destination =
     Ir.Default_fragment_destination.create_native_source typed |> diagnose
   in

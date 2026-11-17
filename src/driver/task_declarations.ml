@@ -7524,11 +7524,16 @@ let source_default_references owner ledger ~mode ~span expression =
         in
         let fact =
           match header.function_publication.function_header.binding with
-          | Some { Ast.kind = Ast.Intern; _ } ->
-              Resolution.make_numeric_internal_declaration ~table:ledger.table
-                ~namespace:ledger.namespace
-                ~compiler_option_mask:header.header_compiler_options ~source
-                ~function_
+          | Some { Ast.kind = Ast.Intern; _ } -> (
+              match
+                Resolution.make_numeric_internal_declaration ~table:ledger.table
+                  ~namespace:ledger.namespace
+                  ~compiler_option_mask:header.header_compiler_options ~source
+                  ~function_
+                |> checked span
+              with
+              | Some fact -> fact
+              | None -> reference_error ())
           | Some
               {
                 Ast.kind = Ast.Extern;
@@ -7540,9 +7545,10 @@ let source_default_references owner ledger ~mode ~span expression =
                 ~namespace:ledger.namespace
                 ~compiler_option_mask:header.header_compiler_options ~source
                 ~function_
+              |> checked span
           | _ -> reference_error ()
         in
-        (header, source, fact |> checked span))
+        (header, source, fact))
       history
   in
   let resolution =

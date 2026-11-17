@@ -121,10 +121,12 @@ val make_numeric_internal_declaration :
   compiler_option_mask:int64 ->
   source:Compiler_record.declared_function ->
   function_:Function_type_resolution.resolved_function ->
-  (declaration, string) result
+  (declaration option, string) result
 (** Classify a completed original literal IC_TO_I64 or IC_TO_F64 declaration.
     Its numeric internal binding emits an opcode and grants no executable
-    address, task installation or body authority. *)
+    address, task installation or body authority. [Ok None] is an authenticated
+    header outside this numeric subset; [Error _] rejects its source ownership,
+    checked header or compiler options. *)
 
 val make_completion_declaration_against :
   table:Symbol_table.t ->

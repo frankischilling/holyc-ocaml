@@ -502,11 +502,8 @@ let make_numeric_internal_declaration ~table ~namespace ~compiler_option_mask
     ->
       (* PrsFunCall emits this original numeric opcode directly. A completed
          literal _intern header needs no function body or mapped entry address. *)
-      Ok { declaration with pending_header = false }
-  | _ ->
-      Error
-        "source numeric intrinsic requires its original literal internal \
-         binding"
+      Ok (Some { declaration with pending_header = false })
+  | _ -> Ok None
 
 let provisional_snapshot ~table ~namespace ~function_ =
   match Function_type_resolution.function_provisional_call function_ with

@@ -313,6 +313,100 @@ let reference_boundaries () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let preparation_boundaries () =
+  let prepare ?max_default_bytes mode text =
+    let session = Session.create () in
+    let source =
+      Session.add_source session ~path:"intrinsic-preparation-boundary.hc"
+        ~contents:text
+    in
+    let config =
+      Preprocessor.Config.create ~compilation_mode:mode () |> checked
+    in
+    Native_program.evaluate ?max_default_bytes session ~config ~source
+      ~max_steps:100_000
+  in
+  let boundary ~work ~steps ~bytes code report =
+    let errors =
+      match Native_program.outcome report with
+      | Error errors -> errors
+      | Ok _ -> Alcotest.fail "unsupported preparation unexpectedly completed"
+    in
+    Alcotest.(check (list string))
+      "unsupported preparation keeps its diagnostic" [ code ]
+      (List.map (fun (error : Diagnostic.t) -> error.code) errors);
+    Alcotest.(check int)
+      "only completed preparation is charged" work
+      (Native_program.preparation_steps report);
+    Alcotest.(check (option int))
+      "only completed native preparation is entered" steps
+      (Native_program.executed_steps report);
+    Alcotest.(check int)
+      "unsupported preparation publishes no additional word" bytes
+      (Native_program.default_bytes report);
+    Alcotest.(check string)
+      "unsupported preparation produces no output" ""
+      (Native_program.output_bytes report)
+  in
+  let unsupported =
+    [
+      ("public _intern 0x1D Bool ToBool(I64 value);", "Bool", "ToBool(42)");
+      ("public _intern 0x7E I64 Bsf(I64 value);", "I64", "Bsf(0)");
+      ( "public _intern 0xAB I64 MinI64(I64 left,I64 right);",
+        "I64",
+        "MinI64(42,50)" );
+      ("public _intern 0xA9 I64 AbsI64(I64 value);", "I64", "AbsI64(-42)");
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let prefix =
+        declarations ^ "F64 Good(F64 value=Convert(1)){return value;}"
+      in
+      let prepared = prepare mode (prefix ^ "Good();") in
+      (match Native_program.outcome prepared with
+      | Ok _ -> ()
+      | Error errors -> Alcotest.fail (diagnostics errors));
+      let work = Native_program.preparation_steps prepared in
+      Alcotest.(check int) "original numeric prefix preparation" 6 work;
+      Alcotest.(check int)
+        "original numeric prefix saves one word" 8
+        (Native_program.default_bytes prepared);
+      List.iter
+        (fun (declaration, type_name, expression) ->
+          List.iter
+            (fun header ->
+              let text = declaration ^ header in
+              boundary ~work:0 ~steps:None ~bytes:0 "HCRUN0006"
+                (prepare mode text);
+              boundary ~work ~steps:(Some work) ~bytes:8 "HCRUN0006"
+                (prepare mode (prefix ^ text)))
+            [
+              type_name ^ " F(" ^ type_name ^ " value=" ^ expression
+              ^ "){return value;}F();";
+              type_name ^ " (*p)(" ^ type_name ^ " value=" ^ expression
+              ^ ");42;";
+            ])
+        unsupported;
+      (* PrsVar.HC:629-656 executes and saves each default at its declaration.
+         Reject an unsupported expression before entering it, retaining the
+         completed prefix and its exact saved words. *)
+      let pending =
+        "extern I64 Answer();I64 Same(I64 (*p)()=&Answer){return \
+         p==&Answer;}42;"
+      in
+      let code =
+        if mode = Preprocessor.Aot then "HCSEMA0046" else "HCRUN0006"
+      in
+      boundary ~work:0 ~steps:None ~bytes:0 code (prepare mode pending);
+      boundary ~work ~steps:(Some work) ~bytes:8 code
+        (prepare mode (prefix ^ pending));
+      boundary ~work:0 ~steps:None ~bytes:0 "HCIRVM0011"
+        (prepare ~max_default_bytes:7 mode pending);
+      boundary ~work ~steps:(Some work) ~bytes:8 "HCIRVM0011"
+        (prepare ~max_default_bytes:8 mode (prefix ^ pending)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let read_file path =
   let channel = open_in_bin path in
   Fun.protect
@@ -408,6 +502,8 @@ let () =
               failures;
             Alcotest.test_case "unproved references and signatures reject"
               `Quick reference_boundaries;
+            Alcotest.test_case "unsupported preparation preserves error state"
+              `Quick preparation_boundaries;
           ] );
         ( "public CLI",
           [
