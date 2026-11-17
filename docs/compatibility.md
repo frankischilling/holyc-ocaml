@@ -256,7 +256,14 @@ canonical identity; a new completed same-name class cannot replace a frozen
 selection. Runtime dependencies survive inheritance. This metadata supplies
 captured queries without admitting aggregate object storage or a member index.
 
-Ordinary JIT [runtime layout expressions](runtime-layout-expressions.md) execute integer array bounds and aggregate offsets in IR and native tasks. Global, automatic, static and primitive member extents keep their original counts and execution dependencies. Native completion requires the actual original scalar capture; AOT runtime relocation, floating bounds and aggregate object execution remain open.
+Ordinary JIT [runtime layout expressions](runtime-layout-expressions.md) execute
+integer array bounds and aggregate offsets in IR and native tasks. Native
+[F64 bounds](native-f64-runtime-dimensions.md) convert the completed word before
+the signed count check. Global, automatic, static and primitive member extents
+keep their original counts and execution dependencies. Native completion
+requires the actual original scalar capture. Closed AOT dimensions retain
+their numeric conversion; runtime-dependent AOT bounds still need relocation
+and execution authority.
 
 Ordinary JIT [live internal bindings](native-internal-bindings.md) evaluate
 integer targets before type validation in both IR and native tasks. Supported
@@ -291,6 +298,16 @@ saved full word; later calls require its original published object and completed
 native receipt. Actual work shares the native and initializer allowances, and
 each captured word consumes eight saved-default bytes.
 See [native source tasks](native-source-tasks.md).
+
+[Numeric defaults](native-f64-defaults.md) also prepare at their original
+declarations in ordinary AOT source and isolated native programs. Their
+temporary images retain actual captured results and share cumulative limits
+with final execution. Original literal [numeric intrinsic calls](aot-intrinsic-defaults.md)
+preserve selected header history and use opcode emission without an output
+function address. [Native `lastclass` defaults](native-lastclass-defaults.md)
+share class-name storage in JIT and copy each omitted occurrence in AOT.
+General ordinary AOT function/data dependencies, copied string defaults in
+isolated compilation and the full default-value domain remain open under #685.
 
 Retained task functions use their original source context for Print and PutChars.
 Owned array and original literal formats, nested calls and initializer output share cumulative native

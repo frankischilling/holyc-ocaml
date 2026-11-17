@@ -140,8 +140,7 @@ let events ~table ~declarations ~aggregates module_ =
   in
   pair [] entries resolved ast
 
-let expression ast =
-  Sema.Closed_layout_expression.of_ast ~allow_floating:false ast
+let expression ast = Sema.Closed_layout_expression.of_ast ast
 
 let dimension ~table ?prepared (dimension : Frontend.Ast.array_dimension) =
   let expression =

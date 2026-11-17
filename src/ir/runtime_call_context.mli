@@ -298,6 +298,15 @@ val original_prepared_defaults :
     graph. An equal reconstructed instruction grants no saved-default type
     authority. *)
 
+val original_lastclass :
+  t ->
+  owner:owner ->
+  Instruction_sequence.description ->
+  Lastclass_argument.t option
+(** Return an omitted argument's original typed lastclass substitution only for
+    its physical producer in the unchanged sealed call graph. Copies, supplied
+    arguments and foreign owners cannot acquire class-name or null authority. *)
+
 val provider : call -> provider option
 val symbol : call -> Sema.Symbol.t
 val return_type : call -> Sema.Type.t
@@ -330,6 +339,52 @@ val argument_transport_type : argument -> Sema.Type.t
 (** Full-word carrier of a source-selected integer class parameter. The target
     type retains the original nominal signature. This does not narrow integer
     argument bits to the class's memory view. *)
+
+val argument_lastclass : argument -> Lastclass_argument.t option
+
+type call_result_conversion
+
+val original_call_result_conversion :
+  t ->
+  owner:owner ->
+  Instruction_sequence.description ->
+  call_result_conversion option
+(** Return the retained conversion for an original CALL_END whose numeric flag
+    matches its exact checked consumer and operand relationship. Recheck the
+    original source batch and expression proof on every query. Copied producers,
+    unrelated graphs and guessed flags have no conversion authority. *)
+
+val call_result_conversion_source :
+  call_result_conversion ->
+  Sema.Function_call_expression_result.expression_result
+
+val call_result_conversion_consumer :
+  call_result_conversion ->
+  Sema.Function_call_expression_result.expression_result
+
+val call_result_conversion_kind :
+  call_result_conversion ->
+  Sema.Function_call_expression_result.intrinsic_conversion
+
+val original_expression_call_source :
+  t ->
+  owner:owner ->
+  Sema.Function_call_expression_result.expression_result ->
+  (source * Integer_globals.t) option
+(** Select the original ordinary direct or callback call and globals snapshot
+    for an exact checked result in this sealed graph and source batch. This
+    supports canonical expression replay, including the original callee capture
+    and saved defaults. It grants no authority to link floating operations
+    without replaying their complete source region and matching the original
+    instruction sequence. *)
+
+val original_expression_results :
+  t ->
+  owner:owner ->
+  Sema.Function_call_expression_result.expression_result list option
+(** Read the original checked batch after validating the sealed graph. These
+    expressions alone grant no numeric authority: canonical replay must join
+    each call to [original_expression_call_source] and match its exact graph. *)
 
 val argument_prepared_default : argument -> Prepared_parameter_default.t option
 (** The exact prepared declaration-time value for an omitted fixed argument.

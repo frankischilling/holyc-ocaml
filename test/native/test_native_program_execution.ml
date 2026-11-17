@@ -914,12 +914,29 @@ let source_parameter_default_limits_and_failures () =
       Alcotest.(check string)
         "default call remains outside bounded native preparation" "HCRUN0006"
         (first_code call_default);
-      List.iter
-        (fun source -> ignore (source_pre_entry_failure ~mode source))
-        [
-          "I64 F(I64 n=\"A\"){return n;}\nF();";
-          "I64 F(I64 n=lastclass){return n;}\nF();";
-        ];
+      ignore
+        (source_pre_entry_failure ~mode "I64 F(I64 n=\"A\"){return n;}\nF();");
+      let lastclass_source = "I64 F(I64 n=lastclass){return n;}\nF();" in
+      (match mode with
+      | Preprocessor.Jit ->
+          let report, result =
+            source_success_report ~mode ~max_steps:1000 lastclass_source
+          in
+          check_program_word "missing JIT lastclass keeps the zero record word"
+            "I64" 0L result.execution.final_value;
+          Alcotest.(check int)
+            "lastclass executes no declaration expression" 0
+            (Native_program.preparation_steps report);
+          Alcotest.(check int)
+            "lastclass saves no expression payload" 0
+            (Native_program.default_bytes report)
+      | Preprocessor.Aot ->
+          let _, diagnostics =
+            source_pre_entry_failure ~mode lastclass_source
+          in
+          Alcotest.(check string)
+            "AOT lastclass needs a preceding class" "HCIRL0004"
+            (first_code diagnostics));
       let invalid_report, invalid =
         source_pre_entry_failure ~max_initializer_steps:0 ~mode "@invalid"
       in
@@ -980,15 +997,43 @@ let source_parameter_default_limits_and_failures () =
               Native_program.evaluate ~max_active_stack_bytes:1 session ~config
                 ~source ~max_steps:1000 );
         ];
-      let after_entry_report, after_entry =
-        source_pre_entry_failure ~mode "1/0; I64 F(I64 n=2){return n;} F();"
-      in
-      Alcotest.(check string)
-        "defaults after executable entry source stay outside the native gate"
-        "HCRUN0006" (first_code after_entry);
-      Alcotest.(check int)
-        "entry-order guard runs before later default preparation" 0
-        (Native_program.preparation_steps after_entry_report))
+      let after_entry_source = "1/0; I64 F(I64 n=2){return n;} F();" in
+      match mode with
+      | Preprocessor.Jit ->
+          let after_entry_report, after_entry =
+            source_pre_entry_failure ~mode after_entry_source
+          in
+          Alcotest.(check string)
+            "JIT defaults after executable entry source stay outside the \
+             native gate"
+            "HCRUN0006" (first_code after_entry);
+          Alcotest.(check int)
+            "JIT entry-order guard runs before later default preparation" 0
+            (Native_program.preparation_steps after_entry_report)
+      | Preprocessor.Aot ->
+          (* PrsVar.HC:635-654 executes and saves the default while compiling;
+             ordinary AOT entry code executes only after that compilation. *)
+          let after_entry_report, fault, after_entry =
+            source_fault ~mode ~max_steps:1000 after_entry_source
+          in
+          Alcotest.(check string)
+            "AOT reaches the original entry division" "HCIRVM0009"
+            (first_code after_entry);
+          Alcotest.(check string)
+            "AOT entry retains the native arithmetic fault" "division-by-zero"
+            (Fixture.kind_name fault.kind);
+          Alcotest.(check int)
+            "AOT prepares the later default before entry" 3
+            (Native_program.preparation_steps after_entry_report);
+          Alcotest.(check int)
+            "AOT retains the saved default after the entry fault" 8
+            (Native_program.default_bytes after_entry_report);
+          Alcotest.(check int)
+            "AOT entry stops at the reached division" 3 fault.executed_steps;
+          let primary = (first_diagnostic after_entry).Diagnostic.primary in
+          Alcotest.(check (pair int int))
+            "AOT entry fault retains the original operator span" (1, 2)
+            (primary.start, primary.stop))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let register_call_fault_recovery () =

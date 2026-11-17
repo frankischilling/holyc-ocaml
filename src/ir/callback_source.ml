@@ -23,6 +23,10 @@ let top_source = function
       Some (Typed.top_level_indexed_global_callback_source call)
   | Member call -> Some (Typed.top_level_member_callback_source call)
 
+let source = function
+  | Function call -> function_resolution call |> Resolution.indirect_source
+  | call -> Option.get (top_source call) |> Tree.call_source
+
 let callable = function
   | Function call -> Resolution.indirect_callable (function_resolution call)
   | Global call -> Typed.top_level_global_callback_callable call
@@ -91,6 +95,37 @@ let variadic_arguments = function
   | Indexed_global call ->
       Typed.top_level_indexed_global_callback_variadic_results call
   | Member call -> Typed.top_level_member_callback_variadic_results call
+
+let lastclass_arguments = function
+  | Function call ->
+      Typed.indirect_fixed_results call
+      |> List.filter_map (fun fixed ->
+          Option.map
+            (fun substitution ->
+              ( fixed |> Typed.fixed_source
+                |> Sema.Function_call_conversion_policy.fixed_source
+                |> Resolution.fixed_parameter,
+                substitution ))
+            (Typed.fixed_lastclass_substitution fixed))
+  | source ->
+      let arguments =
+        match source with
+        | Global call -> Typed.top_level_global_callback_fixed_results call
+        | Outer call -> Typed.top_level_outer_callback_fixed_results call
+        | Static call -> Typed.top_level_static_callback_fixed_results call
+        | Indexed_global call ->
+            Typed.top_level_indexed_global_callback_fixed_results call
+        | Member call -> Typed.top_level_member_callback_fixed_results call
+        | Function _ -> assert false
+      in
+      List.filter_map
+        (fun fixed ->
+          Option.map
+            (fun substitution ->
+              ( Typed.top_level_fixed_source fixed |> Resolution.fixed_parameter,
+                substitution ))
+            (Typed.top_level_fixed_lastclass_substitution fixed))
+        arguments
 
 let matches_result source result =
   match source with

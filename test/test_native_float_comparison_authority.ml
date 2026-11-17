@@ -104,6 +104,57 @@ let owners () =
     "copied graph cannot reuse receipt" true
     (Plan.validated_comparisons plan ~graph:copy = None)
 
+let constant_receipts () =
+  List.iter
+    (fun (expression, expected) ->
+      let source, graph = fixture ~body:("return " ^ expression ^ ";") () in
+      let plan = Plan.prepare ~source graph |> checked in
+      let receipt =
+        Plan.validated_comparisons plan ~graph |> Option.get |> List.hd
+      in
+      Alcotest.(check (option int64))
+        (expression ^ " has its source-folded word")
+        (Some expected) receipt.comparison_constant;
+      Alcotest.(check int)
+        "constant comparison needs no x87 stack" 0 receipt.comparison_peak_depth;
+      rejects "constant comparison requires source" (Plan.prepare graph);
+      let foreign, _ = fixture ~body:("return " ^ expression ^ ";") () in
+      rejects "equal-text constant source is foreign"
+        (Plan.prepare ~source:foreign graph))
+    [
+      ("1.0<2.0", 1L);
+      ("1.0>=2.0", 0L);
+      ("2.0>1.0", 1L);
+      ("2.0<=1.0", 0L);
+      ("1.0==1.0", 1L);
+      ("1.0!=1.0", 0L);
+      ("0.0<(-0.0)", 0L);
+      ("0.0>=(-0.0)", 1L);
+      ("0.0>(-0.0)", 0L);
+      ("0.0<=(-0.0)", 1L);
+      ("0.0==(-0.0)", 0L);
+      ("0.0!=(-0.0)", 1L);
+      ("9007199254740993==9007199254740992.0", 1L);
+      ("9007199254740993>9007199254740992.0", 0L);
+    ];
+  List.iter
+    (fun (label, select, transform) ->
+      let source, graph = fixture ~body:"return 1.0<2.0;" () in
+      let plan = Plan.prepare ~source graph |> checked in
+      mutate graph select transform;
+      invalidated label source graph plan)
+    [
+      ( "folded comparison opcode",
+        comparison,
+        fun d -> { d with S.opcode = O.Ic_greater } );
+      ( "folded comparison source bits",
+        (fun d -> d.S.opcode = O.Ic_imm_f64),
+        fun d -> { d with S.payload = Some (S.Float_bits 0L) } );
+      ( "folded comparison flags",
+        comparison,
+        fun d -> { d with S.flags = Int64.logor d.flags 0x1000000L } );
+    ]
+
 let graph_changes () =
   let i64 =
     Semantic_type.make_primitive ~form:Internal_storage
@@ -245,6 +296,215 @@ let source_changes () =
             action );
     ]
 
+let with_entry_fixture expression action =
+  let module Preparation = Holyc_lib__Driver.Native_default_preparation in
+  let module Program = Holyc_lib__Ir.Default_fragment_program in
+  let module Destination = Holyc_lib__Ir.Default_fragment_destination in
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"default-comparison-authority.hc"
+      ~contents:("I64 F(I64 n=" ^ expression ^ "){return n;}F();")
+  in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:Preprocessor.Aot () |> checked
+  in
+  let visited = ref false in
+  let native_default request =
+    visited := true;
+    let program = Preparation.native_program request in
+    let destination = Program.destination program in
+    let entry_source : Plan.entry_source =
+      {
+        lowered = Program.lowered program;
+        globals = Destination.globals destination;
+        value = Typed.top_level_root_value (Destination.root destination);
+      }
+    in
+    action entry_source
+      (Program.runtime_calls program)
+      (Ir_x87_stack.graph (Program.entry program));
+    Error
+      [
+        Diagnostic.make ~code:"HCTEST0001" ~severity:Diagnostic.Error
+          ~message:"stop after checking original preparation authority"
+          ~primary:(Destination.span destination)
+          ();
+      ]
+  in
+  ignore
+    (Native_program.compile_with_preparation ~native_default
+       ~preparation_steps:(ref 0) ~switch_work:(ref 0) ~dimension_work:(ref 0)
+       ~default_bytes:(ref 0) session ~config ~source);
+  Alcotest.(check bool) "original default callback reached" true !visited
+
+let entry_owners () =
+  let module Runtime = Holyc_lib__Ir.Runtime_call_context in
+  List.iter
+    (fun expression ->
+      with_entry_fixture expression (fun source runtime graph ->
+          let prepare ?(entry_source = source) ?(runtime = runtime) graph =
+            Plan.prepare ~entry_source ~runtime ~owner:Runtime.Entry graph
+          in
+          let plan = prepare graph |> checked in
+          let receipts = Plan.validated_comparisons plan ~graph |> Option.get in
+          Alcotest.(check int)
+            "one original entry comparison" 1 (List.length receipts);
+          Alcotest.(check (option int64))
+            "entry comparison saved word" (Some 1L)
+            (List.hd receipts).comparison_constant;
+          rejects "entry without lowering proof"
+            (Plan.prepare ~runtime ~owner:Runtime.Entry graph);
+          with_entry_fixture expression (fun foreign foreign_runtime _ ->
+              List.iter
+                (fun (label, entry_source) ->
+                  rejects label (prepare ~entry_source graph))
+                [
+                  ( "foreign lowered entry",
+                    { source with lowered = foreign.lowered } );
+                  ( "foreign entry globals",
+                    { source with globals = foreign.globals } );
+                  ("foreign typed root", { source with value = foreign.value });
+                ];
+              rejects "foreign entry runtime"
+                (prepare ~runtime:foreign_runtime graph));
+          mutate graph comparison (fun d -> { d with S.opcode = O.Ic_less });
+          Alcotest.(check bool)
+            "entry graph mutation invalidates saved receipt" true
+            (Plan.validated_comparisons plan ~graph = None);
+          rejects "entry graph mutation rejects fresh proof" (prepare graph)))
+    [ "1.5>1.0"; "(1.5>1.0)"; "(1.5>1.0)+41" ]
+
+let call_result_conversions () =
+  let module Runtime = Holyc_lib__Ir.Runtime_call_context in
+  let compile contents =
+    let fixture =
+      match
+        Native_scalar_fixture.compile ~mode:Preprocessor.Aot
+          ~path:"call-conversion-authority.hc" ~contents ()
+      with
+      | Ok fixture -> fixture
+      | Error diagnostics ->
+          Alcotest.fail
+            (String.concat "; "
+               (List.map
+                  (fun (diagnostic : Diagnostic.t) ->
+                    diagnostic.code ^ ": " ^ diagnostic.message)
+                  diagnostics))
+    in
+    ( Unit.runtime_calls fixture.unit_,
+      Ir_x87_stack.graph (Unit.entry fixture.unit_) )
+  in
+  List.iter
+    (fun (contents, direction) ->
+      let runtime, graph = compile contents in
+      let prepare ?(runtime = runtime) () =
+        Plan.prepare ~runtime ~owner:Runtime.Entry graph
+      in
+      let plan = prepare () |> checked in
+      let conversions = Plan.validated_conversions plan ~graph |> Option.get in
+      Alcotest.(check int)
+        "one exact call-result conversion" 1 (List.length conversions);
+      Alcotest.(check bool)
+        "original conversion direction" true
+        ((List.hd conversions).conversion = direction);
+      let converted =
+        Plan.validated_entries plan ~graph
+        |> Option.get
+        |> List.filter (fun entry ->
+            entry.Plan.operation = Plan.Convert_to_float)
+      in
+      Alcotest.(check int)
+        "post-call FILD follows the proved consumer"
+        (if direction = Plan.To_float then 1 else 0)
+        (List.length converted);
+      List.iter
+        (fun entry ->
+          Alcotest.(check int)
+            "post-call conversion donates one extended value" 1
+            (List.length entry.Plan.live_after))
+        converted;
+      let original =
+        G.blocks graph
+        |> List.concat_map (fun block ->
+            List.map S.description (S.instructions (G.instructions block)))
+        |> List.find (fun d ->
+            d.S.opcode = O.Ic_call_end && Int64.logand d.flags 3L <> 0L)
+      in
+      let receipt =
+        Runtime.original_call_result_conversion runtime ~owner:Runtime.Entry
+          original
+        |> Option.get
+      in
+      let source = Runtime.call_result_conversion_source receipt in
+      let consumer = Runtime.call_result_conversion_consumer receipt in
+      Alcotest.(check bool)
+        "original call can select its replay target" true
+        (Option.is_some
+           (Runtime.original_expression_call_source runtime ~owner:Runtime.Entry
+              source));
+      let copied_source = Obj.obj (Obj.dup (Obj.repr source)) in
+      Alcotest.(check bool)
+        "copied typed call cannot select a replay target" true
+        (Runtime.original_expression_call_source runtime ~owner:Runtime.Entry
+           copied_source
+        = None);
+      let copied = Obj.obj (Obj.dup (Obj.repr original)) in
+      Alcotest.(check bool)
+        "copied call instruction has no conversion receipt" true
+        (Runtime.original_call_result_conversion runtime ~owner:Runtime.Entry
+           copied
+        = None);
+      let foreign, _ = compile contents in
+      Alcotest.(check bool)
+        "foreign source cannot select a replay target" true
+        (Runtime.original_expression_call_source foreign ~owner:Runtime.Entry
+           source
+        = None);
+      rejects "foreign call runtime" (prepare ~runtime:foreign ());
+      let changed_conversion =
+        match Typed.result_intrinsic_conversion source with
+        | Typed.No_intrinsic_conversion -> Typed.Result_to_int
+        | Result_to_f64 | Result_to_int -> Typed.No_intrinsic_conversion
+      in
+      mutate_field source 20 (Obj.repr changed_conversion) (fun () ->
+          Alcotest.(check bool)
+            "changed typed conversion invalidates plan" true
+            (Plan.validated_conversions plan ~graph = None);
+          rejects "changed typed conversion rejects fresh plan" (prepare ()));
+      (match Typed.result_binary_operands consumer with
+      | Some (left, right) ->
+          let copied_left = Obj.obj (Obj.dup (Obj.repr left)) in
+          mutate_field consumer 4
+            (Obj.repr (Some (copied_left, right)))
+            (fun () ->
+              Alcotest.(check bool)
+                "copied consumer child invalidates plan" true
+                (Plan.validated_conversions plan ~graph = None);
+              rejects "copied consumer child rejects fresh plan" (prepare ()))
+      | None -> ());
+      ignore (prepare () |> checked);
+      mutate graph
+        (fun d -> d.S.instruction_id = original.instruction_id)
+        (fun d -> { d with S.flags = Int64.logxor d.flags 3L });
+      Alcotest.(check bool)
+        "changed call flags invalidate plan" true
+        (Plan.validated_conversions plan ~graph = None);
+      rejects "changed call flags reject fresh plan" (prepare ()))
+    [
+      ("I64 Word(){return 9007199254740993;}Word()+1.0;", Plan.To_float);
+      ("I64 Word(){return 9007199254740993;}1.0+Word();", Plan.To_float);
+      ("I64 Word(){return 9007199254740993;}(+(Word()))+1.0;", Plan.To_float);
+      ( "I64 Word(){return 9007199254740993;}I64 (*p)()=&Word;p()+1.0;",
+        Plan.To_float );
+      ( "F64 Fraction(){return 3.75;}I64 Id(I64 n){return n;}Id(Fraction());",
+        Plan.To_integer );
+      ( "F64 Fraction(){return 3.75;}I64 Id(I64 n){return n;}Id((Fraction()));",
+        Plan.To_integer );
+      ( "F64 Fraction(){return 3.75;}F64 (*p)()=&Fraction;I64 Id(I64 n){return \
+         n;}Id(p());",
+        Plan.To_integer );
+    ]
+
 let successor_changes () =
   let source, graph = fixture () in
   let plan = Plan.prepare ~source graph |> checked in
@@ -261,6 +521,12 @@ let () =
       ( "source receipts",
         [
           Alcotest.test_case "original ownership" `Quick owners;
+          Alcotest.test_case "constant folding preserves source authority"
+            `Quick constant_receipts;
+          Alcotest.test_case "original declaration expression ownership" `Quick
+            entry_owners;
+          Alcotest.test_case "materialized source call conversions" `Quick
+            call_result_conversions;
           Alcotest.test_case "instruction and branch snapshots" `Quick
             graph_changes;
           Alcotest.test_case "source context and options" `Quick source_changes;

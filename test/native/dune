@@ -106,13 +106,16 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/runtime-layout-expressions.hc)
+ (deps
+  ../../examples/runtime-layout-expressions.hc
+  ../../examples/native-f64-runtime-dimensions.hc)
  (action
   (run
    %{exe:../test_runtime_layout_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/runtime-layout-expressions.hc}
-   --native)))
+   --native
+   %{dep:../../examples/native-f64-runtime-dimensions.hc})))
 
 (library
  (name runtime_layout_fixture)
@@ -1314,17 +1317,48 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/native-f64-defaults.hc)
+ (deps
+  ../../examples/native-f64-defaults.hc
+  ../../examples/aot-native-defaults.hc)
  (action
   (run
    %{exe:test_native_f64_defaults.exe}
    %{exe:../../bin/holyc.exe}
-   %{dep:../../examples/native-f64-defaults.hc})))
+   %{dep:../../examples/native-f64-defaults.hc}
+   %{dep:../../examples/aot-native-defaults.hc})))
+
+(executable
+ (name test_native_source_intrinsic_defaults)
+ (modules test_native_source_intrinsic_defaults)
+ (libraries holyc_lib alcotest yojson unix))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/aot-intrinsic-defaults.hc)
+ (action
+  (run
+   %{exe:test_native_source_intrinsic_defaults.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/aot-intrinsic-defaults.hc})))
 
 (executable
  (name test_native_source_cli)
  (modules test_native_source_cli)
  (libraries holyc_lib yojson unix))
+
+(executable
+ (name test_native_lastclass_defaults)
+ (modules test_native_lastclass_defaults)
+ (libraries holyc_lib alcotest yojson unix))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-lastclass-defaults.hc)
+ (action
+  (run
+   %{exe:test_native_lastclass_defaults.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-lastclass-defaults.hc})))
 
 (rule
  (alias native-tests)

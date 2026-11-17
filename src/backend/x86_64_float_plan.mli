@@ -88,6 +88,9 @@ type comparison_entry = private {
   comparison_operands : Ir.Instruction_sequence.Value_id.t list;
   comparison_loads : load list;
   comparison_kind : comparison_kind;
+  comparison_constant : int64 option;
+      (** Source-authenticated immediate comparison after OptPass012 folding.
+          Its I64 word is emitted at the original comparison charge site. *)
   comparison_context : comparison_context;
   comparison_opcode : Ir.Opcode.t;
   comparison_predicate : X86_64_encoder.condition;
@@ -120,8 +123,15 @@ type source = {
   frame : Sema.Function_frame_layout.function_layout;
 }
 
+type entry_source = {
+  lowered : Ir.Integer_program_lowering.t;
+  globals : Ir.Integer_globals.t;
+  value : Sema.Function_call_expression_result.expression_result;
+}
+
 val prepare :
   ?source:source ->
+  ?entry_source:entry_source ->
   ?runtime:Ir.Runtime_call_context.t ->
   ?owner:Ir.Runtime_call_context.owner ->
   Ir.Block_graph.t ->

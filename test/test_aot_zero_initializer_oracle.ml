@@ -1057,6 +1057,88 @@ let direct_call_default_variants () =
     [ false; true ]
 
 let direct_call_numeric_defaults () =
+  let native_float_default contents =
+    let module Native = Native_source_execution in
+    let evaluate ?max_initializer_steps ?max_default_bytes ~max_steps () =
+      let session = Session.create () in
+      let source =
+        Session.add_source session ~path:"warning-oracle.hc" ~contents
+      in
+      let config =
+        Preprocessor.Config.create ~compilation_mode:Preprocessor.Aot ()
+        |> Result.get_ok
+      in
+      Native.evaluate ?max_initializer_steps ?max_default_bytes
+        ~max_code_bytes:524288 ~max_steps session ~config ~source
+    in
+    let check report =
+      let result =
+        match Native.outcome report with
+        | Ok result -> result
+        | Error diagnostics ->
+            Alcotest.fail
+              (String.concat "; "
+                 (List.map
+                    (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
+                    diagnostics))
+      in
+      (* The U0 field and following I64 share an offset. The deferred Get()
+         load writes 7 over the earlier constant copy of 42. *)
+      Alcotest.(check (option int64))
+        "F64 default retains the original deferred overlap write" (Some 7L)
+        (Option.map
+           (fun (word : Native.word) -> word.bits)
+           result.value.final_value);
+      Alcotest.(check bool)
+        "deferred overlap result retains its I64 class" true
+        (Option.fold ~none:false
+           ~some:(fun (word : Native.word) -> word.type_ = X86_64_program.I64)
+           result.value.final_value);
+      Alcotest.(check (list string))
+        "F64 default retains the load and unused-formal warnings"
+        [ "HCSEMA0080"; "HCSEMA0034" ]
+        (List.map (fun (d : Diagnostic.t) -> d.code) result.diagnostics);
+      Alcotest.(check string)
+        "F64 default has no ordinary output" ""
+        (Native.output_bytes report);
+      Alcotest.(check int)
+        "F64 default retains one full saved word" 8
+        (Native.default_bytes report)
+    in
+    let baseline = evaluate ~max_steps:100000 () in
+    check baseline;
+    let work = Native.preparation_steps baseline in
+    let steps = Native.executed_steps baseline in
+    Alcotest.(check bool)
+      "F64 default executes before the AOT module" true
+      (work > 0 && steps > work);
+    let exact =
+      evaluate ~max_initializer_steps:work ~max_default_bytes:8 ~max_steps:steps
+        ()
+    in
+    check exact;
+    Alcotest.(check int)
+      "F64 default exact preparation allowance" work
+      (Native.preparation_steps exact);
+    Alcotest.(check int)
+      "F64 default exact native instruction allowance" steps
+      (Native.executed_steps exact);
+    let limited = evaluate ~max_steps:(steps - 1) () in
+    let errors =
+      match Native.outcome limited with
+      | Error errors -> errors
+      | Ok _ -> Alcotest.fail "one-below F64 default native allowance completed"
+    in
+    Alcotest.(check bool)
+      "F64 default one-below allowance reports step limit" true
+      (List.exists (fun (d : Diagnostic.t) -> d.code = "HCIRVM0007") errors);
+    Alcotest.(check int)
+      "F64 default one-below reached work" (steps - 1)
+      (Native.executed_steps limited);
+    Alcotest.(check int)
+      "later module fault retains the saved F64 default" 8
+      (Native.default_bytes limited)
+  in
   let fields = fixture "warnings-numeric-defaults" in
   let types =
     [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64"; "F64"; "Bool" ]
@@ -1074,20 +1156,27 @@ let direct_call_numeric_defaults () =
                object={Get(),42};I64 F(){return object.value;}F();"
               type_
           in
-          let diagnostics, result, _ = run native Preprocessor.Aot source in
-          let codes = List.map (fun (d : Diagnostic.t) -> d.code) diagnostics in
-          if type_ = "F64" then
-            Alcotest.(check bool)
-              "F64 default path remains unsupported" true
-              (Result.is_error result)
-          else (
-            Alcotest.(check (option int64))
-              (type_ ^ " default load value")
-              (Some 7L) (Result.get_ok result);
-            Alcotest.(check bool)
-              (type_ ^ " default load warning")
-              true
-              (List.mem "HCSEMA0080" codes)))
+          if type_ = "F64" && native then
+            if Native_execution.x87_supported () then
+              native_float_default source
+            else print_endline "native F64 default: x87 unsupported, skipped"
+          else
+            let diagnostics, result, _ = run native Preprocessor.Aot source in
+            let codes =
+              List.map (fun (d : Diagnostic.t) -> d.code) diagnostics
+            in
+            if type_ = "F64" then
+              Alcotest.(check bool)
+                "IR F64 default path remains unsupported" true
+                (Result.is_error result)
+            else (
+              Alcotest.(check (option int64))
+                (type_ ^ " default load value")
+                (Some 7L) (Result.get_ok result);
+              Alcotest.(check bool)
+                (type_ ^ " default load warning")
+                true
+                (List.mem "HCSEMA0080" codes)))
         [ false; true ])
     types
 

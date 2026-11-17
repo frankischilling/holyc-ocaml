@@ -85,11 +85,16 @@ and `Compiler/PrsExp.HC:455-468` for later materialization. The reference remain
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`; these hosted checks are not a new
 native TempleOS execution capture.
 
-General default support remains unfinished: floating conversion, pointer and
-owned string defaults, `lastclass` materialization, defaults nested inside
-callback declarators, cross-command extern joins and partial-header calls.
-Ordinary outer AOT defaults still need output relocation and callable support
-for global reads and function calls. Those AOT operands currently report
+The integer preparation engine does not execute floating defaults. The
+[native numeric path](native-f64-defaults.md) supplies F64 evaluation and
+full-word conversion for named and anonymous headers. Native
+[`lastclass` materialization](native-lastclass-defaults.md) uses the previous
+supplied argument's forwarded class; retained JIT
+[data-pointer defaults](data-pointer-defaults.md) preserve original aliases and
+copy string results. These paths keep their own source and storage receipts.
+General value classes, cross-command extern joins and partial-header calls
+remain unfinished. Ordinary outer AOT defaults still need output relocation
+and callable support for global reads and ordinary function calls. Those AOT operands currently report
 HCRUN0006. Effectful default execution
 operates in live parser tasks, including AOT
 `#exe` bodies and activated outer JIT source. Outer JIT activation consumes
@@ -111,6 +116,10 @@ stand in for that ownership operation.
 class and full saved word in ordinary AOT IR and native JIT/AOT compilation.
 [Retained JIT class contexts](retained-class-context.md) reuse original class
 storage and also prepare defaults that call checked class-returning functions.
+[Closed native numeric defaults](native-f64-defaults.md) and original literal
+[numeric intrinsic calls](aot-intrinsic-defaults.md) execute temporary native
+fragments at the declaration. They retain full saved words without borrowing
+the outer module's data or callable addresses.
 
 In the pinned source, `PrsVar.HC:635-640` clears only `CCF_HAS_MISC_DATA`
 before `LexExpression2Bin` and the immediate call. It leaves AOT mode active.

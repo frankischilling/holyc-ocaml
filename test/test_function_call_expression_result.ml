@@ -4400,12 +4400,22 @@ let lastclass_defaults_follow_previous_provided_results () =
            U0 NestedDefaults(Student *value,U8 *name=lastclass);\n\
            U0 BackedDefaults(ScalarBack value,U8 *name=lastclass);\n\
            U0 Empty(U8 *name=lastclass);\n\
-           U0 Caller(Student *student,I64 *number,I64 scalar,F64 float,U0 \
-           (*callback)(Student *value,U8 *name=lastclass)){\n\
+           U0 ArrayDefaults(I64 *value,U8 *name=lastclass);\n\
+           U0 InternalPointerDefaults(I64i *value,U8 *name=lastclass);\n\
+           U0 LiteralDefaults(I64 value,U8 *name=lastclass);\n\
+           U0 StringDefaults(U8 *value,U8 *name=lastclass);\n\
+           U0 FloatLiteralDefaults(F64 value,U8 *name=lastclass);\n\
+           U0 InternalFloatDefaults(F64i value,U8 *name=lastclass);\n\
+           U0 Caller(Student *student,I64 *number,I64 scalar,F64 float,I64i \
+           *internal,U0 (*callback)(Student *value,U8 *name=lastclass)){\n\
            StudentDefaults(student,,,);NumberDefaults(number,);\n\
            ScalarDefaults(scalar,);FloatDefaults(float,);\n\
            NestedDefaults(Make(),);BackedDefaults(0(ScalarBack),);\n\
-           Empty();callback(student,);return;\n\
+           Empty();callback(student,);\n\
+           I64 array[2];ArrayDefaults(array,);\n\
+           InternalPointerDefaults(internal,);LiteralDefaults(7,);\n\
+           StringDefaults((\"x\"),);FloatLiteralDefaults(1.5+0.0,);\n\
+           InternalFloatDefaults(1.5(F64i),);return;\n\
            }"
       in
       let _, results = analyze prepared in
@@ -4454,6 +4464,20 @@ let lastclass_defaults_follow_previous_provided_results () =
       Alcotest.(check (list (option string)))
         "a missing previous expression stays explicit" [ None ]
         (lastclass_names (direct_fixed "Empty"));
+      List.iter
+        (fun (callee, expected) ->
+          Alcotest.(check (list (option string)))
+            (callee ^ " keeps the original expression class")
+            [ Some expected ]
+            (lastclass_names (direct_fixed callee)))
+        [
+          ("ArrayDefaults", "I64");
+          ("InternalPointerDefaults", "I64i");
+          ("LiteralDefaults", "I64i");
+          ("StringDefaults", "U8");
+          ("FloatLiteralDefaults", "F64");
+          ("InternalFloatDefaults", "F64i");
+        ];
       let indirect_fixed =
         indirect_named results "Caller" "callback"
         |> Semantic_function_call_expression_result.indirect_fixed_results

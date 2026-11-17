@@ -120,6 +120,9 @@ let resolved_declaration_replaced_header (declaration : resolved_declaration) =
 let resolved_declaration_retained_predecessor declaration =
   declaration.retained_predecessor
 
+let resolved_declaration_joined_predecessor declaration =
+  declaration.joined_predecessor
+
 let rec is_joined_successor ~earlier ~later =
   match later.joined_predecessor with
   | None -> false
@@ -472,6 +475,38 @@ let make_pending_declaration ~table ~namespace ~compiler_option_mask ~source
         pending_header = true;
         phase = Completed_header;
       }
+
+let make_numeric_internal_declaration ~table ~namespace ~compiler_option_mask
+    ~source ~function_ =
+  let ( let* ) = Result.bind in
+  let* declaration =
+    make_pending_declaration ~table ~namespace ~compiler_option_mask ~source
+      ~function_
+  in
+  let header = Compiler_record.declared_function_source source in
+  match header.function_publication.function_header.binding with
+  | Some
+      {
+        Frontend.Ast.kind = Intern;
+        spelling = "_intern";
+        target =
+          Expression_binding_target
+            (Integer_literal { literal_value = Integer_value value; _ });
+        _;
+      }
+    when declaration.kind = Intern
+         && (value
+             = Int64.of_int (Generated.Intermediate_codes.to_code Ic_to_i64)
+            || value
+               = Int64.of_int (Generated.Intermediate_codes.to_code Ic_to_f64))
+    ->
+      (* PrsFunCall emits this original numeric opcode directly. A completed
+         literal _intern header needs no function body or mapped entry address. *)
+      Ok { declaration with pending_header = false }
+  | _ ->
+      Error
+        "source numeric intrinsic requires its original literal internal \
+         binding"
 
 let provisional_snapshot ~table ~namespace ~function_ =
   match Function_type_resolution.function_provisional_call function_ with
@@ -1164,6 +1199,110 @@ let resolve ?(previous = []) ?(record_heads = []) ~table ~parent
         declaration.completion_current)
     declarations;
   Ok resolution
+
+let resolve_numeric_source_headers ~table ~namespace ~compilation_mode
+    declarations =
+  let ( let* ) = Result.bind in
+  let parent = Declaration_collection.namespace_scope namespace in
+  let* () = validate ~table ~parent ~compilation_mode [] in
+  let rec precedes earlier (later : Frontend.Parser.command_start) =
+    match later.command_predecessor with
+    | Some completed ->
+        let previous = completed.command_start in
+        previous == earlier
+        || previous.command_ordinal > earlier.Frontend.Parser.command_ordinal
+           && precedes earlier previous
+    | None -> false
+  in
+  let supported_binding (declaration : declaration) header =
+    match
+      header.Frontend.Parser.function_publication.function_header.binding
+    with
+    | Some
+        {
+          Frontend.Ast.kind = Extern;
+          spelling = "extern";
+          target = No_binding_target;
+          _;
+        } -> declaration.source_kind = Extern && declaration.kind = Extern
+    | Some
+        {
+          Frontend.Ast.kind = Intern;
+          spelling = "_intern";
+          target =
+            Expression_binding_target
+              (Integer_literal { literal_value = Integer_value value; _ });
+          _;
+        } ->
+        declaration.kind = Intern
+        && declaration.source_kind = Intern
+        && (value
+            = Int64.of_int (Generated.Intermediate_codes.to_code Ic_to_i64)
+           || value
+              = Int64.of_int (Generated.Intermediate_codes.to_code Ic_to_f64))
+    | _ -> false
+  in
+  let rec check previous seen_symbols seen_scopes = function
+    | [] -> Ok ()
+    | (declaration : declaration) :: rest ->
+        let* source =
+          match declaration.header_source with
+          | Some source
+            when declaration.phase = Completed_header
+                 && Option.is_none declaration.native_snapshot
+                 && Option.is_none declaration.phase_current
+                 && Option.is_none declaration.phase_source
+                 && Option.is_none declaration.transition
+                 && Option.is_none declaration.completion_predecessor
+                 && Option.is_none declaration.completion_current -> Ok source
+          | _ ->
+              Error "numeric source history requires original completed headers"
+        in
+        let* () =
+          validate_header_source ~table ~namespace ~source
+            ~function_:declaration.function_
+        in
+        let header = Compiler_record.declared_function_source source in
+        let command =
+          header.function_publication.function_header.declaration_command
+        in
+        let mode_matches =
+          match
+            ( compilation_mode,
+              Frontend.Parser.context_mode command.command_context )
+          with
+          | Jit, Frontend.Preprocessor.Jit | Aot, Frontend.Preprocessor.Aot ->
+              true
+          | _ -> false
+        in
+        let order_matches =
+          match previous with
+          | None -> true
+          | Some previous ->
+              previous.Frontend.Parser.command_context
+              == command.command_context
+              && previous.command_ordinal < command.command_ordinal
+              && precedes previous command
+        in
+        if
+          not
+            (supported_binding declaration header
+            && mode_matches && order_matches
+            && declaration.compiler_option_mask = header.header_compiler_options
+            )
+        then
+          Error
+            "numeric source history has another binding, mode, options or \
+             original command order"
+        else
+          let* _, seen_symbols, seen_scopes =
+            validate_declaration ~table ~parent ~compilation_mode (-1)
+              seen_symbols seen_scopes declaration
+          in
+          check (Some command) seen_symbols seen_scopes rest
+  in
+  let* () = check None Int_set.empty Int_set.empty declarations in
+  Ok (resolve_validated ~previous:[] compilation_mode declarations)
 
 let complete_pending ~table ~namespace ~pending ~function_ =
   Result.bind

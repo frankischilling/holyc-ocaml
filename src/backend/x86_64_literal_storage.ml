@@ -24,6 +24,7 @@ type source = {
 
 type t = {
   graphs : owned_graph Graph_map.t;
+  shared_classes : (Type.t * region) list;
   literal_bytes : int;
   metadata_bytes : int;
   arena_prefix_bytes : int;
@@ -57,6 +58,7 @@ let is_literal_type type_ =
 let empty =
   {
     graphs = Graph_map.empty;
+    shared_classes = [];
     literal_bytes = 0;
     metadata_bytes = 0;
     arena_prefix_bytes = 0;
@@ -90,6 +92,7 @@ let append storage ~max_literal_bytes ~max_arena_bytes ~arena_prefix_bytes
   let metadata = ref storage.metadata_bytes in
   let used = ref arena_prefix_bytes in
   let chunks = ref storage.chunks in
+  let shared_classes = ref storage.shared_classes in
   let collect (source : source) =
     let { owner; graph; runtime_calls } = source in
     let* () =
@@ -165,8 +168,19 @@ let append storage ~max_literal_bytes ~max_arena_bytes ~arena_prefix_bytes
                 (fun result instruction ->
                   let* regions = result in
                   let description = Sequence.description instruction in
-                  if description.opcode <> Ir.Opcode.Ic_str_const then
-                    Ok regions
+                  let lastclass =
+                    Option.bind
+                      (Instruction_map.find_opt description.instruction_id
+                         pushed_arguments)
+                      Runtime.argument_lastclass
+                  in
+                  if
+                    description.opcode <> Ir.Opcode.Ic_str_const
+                    && not
+                         (description.opcode = Ir.Opcode.Ic_imm_i64
+                         && Option.fold ~none:false
+                              ~some:Ir.Lastclass_argument.has_name lastclass)
+                  then Ok regions
                   else
                     match
                       ( description.operands,
@@ -175,47 +189,77 @@ let append storage ~max_literal_bytes ~max_arena_bytes ~arena_prefix_bytes
                         description.payload )
                     with
                     | [], Some result, Some type_, Some (Sequence.Bytes bytes)
-                      when is_literal_type type_
-                           && valid_flags description result type_ ->
-                        let length = String.length bytes in
-                        let available =
-                          min max_literal_bytes Sys.max_string_length - !logical
+                      when (is_literal_type type_
+                           || Option.fold ~none:false
+                                ~some:(fun value ->
+                                  Type.equal type_
+                                    (Ir.Lastclass_argument.type_ value))
+                                lastclass)
+                           && valid_flags description result type_ -> (
+                        let shared =
+                          Option.bind lastclass
+                            Ir.Lastclass_argument.shared_class
                         in
-                        if length >= available then
-                          error ?span:description.span "HCBACK0004"
-                            "owned native strings exceed max_literal_bytes"
-                        else
-                          let count = length + 1 in
-                          let remaining =
-                            min max_arena_bytes Sys.max_string_length - !used
-                          in
-                          if remaining < 32 || count > remaining - 32 then
-                            error ?span:description.span "HCBACK0004"
-                              "native literal bytes and reference snapshots \
-                               exceed the private arena bound"
-                          else if
-                            Instruction_map.mem description.instruction_id
-                              regions
-                          then
-                            error ?span:description.span "HCBACK0003"
-                              "native literal graph repeats an instruction \
-                               identity"
-                          else
-                            let table_bytes = 32 in
-                            let region =
-                              {
-                                data_offset = !used;
-                                table_offset = !used + count;
-                                byte_count = count;
-                              }
-                            in
-                            chunks := (region.data_offset, bytes) :: !chunks;
-                            logical := !logical + count;
-                            metadata := !metadata + table_bytes;
-                            used := !used + count + table_bytes;
+                        let existing =
+                          Option.bind shared (fun type_ ->
+                              List.find_map
+                                (fun (original, region) ->
+                                  if Type.equal original type_ then Some region
+                                  else None)
+                                !shared_classes)
+                        in
+                        match existing with
+                        | Some region ->
                             Ok
                               (Instruction_map.add description.instruction_id
                                  region regions)
+                        | None ->
+                            let length = String.length bytes in
+                            let available =
+                              min max_literal_bytes Sys.max_string_length
+                              - !logical
+                            in
+                            if length >= available then
+                              error ?span:description.span "HCBACK0004"
+                                "owned native strings exceed max_literal_bytes"
+                            else
+                              let count = length + 1 in
+                              let remaining =
+                                min max_arena_bytes Sys.max_string_length
+                                - !used
+                              in
+                              if remaining < 32 || count > remaining - 32 then
+                                error ?span:description.span "HCBACK0004"
+                                  "native literal bytes and reference \
+                                   snapshots exceed the private arena bound"
+                              else if
+                                Instruction_map.mem description.instruction_id
+                                  regions
+                              then
+                                error ?span:description.span "HCBACK0003"
+                                  "native literal graph repeats an instruction \
+                                   identity"
+                              else
+                                let table_bytes = 32 in
+                                let region =
+                                  {
+                                    data_offset = !used;
+                                    table_offset = !used + count;
+                                    byte_count = count;
+                                  }
+                                in
+                                chunks := (region.data_offset, bytes) :: !chunks;
+                                Option.iter
+                                  (fun type_ ->
+                                    shared_classes :=
+                                      (type_, region) :: !shared_classes)
+                                  shared;
+                                logical := !logical + count;
+                                metadata := !metadata + table_bytes;
+                                used := !used + count + table_bytes;
+                                Ok
+                                  (Instruction_map.add
+                                     description.instruction_id region regions))
                     | _ ->
                         error ?span:description.span "HCBACK0003"
                           "native IC_STR_CONST requires its original internal \
@@ -251,6 +295,7 @@ let append storage ~max_literal_bytes ~max_arena_bytes ~arena_prefix_bytes
   Ok
     {
       graphs;
+      shared_classes = !shared_classes;
       literal_bytes = !logical;
       metadata_bytes = !metadata;
       arena_prefix_bytes = storage.arena_prefix_bytes;

@@ -150,8 +150,7 @@ let add_requirements ?(allow_data = false) ?(allow_f64 = false) globals prepared
       let* requirements = result in
       match Headers.parameter_default parameter with
       | None -> Ok requirements
-      | Some (Headers.Lastclass_default _) ->
-          Error "native parameter defaults do not admit lastclass"
+      | Some (Headers.Lastclass_default _) -> Ok requirements
       | Some (Headers.Expression_default { contains_string_literal = true; _ })
         when not allow_data ->
           Error "native parameter defaults do not admit string-backed values"
@@ -193,7 +192,7 @@ let execution_matches prepared execution =
         receipt == Prepared.receipt prepared
         && publication == Prepared.publication prepared
     | Callback _ -> false)
-  && Sema.Default_fragment.references fragment = []
+  && Program.default_constant_has_closed_source execution
   && Default_fragment_destination.fragment destination == fragment
   && execution_type_matches fragment (Prepared.type_ prepared) destination
   && Program.default_constant_is_consumed execution
@@ -210,7 +209,7 @@ let callback_execution_matches prepared execution =
         namespace == Prepared_callback.namespace prepared
         && receipt == Prepared_callback.receipt prepared
     | Named _ -> false)
-  && Sema.Default_fragment.references fragment = []
+  && Program.default_constant_has_closed_source execution
   && Default_fragment_destination.fragment destination == fragment
   && execution_type_matches fragment
        (Prepared_callback.type_ prepared)
@@ -277,8 +276,7 @@ let add_callback_requirements ?(allow_data = false) ?(allow_f64 = false) globals
       let* requirements = result in
       match Headers.parameter_default parameter with
       | None -> Ok requirements
-      | Some (Headers.Lastclass_default _) ->
-          Error "native callback defaults do not admit lastclass"
+      | Some (Headers.Lastclass_default _) -> Ok requirements
       | Some (Headers.Expression_default { contains_string_literal = true; _ })
         when not allow_data ->
           Error "native callback defaults do not admit string-backed values"
@@ -419,9 +417,10 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
           |> Sema.Function_resolution.declaration_site_function
         in
         let* requirements =
-          add_requirements globals prepared requirements selected
+          add_requirements ~allow_f64:true globals prepared requirements
+            selected
         in
-        add_requirements globals prepared requirements source)
+        add_requirements ~allow_f64:true globals prepared requirements source)
       (Ok []) functions
   in
   let used = List.map (fun requirement -> requirement.prepared) requirements in
@@ -429,8 +428,8 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
     List.fold_left
       (fun result pointer ->
         let* requirements = result in
-        add_callback_requirements globals prepared_callbacks requirements
-          pointer)
+        add_callback_requirements ~allow_f64:true globals prepared_callbacks
+          requirements pointer)
       (Ok [])
       (callback_pointers ~runtime_calls globals functions)
   in

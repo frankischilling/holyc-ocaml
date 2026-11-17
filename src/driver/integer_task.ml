@@ -2238,7 +2238,10 @@ let execute_runtime_dimension ?(use_active_stream = true) ?stream_exe_print task
       Initializer_fragment_typing.prepare_dimension context fragment |> diagnose
     in
     let* destination =
-      Ir.Dimension_fragment_destination.create ~task_view typed |> diagnose
+      (if Option.is_some task.native_dimension then
+         Ir.Dimension_fragment_destination.create_native ~task_view typed
+       else Ir.Dimension_fragment_destination.create ~task_view typed)
+      |> diagnose
     in
     match task.native_dimension with
     | Some evaluate ->

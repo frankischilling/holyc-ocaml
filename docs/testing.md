@@ -1343,6 +1343,22 @@ Quote Dune aliases in PowerShell: unquoted `@fmt`, `@all` and `@install` are
 variable splats, so a successful command may not have requested those checks.
 Quoted aliases work in both PowerShell and POSIX shells.
 
+The installed compiler check runs after `dune build '@install'`:
+
+```text
+opam exec -- pwsh -NoProfile -File tools/test-installed-compiler.ps1
+```
+
+`tools/test-installed-compiler.ps1` copies the binary section into a private
+temporary prefix with `dune install`. It checks SHA-256 equality across the
+built executable, Dune's staged public executable and the installed copy.
+Each binary runs its `version` command and nine maintained native source cases
+from the pinned TempleOS checkout. The checks require the real compiler HEAD,
+reject an `HOLYC_IMPLEMENTATION_COMMIT` override, and compare the distinct
+TempleOS commit, result type and bits, and saved-default bytes in JSON reports.
+The temporary installation is removed afterward. CI runs this gate after
+`@install` on both Linux OCaml versions and native Windows x86-64.
+
 The integer-division group also replays 13 raw-value and four fault projections from the native fixture in `test/oracle/integer-division.json`. Those projections compare captured native output with verified integer IR execution; they do not claim source optimizer or native exception-delivery compatibility.
 
 The source division-reduction suite compares all 38 repeated native fields in

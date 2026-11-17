@@ -110,6 +110,27 @@ authenticates the original options and load events. Ordinary value comparisons
 retain their binary64 loads, so they can differ from conditions at a builtin
 constant's binary64 boundary.
 
+## Immediate comparisons fold before branch selection
+
+Two original immediate operands can produce a saved I64 comparison word.
+`OptLib.HC:124-139` first converts an integer immediate to binary64 when the
+other operand is F64. Lines 161-166 then remove the two immediate operands,
+and `OptPass012.HC:725-822` replaces the comparison with `IC_IMM_I64`.
+
+The folded `==` and `!=` operators compare the binary64 words. Thus
+`0.0==(-0.0)` is `0`, while `0.0>=(-0.0)` is `1`. Integer immediates round
+before either kind of comparison: `9007199254740993==9007199254740992.0`
+is `1`. Direct conditions use this saved word because folding precedes branch
+fusion and builtin x87 constant selection.
+
+The hosted backend records the folded word in its original-source receipt and
+emits it at the canonical comparison site. Operand and comparison step charges
+remain visible, including during a quota fault. The receipt also applies to
+closed native declaration defaults, whose proof binds the exact lowered entry,
+storage context and typed expression. Parentheses and integer arithmetic around
+the comparison keep that ownership. Computed floating operands that require
+additional folding or reassociation still need their own normalization proof.
+
 ## Authority, allocation and limits
 
 Comparison receipts bind the original runtime context, checked source body,
@@ -166,16 +187,51 @@ equality, unordered branches and rounded callback words passed to a separate
 comparison function at the boundary `2^53+1`. Direct comparisons of callback
 results, including the tested local materialization in the same caller, still
 lack a source normalization proof and remain rejected.
+
+An ordinary call's original typed consumer can require a numeric conversion of
+its returned word. The compiler authenticates that conversion against the exact
+`IC_CALL_END`, checked call result and original consumer's operand path. Mixed
+arithmetic reuses the expression lowerer's conversion decision; grouping and
+unary plus preserve the original child. Each use rechecks the source batch,
+consumer, scalar metadata and conversion. `OptPass789A.HC:1026-1056` captures the
+returned integer word and applies its result conversion. `OptPass3.HC:173-175`
+and `OptLib.HC:545-553` allow the subsequent FILD to donate its extended result
+to adjacent arithmetic through `BackFA.HC:21-50,123-166`. A call returning
+`9007199254740993` therefore yields `9007199254740994.0` when immediately used
+in `Word()+1.0`. The complete region is replayed from its original call targets,
+arguments and saved defaults before this link is admitted.
+
+Callback leaves use the same replay through their original selected signature,
+callee capture and saved defaults. An integer callback result can donate its
+post-call conversion; an F64 callback result remains a materialized word. The
+maintained [AOT defaults example](../examples/aot-native-defaults.hc) combines
+direct calls with an anonymous callback whose own saved default is `2.75`,
+preserving that header's value when it invokes `Target` and produces `5.25`.
+
+Fixed arguments and F64 returns still materialize binary64 words. Returning
+`Word()` from an F64 function, or passing it to an F64 parameter, rounds that
+word to `9007199254740992.0` before later arithmetic. Existing F64 call results
+also remain materialized. An F64 result converted to I64 uses FLD/FISTTP.
+
+These call conversions work in ordinary entry expressions, fixed arguments and
+function returns. Each call keeps its argument evaluation order and its existing
+instruction charges. A conversion receipt alone cannot authorize an x87 link;
+the exact source region must also match. Tests check both conversion directions,
+the post-call link and materialized boundaries, reached output,
+quota failures and rejection of copied producers, foreign contexts or changed
+source conversion flags or consumer children.
+
 Callback declaration initializers work in AOT and live JIT source tasks;
 isolated JIT compilation retains its closed-expression initializer restriction.
-Live JIT native source tasks now admit saved F64 defaults on the selected
-named or anonymous callback header; their result transport crosses calls as
-materialized words. Nested JIT `#exe` uses that source-task behavior under
-either outer mode. Isolated and ordinary outer AOT floating default preparation
-and variadic F64 callback arguments remain unsupported.
+Live JIT native source tasks admit saved F64 defaults on the selected named or
+anonymous callback header; their result transport crosses calls as materialized
+words. Nested JIT `#exe` uses that source-task behavior under either outer mode.
+[Closed numeric defaults](native-f64-defaults.md) also prepare in isolated
+programs and ordinary outer AOT source. Source-owned numeric intrinsic calls use
+their [separate declaration proof](aot-intrinsic-defaults.md). Ordinary AOT
+module-address dependencies and variadic F64 callback arguments remain open.
 
-Constant-only comparisons without a normalization proof, comparison results
-converted to F64, floating comparison chains, short circuit, floating globals,
+Comparison results converted to F64, floating comparison chains, short circuit, floating globals,
 compound updates, suffix bitcasts and other unproved source shapes
 remain outside this increment. This does not claim complete TempleOS optimizer
 parity, full floating storage, exported ABI support or bootstrap closure.

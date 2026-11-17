@@ -150,6 +150,70 @@ let arithmetic_intrinsic () =
       (fun d -> { d with S.operands = List.rev d.operands });
     ]
 
+let nested_intrinsics () =
+  let contents =
+    "_intern 28 F64 C(I64 n);_intern 27 I64 D(F64 x);I64 F(I64 n){return \
+     D(C(n));}"
+  in
+  List.iter
+    (fun (select_end, transform) ->
+      let source, graph = fixture ~contents () in
+      let plan = Plan.prepare ~source graph |> checked in
+      let receipts = Plan.validated_intrinsics plan ~graph |> Option.get in
+      Alcotest.(check int)
+        "two original nested conversion events" 2 (List.length receipts);
+      let inner =
+        List.find
+          (fun (inner : Plan.intrinsic_entry) ->
+            List.exists
+              (fun (outer : Plan.intrinsic_entry) ->
+                outer.intrinsic_input = inner.intrinsic_result)
+              receipts)
+          receipts
+      in
+      let outer =
+        List.find
+          (fun (outer : Plan.intrinsic_entry) ->
+            outer.intrinsic_input = inner.intrinsic_result)
+          receipts
+      in
+      Alcotest.(check bool)
+        "nested conversions keep their materialized direction" true
+        (inner.intrinsic_conversion = Holyc_lib__Ir.Numeric_intrinsic.To_float
+        && outer.intrinsic_conversion
+           = Holyc_lib__Ir.Numeric_intrinsic.To_integer);
+      Alcotest.(check bool)
+        "explicit boundaries retain no extended float owner" true
+        (List.for_all
+           (fun (entry : Plan.entry) ->
+             entry.live_before = [] && entry.live_after = [])
+           (Plan.validated_entries plan ~graph |> Option.get));
+      rejects (Plan.prepare graph);
+      let foreign, _ = fixture ~contents () in
+      rejects
+        (Plan.prepare ~source:{ source with runtime = foreign.runtime } graph);
+      mutate graph
+        (fun (d : S.description) ->
+          if select_end then
+            Option.fold ~none:false
+              ~some:(fun (result : S.value_definition) ->
+                result.value_id = inner.intrinsic_result)
+              d.result
+          else d.instruction_id = outer.intrinsic_instruction)
+        transform;
+      Alcotest.(check bool)
+        "changed nested boundary revokes its emission receipt" true
+        (Plan.validated_intrinsics plan ~graph = None);
+      rejects (Plan.prepare ~source graph))
+    [
+      (* Equal field values cannot replace the original argument producer. *)
+      (true, fun d -> { d with S.flags = d.S.flags });
+      (true, fun d -> { d with S.flags = 1L });
+      (true, fun d -> { d with S.payload = None });
+      (true, fun d -> { d with S.target_type = None });
+      (false, fun d -> { d with S.operands = [] });
+    ]
+
 let intrinsic_consumer () =
   let contents = "_intern 28 F64 C(I64 x);I64 F(I64 n,F64 y){return C(n)+y;}" in
   List.iter
@@ -571,6 +635,8 @@ let () =
             intrinsic_consumer;
           Alcotest.test_case "materialized intrinsic argument" `Quick
             arithmetic_intrinsic;
+          Alcotest.test_case "original nested intrinsic boundaries" `Quick
+            nested_intrinsics;
           Alcotest.test_case "canonical ordered events" `Quick canonical;
           Alcotest.test_case "foreign and absent ownership" `Quick ownership;
           Alcotest.test_case "conversion and operand snapshots" `Quick snapshots;

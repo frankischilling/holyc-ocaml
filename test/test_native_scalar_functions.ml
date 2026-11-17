@@ -55,7 +55,8 @@ let reject_gate label = function
   | Error [] -> Alcotest.failf "%s returned no diagnostic" label
   | Error diagnostics ->
       Alcotest.(check bool)
-        (label ^ " rejects before native execution")
+        (label ^ " rejects before native execution: "
+        ^ diagnostics_text diagnostics)
         false
         (List.exists
            (fun (error : Diagnostic.t) ->
@@ -204,8 +205,15 @@ let narrow_defaults_prepare_exact_raw_payloads () =
         [
           "I64 Inc(I64 n){return n+1;} U8 F(U8 n=Inc(41)){return n;} F();";
           "I64 F(I64 n=\"A\"){return n;} F();";
-          "I64 F(I64 n=lastclass){return n;} F();";
-        ])
+        ];
+      let lastclass_source = "I64 F(I64 n=lastclass){return n;} F();" in
+      match mode with
+      | Preprocessor.Jit ->
+          ignore (image ~max_default_bytes:1 ~mode lastclass_source)
+      | Preprocessor.Aot ->
+          compile_source ~mode lastclass_source
+          |> reject_compile ~code:"HCIRL0004"
+               "AOT lastclass without a preceding supplied argument")
     modes;
   (* The prepared default retains the expression bits. Parameter entry performs
      the U8 narrowing later, so 554 is intentionally not pre-normalized to 42. *)
@@ -1080,6 +1088,25 @@ let callback_word_default_source_limits () =
       compile_source ~mode ~max_blocks:(blocks - 1) source
       |> reject_compile ~code:"HCBACK0001"
            "saved callback word original blocks one below";
+      let interleaved =
+        "42;I64 F(I64 (*p)(I64 n)=17){if(p==17)return 42;return -1;}F();"
+      in
+      (match mode with
+      | Preprocessor.Aot ->
+          let compiled =
+            image ~mode ~max_initializer_steps:3 ~max_default_bytes:8
+              interleaved
+          in
+          Alcotest.(check int)
+            "AOT entry retains the later prepared callback parameter" 1
+            (Program.function_count compiled);
+          ignore
+            (Test_integer_globals.run ~mode interleaved
+            |> Test_integer_functions.expect 42L)
+      | Preprocessor.Jit ->
+          compile_source ~mode interleaved
+          |> reject_compile ~code:"HCRUN0006"
+               "isolated JIT cannot prepare a default after executable entry");
       List.iter
         (fun contents ->
           compile_source ~mode contents
@@ -1093,10 +1120,44 @@ let callback_word_default_source_limits () =
           "I64 A(I64 n){return n;}I64 F(I64 (*p)(I64 n)=&A){return 42;}F();";
           "I64 A(){return 17;}I64 F(I64 (*p)(I64 n)=A()){return 42;}F();";
           "I64 F(I64 (*p)(I64 n)=\"A\"){return 42;}F();";
-          "I64 F(I64 (*p)(I64 n)=lastclass){return 42;}F();";
-          "I64 F(I64 (*p)(I64 n)=1.5){return 42;}F();";
-          "42;I64 F(I64 (*p)(I64 n)=17){return 42;}F();";
-        ])
+        ];
+      (match
+         compile_source ~mode "I64 F(I64 (*p)(I64 n)=1.5){return 42;}F();"
+       with
+      | Ok _ ->
+          Alcotest.fail
+            "compile-only floating callback default unexpectedly prepared"
+      | Error errors ->
+          let diagnostic =
+            match
+              List.find_opt
+                (fun (error : Diagnostic.t) ->
+                  error.severity = Diagnostic.Error)
+                errors
+            with
+            | Some diagnostic -> diagnostic
+            | None ->
+                Alcotest.fail
+                  ("missing preparation error: " ^ diagnostics_text errors)
+          in
+          Alcotest.(check string)
+            ("compile-only preparation lacks native execution: "
+           ^ diagnostics_text errors)
+            "HCIRVM0002" diagnostic.code;
+          Alcotest.(check string)
+            "compile-only preparation rejects the actual floating instruction"
+            "IC_IMM_F64 is outside the bounded integer interpreter"
+            diagnostic.message);
+      let lastclass_source =
+        "I64 F(I64 (*p)(I64 n)=lastclass){return 42;}F();"
+      in
+      match mode with
+      | Preprocessor.Jit ->
+          ignore (image ~max_default_bytes:1 ~mode lastclass_source)
+      | Preprocessor.Aot ->
+          compile_source ~mode lastclass_source
+          |> reject_compile ~code:"HCIRL0004"
+               "AOT callback lastclass without a preceding supplied argument")
     modes
 
 let tests =

@@ -1,5 +1,31 @@
 type t
 
+type native_request
+(** One original default expression while its parser preparation callback is
+    active. The request expires when its executor returns and cannot move to
+    another OCaml domain. *)
+
+type native_executor = native_request -> (unit, Common.Diagnostic.t list) result
+
+val native_program : native_request -> Ir.Default_fragment_program.t
+val native_entered : native_request -> bool
+val check_native : native_request -> (unit, string) result
+
+val claim_native : native_request -> (unit, string) result
+(** Check the original program and preparation attempt, then claim native entry
+    once. Checking alone neither executes nor consumes the request. *)
+
+val native_remaining : native_request -> int
+
+val finish_native :
+  native_request ->
+  steps:int ->
+  Ir.Default_fragment_program.t Ir.Native_scalar_capture.t option ->
+  (unit, string) result
+(** Charge the reached work after native entry. A successful value requires its
+    actual one-use capture while the exact retained image is still live. A
+    failed execution charges work without publishing a saved value. *)
+
 val task_state : t -> Ir.Integer_interpreter.task_state
 
 type completion
@@ -15,11 +41,20 @@ val create :
   ?max_output_bytes:int ->
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
+  ?native_default:native_executor ->
   compilation_mode:Frontend.Preprocessor.compilation_mode ->
   max_initializer_steps:int ->
   ?max_default_bytes:int ->
   Session.t ->
   (t, string) result
+(** Create an isolated preparation budget. Closed integer expressions retain
+    their existing VM preparation. [native_default] supplies execution for
+    admitted original native fragments; this budget itself owns no executable
+    memory or source-command executor. Saved payloads default to 65,536 bytes
+    and charge eight bytes per successful scalar integer, F64 or original
+    one-star callback-word default. Saved words keep all bits before the
+    callee's declared-width storage conversion. Numeric callback defaults have
+    no executable ownership, independently of their return class. *)
 
 val create_aot_peer :
   t ->
@@ -43,14 +78,8 @@ val begin_aot_invocation :
   context:Frontend.Parser.command_context ->
   fork:Sema.Symbol_table.empty_fork ->
   (Sema.Aot_invocation.t, Common.Diagnostic.t list) result
-(** An isolated preparation budget. It has no source-command executor, retained
-    task bindings or executable-memory capability. Saved payloads default to
-    65,536 bytes and charge eight bytes per successful scalar integer or
-    original one-star callback-word default. Saved bits retain the full register
-    value even for narrow parameter types; the callee's parameter storage
-    applies its declared width. Callback parameters keep all word bits
-    independently of their return class and receive zero executable ownership
-    from numeric/null defaults. *)
+(** Begin the original AOT parser invocation with its empty namespace fork and
+    source ledger. This does not execute or load the output module. *)
 
 val prepare :
   t ->

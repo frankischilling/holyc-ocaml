@@ -108,7 +108,7 @@ val evaluate :
     their checked byte count to the owning initializer allowance. Those native
     writes appear in [static_copies], with no expression IR or code image.
     Static values are not computed by the interpreter or copied from prepared
-    storage. Named and anonymous integer, one-star callback or one-level
+    storage. Named and anonymous integer, F64, one-star callback or one-level
     primitive data-pointer parameter defaults execute once in their original
     native expression fragment and retain full words, original callback values
     or owned data descriptors in the same header. Calls require those exact
@@ -121,8 +121,8 @@ val evaluate :
     their terminated result into fresh task storage. Copied bytes charge literal
     storage; attempted scans charge initializer work. Data descriptors charge 32
     private arena bytes and expose no host pointer. Direct static callback
-    initializers and F64 defaults remain unsupported. Unsupported task
-    declarations return diagnostics. There is no interpreter fallback.
+    initializers remain unsupported. Unsupported task declarations return
+    diagnostics. There is no interpreter fallback.
 
     AOT mode freezes a separate directive task before module publication.
     Original [#exe] commands run in that task and feed committed generated text
@@ -131,12 +131,17 @@ val evaluate :
     preparation, saved-default, code/IR and combined logical storage allowances
     cover both contexts. [source_progress] observes only the directive task; the
     native report retains actual work and output for the complete invocation.
-    Supported synchronous StreamExePrint callbacks retain the original suspended
-    parser and native source scope. Runtime switch-case endpoints execute once
-    in their own native fragments, including nested source compilation inside
-    [#exe] in either outer mode. Their shared switch allowance counts reached
-    instructions once and tightens the suspended caller after child preparation.
-    AOT saved-table selection, runtime AOT dimensions, general outer aggregates
+    Closed numeric outer defaults, including original literal numeric internal
+    calls, execute in private native images at their declaration callbacks.
+    Their actual captures complete before image release, and their work shares
+    those invocation allowances. This does not load the outer module early or
+    supply output addresses to reference-bearing defaults. Supported synchronous
+    StreamExePrint callbacks retain the original suspended parser and native
+    source scope. Runtime switch-case endpoints execute once in their own native
+    fragments, including nested source compilation inside [#exe] in either outer
+    mode. Their shared switch allowance counts reached instructions once and
+    tightens the suspended caller after child preparation. AOT saved-table
+    selection, reference-bearing AOT dimensions, broader outer aggregate forms
     and reference-default relocation remain open. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result

@@ -4044,6 +4044,7 @@ struct native_internal_binding_capture {
   uint64_t bits;
   int64_t value_site;
   intnat work;
+  int private_image;
   _Atomic int consumed;
 };
 
@@ -4128,6 +4129,53 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
   CAMLreturn(result);
 }
 
+/* Closed source expressions have their own mapped image, without a task arena.
+   The capture keeps that exact image alive until its source receipt consumes
+   the native result. */
+CAMLprim value holyc_native_execute_retained_budget_source_program(
+  value handle, value limits, value consumed, value binding)
+{
+  CAMLparam4(handle, limits, consumed, binding);
+  CAMLlocal5(report, result, status, capture_handle, saved);
+  struct native_internal_binding_capture *capture;
+  int64_t steps;
+  if (!Is_block(binding) || Tag_val(binding) != 0 || Wosize_val(binding) != 2)
+    caml_invalid_argument("native source expression has no original program");
+  report = holyc_native_execute_retained_budget_program(
+    handle, limits, consumed, Field(binding, 0));
+  status = Field(report, 0);
+  steps = Int64_val(Field(status, 2));
+  saved = Val_none;
+  if (Int64_val(Field(status, 0)) == 0 &&
+      Int64_val(Field(status, 3)) > 0 &&
+      steps > Long_val(Field(consumed, 0))) {
+    capture_handle = caml_alloc_custom_mem(
+      &native_internal_binding_capture_operations, sizeof(capture),
+      sizeof(struct native_internal_binding_capture));
+    *((struct native_internal_binding_capture **)Data_custom_val(capture_handle)) = NULL;
+    capture = calloc(1, sizeof(*capture));
+    if (capture == NULL) caml_raise_out_of_memory();
+    capture->program = Field(binding, 1);
+    capture->arena = handle;
+    capture->scope = Val_unit;
+    capture->private_image = 1;
+    capture->bits = (uint64_t)Int64_val(Field(status, 4));
+    capture->value_site = Int64_val(Field(status, 3));
+    capture->work = (intnat)(steps - Long_val(Field(consumed, 0)));
+    atomic_init(&capture->consumed, 0);
+    caml_register_generational_global_root(&capture->program);
+    caml_register_generational_global_root(&capture->arena);
+    caml_register_generational_global_root(&capture->scope);
+    *((struct native_internal_binding_capture **)Data_custom_val(capture_handle)) = capture;
+    saved = caml_alloc_small(1, 0);
+    Field(saved, 0) = capture_handle;
+  }
+  result = caml_alloc_tuple(2);
+  Store_field(result, 0, report);
+  Store_field(result, 1, saved);
+  CAMLreturn(result);
+}
+
 static value native_consume_binding_capture(value handle, value request,
                                            value scope_option, int optional)
 {
@@ -4151,6 +4199,23 @@ static value native_consume_binding_capture(value handle, value request,
     caml_invalid_argument("native internal binding has another program or actual work");
   if (!optional && capture->value_site < 0)
     caml_invalid_argument("native scalar capture contains no scalar word");
+  if (capture->private_image) {
+    struct native_retained_program *program = native_retained_get(capture->arena);
+    if (scope_option != Val_none || capture->scope != Val_unit)
+      caml_invalid_argument("native source capture cannot borrow a task scope");
+    if (!atomic_compare_exchange_strong(&program->active, &expected, 1))
+      caml_failwith("native source capture image is already active");
+    if (program->closing || program->mapping == NULL) {
+      atomic_store(&program->active, 0);
+      caml_failwith("native source capture has an expired original image");
+    }
+    expected = 0;
+    if (!atomic_compare_exchange_strong(&capture->consumed, &expected, 1)) {
+      atomic_store(&program->active, 0);
+      caml_failwith("native source capture was already consumed");
+    }
+    atomic_store(&program->active, 0);
+  } else {
   arena = native_task_arena_get(capture->arena);
   struct native_source_scope *source_scope = native_source_scope_option(scope_option);
   if ((source_scope == NULL ? Val_unit : Field(scope_option, 0)) != capture->scope)
@@ -4168,6 +4233,7 @@ static value native_consume_binding_capture(value handle, value request,
     caml_failwith("native internal binding capture was already consumed");
   }
   if (!borrowed_arena) atomic_store(&arena->active, 0);
+  }
   if (optional && capture->value_site < 0) CAMLreturn(Val_none);
   bits = caml_copy_int64((int64_t)capture->bits);
   if (!optional) CAMLreturn(bits);

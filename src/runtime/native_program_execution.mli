@@ -29,6 +29,11 @@ type report
 type retained
 type task_arena
 
+val source_default_capture :
+  report -> Ir.Default_fragment_program.t Ir.Native_scalar_capture.t option
+(** Actual closed native default result. Consume it before releasing the exact
+    retained image; a later or foreign completion cannot reuse the capture. *)
+
 val retain :
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -42,7 +47,9 @@ val retain :
     frameless code; callable entries retain their saved-RBP frame. Each charges
     its own exact entry stack footprint. No native pointer or replacement image
     is accepted or exposed. Task-fragment images are rejected here and require
-    [retain_task_fragment]. *)
+    [retain_task_fragment]. Closed source-default images keep their private
+    storage but still require their original one-use parser callback and the
+    budgeted entry path. *)
 
 val create_task_arena :
   ?max_arena_bytes:int ->

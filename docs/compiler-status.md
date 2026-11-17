@@ -6,9 +6,36 @@ on both native targets. Original callee snapshots, signatures and executable
 ownership remain checked. Original named and anonymous F64 parameter defaults
 also execute and save full words in live JIT native source tasks, including
 source-proved integer/F64 conversions and nested JIT `#exe` under either outer
-mode. Isolated and ordinary outer AOT floating default preparation, variadic
-F64 arguments and new linked precision regions across calls remain outside
-this support.
+mode. [Closed numeric defaults](native-f64-defaults.md) also execute at their
+original declarations in ordinary AOT source and isolated `host-jit` programs.
+Their private native images retain the actual result until its source receipt
+consumes it; final entry execution shares the cumulative native allowance.
+[Original numeric intrinsic calls](aot-intrinsic-defaults.md) also prepare in
+ordinary AOT and isolated compilation. They retain completed `_intern` headers
+and selected call receipts without requiring output function addresses.
+Ordinary AOT defaults that depend on module functions or data, variadic F64
+arguments and new linked precision regions across calls remain separate work.
+
+[Numeric conversions after ordinary calls](native-float-comparisons.md)
+authenticate the exact returned word and original consumer. The subsequent
+integer-to-F64 conversion can remain extended through adjacent arithmetic when
+the original source passes select that link. Fixed arguments and returns retain
+their materialized word boundaries. Immediate floating comparisons also retain
+the original folded result and raw-word equality rule.
+
+[Native `lastclass` defaults](native-lastclass-defaults.md) select the forwarded
+class of the previous supplied argument. JIT calls share the owned class-name
+region; AOT calls receive a separate copied string for each omitted occurrence.
+Named calls, anonymous callback headers and implicit output keep the original
+selection. These markers require no declaration-time execution or saved payload.
+
+[F64 declaration-time bounds](native-f64-runtime-dimensions.md) now run once in
+live JIT source tasks for global, automatic, static and class-member arrays.
+The captured result converts to I64 before the signed extent check, and layout
+and size queries reuse that count. Closed AOT bounds apply the same completed
+word conversion, including the invalid-conversion word for NaN, infinity and
+out-of-range inputs. General AOT runtime-dependent bounds still need callable
+and relocation authority.
 
 [Native F64 storage](native-f64-storage.md) now connects automatic floating
 arrays, packed members and one-level owned pointers to native loads and stores.
@@ -18,8 +45,8 @@ interpreter's floating execution remains outside this slice. Standalone globals
 and static locals now have byte-addressed F64 storage; live declaration
 initializers execute in native source-task JIT. Original nonconstant same-class
 F64 leaves also run as AOT load assignments on both native targets, including
-fixed arrays and packed aggregates. Closed AOT and isolated floating preparation
-remain unfinished.
+fixed arrays and packed aggregates. General floating initializer preparation in
+ordinary AOT and isolated compilation remains unfinished.
 
 [Local-index normalization](local-index-normalization.md) extends array-bearing
 register allocation to bounded pure computed indices and full multidimensional

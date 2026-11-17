@@ -105,6 +105,7 @@ val compile_callable :
   ?max_literal_bytes:int ->
   ?parameter_defaults:Driver.Native_parameter_defaults.t ->
   ?global_initializers:Driver.Native_global_initializers.t ->
+  ?float_entry_source:X86_64_float_plan.entry_source ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
   runtime_calls:Ir.Runtime_call_context.t ->
@@ -134,6 +135,7 @@ val compile_task_fragment :
   ?max_blocks:int ->
   ?capture_callback_default:bool ->
   ?capture_data_default:Ir.Saved_parameter_value.data ->
+  ?float_entry_source:X86_64_float_plan.entry_source ->
   task_snapshot:X86_64_global_storage.task_snapshot ->
   max_ir_instructions:int ->
   max_code_bytes:int ->

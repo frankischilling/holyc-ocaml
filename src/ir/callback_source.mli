@@ -11,6 +11,7 @@ type t =
   | Member of
       Sema.Function_call_expression_result.top_level_member_callback_call
 
+val source : t -> Sema.Function_call_resolution.call
 val callable : t -> Sema.Function_call_resolution.callable
 val origin : t -> Sema.Symbol.origin
 val callee : t -> Sema.Function_call_expression_result.expression_result option
@@ -29,6 +30,13 @@ val fixed_arguments :
 
 val variadic_arguments :
   t -> Sema.Function_call_expression_result.expression_result list
+
+val lastclass_arguments :
+  t ->
+  (Sema.Function_type_resolution.parameter
+  * Sema.Function_call_expression_result.lastclass_substitution)
+  list
+(** Exact substitutions retained by omitted slots in this original call. *)
 
 val matches_result :
   t -> Sema.Function_call_expression_result.expression_result -> bool

@@ -155,6 +155,10 @@ val default_context : task_view -> Sema.Default_fragment.t -> (t, string) result
 val is_default_fragment : t -> bool
 val is_isolated_default : t -> bool
 
+val native_source_default_fragment : t -> Sema.Default_fragment.t option
+(** The original source fragment retained by the isolated native preparation
+    context. It supplies source metadata, never task storage or an address. *)
+
 val publish_parameter_defaults :
   task_catalog ->
   namespace:Sema.Declaration_collection.namespace ->

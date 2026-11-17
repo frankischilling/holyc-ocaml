@@ -2288,6 +2288,38 @@ let callback_default_preparation_limits () =
             "preparation quota preserves completed payloads" saved
             (Native_program.default_bytes report))
         [ (6, 15, "HCIRVM0011", 3, 8); (5, 16, "HCIRVM0007", 5, 8) ];
+      if Native_execution.x87_supported () then (
+        let report, result =
+          native_success_report ~mode ~max_steps:10000 "I64 (*p)(F64 n=1.0);42;"
+        in
+        check_native_word "unused anonymous F64 default prepares" "I64" 42L
+          result.execution.final_value;
+        Alcotest.(check int)
+          "unused anonymous F64 default retains full word" 8
+          (Native_program.default_bytes report));
+      let interleaved = "42;I64 (*p)(I64 n=42);42;" in
+      if mode = Preprocessor.Aot then (
+        let report, result =
+          native_success_report ~mode ~max_steps:10000 interleaved
+        in
+        check_native_word
+          "ordinary AOT entry waits for later default preparation" "I64" 42L
+          result.execution.final_value;
+        Alcotest.(check int)
+          "interleaved AOT callback saves original word" 8
+          (Native_program.default_bytes report));
+      let lastclass, result =
+        native_success_report ~mode ~max_steps:10000
+          "I64 (*p)(I64 n=lastclass);42;"
+      in
+      check_native_word "unused lastclass signature does not evaluate a default"
+        "I64" 42L result.execution.final_value;
+      Alcotest.(check int)
+        "lastclass signature saves no expression payload" 0
+        (Native_program.default_bytes lastclass);
+      Alcotest.(check int)
+        "lastclass signature performs no declaration work" 0
+        (Native_program.preparation_steps lastclass);
       List.iter
         (fun rejected ->
           let report, fault, errors =
@@ -2302,13 +2334,11 @@ let callback_default_preparation_limits () =
           Alcotest.(check int)
             "unsupported default publishes no saved word" 0
             (Native_program.default_bytes report))
-        [
-          "I64 (*p)(I64 n=lastclass);42;";
-          "I64 (*p)(F64 n=1.0);42;";
-          "I64 (*p)(I64 n=\"A\");42;";
-          "I64 Value(){return 42;}I64 (*p)(I64 n=Value());42;";
-          "42;I64 (*p)(I64 n=42);42;";
-        ];
+        ([
+           "I64 (*p)(I64 n=\"A\");42;";
+           "I64 Value(){return 42;}I64 (*p)(I64 n=Value());42;";
+         ]
+        @ if mode = Preprocessor.Jit then [ interleaved ] else []);
       let malformed, fault, errors =
         native_fault ~mode ~max_steps:10000 "I64 (*p)(I64 n=42;42;"
       in

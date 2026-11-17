@@ -195,6 +195,15 @@ external bind_task_entries :
   Ir.Native_source_suspension.t option ->
   bool = "holyc_native_bind_task_entries"
 
+external execute_retained_budget_source_program :
+  retained_handle ->
+  int * int * int * int * int * int * int * int * int ->
+  int * int * int ->
+  bool ref * Ir.Default_fragment_program.t ->
+  ((int64 * int64 * int64 * int64 * int64) * string * int)
+  * Ir.Default_fragment_program.t Ir.Native_scalar_capture.t option
+  = "holyc_native_execute_retained_budget_source_program"
+
 type scalar_capture =
   | Default_capture of Ir.Default_fragment_program.t Ir.Native_scalar_capture.t
   | Binding_capture of Ir.Native_internal_binding_capture.t
@@ -265,6 +274,8 @@ type report = {
   generation_capture_ :
     Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t
     option;
+  source_default_capture_ :
+    Ir.Default_fragment_program.t Ir.Native_scalar_capture.t option;
 }
 
 let outcome report = report.outcome_
@@ -272,6 +283,7 @@ let output_bytes report = report.output_bytes_
 let output_work report = report.output_work_
 let generation_capture report = report.generation_capture_
 let value_captured report = report.value_captured_
+let source_default_capture report = report.source_default_capture_
 
 let error_report message =
   {
@@ -280,6 +292,7 @@ let error_report message =
     output_work_ = 0;
     value_captured_ = false;
     generation_capture_ = None;
+    source_default_capture_ = None;
   }
 
 let bind_task_budget arena identity =
@@ -455,7 +468,18 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                 in
                 let activation =
                   match task_binding with
-                  | None -> Ok ()
+                  | None ->
+                      if
+                        Option.is_some (Image.scalar_default image)
+                        && (Option.is_none retained || Option.is_none consumed)
+                      then
+                        Error
+                          "native source default requires its retained budget \
+                           entry"
+                      else
+                        let ( let* ) = Result.bind in
+                        let* () = Image.check_task_request image in
+                        Image.check_task_activation image
                   | Some binding -> (
                       let required_arena_bytes =
                         binding.task_required_arena_bytes_
@@ -511,6 +535,7 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                 | Error message -> error_report message
                 | Ok () -> (
                     let scalar_capture = ref None in
+                    let source_default_capture = ref None in
                     let generated_capture = ref None in
                     let generation = Image.generation image in
                     let generation_state =
@@ -553,10 +578,20 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                         | None, None ->
                             execute_retained_program (Option.get retained)
                               limits
-                        | Some consumed, None ->
-                            execute_retained_budget_program
-                              (Option.get retained) limits consumed
-                              (Option.get entered)
+                        | Some consumed, None -> (
+                            match Image.scalar_default image with
+                            | None ->
+                                execute_retained_budget_program
+                                  (Option.get retained) limits consumed
+                                  (Option.get entered)
+                            | Some program ->
+                                let report, capture =
+                                  execute_retained_budget_source_program
+                                    (Option.get retained) limits consumed
+                                    (Option.get entered, program)
+                                in
+                                source_default_capture := capture;
+                                report)
                         | Some consumed, Some binding -> (
                             let task =
                               ( binding.task_arena_.handle_,
@@ -850,6 +885,10 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                             output_work_ = work;
                             value_captured_ = not (Int64.equal value_site 0L);
                             generation_capture_ = !generated_capture;
+                            source_default_capture_ =
+                              (match outcome_ with
+                              | Image.Completed _ -> !source_default_capture
+                              | Image.Fault _ -> None);
                           }
                       | Error message ->
                           error_report

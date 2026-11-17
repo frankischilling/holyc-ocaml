@@ -371,8 +371,40 @@ val default_constant_steps : default_constant -> int
 val default_constant_bits : default_constant -> int64
 val default_constant_is_consumed : default_constant -> bool
 
+val default_constant_has_closed_source : default_constant -> bool
+(** References require the original native program's exact source, lowering,
+    destination, and authenticated numeric internal-call receipts. Defaults
+    without references retain their existing closed-expression path. *)
+
 val consume_default_constant :
   task_state -> default_constant -> (int64, string) result
+
+val begin_native_source_default :
+  task_state -> Default_fragment_program.t -> (default_constant, string) result
+
+val check_native_source_default :
+  task_state ->
+  default_constant ->
+  Default_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_source_default :
+  task_state ->
+  default_constant ->
+  Default_fragment_program.t ->
+  (unit, string) result
+
+val finish_native_source_default :
+  task_state ->
+  default_constant ->
+  Default_fragment_program.t ->
+  steps:int ->
+  Default_fragment_program.t Native_scalar_capture.t option ->
+  (unit, string) result
+(** Charge the actual native entry and consume its opaque machine capture while
+    the original private image is live. A failed entry has no saved value. *)
+
+val abandon_native_source_default : default_constant -> unit
 
 type default_attempt
 

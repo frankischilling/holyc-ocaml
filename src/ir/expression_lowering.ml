@@ -1797,6 +1797,174 @@ let validate_binary result opcode left right =
         ~operation_flags:0L result left right
   | Ok false -> Ok Unsupported_binary
 
+type operand_conversion = {
+  operand_conversion_kind_ : Semantic_result.intrinsic_conversion;
+  operand_conversion_valid_ : unit -> bool;
+}
+
+let operand_conversion_kind proof = proof.operand_conversion_kind_
+let valid_operand_conversion proof = proof.operand_conversion_valid_ ()
+
+let prepare_operand_conversion ~consumer ~operand =
+  let freeze result =
+    let source = Semantic_result.result_source result in
+    let metadata () =
+      ( Semantic_result.result_id result,
+        Semantic_result.result_origin result,
+        Semantic_result.result_type result,
+        Semantic_result.result_value_type result,
+        Semantic_result.result_computation_type result,
+        Semantic_result.result_class result,
+        Semantic_result.result_execution_class result,
+        Semantic_result.result_category result,
+        Semantic_result.result_array_rank result,
+        Semantic_result.result_is_array_address result,
+        Semantic_result.result_is_numeric_callback result,
+        Semantic_result.result_is_callback_storage result,
+        Semantic_result.result_intrinsic_conversion result )
+    in
+    let original = metadata () in
+    fun () ->
+      Semantic_result.result_source result == source && metadata () = original
+  in
+  let aliases first =
+    let seen = Hashtbl.create 8 in
+    let current = ref (Some first) and checks = ref [] in
+    let found = ref false in
+    while Option.is_some !current do
+      let result = Option.get !current in
+      current := None;
+      let id = Semantic_result.result_id result |> Semantic_result.Id.to_int in
+      if not (Hashtbl.mem seen id) then (
+        Hashtbl.add seen id ();
+        checks := freeze result :: !checks;
+        if result == operand then found := true
+        else
+          let source_kind () =
+            Semantic_result.result_source result
+            |> Semantic_source.argument_expression_kind
+          in
+          let original_kind = source_kind () in
+          let source_operand =
+            match original_kind with
+            | Semantic_source.Parenthesized_expression source -> Some source
+            | Semantic_source.Prefix_expression prefix
+              when Semantic_source.prefix_operator prefix
+                   = Semantic_source.Unary_plus ->
+                Some (Semantic_source.prefix_operand prefix)
+            | _ -> None
+          in
+          match source_operand with
+          | None -> ()
+          | Some source -> (
+              match
+                checked_operand result source "numeric conversion alias"
+              with
+              | Error _ -> ()
+              | Ok next -> (
+                  match checked_alias_types result next with
+                  | Error _ -> ()
+                  | Ok () ->
+                      checks :=
+                        (fun () ->
+                          (match (original_kind, source_kind ()) with
+                            | ( Semantic_source.Parenthesized_expression original,
+                                Semantic_source.Parenthesized_expression current
+                              ) -> current == original
+                            | ( Semantic_source.Prefix_expression original,
+                                Semantic_source.Prefix_expression current ) ->
+                                current == original
+                                && Semantic_source.prefix_operator current
+                                   = Semantic_source.Unary_plus
+                                && Semantic_source.prefix_operand current
+                                   == source
+                            | _ -> false)
+                          && Option.fold ~none:false ~some:(( == ) next)
+                               (Semantic_result.result_operand result))
+                        :: !checks;
+                      current := Some next)))
+    done;
+    if !found then Some !checks else None
+  in
+  let make conversion checks recheck =
+    let kind =
+      match conversion with
+      | Keep_result -> Semantic_result.No_intrinsic_conversion
+      | Result_to_f64 -> Semantic_result.Result_to_f64
+      | Result_to_int -> Semantic_result.Result_to_int
+    in
+    if conversion = Keep_result then None
+    else
+      Some
+        {
+          operand_conversion_kind_ = kind;
+          operand_conversion_valid_ =
+            (fun () ->
+              List.for_all (fun check -> check ()) checks && recheck ());
+        }
+  in
+  let requested = requested_conversion consumer in
+  match (requested, aliases consumer) with
+  | (Result_to_f64 | Result_to_int), Some checks
+    when validate_conversion operand requested = Ok true ->
+      make requested checks (fun () ->
+          requested_conversion consumer = requested
+          && validate_conversion operand requested = Ok true)
+  | _ -> (
+      match
+        Semantic_result.result_source consumer
+        |> Semantic_source.argument_expression_kind
+      with
+      | Semantic_source.Binary_expression binary -> (
+          let opcode = Semantic_source.binary_operator binary in
+          match checked_binary_operands consumer binary with
+          | Error _ -> None
+          | Ok (left, right) -> (
+              match validate_binary consumer opcode left right with
+              | Error _ | Ok Unsupported_binary -> None
+              | Ok
+                  (Supported_binary
+                     { left_conversion; right_conversion; operation_flags }) ->
+                  let selected =
+                    match aliases left with
+                    | Some checks -> Some (left_conversion, checks)
+                    | None ->
+                        Option.map
+                          (fun checks -> (right_conversion, checks))
+                          (aliases right)
+                  in
+                  Option.bind selected (fun (conversion, checks) ->
+                      let left_source = Semantic_source.binary_left binary in
+                      let right_source = Semantic_source.binary_right binary in
+                      let original =
+                        Supported_binary
+                          { left_conversion; right_conversion; operation_flags }
+                      in
+                      make conversion
+                        (freeze consumer :: freeze left :: freeze right
+                       :: checks) (fun () ->
+                          Semantic_source.binary_operator binary = opcode
+                          && Semantic_source.binary_left binary == left_source
+                          && Semantic_source.binary_right binary == right_source
+                          && (match
+                                Semantic_result.result_binary_operands consumer
+                              with
+                            | Some (a, b) -> a == left && b == right
+                            | None -> false)
+                          && (match
+                                Semantic_result.result_source consumer
+                                |> Semantic_source.argument_expression_kind
+                              with
+                            | Semantic_source.Binary_expression current ->
+                                current == binary
+                            | _ -> false)
+                          && (match checked_binary_operands consumer binary with
+                            | Ok (a, b) -> a == left && b == right
+                            | Error _ -> false)
+                          && validate_binary consumer opcode left right
+                             = Ok original))))
+      | _ -> None)
+
 let prepare_storage_address ?frame ?globals result =
   let ( let* ) = Result.bind in
   let* address =

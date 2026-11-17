@@ -22,6 +22,7 @@ type lowering_result = Lowered of t | Unsupported_call
 
 type argument =
   | Provided of Result.expression_result
+  | Lastclass of Lastclass_argument.t
   | Prepared_callback_default of Prepared_callback_default.t
   | Prepared_default of Prepared_parameter_default.t
 
@@ -111,6 +112,15 @@ let call_opcode = function
   | Records.Aot_import_call -> Some Opcode.Ic_call_import
   | Records.Aot_extern_call -> Some Opcode.Ic_call_extern
 
+let lastclass_value ?globals parameter substitution =
+  match globals with
+  | None -> Error "lastclass requires its original source compilation mode"
+  | Some globals ->
+      Lastclass_argument.create
+        ~mode:(Integer_globals.compilation_mode globals)
+        ~parameter substitution
+      |> Stdlib.Result.map (fun value -> Lastclass value)
+
 let call_shape ?globals target =
   let typed = Target.source target in
   let direct = target_resolution target in
@@ -155,6 +165,16 @@ let call_shape ?globals target =
             match Result.fixed_path fixed with
             | Result.Provided_result argument ->
                 provided (Provided argument :: rev) arguments results parameters
+            | Result.Declared_default_result _
+              when Option.is_some (Result.fixed_lastclass_substitution fixed)
+              -> (
+                match
+                  lastclass_value ?globals parameter
+                    (Option.get (Result.fixed_lastclass_substitution fixed))
+                with
+                | Ok value ->
+                    provided (value :: rev) arguments results parameters
+                | Error message -> Inconsistent_shape message)
             | Result.Declared_default_result _ -> (
                 match
                   Option.bind globals (fun globals ->
@@ -215,6 +235,16 @@ let top_level_call_shape ?globals target =
             match Result.top_level_fixed_path fixed with
             | Result.Provided_result argument ->
                 provided (Provided argument :: rev) results parameters
+            | Result.Declared_default_result _
+              when Option.is_some
+                     (Result.top_level_fixed_lastclass_substitution fixed) -> (
+                match
+                  lastclass_value ?globals parameter
+                    (Option.get
+                       (Result.top_level_fixed_lastclass_substitution fixed))
+                with
+                | Ok value -> provided (value :: rev) results parameters
+                | Error message -> Inconsistent_shape message)
             | Result.Declared_default_result _ -> (
                 match
                   Option.bind globals (fun globals ->
@@ -269,7 +299,8 @@ let intrinsic_shape opcode ~header ~arguments ~variadic_count_type
          &&
          match argument with
          | Provided _ -> true
-         | Prepared_default _ | Prepared_callback_default _ -> false)
+         | Lastclass _ | Prepared_default _ | Prepared_callback_default _ ->
+             false)
        (List.mapi (fun index parameter -> (index, parameter)) parameters)
        arguments
 
@@ -347,7 +378,8 @@ let lower_intrinsic ?frame ?globals ?lower_call ?optimize_shifts
             | Ok (items, value, instruction_id, value_id) ->
                 lower_arguments instruction_id value_id (descriptions @ items)
                   (value :: operands) rest))
-    | (Prepared_default _ | Prepared_callback_default _) :: _ -> Ok None
+    | (Lastclass _ | Prepared_default _ | Prepared_callback_default _) :: _ ->
+        Ok None
   in
   let start_id = instruction_id in
   match next_instruction_id ~span start_id with
@@ -445,6 +477,28 @@ let lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
     | [] ->
         Ok
           (Argument_lowered (List.rev rev_descriptions, instruction_id, value_id))
+    | Lastclass value :: rest -> (
+        match
+          ( next_instruction_id ~span instruction_id,
+            next_value_id ~span value_id )
+        with
+        | Error error, _ | _, Error error -> Error [ error ]
+        | Ok next_instruction_id, Ok next_value_id ->
+            let item =
+              description ~instruction_id
+                ~opcode:
+                  (if Lastclass_argument.is_aot value then Opcode.Ic_str_const
+                   else Opcode.Ic_imm_i64)
+                ~target_type:(Some (Lastclass_argument.type_ value))
+                ~payload:
+                  (Some
+                     (match Lastclass_argument.name value with
+                     | None -> Sequence.Integer 0L
+                     | Some name -> Sequence.Bytes name))
+                ~span ~result:{ Sequence.value_id } ~flags:push_result_flag ()
+            in
+            loop (item :: rev_descriptions) next_instruction_id next_value_id
+              rest)
     | Prepared_default prepared :: rest -> (
         match
           ( next_instruction_id ~span instruction_id,
@@ -911,6 +965,15 @@ let lower_implicit_output ?frame ?globals ?lower_call ?optimize_shifts
                   :: rev)
                   rest
             | Bound.Defaulted_path default
+              when Option.is_some (Bound.default_lastclass default) -> (
+                let parameter = Bound.fixed_parameter slot in
+                match
+                  lastclass_value ?globals parameter
+                    (Option.get (Bound.default_lastclass default))
+                with
+                | Ok value -> fixed ((parameter, value) :: rev) rest
+                | Error _ -> None)
+            | Bound.Defaulted_path default
               when Bound.default_materialization default
                    = Bound.Immediate_default -> (
                 let parameter = Bound.fixed_parameter slot in
@@ -973,6 +1036,15 @@ let lower_top_level_implicit_output ?frame ?globals ?lower_call ?optimize_shifts
                      Provided (Bound.provided_result provided) )
                   :: rev)
                   rest
+            | Bound.Defaulted_path default
+              when Option.is_some (Bound.default_lastclass default) -> (
+                let parameter = Bound.fixed_parameter slot in
+                match
+                  lastclass_value ?globals parameter
+                    (Option.get (Bound.default_lastclass default))
+                with
+                | Ok value -> fixed ((parameter, value) :: rev) rest
+                | Error _ -> None)
             | Bound.Defaulted_path default
               when Bound.default_materialization default
                    = Bound.Immediate_default -> (
@@ -1052,11 +1124,22 @@ let lower_callback ?frame ?globals ?lower_call ?optimize_shifts
       (Callback_source.callee call)
   in
   let fixed = Callback_source.fixed_arguments call in
+  let lastclasses = Callback_source.lastclass_arguments call in
   let provided =
     List.filter_map
       (fun (parameter, value) ->
         match value with
         | Some value -> Some (Provided value)
+        | None
+          when List.exists
+                 (fun (original, _) -> original == parameter)
+                 lastclasses ->
+            lastclass_value ?globals parameter
+              (snd
+                 (List.find
+                    (fun (original, _) -> original == parameter)
+                    lastclasses))
+            |> Stdlib.Result.to_option
         | None ->
             Option.bind globals (fun globals ->
                 Integer_globals.prepared_callback_default globals ~pointer

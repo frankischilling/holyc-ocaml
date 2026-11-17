@@ -528,6 +528,43 @@ let combined_dimensions () =
     "early source dimension failure does not activate providers" true
     (integer_program_report_progress report = None)
 
+let closed_f64_dimensions () =
+  let source = "I64 A[1.25+2.5];sizeof(A);" in
+  let accepted = run ~max_dimension_work:3 source in
+  ignore (accepted |> Output.expect ~value:(Some 24L) "");
+  Alcotest.(check int)
+    "AOT closed F64 expression charges two leaves and one operation" 3
+    (integer_program_report_dimension_work accepted);
+  let exhausted = run ~max_dimension_work:2 source in
+  ignore (Output.fault "HCIRVM0007" exhausted);
+  Alcotest.(check int)
+    "one-below F64 preparation preserves charged work" 2
+    (integer_program_report_dimension_work exhausted);
+  let oversized_source_literal =
+    run "I64 A[9223372036854775808.0];sizeof(A)+42;"
+  in
+  ignore (oversized_source_literal |> Output.expect ~value:(Some 42L) "");
+  Alcotest.(check int)
+    "19-digit decimal source accumulator is not an evaluated 2^63 F64" 1
+    (integer_program_report_dimension_work oversized_source_literal);
+  List.iter
+    (fun (source, work, count) ->
+      let report = run source in
+      let error = Output.fault "HCRUN0004" report in
+      Alcotest.(check string)
+        "signed-negative check receives the converted F64 word"
+        (Printf.sprintf "array extent %Ld is negative" count)
+        error.message;
+      Alcotest.(check int)
+        "source AOT conversion preserves original closed work" work
+        (integer_program_report_dimension_work report))
+    [
+      ("I64 A[-1.5];sizeof(A);", 2, -1L);
+      ("I64 A[4294967296.0*2147483648.0];sizeof(A);", 3, Int64.min_int);
+      ("I64 A[1.0/0.0];sizeof(A);", 3, Int64.min_int);
+      ("I64 A[0.0/0.0];sizeof(A);", 3, Int64.min_int);
+    ]
+
 let invalid_limits () =
   List.iter
     (fun invoke ->
@@ -632,6 +669,9 @@ let tests =
         `Quick preparation_ticket;
       Alcotest.test_case "source and stream dimension accounting stays distinct"
         `Quick combined_dimensions;
+      Alcotest.test_case
+        "closed AOT F64 dimensions truncate and retain invalid conversion work"
+        `Quick closed_f64_dimensions;
       Alcotest.test_case "invalid invocation limits precede provider setup"
         `Quick invalid_limits;
       Alcotest.test_case "exact and exhausted generated allowances" `Quick

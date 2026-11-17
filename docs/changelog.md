@@ -11,6 +11,34 @@ for native observations, execution checks and the separate AOT boundary.
 
 ## Unreleased
 
+- Preserve original numeric conversions after ordinary calls. A returned I64
+  word can feed a source-selected extended x87 conversion into adjacent
+  arithmetic; argument and return boundaries retain their materialized words.
+  Fold original immediate floating comparisons before selecting branch behavior.
+  See [native comparisons and conversions](native-float-comparisons.md).
+
+- Prepare original numeric `_intern` calls in ordinary AOT and isolated native
+  defaults. Preserve selected header history, nested conversions, actual native
+  captures and saved values. See [intrinsic defaults](aot-intrinsic-defaults.md).
+
+- Materialize native `lastclass` defaults from the last supplied argument's
+  forwarded class. Keep shared JIT names, distinct AOT string copies, anonymous
+  headers, implicit output and original literal limits. JIT omissions without
+  a predecessor retain zero, including checked null data references. See
+  [`lastclass` defaults](native-lastclass-defaults.md).
+
+- Execute closed numeric parameter defaults in ordinary AOT source and isolated
+  native programs. Retain the original declaration, actual captured word,
+  post-call conversion and saved header value across omitted calls and later
+  failures. Native work and generated code share their original cumulative
+  limits. See [numeric defaults](native-f64-defaults.md).
+
+- Execute F64 declaration-time bounds for global, automatic, static and member
+  arrays in native JIT source tasks. Convert the completed word before checking
+  the count, retain reached effects and reuse the count for layout and queries.
+  Closed AOT dimensions use the same conversion. See
+  [floating bounds](native-f64-runtime-dimensions.md).
+
 - Evaluate supported closed integer initializers of AOT scalar U0 globals and
   statics at their source declaration. Preserve earlier directive effects and stop before
   later directives if preparation fails. See

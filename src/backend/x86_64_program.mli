@@ -121,6 +121,7 @@ val compile_callable :
   ?max_literal_bytes:int ->
   ?parameter_defaults:Driver.Native_parameter_defaults.t ->
   ?global_initializers:Driver.Native_global_initializers.t ->
+  ?float_entry_source:X86_64_float_plan.entry_source ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
   runtime_calls:Ir.Runtime_call_context.t ->
@@ -182,6 +183,15 @@ val compile_task_initializer :
   (t, error list) result
 (** Compile the original live integer initializer leaf against the task's stable
     storage layout. The image retains its exact one-shot source-entry token. *)
+
+val compile_source_default :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  max_ir_instructions:int ->
+  max_code_bytes:int ->
+  Driver.Native_default_preparation.native_request ->
+  (t, error list) result
 
 val compile_task_default :
   ?status_abi:status_abi ->
@@ -274,9 +284,9 @@ val check_task_request : t -> (unit, string) result
 *)
 
 val check_task_activation : t -> (unit, string) result
-(** Internal runtime admission. A task image claims only its exact still-active
-    synchronous source request, once. Standalone images require no task claim.
-*)
+(** Internal runtime admission. Source fragments claim their exact still-active
+    synchronous request once, including closed defaults in private images.
+    Ordinary final program images require no source claim. *)
 
 val requires_x87 : t -> bool
 (** Whether the original generated image executes x87 instructions. Raw F64

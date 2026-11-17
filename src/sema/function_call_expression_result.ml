@@ -93,6 +93,7 @@ type fixed_path =
 type lastclass_substitution = {
   previous_result_ : expression_result option;
   class_name_ : string option;
+  class_type_ : Type.t option;
 }
 
 type fixed_result = {
@@ -829,6 +830,7 @@ let top_level_member_callback_result_id (call : top_level_member_callback_call)
 
 let lastclass_previous_result substitution = substitution.previous_result_
 let lastclass_class_name substitution = substitution.class_name_
+let lastclass_class_type substitution = substitution.class_type_
 let result_id (result : expression_result) = result.id
 let result_source (result : expression_result) = result.source
 let result_origin (result : expression_result) = result.origin
@@ -2126,38 +2128,151 @@ let top_level_call_for_expression state source =
                  (Function_call_resolution.argument_expression_origin source)
                "top-level call result matches multiple checked calls"))
 
-let lastclass_name policies ~before_item_index result =
-  match result.source_type with
-  | None -> None
-  | Some source_type -> (
-      let forwarded =
-        Function_call_conversion_policy.forwarded_type policies
-          ~before_item_index source_type
-      in
-      match Type.base forwarded with
-      | Type.Aggregate symbol -> Some (Symbol.name symbol)
-      | Type.Primitive (form, primitive) ->
-          let info = Primitive_type.info primitive in
-          Some
-            (match form with
-            | Type.Internal_storage -> info.storage_spelling
-            | Type.Public_spelling -> (
-                if Type.pointer_depth source_type <> 0 then info.spelling
-                else
-                  match info.declaration_form with
-                  | Primitive_type.Internal_type -> info.spelling
-                  | Primitive_type.Public_union -> info.storage_spelling)))
+let lastclass_forwarded_type policies ~before_item_index type_ =
+  let forwarded =
+    Function_call_conversion_policy.forwarded_type policies ~before_item_index
+      type_
+  in
+  match Type.base forwarded with
+  | Type.Primitive (Type.Public_spelling, primitive)
+    when Type.pointer_depth forwarded = 0
+         && (Primitive_type.info primitive).declaration_form
+            = Primitive_type.Public_union ->
+      Type.make_primitive ~form:Type.Internal_storage ~primitive
+        ~pointer_depth:0
+      |> Result.get_ok
+  | _ -> forwarded
 
-let lastclass_substitution policies ~before_item_index previous default =
-  match Function_call_resolution.default_parameter_default default with
+let rec lastclass_expression_type policies ~before_item_index result =
+  let forward = lastclass_forwarded_type policies ~before_item_index in
+  let expression_type = lastclass_expression_type policies ~before_item_index in
+  let retained =
+    Option.bind result.source_type (fun type_ ->
+        if result.array_address && result.array_rank > 0 then
+          Type.pointer_to type_ |> Result.to_option
+        else Some type_)
+  in
+  let operand_type () = Option.bind result.operand_result expression_type in
+  let internal primitive pointer_depth =
+    (* AsmInit.HC overwrites each raw-type slot in CInit.HC table order.
+       The selected U8 and F64 records therefore have their public names;
+       explicit U8i/F64i source declarations remain distinct records. *)
+    primitive_type ~form:Type.Public_spelling primitive pointer_depth
+  in
+  let raw_id type_ =
+    if Type.pointer_depth type_ > 0 then
+      Some Primitive_type.pointer_representation.raw_id
+    else
+      match Type.base type_ with
+      | Type.Primitive (_, primitive) ->
+          Some (Primitive_type.info primitive).raw_id
+      | Type.Aggregate _ -> None
+  in
+  let binary_type () =
+    let argument_type value =
+      match value.intrinsic_conversion with
+      | No_intrinsic_conversion -> expression_type value
+      | Result_to_f64 -> internal Primitive_type.F64 0
+      | Result_to_int -> integer_type
+    in
+    match result.binary_operands with
+    | Some (left, right) -> (
+        match (argument_type left, argument_type right) with
+        | Some left, Some right -> (
+            if
+              Type.pointer_depth left > 0
+              && Type.pointer_depth right > 0
+              && Option.fold ~none:false
+                   ~some:(fun type_ -> Type.pointer_depth type_ = 0)
+                   retained
+            then retained
+            else
+              match (raw_id left, raw_id right) with
+              | Some left_id, Some right_id ->
+                  (* OptFixupBinaryOp1 chooses arg2 on equal raw classes. *)
+                  Some (if left_id > right_id then left else right)
+              | _ -> retained)
+        | _ -> retained)
+    | None -> retained
+  in
+  let selected =
+    match Function_call_resolution.argument_expression_kind result.source with
+    | Function_call_resolution.Float_literal _ -> internal Primitive_type.F64 0
+    | Function_call_resolution.String_literal _ -> internal Primitive_type.U8 1
+    | Function_call_resolution.Parenthesized_expression _ -> operand_type ()
+    | Function_call_resolution.Prefix_expression prefix -> (
+        match Function_call_resolution.prefix_operator prefix with
+        | Unary_plus | Unary_minus | Bitwise_not -> operand_type ()
+        | Dereference ->
+            Option.bind (operand_type ()) (fun type_ ->
+                if result.array_address && result.array_rank > 0 then Some type_
+                else Type.dereference type_ |> Result.to_option)
+        | Logical_not | Address_of | Pre_increment | Pre_decrement -> retained)
+    | Function_call_resolution.Index_expression _ ->
+        Option.bind result.index_operands (fun (base, _) ->
+            Option.bind (expression_type base) (fun type_ ->
+                if result.array_address && result.array_rank > 0 then Some type_
+                else Type.dereference type_ |> Result.to_option))
+    | Function_call_resolution.Binary_expression binary -> (
+        match Function_call_resolution.binary_operator binary with
+        | Generated.Intermediate_codes.Ic_power -> internal Primitive_type.F64 0
+        | Generated.Intermediate_codes.(
+            ( Ic_shl
+            | Ic_shr
+            | Ic_mul
+            | Ic_div
+            | Ic_mod
+            | Ic_and
+            | Ic_or
+            | Ic_xor
+            | Ic_add
+            | Ic_sub )) -> binary_type ()
+        | _ -> retained)
+    | _ -> retained
+  in
+  Option.map forward selected
+
+let lastclass_name policies ~before_item_index result =
+  Option.map
+    (fun type_ ->
+      match Type.base type_ with
+      | Type.Aggregate symbol -> Symbol.name symbol
+      | Type.Primitive (form, primitive) -> (
+          let info = Primitive_type.info primitive in
+          match form with
+          | Type.Internal_storage -> info.storage_spelling
+          | Type.Public_spelling -> info.spelling))
+    (lastclass_expression_type policies ~before_item_index result)
+
+let lastclass_parameter_substitution policies ~before_item_index previous
+    default =
+  match default with
   | Function_type_resolution.Expression_default _ -> None
   | Function_type_resolution.Lastclass_default _ ->
+      let class_type_ =
+        Option.bind previous (fun result ->
+            Option.bind
+              (lastclass_expression_type policies ~before_item_index result)
+              (fun forwarded ->
+                match Type.base forwarded with
+                | Type.Aggregate symbol ->
+                    Type.make_aggregate ~symbol ~pointer_depth:0
+                    |> Result.to_option
+                | Type.Primitive (form, primitive) ->
+                    Type.make_primitive ~form ~primitive ~pointer_depth:0
+                    |> Result.to_option))
+      in
       Some
         {
           previous_result_ = previous;
           class_name_ =
             Option.bind previous (lastclass_name policies ~before_item_index);
+          class_type_;
         }
+
+let lastclass_substitution policies ~before_item_index previous default =
+  lastclass_parameter_substitution policies ~before_item_index previous
+    (Function_call_resolution.default_parameter_default default)
 
 let declared_default_result policies ~before_item_index fixed default =
   let parameter = Function_call_resolution.fixed_parameter fixed in

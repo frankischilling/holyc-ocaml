@@ -385,6 +385,46 @@ let signed_zero_normalization_cases =
         1L );
     ]
 
+(* OptLib:124-139,161-166 and OptPass012:725-822 fold original immediate
+   operands before branch fusion or builtin-constant substitution. Equality
+   retains the words of positive/negative zero; ordering compares their value. *)
+let constant_cases =
+  List.map
+    (fun (expression, expected) ->
+      ( "constant " ^ expression,
+        "I64 F(){return " ^ expression ^ ";}F();",
+        expected ))
+    [
+      ("1.0<2.0", 1L);
+      ("1.0>=2.0", 0L);
+      ("2.0>1.0", 1L);
+      ("2.0<=1.0", 0L);
+      ("1.0==1.0", 1L);
+      ("1.0!=1.0", 0L);
+      ("0.0<(-0.0)", 0L);
+      ("0.0>=(-0.0)", 1L);
+      ("0.0>(-0.0)", 0L);
+      ("0.0<=(-0.0)", 1L);
+      ("0.0==(-0.0)", 0L);
+      ("0.0!=(-0.0)", 1L);
+      ("9007199254740993==9007199254740992.0", 1L);
+      ("9007199254740993>9007199254740992.0", 0L);
+      ("3.141592653589793==3.141592653589793", 1L);
+      ("(1.5>1.0)+41", 42L);
+    ]
+  @ [
+      ("constant branch", "I64 F(){if(1.0<2.0)return 1;return 0;}F();", 1L);
+      ( "constant negated branch",
+        "I64 F(){if(!(1.0<2.0))return 1;return 0;}F();",
+        0L );
+      ( "constant do condition",
+        "I64 F(){I64 k=0;do{k++;if(k==2)return 2;}while(1.0<2.0);return k;}F();",
+        2L );
+      ( "constant signed-zero equality branch",
+        "I64 F(){if(0.0==(-0.0))return 1;return 0;}F();",
+        0L );
+    ]
+
 let example =
   Array.to_list Sys.argv
   |> List.find_opt (fun path -> Filename.check_suffix path ".hc")
@@ -428,7 +468,7 @@ let callback_initializer =
 let cases =
   scalar_cases @ context_cases @ precision_cases @ register_cases
   @ mixed_nan_cases @ equality_condition_cases @ signed_zero_normalization_cases
-  @ callback_cases
+  @ callback_cases @ constant_cases
   @ [
       ("maintained example", read example, 1L);
       ( "branch PI builtin",
@@ -438,6 +478,58 @@ let cases =
 
 let floating_callback_default =
   "I64 F(F64 a){return a<0.0;}I64 (*p)(F64 a=1.0);p=&F;p();"
+
+(* The integer word returns in RAX. OptLib:545-553 and BackFA:21-50 can link
+   its subsequent CN_RES FILD to the next arithmetic instruction. Return and
+   fixed-argument boundaries instead transport rounded binary64 words. *)
+let call_conversion_cases =
+  [
+    ( "post-call integer conversion links to arithmetic",
+      "I64 Word(){return 9007199254740993;}F64 Add(){return Word()+1.0;}I64 \
+       F(){return Add();}F();",
+      9007199254740994L );
+    ( "right post-call integer conversion links to arithmetic",
+      "I64 Word(){return 9007199254740993;}F64 Add(){return 1.0+Word();}I64 \
+       F(){return Add();}F();",
+      9007199254740994L );
+    ( "integer call conversion materializes at return",
+      "I64 Word(){return 9007199254740993;}F64 Converted(){return Word();}F64 \
+       Add(){return Converted()+1.0;}I64 F(){return Add();}F();",
+      9007199254740992L );
+    ( "integer call conversion materializes at fixed argument",
+      "I64 Word(){return 9007199254740993;}F64 Add(F64 n){return n+1.0;}I64 \
+       F(){return Add(Word());}F();",
+      9007199254740992L );
+    ( "post-callback integer conversion links to arithmetic",
+      "I64 Word(){return 9007199254740993;}I64 Result(F64 n){return n;}I64 \
+       (*p)();p=&Word;Result(p()+1.0);",
+      9007199254740994L );
+    ( "floating callback word materializes before later arithmetic",
+      "F64 Add(F64 a,F64 b){return a+b;}I64 Result(F64 n){return n;}F64 \
+       (*p)(F64 a,F64 b);p=&Add;Result(p(9007199254740992.0,1.0)+1.0);",
+      9007199254740992L );
+    ( "ordinary entry converts call argument to F64",
+      "I64 Word(){return -3;}I64 Take(F64 n){return n;}Take(Word());",
+      -3L );
+    ( "ordinary entry truncates floating call argument",
+      "F64 Fraction(){return -3.75;}I64 Take(I64 n){return n;}Take(Fraction());",
+      -3L );
+    ( "floating call return converts to integer",
+      "F64 Fraction(){return 3.75;}I64 F(){return Fraction();}F();",
+      3L );
+    ( "negative zero call return converts to zero",
+      "F64 Fraction(){return -0.0;}I64 F(){return Fraction();}F();",
+      0L );
+    ( "both call return conversions",
+      "I64 Word(){return -1;}F64 F(){return Word();}I64 Take(){return \
+       F();}Take();",
+      -1L );
+  ]
+
+let call_conversion_effects =
+  "extern U0 Print(U8 *fmt,...);I64 Word(){\"W\";return 2;}F64 \
+   Fraction(){\"F\";return 3.75;}I64 Take(F64 x,I64 y){\"T\";return \
+   y;}Take(Word(),Fraction());"
 
 let excluded =
   [
@@ -449,8 +541,6 @@ let excluded =
       "I64 F(I64 n){if(0.0<n)return 1;return 0;}F(-1);" );
     ( "mixed integer read versus reversed float zero greater equal",
       "I64 F(I64 n){if(0.0>=n)return 1;return 0;}F(-1);" );
-    ("unproved constant comparison", "I64 F(){return 1.0<2.0;}F();");
-    ("unproved constant branch", "I64 F(){if(1.0<2.0)return 1;return 0;}F();");
     ( "comparison result converted to F64",
       "F64 F(F64 a,F64 b){return a<b;}F(1.0,2.0);" );
     ( "comparison chain",
@@ -548,10 +638,12 @@ let fault steps report =
 
 let retained mode =
   List.iter
-    (fun body ->
+    (fun (body, needs_x87) ->
       let source = f body "9007199254740992.0,1.0" in
       let compiled = image mode source in
-      require (Image.requires_x87 compiled) "ordered comparison x87 capability";
+      require
+        (Image.requires_x87 compiled = needs_x87)
+        "comparison x87 capability follows emitted operations";
       require
         (not (Image.requires_fisttp compiled))
         "ordered comparison needs no FISTTP";
@@ -586,17 +678,25 @@ let retained mode =
           for _ = 1 to 12 do
             ignore (run steps |> completed 1L)
           done))
-    [ "return (a+b)>a;"; "if((a+b)>a)return 1;return 0;" ]
+    [
+      ("return (a+b)>a;", true);
+      ("if((a+b)>a)return 1;return 0;", true);
+      ("return 1.0<2.0;", false);
+      ("if(1.0<2.0)return 1;return 0;", false);
+    ]
 
-let quota mode target =
-  let source = f "if((a+b)>a)return 1;return 0;" "9007199254740992.0,1.0" in
+let quota ?source ?(expected = 1L) mode target =
+  let source =
+    Option.value source
+      ~default:(f "if((a+b)>a)return 1;return 0;" "9007199254740992.0,1.0")
+  in
   let baseline = invoke ~target ~mode "quota baseline" source in
-  successful "quota baseline" 1L baseline;
+  successful "quota baseline" expected baseline;
   let steps = member "executed_steps" baseline |> to_int in
   invoke ~target ~mode
     ~options:[ "--step-limit=" ^ string_of_int steps ]
     "exact quota" source
-  |> successful "exact quota" 1L;
+  |> successful "exact quota" expected;
   let report =
     invoke ~status:1 ~target ~mode
       ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
@@ -620,7 +720,7 @@ let () =
           check
             (mode ^ " compile " ^ label)
             (fun () -> ignore (image mode source)))
-        cases;
+        (cases @ call_conversion_cases);
       check (mode ^ " IR exclusion") (fun () ->
           invoke ~status:1 ~target:"ir" ~mode "IR exclusion"
             (expression "a<b" "1.0,2.0")
@@ -641,15 +741,10 @@ let () =
           check
             (mode ^ target ^ " floating callback default")
             (fun () ->
-              if mode = "jit" && target = "host-jit-task" then (
-                if native && Native_execution.x87_supported () then
-                  invoke ~target ~mode "floating callback default"
-                    floating_callback_default
-                  |> successful "floating callback default" 0L)
-              else
-                invoke ~status:1 ~target ~mode
-                  "isolated floating callback default" floating_callback_default
-                |> rejected "isolated floating callback default");
+              if native && Native_execution.x87_supported () then
+                invoke ~target ~mode "floating callback default"
+                  floating_callback_default
+                |> successful "floating callback default" 0L);
           List.iter
             (fun (label, source) ->
               check
@@ -677,7 +772,32 @@ let () =
                     invoke ~target ~mode label source
                     |> successful label expected))
               cases;
-            check (mode ^ target ^ " quotas") (fun () -> quota mode target)))
+            check (mode ^ target ^ " quotas") (fun () -> quota mode target);
+            if Native_execution.fisttp_supported () then (
+              List.iter
+                (fun (label, source, expected) ->
+                  check
+                    (mode ^ target ^ label)
+                    (fun () ->
+                      invoke ~target ~mode label source
+                      |> successful label expected))
+                call_conversion_cases;
+              check
+                (mode ^ target ^ " call conversion effects")
+                (fun () ->
+                  let report =
+                    invoke ~target ~mode "call conversion effects"
+                      call_conversion_effects
+                  in
+                  successful "call conversion effects" 3L report;
+                  require
+                    (member "output_hex" report = `String "465754")
+                    "call arguments execute right to left before the body");
+              check
+                (mode ^ target ^ " call conversion quotas")
+                (fun () ->
+                  let _, source, expected = List.hd call_conversion_cases in
+                  quota ~source ~expected mode target))))
         targets)
     modes;
   Printf.printf "native F64 comparisons: %d CLI reports, %d failures\n" !count

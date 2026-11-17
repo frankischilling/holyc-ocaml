@@ -6,6 +6,53 @@ module Shape = Ir.Integer_storage_shape
 
 type completion = { execution : VM.default_constant }
 
+type native_request = {
+  native_runtime : VM.task_state;
+  native_execution : VM.default_constant;
+  native_program : Ir.Default_fragment_program.t;
+  native_domain : Domain.id;
+  mutable native_entered : bool;
+  mutable native_closed : bool;
+}
+
+type native_executor = native_request -> (unit, Common.Diagnostic.t list) result
+
+let native_program request = request.native_program
+let native_entered request = request.native_entered
+
+let check_native request =
+  if Domain.self () <> request.native_domain || request.native_closed then
+    Error "native source default has another domain or a closed request"
+  else
+    VM.check_native_source_default request.native_runtime
+      request.native_execution request.native_program
+
+let claim_native request =
+  let ( let* ) = Result.bind in
+  let* () = check_native request in
+  let* () =
+    VM.claim_native_source_default request.native_runtime
+      request.native_execution request.native_program
+  in
+  request.native_entered <- true;
+  Ok ()
+
+let native_remaining request =
+  VM.task_initializer_remaining request.native_runtime
+
+let finish_native request ~steps capture =
+  if
+    Domain.self () <> request.native_domain
+    || request.native_closed || not request.native_entered
+  then Error "native source default completion requires its entered request"
+  else
+    VM.finish_native_source_default request.native_runtime
+      request.native_execution request.native_program ~steps capture
+
+let close_native request =
+  request.native_closed <- true;
+  VM.abandon_native_source_default request.native_execution
+
 type initializer_completion = {
   preparation : Integer_initializers.native_preparation;
 }
@@ -20,6 +67,7 @@ type t = {
   table : Sema.Symbol_table.t;
   state : VM.task_state;
   max_default_bytes : int;
+  native_default : native_executor option;
   mutable saved_bytes : int;
   mutable ledger : Task_declarations.t option;
   mutable completed_rev : completion list;
@@ -71,8 +119,8 @@ let initializers value =
 
 let create ?max_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
-    ~compilation_mode ~max_initializer_steps ?(max_default_bytes = 65_536)
-    session =
+    ?native_default ~compilation_mode ~max_initializer_steps
+    ?(max_default_bytes = 65_536) session =
   if max_initializer_steps <= 0 || max_default_bytes <= 0 then
     Error
       "max_initializer_steps and max_default_bytes must be greater than zero"
@@ -90,6 +138,7 @@ let create ?max_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
         table;
         state;
         max_default_bytes;
+        native_default;
         saved_bytes = 0;
         ledger = None;
         completed_rev = [];
@@ -159,6 +208,11 @@ let scalar_integer primitive =
 let scalar_word_type = function
   | Ast.Primitive_type_specifier primitive -> scalar_integer primitive.primitive
   | Ast.Internal_type_specifier primitive -> scalar_integer primitive.primitive
+  | _ -> false
+
+let scalar_f64_type = function
+  | Ast.Primitive_type_specifier { primitive = F64; _ }
+  | Ast.Internal_type_specifier { primitive = F64; _ } -> true
   | _ -> false
 
 let callback_word_parameter function_pointer =
@@ -315,6 +369,8 @@ let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
         (stack_register_qualifiers register_qualifiers
         && (callback_word_parameter function_pointer
            || (scalar_word_type type_specifier
+              || Option.is_some value.native_default
+                 && scalar_f64_type type_specifier
               ||
               match type_specifier with
               | Ast.Named_type_specifier _ -> true
@@ -364,19 +420,73 @@ let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
   let* destination =
     Ir.Default_fragment_destination.create_native_source typed |> diagnose
   in
-  let before = work value in
-  let* classification, _steps =
-    Integer_initializers.prepare_default ~runtime:value.state ~authority
-      ~on_progress:(fun steps ->
-        VM.record_task_preparation value.state ~before ~steps)
-      ~max_steps:(VM.task_initializer_limit value.state - before)
-      ~top_calls:[] destination
-  in
   let* execution =
-    match classification with
-    | Integer_initializers.Prepared_default proof -> Ok proof
-    | Scheduled_default ->
-        fail "HCRUN0006" "native defaults require checked constant preparation"
+    let* native =
+      match value.native_default with
+      | None -> Ok None
+      | Some execute ->
+          let* program =
+            Default_fragment_lowering.lower_native ~context ~authority
+              destination
+          in
+          let is_f64 type_ =
+            Sema.Type.pointer_depth type_ = 0
+            &&
+            match Sema.Type.base type_ with
+            | Sema.Type.Primitive (_, F64) -> true
+            | _ -> false
+          in
+          let floating =
+            is_f64 (Ir.Default_fragment_destination.type_ destination)
+            || Ir.Default_fragment_program.entry program
+               |> Ir.X87_stack.graph |> Ir.Block_graph.blocks
+               |> List.exists (fun block ->
+                   Ir.Block_graph.instructions block
+                   |> Ir.Instruction_sequence.instructions
+                   |> List.exists (fun instruction ->
+                       Option.fold ~none:false ~some:is_f64
+                         (Ir.Instruction_sequence.description instruction)
+                           .target_type))
+          in
+          if (not floating) && Sema.Default_fragment.references fragment = []
+          then Ok None
+          else
+            let* execution =
+              VM.begin_native_source_default value.state program |> diagnose
+            in
+            let request =
+              {
+                native_runtime = value.state;
+                native_execution = execution;
+                native_program = program;
+                native_domain = Domain.self ();
+                native_entered = false;
+                native_closed = false;
+              }
+            in
+            let* () =
+              Fun.protect
+                ~finally:(fun () -> close_native request)
+                (fun () -> execute request)
+            in
+            Ok (Some execution)
+    in
+    match native with
+    | Some execution -> Ok execution
+    | None -> (
+        let before = work value in
+        let* classification, _steps =
+          Integer_initializers.prepare_default ~runtime:value.state ~authority
+            ~on_progress:(fun steps ->
+              VM.record_task_preparation value.state ~before ~steps)
+            ~max_steps:(VM.task_initializer_limit value.state - before)
+            ~top_calls:[] destination
+        in
+        match classification with
+        | Integer_initializers.Prepared_default proof -> Ok proof
+        | Scheduled_default ->
+            fail "HCRUN0006"
+              "native defaults require checked constant preparation")
   in
 
   let* () = finish_source ledger execution in
@@ -385,37 +495,43 @@ let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
   Ok ()
 
 let prepare value ~session ~ledger receipt =
-  prepare_source value ~session ~ledger
-    ~span:receipt.Parser.default_ast.location.span
-    ~mode:
-      (Parser.context_mode
-         receipt.default_function.function_header.declaration_command
-           .command_context)
-    ~type_specifier:receipt.default_type_specifier
-    ~pointer_layers:receipt.default_pointer_layers
-    ~function_pointer:receipt.default_function_pointer
-    ~register_qualifiers:receipt.default_register_qualifiers
-    ~default:receipt.default_ast.value
-    ~begin_source:(fun ledger ~runtime ->
-      Task_declarations.begin_native_source_default ledger ~runtime receipt)
-    ~finish_source:Task_declarations.finish_native_source_default
+  match receipt.Parser.default_ast.value with
+  | Ast.Lastclass_default _ -> Ok ()
+  | Ast.Expression_default _ ->
+      prepare_source value ~session ~ledger
+        ~span:receipt.Parser.default_ast.location.span
+        ~mode:
+          (Parser.context_mode
+             receipt.default_function.function_header.declaration_command
+               .command_context)
+        ~type_specifier:receipt.default_type_specifier
+        ~pointer_layers:receipt.default_pointer_layers
+        ~function_pointer:receipt.default_function_pointer
+        ~register_qualifiers:receipt.default_register_qualifiers
+        ~default:receipt.default_ast.value
+        ~begin_source:(fun ledger ~runtime ->
+          Task_declarations.begin_native_source_default ledger ~runtime receipt)
+        ~finish_source:Task_declarations.finish_native_source_default
 
 let prepare_callback value ~session ~ledger receipt =
   let parameter = receipt.Parser.callback_default_parameter in
-  prepare_source value ~session ~ledger
-    ~span:receipt.callback_default_ast.location.span
-    ~mode:
-      (Parser.context_mode
-         receipt.callback_default_signature.callback_command.command_context)
-    ~type_specifier:parameter.callback_parameter_type_specifier
-    ~pointer_layers:parameter.callback_parameter_pointer_layers
-    ~function_pointer:parameter.callback_parameter_function_pointer
-    ~register_qualifiers:parameter.callback_parameter_register_qualifiers
-    ~default:receipt.callback_default_ast.value
-    ~begin_source:(fun ledger ~runtime ->
-      Task_declarations.begin_native_source_callback_default ledger ~runtime
-        receipt)
-    ~finish_source:Task_declarations.finish_native_source_callback_default
+  match receipt.callback_default_ast.value with
+  | Ast.Lastclass_default _ -> Ok ()
+  | Ast.Expression_default _ ->
+      prepare_source value ~session ~ledger
+        ~span:receipt.callback_default_ast.location.span
+        ~mode:
+          (Parser.context_mode
+             receipt.callback_default_signature.callback_command.command_context)
+        ~type_specifier:parameter.callback_parameter_type_specifier
+        ~pointer_layers:parameter.callback_parameter_pointer_layers
+        ~function_pointer:parameter.callback_parameter_function_pointer
+        ~register_qualifiers:parameter.callback_parameter_register_qualifiers
+        ~default:receipt.callback_default_ast.value
+        ~begin_source:(fun ledger ~runtime ->
+          Task_declarations.begin_native_source_callback_default ledger ~runtime
+            receipt)
+        ~finish_source:Task_declarations.finish_native_source_callback_default
 
 let literal_pointer_load destination initial =
   match (destination, initial) with

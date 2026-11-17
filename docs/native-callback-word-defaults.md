@@ -65,7 +65,14 @@ live named and anonymous expression defaults and captures original callback
 owners at their headers. Its successful native receipts do not extend the
 isolated closed-default proof described above.
 
-String, `lastclass`, floating-value and ordinary
-object-pointer defaults remain unfinished, as do multistar consumers, member
-storage, streaming static callback allocation/initialization, general
-floating/aggregate execution and the full compiler.
+The [native numeric preparation path](native-f64-defaults.md) also converts
+floating expression results to the callback parameter's physical word class.
+For example, `F64 (*p)()=1.75` saves integer word `1`, independently of the
+callback's F64 return metadata, and supplies no executable owner.
+[Native `lastclass`](native-lastclass-defaults.md) can supply a zero callback
+word when JIT omission has no preceding provided argument.
+
+Broader string and owned-address defaults, multistar consumers, direct static
+callback initialization, broader floating/aggregate execution and the full
+compiler remain unfinished. Existing automatic, static and global callbacks
+follow their [storage contract](native-local-callbacks.md).

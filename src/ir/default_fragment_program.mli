@@ -16,6 +16,11 @@ val initialization : t -> Global_initialization.t
 val runtime_calls : t -> Runtime_call_context.t
 val source_authority : t -> Sema.Default_fragment.authority
 
+val is_closed_native_source : t -> bool
+(** Authenticate an isolated entry with no storage and no ordinary calls. Every
+    retained reference must be the exact callee selection of an original
+    supported numeric internal call in the sealed runtime context. *)
+
 type code = Scheduled of t
 type execution
 

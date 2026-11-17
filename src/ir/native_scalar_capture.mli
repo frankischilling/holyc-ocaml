@@ -1,6 +1,7 @@
 type 'program t
 (** Opaque result of an actual native parser-time entry. Completion requires its
-    exact original program, actual work and live task arena. *)
+    exact original program and actual work, with the original task arena or
+    private retained image still live. *)
 
 val consume :
   ?scope:Native_source_suspension.t ->

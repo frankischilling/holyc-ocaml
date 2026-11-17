@@ -79,6 +79,7 @@ type fragment_kind =
   | Native_global_initializer_context of Sema.Initializer_fragment.t
   | Native_static_initializer_context of Sema.Static_initializer_fragment.t
   | Default_context
+  | Native_source_default_context of Sema.Default_fragment.t
   | Internal_binding_context
   | Dimension_context
   | Switch_case_context
@@ -311,7 +312,8 @@ let source_default_context fragment =
   else isolated_default_context Resolution.Aot
 
 let native_source_default_context fragment =
-  if Sema.Default_fragment.references fragment <> [] then
+  if not (Sema.Default_fragment.native_source_references_supported fragment)
+  then
     Error "native source default context requires a closed original expression"
   else
     let mode =
@@ -323,6 +325,16 @@ let native_source_default_context fragment =
       | Sema.Outer_environment.Aot -> Resolution.Aot
     in
     isolated_default_context mode
+    |> Result.map (fun globals ->
+        {
+          globals with
+          fragment_kind_ = Some (Native_source_default_context fragment);
+        })
+
+let native_source_default_fragment globals =
+  match globals.fragment_kind_ with
+  | Some (Native_source_default_context fragment) -> Some fragment
+  | _ -> None
 
 let with_source_defaults globals defaults =
   if
@@ -411,7 +423,10 @@ let with_native_source_defaults globals defaults =
   then Error "native source defaults have another original compilation mode"
   else Ok { globals with source_defaults = defaults }
 
-let is_default_fragment globals = globals.fragment_kind_ = Some Default_context
+let is_default_fragment globals =
+  match globals.fragment_kind_ with
+  | Some (Default_context | Native_source_default_context _) -> true
+  | _ -> false
 
 let is_isolated_default globals =
   is_default_fragment globals && Option.is_none globals.task_view

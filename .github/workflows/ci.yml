@@ -67,6 +67,9 @@ jobs:
       - name: Build package artifacts
         run: opam exec -- dune build @install
 
+      - name: Verify built, staged and installed compiler consumers
+        run: opam exec -- pwsh -NoProfile -File ./tools/test-installed-compiler.ps1
+
       - name: Trim Dune cache
         run: opam exec -- dune cache trim --size=1GB
 
@@ -101,6 +104,9 @@ jobs:
 
       - name: Build and package
         run: opam exec -- dune build '@all' '@install'
+
+      - name: Verify built, staged and installed compiler consumers
+        run: opam exec -- pwsh -NoProfile -File ./tools/test-installed-compiler.ps1
 
       - name: Run tests
         run: opam exec -- dune runtest --no-buffer

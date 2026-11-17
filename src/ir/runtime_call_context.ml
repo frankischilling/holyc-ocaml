@@ -60,6 +60,7 @@ type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 
 type argument = {
+  lastclass : Lastclass_argument.t option;
   prepared_callback_default : Prepared_callback_default.t option;
   prepared_default : Prepared_parameter_default.t option;
   role : argument_role;
@@ -139,12 +140,21 @@ type function_slot_address = {
   slot_address_provider : provider option;
 }
 
+type call_result_conversion = {
+  conversion_source : Typed.expression_result;
+  conversion_consumer : Typed.expression_result;
+  conversion_kind : Typed.intrinsic_conversion;
+  conversion_valid : unit -> bool;
+}
+
 type graph_context = {
   owner : owner;
   original_entry : Seq.Block_id.t;
   original_blocks :
     (Seq.Block_id.t * Seq.description list * Seq.Block_id.t list) list;
   source_producers : Seq.description Instructions.t;
+  call_result_conversions :
+    (Seq.description * call_result_conversion) Instructions.t;
   calls : call Instructions.t;
   callback_calls : callback_call Instructions.t;
   discards : call Instructions.t;
@@ -188,6 +198,7 @@ let argument_value argument = argument.value
 let argument_source_type argument = argument.source_type
 let argument_target_type argument = argument.target_type
 let argument_transport_type argument = argument.transport_type
+let argument_lastclass argument = argument.lastclass
 let argument_prepared_default argument = argument.prepared_default
 let variadic_count (call : call) = call.variadic_count_
 let declaration (call : call) = call.declaration_
@@ -725,6 +736,115 @@ let find_intrinsic_end context ~owner id =
   Option.bind (find_graph context owner) (fun graph ->
       Instructions.find_opt id graph.intrinsic_ends)
 
+let original_call_result_conversion context ~owner description =
+  if not (source_producers_match context) then None
+  else
+    Option.bind (find_graph context owner) (fun graph ->
+        Option.bind
+          (Instructions.find_opt description.Seq.instruction_id
+             graph.call_result_conversions) (fun (original, conversion) ->
+            if original == description && conversion.conversion_valid () then
+              Some conversion
+            else None))
+
+let call_result_conversion_source conversion = conversion.conversion_source
+let call_result_conversion_consumer conversion = conversion.conversion_consumer
+let call_result_conversion_kind conversion = conversion.conversion_kind
+
+let original_expression_results context ~owner =
+  if not (source_producers_match context) then None
+  else
+    Option.map
+      (fun _ ->
+        match owner with
+        | Function body ->
+            List.find_map
+              (fun (original, source) ->
+                if original == body then
+                  Some (Typed.function_all_results source)
+                else None)
+              context.function_source_owners
+            |> Option.value ~default:[]
+        | Entry ->
+            Typed.top_level_all_results context.typed_top_level
+            @ List.concat_map
+                (fun (_, source) -> Typed.function_all_results source)
+                context.function_source_owners)
+      (find_graph context owner)
+
+let original_expression_call_source context ~owner value =
+  Option.bind (original_expression_results context ~owner) (fun owned ->
+      Option.bind (find_graph context owner) (fun graph ->
+          let matches (call : call) =
+            match call.description.source with
+            | Function_call target -> (
+                let original =
+                  Sema.Function_call_target_classification.source target
+                  |> Typed.direct_source
+                  |> Sema.Function_call_conversion_policy.direct_source
+                in
+                match Typed.result_call_resolution value with
+                | Some (Resolution.Direct_call current) -> current == original
+                | _ -> false)
+            | Top_level_call target ->
+                let original =
+                  Sema.Top_level_function_call_target_classification.source
+                    target
+                in
+                Typed.Id.equal
+                  (Typed.top_level_direct_result_id original)
+                  (Typed.result_id value)
+                && Sema.Top_level_expression_tree.call_result_expression
+                     (Typed.top_level_direct_source original)
+                   == Typed.result_source value
+            | Callback_call _ | Function_output _ | Top_level_output _ -> false
+          in
+          if not (List.exists (( == ) value) owned) then None
+          else
+            let direct =
+              Instructions.bindings graph.calls
+              |> List.map snd |> List.filter matches
+              |> List.map (fun (call : call) -> call.description.source)
+            in
+            let callbacks =
+              Instructions.bindings graph.callback_calls
+              |> List.filter_map (fun (_, call) ->
+                  if Callback_source.matches_result call.callback_source value
+                  then Some (Callback_call call.callback_source)
+                  else None)
+            in
+            match direct @ callbacks with
+            | [ source ] ->
+                Some
+                  (source, Global_initialization.globals context.initialization)
+            | _ -> None))
+
+let original_lastclass context ~owner description =
+  if not (source_producers_match context) then None
+  else
+    Option.bind (find_graph context owner) (fun graph ->
+        let original =
+          List.exists
+            (fun (_, items, _) -> List.exists (( == ) description) items)
+            graph.original_blocks
+        in
+        if not original then None
+        else
+          let arguments =
+            (Instructions.bindings graph.calls
+            |> List.concat_map (fun (_, call) -> call.arguments_))
+            @ (Instructions.bindings graph.callback_calls
+              |> List.concat_map (fun (_, call) -> call.callback_arguments))
+          in
+          List.find_map
+            (fun argument ->
+              if
+                Seq.Instruction_id.equal argument.producer
+                  description.Seq.instruction_id
+              then argument.lastclass
+              else None)
+            arguments)
+
 let entry_item_index context call =
   let module Tree = Sema.Top_level_expression_tree in
   let item statement =
@@ -991,6 +1111,7 @@ let function_mixed_scalar_call_targets context ~body =
 
 type fixed_value =
   | Provided of Typed.expression_result
+  | Lastclass of Lastclass_argument.t
   | Prepared_callback_default of Prepared_callback_default.t
   | Prepared_default of Prepared_parameter_default.t
 
@@ -1024,8 +1145,19 @@ let prepared_default ~globals ~header ~parameter ?span () =
   | None ->
       fail ?span "runtime call has no original prepared default in its snapshot"
 
-let provided ~globals ~header ~parameter ?span = function
+let lastclass_value ~globals ~parameter ?span substitution =
+  match
+    Lastclass_argument.create
+      ~mode:(Integer_globals.compilation_mode globals)
+      ~parameter substitution
+  with
+  | Ok value -> Lastclass value
+  | Error message -> fail ?span message
+
+let provided ~globals ~header ~parameter ?span ?lastclass = function
   | Typed.Provided_result result -> Provided result
+  | Typed.Declared_default_result _ when Option.is_some lastclass ->
+      lastclass_value ~globals ~parameter ?span (Option.get lastclass)
   | Typed.Declared_default_result _ ->
       prepared_default ~globals ~header ~parameter ?span ()
 
@@ -1056,7 +1188,9 @@ let shape ~globals records description =
               ( parameter,
                 provided ~globals
                   ~header:(Resolution.direct_active_header direct)
-                  ~parameter ?span (Typed.fixed_path result) ))
+                  ~parameter ?span
+                  ?lastclass:(Typed.fixed_lastclass_substitution result)
+                  (Typed.fixed_path result) ))
             (Typed.direct_fixed_results typed)
         in
         ( Target.declaration target,
@@ -1088,6 +1222,8 @@ let shape ~globals records description =
                 provided ~globals
                   ~header:(Typed.top_level_direct_header typed)
                   ~parameter ?span
+                  ?lastclass:
+                    (Typed.top_level_fixed_lastclass_substitution result)
                   (Typed.top_level_fixed_path result) ))
             (Typed.top_level_direct_fixed_results typed)
         in
@@ -1137,6 +1273,12 @@ let shape ~globals records description =
                       "implicit output requires an unsupported argument \
                        conversion";
                     Provided (Bound.provided_result value)
+                | Bound.Defaulted_path default
+                  when Option.is_some (Bound.default_lastclass default) ->
+                    lastclass_value ~globals
+                      ~parameter:(Bound.fixed_parameter slot)
+                      ?span
+                      (Option.get (Bound.default_lastclass default))
                 | Bound.Defaulted_path default ->
                     require ?span
                       (Bound.default_materialization default
@@ -1217,6 +1359,12 @@ let shape ~globals records description =
                       "implicit output requires an unsupported argument \
                        conversion";
                     Provided (Bound.provided_result value)
+                | Bound.Defaulted_path default
+                  when Option.is_some (Bound.default_lastclass default) ->
+                    lastclass_value ~globals
+                      ~parameter:(Bound.fixed_parameter slot)
+                      ?span
+                      (Option.get (Bound.default_lastclass default))
                 | Bound.Defaulted_path default ->
                     require ?span
                       (Bound.default_materialization default
@@ -1271,32 +1419,85 @@ let shape ~globals records description =
             binding -> Some binding
         | _ -> None)
   in
-  let retained_function =
-    Option.map
-      (fun binding ->
-        match Integer_globals.retained_function_binding globals binding with
-        | Some reference ->
-            let metadata = Retained_function.metadata reference in
-            require ?span
-              (Sema.Outer_environment.function_declaration metadata
-               == declaration
+  let source_intrinsic =
+    match
+      ( Integer_globals.native_source_default_fragment globals,
+        outer_binding,
+        description.source )
+    with
+    | Some fragment, Some binding, Top_level_call target
+      when Integer_globals.is_isolated_default globals
+           && Option.is_none (original_phase description.source) -> (
+        let module Outer = Sema.Outer_environment in
+        let environment = Sema.Default_fragment.environment fragment in
+        let selection =
+          Sema.Top_level_function_call_target_classification.source target
+          |> Typed.top_level_direct_source
+          |> Sema.Top_level_expression_tree.call_callee
+          |> Sema.Top_level_outer_expression_binding.occurrence_source
+          |> Sema.Top_level_expression_binding.occurrence_selection
+        in
+        let original_reference =
+          Option.fold ~none:false
+            ~some:(fun selection ->
+              List.exists
+                (fun (_, original) -> original == selection)
+                (Sema.Default_fragment.references fragment)
               &&
-              match
-                Sema.Outer_environment.binding_entry binding
-                |> Sema.Outer_environment.entry_function_metadata
-              with
-              | Some expected -> expected == metadata
-              | None -> false)
-              "retained call does not own its selected task declaration";
-            reference
-        | None ->
-            fail ?span "retained call has no exact selected task function link")
-      outer_binding
+              match Sema.Reference_selection.kind selection with
+              | Sema.Reference_selection.Outer (selected, original) ->
+                  selected == environment
+                  && Outer.binding_table original == Outer.binding_table binding
+                  && Outer.binding_entry original == Outer.binding_entry binding
+              | _ -> false)
+            selection
+        in
+        match
+          ( intrinsic_opcode_of_source description.source,
+            Outer.entry_function_metadata (Outer.binding_entry binding) )
+        with
+        | Some opcode, Some metadata
+          when original_reference
+               && Outer.owns_binding environment binding
+               && Sema.Default_fragment.native_source_references_supported
+                    fragment
+               && Numeric_intrinsic.supports opcode
+               && Outer.function_declaration metadata == declaration ->
+            Some (Outer.function_classified_declaration metadata)
+        | _ -> None)
+    | _ -> None
+  in
+  let retained_function =
+    match source_intrinsic with
+    | Some _ -> None
+    | None ->
+        Option.map
+          (fun binding ->
+            match Integer_globals.retained_function_binding globals binding with
+            | Some reference ->
+                let metadata = Retained_function.metadata reference in
+                require ?span
+                  (Sema.Outer_environment.function_declaration metadata
+                   == declaration
+                  &&
+                  match
+                    Sema.Outer_environment.binding_entry binding
+                    |> Sema.Outer_environment.entry_function_metadata
+                  with
+                  | Some expected -> expected == metadata
+                  | None -> false)
+                  "retained call does not own its selected task declaration";
+                reference
+            | None ->
+                fail ?span
+                  "retained call has no exact selected task function link")
+          outer_binding
   in
   let classified =
-    match original_phase description.source with
-    | Some phase -> Some (Sema.Function_call_phase.emission phase)
-    | None -> (
+    match (original_phase description.source, source_intrinsic) with
+    | Some phase, _ -> Some (Sema.Function_call_phase.emission phase)
+    | None, Some classified -> Some classified
+    | None, None -> (
         match retained_function with
         | Some reference ->
             Some
@@ -1514,12 +1715,14 @@ let approved_intrinsic shape opcode =
          &&
          match argument with
          | Provided _ -> true
-         | Prepared_default _ | Prepared_callback_default _ -> false)
+         | Lastclass _ | Prepared_default _ | Prepared_callback_default _ ->
+             false)
        (List.mapi (fun index fixed -> (index, fixed)) shape.fixed)
   && shape.variadic = []
   && Option.is_none shape.count_type
 
 type expected_argument = {
+  expected_lastclass : Lastclass_argument.t option;
   expected_callback_default : Prepared_callback_default.t option;
   expected_default : Prepared_parameter_default.t option;
   expected_role : argument_role;
@@ -1530,6 +1733,22 @@ type expected_argument = {
 }
 
 let require_saved_default_payload expected (item : Seq.description) =
+  Option.iter
+    (fun value ->
+      require ?span:item.span
+        ((item.opcode
+         =
+         if Lastclass_argument.is_aot value then Opcode.Ic_str_const
+         else Opcode.Ic_imm_i64)
+        && item.operands = []
+        && Lock_semantics.clear_flag item.flags = 0x2000L
+        && item.payload
+           = Some
+               (match Lastclass_argument.name value with
+               | None -> Seq.Integer 0L
+               | Some name -> Seq.Bytes name))
+        "lastclass argument lost its original class substitution")
+    expected.expected_lastclass;
   Option.iter
     (fun prepared ->
       if Option.is_none (Prepared_parameter_default.word_bits prepared) then
@@ -1754,6 +1973,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
       expected_count = None;
       expected_callback_default = None;
       expected_default = None;
+      expected_lastclass = None;
     }
   in
   let fixed =
@@ -1762,6 +1982,17 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
         match value with
         | Provided value ->
             actual (Fixed i) (Some (parameter_type parameter)) value
+        | Lastclass value ->
+            {
+              expected_role = Fixed i;
+              expected_source = Lastclass_argument.type_ value;
+              expected_target = parameter_type parameter;
+              expected_origin = span;
+              expected_count = None;
+              expected_callback_default = None;
+              expected_default = None;
+              expected_lastclass = Some value;
+            }
         | Prepared_callback_default prepared ->
             {
               expected_role = Fixed i;
@@ -1771,6 +2002,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
               expected_count = Prepared_callback_default.word_bits prepared;
               expected_callback_default = Some prepared;
               expected_default = None;
+              expected_lastclass = None;
             }
         | Prepared_default prepared ->
             {
@@ -1781,6 +2013,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
               expected_count = Prepared_parameter_default.word_bits prepared;
               expected_callback_default = None;
               expected_default = Some prepared;
+              expected_lastclass = None;
             })
       fixed_values
   in
@@ -1800,6 +2033,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
             expected_count = Some (Int64.of_int (List.length variadic_values));
             expected_callback_default = None;
             expected_default = None;
+            expected_lastclass = None;
           };
         ]
   in
@@ -1924,11 +2158,22 @@ let callback_shape ~globals ~validate_source owner graph description =
     && producer.span = producer_origin callee
     && producer.target_type = capture.target_type)
     "callback snapshot does not retain its original loaded address";
+  let lastclasses = Callback_source.lastclass_arguments call in
   let fixed =
     List.map
       (fun (parameter, value) ->
         match value with
         | Some value -> (parameter, Provided value)
+        | None
+          when List.exists
+                 (fun (original, _) -> original == parameter)
+                 lastclasses ->
+            ( parameter,
+              lastclass_value ~globals ~parameter ?span
+                (snd
+                   (List.find
+                      (fun (original, _) -> original == parameter)
+                      lastclasses)) )
         | None -> (
             match
               Integer_globals.prepared_callback_default globals ~pointer
@@ -1991,8 +2236,8 @@ type pending = {
   mutable expected : expected_argument list;
 }
 
-let graph_context ~globals ~records ~function_sources ~validate_source owner
-    graph descriptions =
+let graph_context ~globals ~records ~function_sources ~validate_source
+    ~call_result_source owner graph descriptions =
   (* Callee header indices belong to that callee's original command. This
      context validates each call's selected class and producer; the executing
      body separately owns the class parameter and return ABI. *)
@@ -2032,6 +2277,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
       Instructions.empty callbacks
   in
   let remaining_callbacks = ref callback_shapes in
+  let call_result_conversions = ref Instructions.empty in
   let callback_calls = ref Instructions.empty in
   let pending_shapes =
     List.fold_left
@@ -2092,9 +2338,34 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
               (Lock_semantics.clear_flag item.flags)
               (Int64.lognot push_flag)
           in
+          let valid_result_flags description =
+            if ordinary_flags = 0L then true
+            else if
+              item.opcode <> Opcode.Ic_call_end
+              || not
+                   (Seq.Instruction_id.equal item.instruction_id
+                      description.last)
+            then false
+            else
+              match call_result_source owner description with
+              | None -> false
+              | Some conversion ->
+                  let expected =
+                    match conversion.conversion_kind with
+                    | Typed.No_intrinsic_conversion -> 0L
+                    | Result_to_f64 -> 1L
+                    | Result_to_int -> 2L
+                  in
+                  if ordinary_flags <> expected || expected = 0L then false
+                  else (
+                    call_result_conversions :=
+                      Instructions.add item.instruction_id (item, conversion)
+                        !call_result_conversions;
+                    true)
+          in
           let require_shape shape =
             require ?span
-              (item.operands = [] && ordinary_flags = 0L)
+              (item.operands = [] && valid_result_flags shape.source_description)
               "runtime call instruction has unexpected operands or flags";
             require ?span
               (Option.fold ~none:false
@@ -2140,7 +2411,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
               | _ -> false
             in
             let valid_result shape =
-              item.operands = [] && ordinary_flags = 0L
+              item.operands = []
+              && valid_result_flags shape.cb_description
               && Option.fold ~none:false
                    ~some:(Type.equal shape.cb_return)
                    item.target_type
@@ -2460,6 +2732,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                         role = expected.expected_role;
                         prepared_callback_default = None;
                         prepared_default = None;
+                        lastclass = None;
                         producer = producer.instruction_id;
                         value;
                         source_type = expected.expected_source;
@@ -2671,6 +2944,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                    prepared_callback_default =
                      expected.expected_callback_default;
                    prepared_default = expected.expected_default;
+                   lastclass = expected.expected_lastclass;
                    producer = item.instruction_id;
                    value;
                    source_type = expected.expected_source;
@@ -2734,6 +3008,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                        prepared_callback_default =
                          expected.expected_callback_default;
                        prepared_default = expected.expected_default;
+                       lastclass = expected.expected_lastclass;
                        producer = item.instruction_id;
                        value;
                        source_type = expected.expected_source;
@@ -2845,6 +3120,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
             Block_graph.successors block ))
         blocks;
     source_producers = !source_producers;
+    call_result_conversions = !call_result_conversions;
     calls = !calls;
     callback_calls = !callback_calls;
     discards = !discards;
@@ -3257,6 +3533,64 @@ let create_with_exceptions ?entry_exceptions ?(function_exceptions = [])
             (Option.to_list (Target.output_supplied_fixed_value target)
             @ Target.output_arguments target)
     in
+    let call_result_source owner description =
+      let sources () =
+        match owner with
+        | Function body ->
+            source_function (Function_body.symbol body)
+            |> Typed.function_all_results
+        | Entry ->
+            Typed.top_level_all_results top_level
+            @ List.concat_map Typed.function_all_results
+                (Typed.functions function_sources)
+      in
+      let matches value =
+        match description.source with
+        | Function_call target -> (
+            let original =
+              Sema.Function_call_target_classification.source target
+              |> direct_resolution
+            in
+            match Typed.result_call_resolution value with
+            | Some (Resolution.Direct_call current) -> current == original
+            | _ -> false)
+        | Top_level_call target ->
+            let original =
+              Sema.Top_level_function_call_target_classification.source target
+            in
+            Typed.Id.equal
+              (Typed.top_level_direct_result_id original)
+              (Typed.result_id value)
+            && Sema.Top_level_expression_tree.call_result_expression
+                 (Typed.top_level_direct_source original)
+               == Typed.result_source value
+        | Callback_call call -> Callback_source.matches_result call value
+        | Function_output _ | Top_level_output _ -> false
+      in
+      match List.filter matches (sources ()) with
+      | [ source ] ->
+          sources ()
+          |> List.find_map (fun consumer ->
+              Option.map
+                (fun proof ->
+                  {
+                    conversion_source = source;
+                    conversion_consumer = consumer;
+                    conversion_kind =
+                      Expression_lowering.operand_conversion_kind proof;
+                    conversion_valid =
+                      (fun () ->
+                        let current = sources () in
+                        (match List.filter matches current with
+                          | [ actual ] -> actual == source
+                          | _ -> false)
+                        && List.exists (( == ) consumer) current
+                        && Expression_lowering.valid_operand_conversion proof);
+                  })
+                (Expression_lowering.prepare_operand_conversion ~consumer
+                   ~operand:source))
+      | _ -> None
+    in
     let rec checked_functions seen = function
       | [] -> []
       | (body, descriptions) :: rest ->
@@ -3267,12 +3601,13 @@ let create_with_exceptions ?entry_exceptions ?(function_exceptions = [])
             (source_function ?span:(Function_body.span body)
                (Function_body.symbol body));
           graph_context ~globals ~records ~function_sources ~validate_source
-            (Function body) (Function_body.body body) descriptions
+            ~call_result_source (Function body) (Function_body.body body)
+            descriptions
           :: checked_functions (body :: seen) rest
     in
     let graphs =
-      graph_context ~globals ~records ~function_sources ~validate_source Entry
-        (X87_stack.graph entry) entry_calls
+      graph_context ~globals ~records ~function_sources ~validate_source
+        ~call_result_source Entry (X87_stack.graph entry) entry_calls
       :: checked_functions [] functions
     in
     let exception_owners = ref [] in

@@ -192,12 +192,12 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ?max_literal_bytes ?parameter_defaults ?global_initializers
-    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
-    ~functions () =
+    ?float_entry_source ~max_ir_instructions ~max_code_bytes ~runtime_calls
+    ~initialization ~entry ~functions () =
   Codegen.compile_callable ?status_abi ?max_stack_bytes ?max_blocks
     ?max_global_bytes ?max_literal_bytes ?parameter_defaults
-    ?global_initializers ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~initialization ~entry ~functions ()
+    ?global_initializers ?float_entry_source ~max_ir_instructions
+    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()
   |> Result.map_error project_errors
   |> Result.map (fun image ->
       {
@@ -219,6 +219,52 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         internal_binding_ = None;
         scalar_default_ = None;
       })
+
+let compile_source_default ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes request =
+  let module Request = Driver.Native_default_preparation in
+  let module Program = Ir.Default_fragment_program in
+  let ( let* ) = Result.bind in
+  let program = Request.native_program request in
+  let* () =
+    Request.check_native request
+    |> Result.map_error (fun message ->
+        [
+          {
+            code = "HCBACK0003";
+            message;
+            span =
+              Some
+                (Ir.Default_fragment_destination.span
+                   (Program.destination program));
+          };
+        ])
+  in
+  let* image =
+    let destination = Program.destination program in
+    let float_entry_source =
+      X86_64_float_plan.
+        {
+          lowered = Program.lowered program;
+          globals = Ir.Default_fragment_destination.globals destination;
+          value =
+            Sema.Function_call_expression_result.top_level_root_value
+              (Ir.Default_fragment_destination.root destination);
+        }
+    in
+    compile_callable ?status_abi ?max_stack_bytes ?max_blocks
+      ~float_entry_source ~max_ir_instructions ~max_code_bytes
+      ~runtime_calls:(Program.runtime_calls program)
+      ~initialization:(Program.initialization program)
+      ~entry:(Program.entry program) ~functions:[] ()
+  in
+  Ok
+    {
+      image with
+      task_check_ = Some (fun () -> Request.check_native request);
+      task_claim_ = Some (fun () -> Request.claim_native request);
+      scalar_default_ = Some program;
+    }
 
 let project_storage_errors errors =
   List.map
@@ -257,7 +303,22 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     |> Result.map_error project_storage_errors
   in
   let* image =
+    let float_entry_source =
+      Option.map
+        (fun program ->
+          let destination = Ir.Default_fragment_program.destination program in
+          X86_64_float_plan.
+            {
+              lowered = Ir.Default_fragment_program.lowered program;
+              globals = Ir.Default_fragment_destination.globals destination;
+              value =
+                Sema.Function_call_expression_result.top_level_root_value
+                  (Ir.Default_fragment_destination.root destination);
+            })
+        scalar_default
+    in
     Codegen.compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
+      ?float_entry_source
       ~capture_callback_default:(Option.is_some callback_default)
       ?capture_data_default:
         (Option.bind data_default Ir.Saved_parameter_value.data_source)

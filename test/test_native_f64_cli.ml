@@ -62,6 +62,14 @@ let invoke ?(status = 0) ?(options = []) ~target ~mode label source =
               and err =
                 Unix.openfile errors [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600
               in
+              let code_limit =
+                if
+                  List.exists
+                    (String.starts_with ~prefix:"--code-byte-limit=")
+                    options
+                then []
+                else [ "--code-byte-limit=1048576" ]
+              in
               let args =
                 Array.of_list
                   ([
@@ -70,9 +78,8 @@ let invoke ?(status = 0) ?(options = []) ~target ~mode label source =
                      "--format=json";
                      "--target=" ^ target;
                      "--mode=" ^ mode;
-                     "--code-byte-limit=1048576";
                    ]
-                  @ options @ [ path ])
+                  @ code_limit @ options @ [ path ])
               in
               let pid =
                 Fun.protect
@@ -986,14 +993,13 @@ let () =
       |> rejected "IR float boundary";
       List.iter
         (fun target ->
-          if mode = "jit" && target = "host-jit-task" then (
-            if native && Native_execution.x87_supported () then
-              invoke ~target ~mode "floating default" floating_default
-              |> successful "floating default" 0x3ff0000000000000L)
-          else
-            invoke ~status:1 ~target ~mode "isolated floating default"
-              floating_default
-            |> rejected "isolated floating default";
+          if native && Native_execution.x87_supported () then
+            invoke ~target ~mode "floating default" floating_default
+            |> successful "floating default" 0x3ff0000000000000L
+          else if not (mode = "jit" && target = "host-jit-task") then
+            invoke ~status:1 ~target ~mode ~options:[ "--code-byte-limit=1" ]
+              "floating default code admission" floating_default
+            |> rejected "floating default code admission";
           List.iter
             (fun (label, source) ->
               invoke ~status:1 ~target ~mode label source |> rejected label)

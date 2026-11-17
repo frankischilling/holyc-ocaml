@@ -81,6 +81,7 @@ type comparison_entry = {
   comparison_operands : S.Value_id.t list;
   comparison_loads : load list;
   comparison_kind : comparison_kind;
+  comparison_constant : int64 option;
   comparison_context : comparison_context;
   comparison_opcode : O.t;
   comparison_predicate : X86_64_encoder.condition;
@@ -164,8 +165,9 @@ let invert_comparison = function
   | _ -> invalid_arg "not a comparison"
 
 (* Source proof is deliberately separate from opcode recognition. Each maximal
-   pure source subtree is re-lowered once at zero and once at its original IDs.
-   Disjoint roots and a graph-derived node budget bound this work linearly. *)
+   arithmetic subtree is re-lowered once at zero and once at its original IDs.
+   Ordinary calls retain their checked target and saved-default snapshot during
+   replay. Disjoint roots and a graph-derived node budget bound this work. *)
 module Typed = Sema.Function_call_expression_result
 module Source = Sema.Function_call_resolution
 
@@ -182,204 +184,447 @@ type source = {
   frame : Sema.Function_frame_layout.function_layout;
 }
 
-let source_regions source graph =
+type entry_source = {
+  lowered : Ir.Integer_program_lowering.t;
+  globals : Ir.Integer_globals.t;
+  value : Typed.expression_result;
+}
+
+let entry_source_matches source graph =
+  Ir.X87_stack.graph (Ir.Integer_program_lowering.graph source.lowered) == graph
+  && Ir.Integer_program_lowering.owns_expression source.lowered
+       ~globals:source.globals ~value:source.value
+
+let entry_expression_results graph value =
+  let remaining =
+    ref
+      (64
+      + 4
+        * List.fold_left
+            (fun count block ->
+              count + List.length (S.instructions (G.instructions block)))
+            0 (G.blocks graph))
+  in
+  let seen = Physical.create 16 in
+  let rec collect depth result =
+    if depth > 256 || !remaining <= 0 || Physical.mem seen result then []
+    else (
+      decr remaining;
+      Physical.add seen result ();
+      result
+      :: (Option.fold ~none:[]
+            ~some:(collect (depth + 1))
+            (Typed.result_operand result)
+         @ Option.fold ~none:[]
+             ~some:(fun (left, right) ->
+               collect (depth + 1) left @ collect (depth + 1) right)
+             (Typed.result_binary_operands result)))
+  in
+  collect 0 value
+
+let source_regions source entry_source runtime_context graph =
   let covered = ref I.empty in
   let comparisons = ref I.empty in
-  (match source with
-  | Some { runtime; body; frame }
-    when Ir.Runtime_call_context.matches_graph runtime
-           ~owner:(Ir.Runtime_call_context.Function body) graph
-         && Ir.Function_body.definition_matches_frame body frame ->
-      Option.iter
-        (fun original ->
-          let blocks =
-            List.map
-              (fun block ->
-                Array.of_list
-                  (List.map S.description
-                     (S.instructions (G.instructions block))))
-              (G.blocks graph)
-          in
-          let count = List.fold_left (fun n a -> n + Array.length a) 0 blocks in
-          let budget = ref ((4 * count) + 64) in
-          let memo = Physical.create count in
-          let children = Physical.create count in
-          let rec pure depth value =
-            match Physical.find_opt memo value with
-            | Some result -> result
-            | None ->
-                decr budget;
-                let result =
-                  if
-                    !budget < 0 || depth > 256
-                    || Typed.result_array_rank value <> 0
-                    || not
-                         (Option.fold ~none:false
-                            ~some:(fun t -> is_f64 t || integer_type t)
-                            (Typed.result_type value))
-                  then false
-                  else
-                    let child v = pure (depth + 1) v in
-                    match
-                      Source.argument_expression_kind
-                        (Typed.result_source value)
-                    with
-                    | Source.Float_literal _ | Source.Integer_literal _ -> true
-                    | Bound_identifier_expression _ -> (
-                        match
-                          Ir.Frame_address_lowering.prepare ~frame value
-                        with
-                        | Ok (Some _) -> true
-                        | _ -> false)
-                    | Parenthesized_expression _ ->
-                        Option.fold ~none:false ~some:child
-                          (Typed.result_operand value)
-                    | Prefix_expression p
-                      when List.mem (Source.prefix_operator p)
-                             [ Source.Unary_plus; Source.Unary_minus ] ->
-                        Option.fold ~none:false ~some:child
-                          (Typed.result_operand value)
-                    | Binary_expression b
-                      when List.mem
-                             (Source.binary_operator_name
-                                (Source.binary_operator b))
-                             [ "IC_ADD"; "IC_SUB"; "IC_MUL"; "IC_DIV" ] -> (
-                        match Typed.result_binary_operands value with
-                        | Some (l, r) -> child l && child r
-                        | None -> false)
-                    | _ -> false
-                in
-                Physical.replace memo value result;
-                if result then (
-                  Option.iter
-                    (fun v -> Physical.replace children v ())
-                    (Typed.result_operand value);
-                  Option.iter
-                    (fun (l, r) ->
-                      Physical.replace children l ();
-                      Physical.replace children r ())
-                    (Typed.result_binary_operands value));
-                result
-          in
-          let terminal value =
-            match
-              Source.argument_expression_kind (Typed.result_source value)
-            with
-            | Source.Binary_expression binary
-              when comparison_opcode (Source.binary_operator binary) -> (
-                match Typed.result_binary_operands value with
-                | Some (left, right) when pure 0 left && pure 0 right ->
-                    Physical.replace children left ();
-                    Physical.replace children right ();
-                    true
-                | _ -> false)
-            | _ -> pure 0 value
-          in
-          let all = Typed.function_all_results original in
-          List.iter (fun value -> ignore (terminal value)) all;
-          let starts = Hashtbl.create count in
-          List.iter
-            (fun block ->
-              Array.iteri
-                (fun index d ->
-                  let key = (d.S.opcode, d.span) in
-                  let old =
-                    Option.value (Hashtbl.find_opt starts key) ~default:[]
-                  in
-                  Hashtbl.replace starts key ((block, index) :: old))
-                block)
-            blocks;
-          let lower instruction_id value_id value =
-            match
-              Ir.Expression_lowering.lower_typed_result ~frame ~instruction_id
-                ~value_id value
-            with
-            | Ok (Ir.Expression_lowering.Lowered result) ->
-                Some
-                  (List.map S.description
-                     (S.instructions (Ir.Expression_lowering.sequence result)))
-            | _ -> None
-          in
-          let zero_i = S.Instruction_id.of_int 0 |> Result.get_ok in
-          let zero_v = S.Value_id.of_int 0 |> Result.get_ok in
-          let region = ref 0 in
-          List.iter
-            (fun value ->
+  let calls = Physical.create 16 in
+  let call_source value =
+    match Physical.find_opt calls value with
+    | Some original -> original
+    | None ->
+        let original =
+          Option.bind runtime_context (fun (runtime, owner) ->
+              Ir.Runtime_call_context.original_expression_call_source runtime
+                ~owner value)
+        in
+        Physical.add calls value original;
+        original
+  in
+  let provided path =
+    match path with
+    | Typed.Provided_result value -> Some value
+    | Declared_default_result _ -> None
+  in
+  let call_children = function
+    | Ir.Runtime_call_context.Function_call target ->
+        let call = Sema.Function_call_target_classification.source target in
+        ( Typed.direct_source call
+          |> Sema.Function_call_conversion_policy.direct_source
+          |> Source.direct_source,
+          List.filter_map
+            (fun fixed -> provided (Typed.fixed_path fixed))
+            (Typed.direct_fixed_results call)
+          @ Typed.direct_variadic_results call )
+    | Ir.Runtime_call_context.Top_level_call target ->
+        let call =
+          Sema.Top_level_function_call_target_classification.source target
+        in
+        ( Typed.top_level_direct_source call
+          |> Sema.Top_level_expression_tree.call_source,
+          List.filter_map
+            (fun fixed -> provided (Typed.top_level_fixed_path fixed))
+            (Typed.top_level_direct_fixed_results call)
+          @ Typed.top_level_direct_variadic_results call )
+    | Ir.Runtime_call_context.Callback_call call ->
+        ( Ir.Callback_source.source call,
+          Option.to_list (Ir.Callback_source.callee call)
+          @ List.filter_map snd (Ir.Callback_source.fixed_arguments call)
+          @ Ir.Callback_source.variadic_arguments call )
+    | _ -> assert false
+  in
+  let selected =
+    match source with
+    | Some { runtime; body; frame }
+      when Ir.Runtime_call_context.matches_graph runtime
+             ~owner:(Ir.Runtime_call_context.Function body) graph
+           && Ir.Function_body.definition_matches_frame body frame ->
+        Option.map
+          (fun original ->
+            (Some frame, None, Typed.function_all_results original, false))
+          (Ir.Function_body.definition_source body)
+    | None -> (
+        match entry_source with
+        | Some source when entry_source_matches source graph ->
+            Some
+              ( None,
+                Some source.globals,
+                entry_expression_results graph source.value,
+                false )
+        | Some _ -> None
+        | None ->
+            Option.bind runtime_context (fun (runtime, owner) ->
+                if
+                  not
+                    (Ir.Runtime_call_context.matches_graph runtime ~owner graph)
+                then None
+                else
+                  Option.map
+                    (fun values -> (None, None, values, true))
+                    (Ir.Runtime_call_context.original_expression_results runtime
+                       ~owner)))
+    | Some _ -> None
+  in
+  Option.iter
+    (fun (frame, globals, all, calls_only) ->
+      let globals =
+        match globals with
+        | Some _ -> globals
+        | None ->
+            List.find_map
+              (fun value ->
+                match
+                  Source.argument_expression_kind (Typed.result_source value)
+                with
+                | Source.Unresolved_expression Source.Call_expression ->
+                    Option.map snd (call_source value)
+                | _ -> None)
+              all
+      in
+      let blocks =
+        List.map
+          (fun block ->
+            Array.of_list
+              (List.map S.description (S.instructions (G.instructions block))))
+          (G.blocks graph)
+      in
+      let count = List.fold_left (fun n a -> n + Array.length a) 0 blocks in
+      let budget = ref ((4 * count) + 64) in
+      let memo = Physical.create count in
+      let children = Physical.create count in
+      let rec pure depth value =
+        match Physical.find_opt memo value with
+        | Some result -> result
+        | None ->
+            decr budget;
+            let result =
               if
-                !budget >= 0 && terminal value
-                && not (Physical.mem children value)
-              then
-                let expression = Typed.result_source value in
-                match Source.argument_expression_source expression with
-                | Some ast
-                  when Source.validate_source_expression ~source:ast ~expression
-                         ~calls:[] ()
-                       = Ok () -> (
-                    match lower zero_i zero_v value with
-                    | Some (first :: _ as canonical) -> (
-                        let candidates =
-                          Option.value
-                            (Hashtbl.find_opt starts (first.opcode, first.span))
-                            ~default:[]
+                !budget < 0 || depth > 256
+                || Typed.result_array_rank value <> 0
+                || not
+                     (Option.fold ~none:false
+                        ~some:(fun t -> is_f64 t || integer_type t)
+                        (Typed.result_type value))
+              then false
+              else
+                let child v = pure (depth + 1) v in
+                match
+                  Source.argument_expression_kind (Typed.result_source value)
+                with
+                | Source.Float_literal _ | Source.Integer_literal _ -> true
+                | Source.Unresolved_expression Source.Call_expression ->
+                    Option.is_some (call_source value)
+                | Bound_identifier_expression _ -> (
+                    match
+                      Option.map
+                        (fun frame ->
+                          Ir.Frame_address_lowering.prepare ~frame value)
+                        frame
+                    with
+                    | Some (Ok (Some _)) -> true
+                    | _ -> false)
+                | Parenthesized_expression _ ->
+                    Option.fold ~none:false ~some:child
+                      (Typed.result_operand value)
+                | Prefix_expression p
+                  when List.mem (Source.prefix_operator p)
+                         [ Source.Unary_plus; Source.Unary_minus ] ->
+                    Option.fold ~none:false ~some:child
+                      (Typed.result_operand value)
+                | Binary_expression b
+                  when List.mem
+                         (Source.binary_operator_name (Source.binary_operator b))
+                         [ "IC_ADD"; "IC_SUB"; "IC_MUL"; "IC_DIV" ] -> (
+                    match Typed.result_binary_operands value with
+                    | Some (l, r) -> child l && child r
+                    | None -> false)
+                | _ -> false
+            in
+            Physical.replace memo value result;
+            if result then (
+              Option.iter
+                (fun v -> Physical.replace children v ())
+                (Typed.result_operand value);
+              Option.iter
+                (fun (l, r) ->
+                  Physical.replace children l ();
+                  Physical.replace children r ())
+                (Typed.result_binary_operands value);
+              Option.iter
+                (fun (source, _) ->
+                  let _, arguments = call_children source in
+                  List.iter
+                    (fun value -> Physical.replace children value ())
+                    arguments)
+                (match
+                   Source.argument_expression_kind (Typed.result_source value)
+                 with
+                | Source.Unresolved_expression Source.Call_expression ->
+                    call_source value
+                | _ -> None));
+            result
+      in
+      let terminal value =
+        match Source.argument_expression_kind (Typed.result_source value) with
+        | Source.Binary_expression binary
+          when comparison_opcode (Source.binary_operator binary) -> (
+            match Typed.result_binary_operands value with
+            | Some (left, right) when pure 0 left && pure 0 right ->
+                Physical.replace children left ();
+                Physical.replace children right ();
+                true
+            | _ -> false)
+        | _ -> pure 0 value
+      in
+      List.iter (fun value -> ignore (terminal value)) all;
+      let starts = Hashtbl.create count in
+      List.iter
+        (fun block ->
+          Array.iteri
+            (fun index d ->
+              let key = (d.S.opcode, d.span) in
+              let old =
+                Option.value (Hashtbl.find_opt starts key) ~default:[]
+              in
+              Hashtbl.replace starts key ((block, index) :: old))
+            block)
+        blocks;
+      let rec lower_call ~instruction_id ~value_id value =
+        let lowered =
+          match call_source value with
+          | Some (Ir.Runtime_call_context.Function_call target, _) ->
+              Ir.Direct_call_lowering.lower ?frame ?globals ~lower_call
+                ~optimize_shifts:true ~optimize_division:true ~instruction_id
+                ~value_id ~target value
+          | Some (Ir.Runtime_call_context.Top_level_call target, _) ->
+              Ir.Direct_call_lowering.lower_top_level ?frame ?globals
+                ~lower_call ~optimize_shifts:true ~optimize_division:true
+                ~instruction_id ~value_id ~target value
+          | Some (Ir.Runtime_call_context.Callback_call call, _) ->
+              Ir.Direct_call_lowering.lower_callback ?frame ?globals ~lower_call
+                ~optimize_shifts:true ~optimize_division:true ~instruction_id
+                ~value_id ~call value
+          | _ -> Ok Ir.Direct_call_lowering.Unsupported_call
+        in
+        Result.map
+          (function
+            | Ir.Direct_call_lowering.Lowered call ->
+                Some (Ir.Direct_call_lowering.sequence call)
+            | Unsupported_call -> None)
+          lowered
+      in
+      let lower instruction_id value_id value =
+        match
+          Ir.Expression_lowering.lower_typed_result ?frame ?globals ~lower_call
+            ~instruction_id ~value_id value
+        with
+        | Ok (Ir.Expression_lowering.Lowered result) ->
+            Some
+              (List.map S.description
+                 (S.instructions (Ir.Expression_lowering.sequence result)))
+        | _ -> None
+      in
+      let zero_i = S.Instruction_id.of_int 0 |> Result.get_ok in
+      let zero_v = S.Value_id.of_int 0 |> Result.get_ok in
+      let source_calls value =
+        let seen = Physical.create 16 in
+        let callees = ref [] in
+        let rec collect depth value =
+          if depth > 256 || Physical.mem seen value then None
+          else (
+            Physical.add seen value ();
+            let selected, children =
+              match call_source value with
+              | Some (source, _) ->
+                  let call, arguments = call_children source in
+                  (match source with
+                  | Ir.Runtime_call_context.Callback_call source ->
+                      Option.iter
+                        (fun callee -> callees := (call, callee) :: !callees)
+                        (Ir.Callback_source.callee_source source)
+                  | _ -> ());
+                  (Some (call, Typed.result_source value), arguments)
+              | None ->
+                  ( None,
+                    Option.to_list (Typed.result_operand value)
+                    @ Option.fold ~none:[]
+                        ~some:(fun (a, b) -> [ a; b ])
+                        (Typed.result_binary_operands value) )
+            in
+            List.fold_left
+              (fun collected child ->
+                Option.bind collected (fun collected ->
+                    Option.map
+                      (fun nested -> collected @ nested)
+                      (collect (depth + 1) child)))
+              (Some (Option.to_list selected))
+              children)
+        in
+        Option.map
+          (fun pairs ->
+            ( List.sort
+                (fun (a, _) (b, _) ->
+                  Int.compare (Source.call_index a) (Source.call_index b))
+                pairs,
+              !callees ))
+          (collect 0 value)
+      in
+      let same_payload left right =
+        match (left, right) with
+        | None, None -> true
+        | Some (S.Integer a), Some (S.Integer b)
+        | Some (S.Float_bits a), Some (S.Float_bits b) -> a = b
+        | Some (S.Bytes a), Some (S.Bytes b) -> a = b
+        | Some (S.Block a), Some (S.Block b) -> a = b
+        | Some (S.Block_targets a), Some (S.Block_targets b) -> a = b
+        | Some (S.Symbol a), Some (S.Symbol b) -> a == b
+        | Some (S.Callback a), Some (S.Callback b) -> a == b
+        | Some (S.Member_projection a), Some (S.Member_projection b)
+        | Some (S.Backing_projection a), Some (S.Backing_projection b) -> a == b
+        | Some (S.Pointee_stride a), Some (S.Pointee_stride b) -> a == b
+        | Some (S.Empty_frame_root a), Some (S.Empty_frame_root b) -> a == b
+        | Some (S.Class_pointer_view (a, x)), Some (S.Class_pointer_view (b, y))
+          -> a == b && x = y
+        | Some (S.Retained_global a), Some (S.Retained_global b) -> a == b
+        | Some (S.Saved_parameter_default a), Some (S.Saved_parameter_default b)
+          -> a == b
+        | Some (S.Saved_callback_default a), Some (S.Saved_callback_default b)
+          -> a == b
+        | _ -> false
+      in
+      let same_description (left : S.description) (right : S.description) =
+        left.instruction_id = right.instruction_id
+        && left.opcode = right.opcode
+        && left.operands = right.operands
+        && left.result = right.result
+        && Option.equal Sema.Type.equal left.target_type right.target_type
+        && same_payload left.payload right.payload
+        && left.flags = right.flags && left.span = right.span
+      in
+      let region = ref 0 in
+      List.iter
+        (fun value ->
+          if !budget >= 0 && terminal value && not (Physical.mem children value)
+          then
+            let expression = Typed.result_source value in
+            match
+              (Source.argument_expression_source expression, source_calls value)
+            with
+            | Some ast, Some (pairs, callees)
+              when ((not calls_only) || pairs <> [])
+                   && Source.validate_source_expression ~source:ast ~expression
+                        ~calls:(List.map fst pairs) ~call_expressions:pairs
+                        ~callee_expressions:callees ()
+                      = Ok () -> (
+                match lower zero_i zero_v value with
+                | Some (first :: _ as canonical) -> (
+                    let candidates =
+                      Option.value
+                        (Hashtbl.find_opt starts (first.opcode, first.span))
+                        ~default:[]
+                    in
+                    (* Ambiguous source sites cannot confer ownership. *)
+                    match candidates with
+                    | [ (block, index) ]
+                      when List.length canonical <= Array.length block - index
+                      -> (
+                        let start = block.(index) in
+                        let first_value =
+                          let rec find offset = function
+                            | [] -> None
+                            | (expected : S.description) :: rest ->
+                                if Option.is_some expected.result then
+                                  block.(index + offset).result
+                                else find (offset + 1) rest
+                          in
+                          find 0 canonical
                         in
-                        (* Ambiguous source sites cannot confer ownership. *)
-                        match candidates with
-                        | [ (block, index) ]
-                          when List.length canonical
-                               <= Array.length block - index -> (
-                            let start = block.(index) in
-                            match start.result with
-                            | Some result -> (
-                                match
-                                  lower start.instruction_id result.value_id
-                                    value
-                                with
-                                | Some descriptions ->
-                                    let length = List.length descriptions in
-                                    let valid =
-                                      List.mapi
-                                        (fun offset expected ->
-                                          let actual = block.(index + offset) in
-                                          expected = actual
-                                          || offset = length - 1
-                                             && Int64.logand actual.flags
-                                                  (Int64.lognot 0x2003L)
-                                                = Int64.logand expected.flags
-                                                    (Int64.lognot 0x2003L)
-                                             && {
-                                                  actual with
-                                                  flags = expected.flags;
-                                                }
-                                                = expected)
-                                        descriptions
-                                      |> List.for_all Fun.id
-                                    in
-                                    if valid then (
-                                      incr region;
-                                      let last =
-                                        List.hd (List.rev descriptions)
-                                      in
-                                      if comparison_opcode last.opcode then
-                                        comparisons :=
-                                          I.add last.instruction_id value
-                                            !comparisons;
-                                      List.iter
-                                        (fun d ->
-                                          covered :=
-                                            I.add d.S.instruction_id !region
-                                              !covered)
-                                        descriptions)
-                                | None -> ())
+                        match first_value with
+                        | Some result -> (
+                            match
+                              lower start.instruction_id result.value_id value
+                            with
+                            | Some descriptions ->
+                                let length = List.length descriptions in
+                                let valid =
+                                  List.mapi
+                                    (fun offset expected ->
+                                      let actual = block.(index + offset) in
+                                      same_description expected actual
+                                      || offset = length - 1
+                                         && Int64.logand actual.flags
+                                              (Int64.lognot 0x2003L)
+                                            = Int64.logand expected.flags
+                                                (Int64.lognot 0x2003L)
+                                         && same_description
+                                              {
+                                                actual with
+                                                flags = expected.flags;
+                                              }
+                                              expected)
+                                    descriptions
+                                  |> List.for_all Fun.id
+                                in
+                                if valid then (
+                                  incr region;
+                                  let last = List.hd (List.rev descriptions) in
+                                  if comparison_opcode last.opcode then
+                                    comparisons :=
+                                      I.add last.instruction_id value
+                                        !comparisons;
+                                  List.iter
+                                    (fun d ->
+                                      covered :=
+                                        I.add d.S.instruction_id !region
+                                          !covered)
+                                    descriptions)
                             | None -> ())
-                        | _ -> ())
+                        | None -> ())
                     | _ -> ())
                 | _ -> ())
-            all)
-        (Ir.Function_body.definition_source body)
-  | _ -> ());
+            | _ -> ())
+        all)
+    selected;
   (!covered, !comparisons)
 
-let prepare ?source ?runtime ?owner graph =
+let prepare ?source ?entry_source ?runtime ?owner graph =
   let runtime_context =
     match (runtime, owner, source) with
     | Some runtime, Some owner, _ -> Some (runtime, owner)
@@ -415,10 +660,16 @@ let prepare ?source ?runtime ?owner graph =
              ~owner:(Ir.Runtime_call_context.Function s.body) graph
         && Ir.Register_variable_analysis.authenticates_mixed_scalar_source
              ~runtime:s.runtime ~frame:s.frame ~body:s.body
-    | None -> false
+    | None ->
+        runtime_valid ()
+        && Option.fold ~none:false
+             ~some:(fun source -> entry_source_matches source graph)
+             entry_source
   in
   let authenticated = authentic_source () in
-  let regions, comparison_sources = source_regions source graph in
+  let regions, comparison_sources =
+    source_regions source entry_source runtime_context graph
+  in
   let definitions = ref V.empty in
   List.iter
     (fun block ->
@@ -500,6 +751,28 @@ let prepare ?source ?runtime ?owner graph =
   let canonical_consumer = ref false in
   let option_consumer = ref false in
   let arithmetic_arguments = ref [] in
+  let intrinsic_instruction id =
+    Option.bind runtime_context (fun (runtime, owner) ->
+        if runtime_valid () then
+          Ir.Runtime_call_context.find_intrinsic_instruction runtime ~owner id
+        else None)
+  in
+  let materialized_intrinsic_result receipt (producer : S.description) =
+    let module R = Ir.Runtime_call_context in
+    producer.opcode = O.Ic_call_end
+    && producer.flags = 0L && producer.operands = []
+    && producer.instruction_id = R.intrinsic_last receipt
+    && Option.equal Sema.Type.equal producer.target_type
+         (Some (R.intrinsic_return_type receipt))
+    && Option.fold ~none:false
+         ~some:(fun (result : S.value_definition) ->
+           result.value_id = R.intrinsic_result_value receipt)
+         producer.result
+    &&
+    match producer.payload with
+    | Some (S.Symbol symbol) -> symbol == R.intrinsic_symbol receipt
+    | _ -> false
+  in
   List.iter
     (fun block ->
       List.iter
@@ -508,13 +781,7 @@ let prepare ?source ?runtime ?owner graph =
           match Ir.Numeric_intrinsic.conversion d.opcode with
           | None -> ()
           | Some direction -> (
-              let receipt =
-                Option.bind runtime_context (fun (runtime, owner) ->
-                    if runtime_valid () then
-                      Ir.Runtime_call_context.find_intrinsic_instruction runtime
-                        ~owner d.instruction_id
-                    else None)
-              in
+              let receipt = intrinsic_instruction d.instruction_id in
               match receipt with
               | Some receipt -> (
                   let module R = Ir.Runtime_call_context in
@@ -538,19 +805,27 @@ let prepare ?source ?runtime ?owner graph =
                             && Int64.logand p.flags 3L = 0L
                         | None -> false
                       in
-                      let nested_numeric =
-                        Option.fold ~none:false
-                          ~some:(fun (p : S.description) ->
-                            Option.fold ~none:false
-                              ~some:(fun (runtime, owner) ->
-                                Option.is_some
-                                  (R.find_intrinsic_end runtime ~owner
-                                     p.instruction_id))
-                              runtime_context)
-                          (producer input)
+                      let nested_intrinsic =
+                        Option.bind (producer input) (fun (p : S.description) ->
+                            Option.bind runtime_context (fun (runtime, owner) ->
+                                R.find_intrinsic_end runtime ~owner
+                                  p.instruction_id))
+                      in
+                      let nested_input =
+                        match (nested_intrinsic, producer input) with
+                        | Some nested, Some p ->
+                            Ir.Numeric_intrinsic.supports
+                              (R.intrinsic_opcode nested)
+                            && materialized_intrinsic_result nested p
+                            && R.argument_producer argument = p.instruction_id
+                            && R.intrinsic_producer_matches receipt p
+                            && Sema.Type.equal
+                                 (R.intrinsic_return_type nested)
+                                 source_type
+                        | _ -> false
                       in
                       let simple_input =
-                        (not nested_numeric)
+                        (Option.is_none nested_intrinsic || nested_input)
                         &&
                         match (producer input, direction) with
                         | Some p, Ir.Numeric_intrinsic.To_integer ->
@@ -565,11 +840,40 @@ let prepare ?source ?runtime ?owner graph =
                         | Some p, To_float -> Int64.logand p.flags 3L = 0L
                         | _ -> false
                       in
+                      let result_producer = producer result in
+                      let numeric_consumer (consumer : S.description) =
+                        match
+                          ( intrinsic_instruction consumer.instruction_id,
+                            result_producer )
+                        with
+                        | Some next, Some p
+                          when Ir.Numeric_intrinsic.supports
+                                 (R.intrinsic_opcode next)
+                               && consumer.opcode = R.intrinsic_opcode next
+                               && consumer.operands = [ result ]
+                               && R.intrinsic_producer_matches next p -> (
+                            match R.intrinsic_arguments next with
+                            | [ argument ] ->
+                                R.argument_value argument = result
+                                && R.argument_producer argument
+                                   = p.instruction_id
+                                && Sema.Type.equal
+                                     (R.argument_source_type argument)
+                                     (R.intrinsic_return_type receipt)
+                            | _ -> false)
+                        | _ -> false
+                      in
+                      (* OptPass3:444-505 does not select a floating link for
+                         explicit TO_I64/TO_F64. BackB:277-286 invokes ICFCvt at
+                         CN_INST; the unflagged nested CALL_END therefore keeps
+                         its materialized word. Each side needs its own original
+                         call receipt, including the exact argument producer. *)
                       let boundary =
                         List.for_all
                           (fun (consumer : S.description) ->
                             List.mem consumer.opcode
                               [ O.Ic_assign; Ic_return_val; Ic_end_exp ]
+                            || numeric_consumer consumer
                             || authenticated
                                && Option.is_some (arithmetic consumer.opcode)
                                && Option.fold ~none:false
@@ -608,24 +912,13 @@ let prepare ?source ?runtime ?owner graph =
                                     consumer.operands)
                           (users result)
                       in
-                      let result_producer = producer result in
                       if
-                        (not family) || nested_numeric
+                        (not family)
                         || ((not simple_input) && not arithmetic_input)
                         || (not boundary)
                         || not
                              (Option.fold ~none:false
-                                ~some:(fun (p : S.description) ->
-                                  p.opcode = O.Ic_call_end && p.flags = 0L
-                                  && p.operands = []
-                                  && p.instruction_id = R.intrinsic_last receipt
-                                  && Option.equal Sema.Type.equal p.target_type
-                                       (Some (R.intrinsic_return_type receipt))
-                                  &&
-                                  match p.payload with
-                                  | Some (S.Symbol symbol) ->
-                                      symbol == R.intrinsic_symbol receipt
-                                  | _ -> false)
+                                ~some:(materialized_intrinsic_result receipt)
                                 result_producer)
                       then
                         fail d
@@ -637,7 +930,8 @@ let prepare ?source ?runtime ?owner graph =
                             (fun (consumer : S.description) ->
                               not
                                 (List.mem consumer.opcode
-                                   [ O.Ic_assign; Ic_return_val; Ic_end_exp ]))
+                                   [ O.Ic_assign; Ic_return_val; Ic_end_exp ]
+                                || numeric_consumer consumer))
                             (users result)
                         then canonical_consumer := true;
                         if arithmetic_input then
@@ -660,20 +954,47 @@ let prepare ?source ?runtime ?owner graph =
         (S.instructions (G.instructions block)))
     (G.blocks graph);
   let conversions = ref I.empty in
+  let call_conversions = ref I.empty in
+  let original_call_conversion (d : S.description) =
+    Option.bind runtime_context (fun (runtime, owner) ->
+        if not (runtime_valid ()) then None
+        else
+          Option.bind
+            (Ir.Runtime_call_context.original_call_result_conversion runtime
+               ~owner d) (fun original ->
+              let flags =
+                match
+                  Ir.Runtime_call_context.call_result_conversion_kind original
+                with
+                | Typed.No_intrinsic_conversion -> 0L
+                | Result_to_f64 -> 1L
+                | Result_to_int -> 2L
+              in
+              if flags <> 0L && Int64.logand d.flags 3L = flags then
+                Some original
+              else None))
+  in
   V.iter
     (fun id (d : S.description) ->
       let bits = Int64.logand d.flags 3L in
       if bits <> 0L then
         let direction = if bits = 1L then To_float else To_integer in
+        let call_source = original_call_conversion d in
         if
-          (not authenticated) || bits = 3L
+          ((not authenticated) && Option.is_none call_source)
+          || bits = 3L
           || not
                (Option.fold ~none:false
                   ~some:(if direction = To_float then integer_type else is_f64)
                   d.target_type)
         then
           fail d "numeric conversion has no exact original scalar source proof"
-        else
+        else (
+          Option.iter
+            (fun original ->
+              call_conversions :=
+                I.add d.instruction_id (d, original) !call_conversions)
+            call_source;
           let deferred =
             match users id with
             | [ consumer ]
@@ -696,7 +1017,7 @@ let prepare ?source ?runtime ?owner graph =
                 deferred;
                 elided = false;
               }
-              !conversions)
+              !conversions))
     !definitions;
   let conversion d = I.find_opt d.S.instruction_id !conversions in
   let deferred id =
@@ -776,8 +1097,7 @@ let prepare ?source ?runtime ?owner graph =
         when Option.fold ~none:false
                ~some:(fun c -> c.conversion = To_float)
                (conversion d) ->
-          Option.map
-            (fun bits -> Int64.bits_of_float (Int64.to_float bits))
+          Option.map Common.Binary64_conversion.of_signed_word
             (integer_constant_bits 256 id)
       | _ -> None
   in
@@ -1062,6 +1382,25 @@ let prepare ?source ?runtime ?owner graph =
                 | opcode when comparison_opcode opcode -> ()
                 | (O.Ic_to_i64 | Ic_to_f64)
                   when I.mem d.instruction_id !intrinsics -> ()
+                | O.Ic_holyc_typecast
+                  when target_float && Option.is_none (conversion d) -> (
+                    (* OptPass012.HC:87-110 retains the word while replacing
+                       its class. Only an already materialized operand may use
+                       the word-copy emitter; this grants no extended link
+                       through a cast around an arithmetic producer. *)
+                    match (d.operands, d.result, d.payload) with
+                    | [ input ], Some _, Some (S.Integer (0L | 1L))
+                      when float_value input
+                           && Option.fold ~none:false
+                                ~some:(fun input ->
+                                  List.mem input.S.opcode
+                                    [ O.Ic_imm_f64; Ic_deref; Ic_call_end ]
+                                  && Option.is_none (conversion input))
+                                (producer input) -> ()
+                    | _ ->
+                        fail d
+                          "native F64 typecast requires an already \
+                           materialized scalar F64 word")
                 | O.Ic_imm_i64
                 | O.Ic_imm_f64
                 | Ic_deref
@@ -1161,6 +1500,37 @@ let prepare ?source ?runtime ?owner graph =
     !entries;
   let normal id = Option.value (V.find_opt id !normalized) ~default:id in
   let normal_literal id = literal (normal id) in
+  let constant_comparison opcode left right =
+    (* OptLib:124-139,161-166 converts immediate integer operands to binary64
+       before OptPass012:725-822 replaces the comparison by IC_IMM_I64.
+       Equality compares the stored words. Ordered predicates use the pinned
+       value-comparison templates, including their unordered result. *)
+    let magnitude bits = Int64.logand bits Int64.max_int in
+    let nan bits =
+      Int64.unsigned_compare (magnitude bits) 0x7ff0000000000000L > 0
+    in
+    let unordered = nan left || nan right in
+    let order =
+      if magnitude left = 0L && magnitude right = 0L then 0
+      else if left < 0L <> (right < 0L) then if left < 0L then -1 else 1
+      else
+        let magnitude_order =
+          Int64.unsigned_compare (magnitude left) (magnitude right)
+        in
+        if left < 0L then -magnitude_order else magnitude_order
+    in
+    let result =
+      match opcode with
+      | O.Ic_equ_equ -> left = right
+      | Ic_not_equ -> left <> right
+      | Ic_less -> unordered || order < 0
+      | Ic_greater_equ -> (not unordered) && order >= 0
+      | Ic_greater -> unordered || order > 0
+      | Ic_less_equ -> (not unordered) && order <= 0
+      | _ -> assert false
+    in
+    if result then 1L else 0L
+  in
   let fpop id =
     match entry_of (normal id) with
     | Some
@@ -1457,13 +1827,20 @@ let prepare ?source ?runtime ?owner graph =
                               (conversion p))
                           (producer id))
                     d.operands;
-                if
-                  Option.is_some (normal_literal left)
-                  && Option.is_some (normal_literal right)
-                then
-                  fail d
-                    "F64 comparison requires unsupported source constant \
-                     normalization";
+                let constant =
+                  match (literal left, literal right) with
+                  | Some left, Some right ->
+                      Some (constant_comparison d.opcode left right)
+                  | _ ->
+                      if
+                        Option.is_some (normal_literal left)
+                        && Option.is_some (normal_literal right)
+                      then
+                        fail d
+                          "F64 comparison requires unsupported source constant \
+                           normalization";
+                      None
+                in
                 let region = I.find d.instruction_id regions in
                 if
                   List.exists
@@ -1471,8 +1848,10 @@ let prepare ?source ?runtime ?owner graph =
                     d.operands
                 then Hashtbl.replace linked_regions region ();
                 let linked =
-                  if kind <> Ordered || deferred left || deferred right then
-                    None
+                  if
+                    Option.is_some constant || kind <> Ordered || deferred left
+                    || deferred right
+                  then None
                   else if mov_or_imm right && fpop left then Some left
                   else if
                     fpop right
@@ -1492,7 +1871,7 @@ let prepare ?source ?runtime ?owner graph =
                     retain d id)
                   linked;
                 let conversion_input =
-                  if kind <> Ordered then None
+                  if Option.is_some constant || kind <> Ordered then None
                   else if deferred left then Some left
                   else if deferred right then Some right
                   else None
@@ -1554,7 +1933,7 @@ let prepare ?source ?runtime ?owner graph =
                 let loads =
                   List.map
                     (fun id ->
-                      if kind <> Ordered then Bits
+                      if Option.is_some constant || kind <> Ordered then Bits
                       else if deferred id then Signed_integer
                       else if branch then literal_load d id
                       else Bits)
@@ -1562,7 +1941,7 @@ let prepare ?source ?runtime ?owner graph =
                 in
                 let before = Option.to_list linked in
                 let steps =
-                  if kind <> Ordered then [ [] ]
+                  if Option.is_some constant || kind <> Ordered then [ [] ]
                   else
                     match semantic_link with
                     | Some id ->
@@ -1586,6 +1965,7 @@ let prepare ?source ?runtime ?owner graph =
                         comparison_operands = d.operands;
                         comparison_loads = loads;
                         comparison_kind = kind;
+                        comparison_constant = constant;
                         comparison_context;
                         comparison_opcode = opcode;
                         comparison_predicate = predicate;
@@ -1596,7 +1976,8 @@ let prepare ?source ?runtime ?owner graph =
                         comparison_live_before = before;
                         comparison_live_steps = steps;
                         comparison_peak_depth =
-                          (if kind <> Ordered then 0 else 2);
+                          (if Option.is_some constant || kind <> Ordered then 0
+                           else 2);
                       } )
                     !comparisons)
         | _ ->
@@ -1851,12 +2232,18 @@ let prepare ?source ?runtime ?owner graph =
                  (fun n -> Ir.Numeric_normalization.valid n ~graph)
                  normalizations
             && (let current_regions, current_comparisons =
-                  source_regions source graph
+                  source_regions source entry_source runtime_context graph
                 in
                 current_regions = regions
                 && I.equal ( == ) current_comparisons comparison_sources)
-            && (I.is_empty !conversions && I.is_empty !comparisons
-                && (not !canonical_consumer) && not !option_consumer
+            && I.for_all
+                 (fun _ (description, original) ->
+                   Option.fold ~none:false ~some:(( == ) original)
+                     (original_call_conversion description))
+                 !call_conversions
+            && (I.for_all (fun id _ -> I.mem id !call_conversions) !conversions
+                && I.is_empty !comparisons && (not !canonical_consumer)
+                && not !option_consumer
                || authentic_source ())
             && (I.is_empty !intrinsics || runtime_valid ())
       in

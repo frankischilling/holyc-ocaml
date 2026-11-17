@@ -21,12 +21,14 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3 || Array.length Sys.argv = 4)
-    "expected compiler and runtime-layout example, with optional --native"
+    (Array.length Sys.argv = 3
+    || (Array.length Sys.argv = 5 && Sys.argv.(3) = "--native"))
+    "expected compiler and runtime-layout example, optionally --native \
+     F64-example"
 
 let compiler = Sys.argv.(1)
 let example = Sys.argv.(2)
-let native = Array.length Sys.argv = 4 && Sys.argv.(3) = "--native"
+let native = Array.length Sys.argv = 5
 
 let invoke ?(status = 0) ?(options = []) target mode path =
   let args =
@@ -37,7 +39,7 @@ let invoke ?(status = 0) ?(options = []) target mode path =
       "--target=" ^ target;
       "--mode=" ^ mode;
     ]
-    @ (if target = "host-jit-task" then [ "--code-byte-limit=262144" ] else [])
+    @ (if target = "host-jit-task" then [ "--code-byte-limit=1048576" ] else [])
     @ options @ [ path ]
   in
   with_file ".stdout" "" (fun stdout ->
@@ -87,6 +89,44 @@ let error code report =
   require
     (member "code" first = `String code)
     ("unexpected runtime-layout error: " ^ Yojson.Safe.to_string report)
+
+let closed_aot_float () =
+  with_file ".hc" "I64 A[1.25+2.5];sizeof(A);" (fun path ->
+      let report =
+        invoke ~options:[ "--dimension-work-limit=3" ] "ir" "aot" path
+      in
+      word "24" report;
+      require
+        (member "dimension_preparation_work" report = `Int 3)
+        "closed AOT floating bound charges all three expression visits";
+      let exhausted =
+        invoke ~status:1 ~options:[ "--dimension-work-limit=2" ] "ir" "aot" path
+      in
+      error "HCIRVM0007" exhausted;
+      require
+        (member "dimension_preparation_work" exhausted = `Int 2)
+        "closed AOT one-below bound retains reached work");
+  List.iter
+    (fun (source, work, count) ->
+      with_file ".hc" source (fun path ->
+          let report = invoke ~status:1 "ir" "aot" path in
+          error "HCRUN0004" report;
+          let diagnostic =
+            report |> member "diagnostics" |> to_list |> List.hd
+          in
+          require
+            (member "message" diagnostic
+            = `String (Printf.sprintf "array extent %Ld is negative" count))
+            "closed AOT F64 conversion precedes the signed extent check";
+          require
+            (member "dimension_preparation_work" report = `Int work)
+            "failed closed AOT F64 bound retains original visit work"))
+    [
+      ("I64 A[-1.5];sizeof(A);", 2, -1L);
+      ("I64 A[4294967296.0*2147483648.0];sizeof(A);", 3, Int64.min_int);
+      ("I64 A[1.0/0.0];sizeof(A);", 3, Int64.min_int);
+      ("I64 A[0.0/0.0];sizeof(A);", 3, Int64.min_int);
+    ]
 
 let () =
   List.iter
@@ -157,5 +197,47 @@ let () =
             (member "output_hex" failed = `String "6b657074")
             "output precedes extent rejection"))
     (if native then [ "ir"; "host-jit-task" ] else [ "ir" ]);
+  if native then (
+    let floating_example = Sys.argv.(4) in
+    let baseline = invoke "host-jit-task" "jit" floating_example in
+    word "42" baseline;
+    require
+      (member "output_hex" baseline = `String "")
+      "F64 bounds must not emit ordinary output";
+    let dimensions =
+      baseline |> member "native" |> member "fragments" |> to_list
+      |> List.filter (fun fragment ->
+          member "kind" fragment = `String "dimension")
+    in
+    require
+      (List.length dimensions = 4)
+      "four source-owned native F64 dimension fragments";
+    List.iter
+      (fun fragment ->
+        require
+          (member "outcome" fragment = `String "success")
+          "every native F64 bound completes")
+      dimensions;
+    let work = baseline |> member "compiled_initializer_steps" |> to_int in
+    require (work > 0) "F64 bounds charge their actual execution";
+    word "42"
+      (invoke
+         ~options:[ Printf.sprintf "--initializer-step-limit=%d" work ]
+         "host-jit-task" "jit" floating_example);
+    error "HCIRVM0007"
+      (invoke ~status:1
+         ~options:[ Printf.sprintf "--initializer-step-limit=%d" (work - 1) ]
+         "host-jit-task" "jit" floating_example);
+    with_file ".hc"
+      "extern U0 Print(U8 *fmt,...);F64 Next(){Print(\"kept\");return \
+       -1.5;}I64 A[Next()];" (fun path ->
+        let report = invoke ~status:1 "host-jit-task" "jit" path in
+        require
+          (member "outcome" report = `String "error")
+          "negative converted F64 extent rejects";
+        require
+          (member "output_hex" report = `String "6b657074")
+          "native F64 failure preserves earlier output"));
+  closed_aot_float ();
   Printf.printf "%d original runtime-layout CLI reports passed\n"
-    (if native then 16 else 8)
+    (if native then 27 else 15)

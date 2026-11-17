@@ -35,6 +35,9 @@ val compile_with_preparation :
   switch_work:int ref ->
   dimension_work:int ref ->
   default_bytes:int ref ->
+  ?native_default:Native_default_preparation.native_executor ->
+  ?native_code_remaining:
+    (unit -> (int * int, Common.Diagnostic.t list) Stdlib.result) ->
   ?streams:
     (Task_declarations.t ->
     Native_default_preparation.t ->
@@ -46,7 +49,11 @@ val compile_with_preparation :
 (** Shared native source compiler. A stream adapter owns its original directive
     task separately from the AOT module and supplies only parser execution and
     cumulative resource checkpoints. It cannot replace module syntax, checked
-    preparation receipts or backend admission. *)
+    preparation receipts or backend admission. An optional native-default
+    executor receives only an original live closed-expression request;
+    completion requires its actual capture. [native_code_remaining] accounts for
+    emitted preparation images when no stream adapter owns the cumulative code
+    limit. *)
 
 val compile :
   ?max_ir_instructions:int ->
@@ -155,7 +162,12 @@ val evaluate :
   source:Common.Source_file.t ->
   max_steps:int ->
   report
-(** Compile and execute one program using the native host bridge. The report
+(** Compile and execute one program using the native host bridge. Closed numeric
+    defaults that require F64 execute in their original declaration callbacks
+    before the final entry, in either source mode. Each private image retains
+    its actual captured word through post-Call conversion and saved publication.
+    These images and the final entry share native instruction and generated-code
+    limits; preparation work and saved bytes retain separate bounds. The report
     retains the compiled image and actual native outcome after runtime faults,
     so callers can inspect exact executed-step counts without inventing an
     interpreter result. Configuration failures occur before parsing and host

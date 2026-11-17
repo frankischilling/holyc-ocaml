@@ -41,6 +41,12 @@ val expression : t -> Frontend.Ast.expression
 val origin : t -> Symbol.origin
 val environment : t -> Outer_environment.t
 val references : t -> (Frontend.Ast.identifier * Reference_selection.t) list
+
+val native_source_references_supported : t -> bool
+(** Every retained reference selects an original literal numeric internal
+    declaration in this exact environment. The lowered program must separately
+    prove that each reference is used as a checked intrinsic call. *)
+
 val queries : t -> Query_selection.t list
 
 val reference_for :

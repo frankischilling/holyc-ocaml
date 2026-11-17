@@ -47,6 +47,10 @@ returns 42 in both outer modes with 74 runtime steps and six preparation steps.
 
 Ordinary AOT runtime bounds still report `HCRUN0006`: output relocation and
 callable address authority remain unresolved. Closed AOT bounds retain their
-existing path. Runtime F64 bounds and the remaining initializer optimizer cases
-are outside this implementation. [Runtime layout expressions](runtime-layout-expressions.md)
-connect integer member bounds, supported callbacks and original native JIT tasks.
+existing path, including original F64-to-I64 conversion before the signed
+extent check. Native JIT F64 bounds use the [F64 declaration-time
+dimension path](native-f64-runtime-dimensions.md), truncating the actual
+native captured binary64 value at completion. The independent integer VM,
+ordinary AOT runtime F64 bounds and the remaining initializer optimizer
+cases are separate work. [Runtime layout expressions](runtime-layout-expressions.md)
+connect member bounds, supported callbacks and original native JIT tasks.

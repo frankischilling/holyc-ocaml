@@ -353,6 +353,7 @@ type callback_access =
 
 type operation =
   | Load_immediate of value * int64
+  | Load_null_reference of value
   | Load_saved_data of int * value
   | Load_function_address of value * int
   | Load_function_slot_cursor of value * Global_storage.function_slot
@@ -2305,6 +2306,21 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
           in
           emit (Encoder.Mov_imm64 (registers.(destination), bits));
           assign position destination result
+      | Load_null_reference result ->
+          spill_all_registers instruction.span;
+          emit
+            (Encoder.Address_frame
+               ( Encoder.Rdx,
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          emit (Encoder.Mov_imm64 (Encoder.Rax, 0L));
+          List.iter
+            (fun field ->
+              emit
+                (Encoder.Store_indirect_offset (Encoder.Rdx, field, Encoder.Rax)))
+            [ 0; 8; 16; 24; 32 ];
+          note_peak ~temporaries:[ rax; rdx ] ();
+          assign position rdx result
       | Load_function_address (result, callee_index) ->
           let destination =
             acquire_destination instruction.span position ~protected:[]
@@ -2583,55 +2599,61 @@ let allocate_body ?callable_frame ?(float_scratch = false) ?(shared_values = [])
                   (if loading = Signed_integer then Encoder.Fild64 memory
                    else Encoder.Fld64 memory)
           in
-          (match (values, plan.comparison_loads) with
-          | [ left; right ], [ ll; rl ] ->
-              if plan.comparison_kind <> X86_64_float_plan.Ordered then
-                emit (Encoder.Cmp (source left, source right))
-              else (
-                (match plan.comparison_link with
-                | X86_64_float_plan.Linked_left ->
-                    if Option.is_some plan.comparison_conversion_input then
-                      load left ll;
-                    load right rl
-                | Linked_right ->
-                    if Option.is_some plan.comparison_conversion_input then
-                      load right rl;
-                    load left ll
-                | Unlinked ->
-                    if
-                      plan.comparison_orientation = X86_64_float_plan.Left_first
-                    then (
-                      load left ll;
-                      load right rl)
-                    else (
-                      load right rl;
-                      load left ll));
-                emit
-                  (Encoder.Fcomip
-                     (Encoder.x87_register ~index:1 |> Result.get_ok));
-                emit
-                  (Encoder.Ffree (Encoder.x87_register ~index:0 |> Result.get_ok));
-                emit Encoder.Fincstp)
-          | _ ->
-              reject ?span:instruction.span "HCBACK0003"
-                "comparison lost its exact two operand load plan");
-          let predicate =
-            if not plan.comparison_negate_result then plan.comparison_predicate
-            else
-              match plan.comparison_predicate with
-              | Encoder.E -> Encoder.NE
-              | NE -> E
-              | B -> AE
-              | AE -> B
-              | A -> BE
-              | BE -> A
-              | L -> GE
-              | GE -> L
-              | G -> LE
-              | LE -> G
-          in
-          emit (Encoder.Setcc (predicate, target));
-          emit (Encoder.Movzx8 (target, target));
+          (match plan.comparison_constant with
+          | Some bits -> emit (Encoder.Mov_imm64 (target, bits))
+          | None ->
+              (match (values, plan.comparison_loads) with
+              | [ left; right ], [ ll; rl ] ->
+                  if plan.comparison_kind <> X86_64_float_plan.Ordered then
+                    emit (Encoder.Cmp (source left, source right))
+                  else (
+                    (match plan.comparison_link with
+                    | X86_64_float_plan.Linked_left ->
+                        if Option.is_some plan.comparison_conversion_input then
+                          load left ll;
+                        load right rl
+                    | Linked_right ->
+                        if Option.is_some plan.comparison_conversion_input then
+                          load right rl;
+                        load left ll
+                    | Unlinked ->
+                        if
+                          plan.comparison_orientation
+                          = X86_64_float_plan.Left_first
+                        then (
+                          load left ll;
+                          load right rl)
+                        else (
+                          load right rl;
+                          load left ll));
+                    emit
+                      (Encoder.Fcomip
+                         (Encoder.x87_register ~index:1 |> Result.get_ok));
+                    emit
+                      (Encoder.Ffree
+                         (Encoder.x87_register ~index:0 |> Result.get_ok));
+                    emit Encoder.Fincstp)
+              | _ ->
+                  reject ?span:instruction.span "HCBACK0003"
+                    "comparison lost its exact two operand load plan");
+              let predicate =
+                if not plan.comparison_negate_result then
+                  plan.comparison_predicate
+                else
+                  match plan.comparison_predicate with
+                  | Encoder.E -> Encoder.NE
+                  | NE -> E
+                  | B -> AE
+                  | AE -> B
+                  | A -> BE
+                  | BE -> A
+                  | L -> GE
+                  | GE -> L
+                  | G -> LE
+                  | LE -> G
+              in
+              emit (Encoder.Setcc (predicate, target));
+              emit (Encoder.Movzx8 (target, target)));
           extended_owner := [];
           assign position destination result
       | Apply_unary (unary, input, result) ->
@@ -7036,18 +7058,19 @@ let validate_callable_returns graph return_kind =
           (Graph.successors block)
       done
 
-let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
-    ~allow_retained_functions ~task_dynamic_code_words ~task_owned_targets
-    ~capture_callback_default ~capture_data_default ~slot_root_runtime_calls
-    ~slot_bindings ~task_snapshot ~parameter_defaults ~functions
-    ~provider_entries ~code_edges ~indirect_code_edges ~arena_code_cells
-    ~global_storage ~literal_storage ~runtime_owner ~owner
+let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
+    ~source_globals ~allow_retained_functions ~task_dynamic_code_words
+    ~task_owned_targets ~capture_callback_default ~capture_data_default
+    ~slot_root_runtime_calls ~slot_bindings ~task_snapshot ~parameter_defaults
+    ~functions ~provider_entries ~code_edges ~indirect_code_edges
+    ~arena_code_cells ~global_storage ~literal_storage ~runtime_owner ~owner
     ~(frame_slots : callable_slot Int_map.t) ~global_immediate_proof
     ~empty_frame_roots ~variadic ~expected_return ~source_item_index ~is_entry
     ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let float_plan =
     match
-      X86_64_float_plan.prepare ?source:float_source ~runtime:runtime_calls
+      X86_64_float_plan.prepare ?source:float_source
+        ?entry_source:float_entry_source ~runtime:runtime_calls
         ~owner:runtime_owner graph
     with
     | Ok plan -> plan
@@ -8972,7 +8995,13 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
               | _ ->
                   malformed description
                     "IC_CALL_END is outside a completed call scope")
-          | Opcode.Ic_str_const -> (
+          | opcode
+            when opcode = Opcode.Ic_str_const
+                 || opcode = Opcode.Ic_imm_i64
+                    && Option.is_some
+                         (Literal_storage.find literal_storage
+                            ~owner:runtime_owner ~graph
+                            description.instruction_id) -> (
               match
                 ( description.result,
                   description.target_type,
@@ -8995,6 +9024,99 @@ let preflight_callable_graph ~float_source ~runtime_calls ~source_globals
               | _ ->
                   malformed description
                     "literal producer has no exact owned byte region")
+          | Opcode.Ic_imm_i64
+            when Option.fold ~none:false
+                   ~some:(fun value ->
+                     (not (Ir.Lastclass_argument.is_aot value))
+                     && (not (Ir.Lastclass_argument.has_name value))
+                     && Option.fold ~none:false
+                          ~some:(fun pointer ->
+                            List.length
+                              (Headers.function_pointer_indirection_origins
+                                 pointer)
+                            = 1)
+                          (Ir.Lastclass_argument.callback_pointer value))
+                   (Runtime.original_lastclass runtime_calls
+                      ~owner:runtime_owner raw) -> (
+              match
+                ( description.result,
+                  description.target_type,
+                  description.operands,
+                  description.payload )
+              with
+              | Some result, Some target_type, [], Some (Sequence.Integer 0L)
+                when description.flags = 0L ->
+                  let word_type =
+                    Type.make_primitive ~form:Internal_storage ~primitive:I64
+                      ~pointer_depth:0
+                    |> Result.get_ok
+                  in
+                  let value =
+                    define values description position result target_type
+                      word_type
+                  in
+                  word_code_values :=
+                    Value_set.add value.value_id !word_code_values;
+                  (Load_immediate (value, 0L), None)
+              | _ ->
+                  malformed description
+                    "lastclass callback zero requires its original zero record \
+                     word")
+          | Opcode.Ic_imm_i64
+            when Option.fold ~none:false ~some:X86_64_float_plan.is_f64
+                   description.target_type
+                 && Option.fold ~none:false
+                      ~some:(fun value ->
+                        (not (Ir.Lastclass_argument.is_aot value))
+                        && not (Ir.Lastclass_argument.has_name value))
+                      (Runtime.original_lastclass runtime_calls
+                         ~owner:runtime_owner raw) -> (
+              match
+                ( description.result,
+                  description.target_type,
+                  description.operands,
+                  description.payload )
+              with
+              | Some result, Some target_type, [], Some (Sequence.Integer 0L)
+                when description.flags = 0L ->
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  (Load_immediate (value, 0L), None)
+              | _ ->
+                  malformed description
+                    "lastclass F64 zero requires its original zero record word")
+          | Opcode.Ic_imm_i64
+            when Option.fold ~none:false
+                   ~some:(fun type_ -> Type.pointer_depth type_ > 0)
+                   description.target_type
+                 && Option.fold ~none:false
+                      ~some:(fun value ->
+                        (not (Ir.Lastclass_argument.is_aot value))
+                        && (not (Ir.Lastclass_argument.has_name value))
+                        && Option.is_none
+                             (Ir.Lastclass_argument.callback_pointer value))
+                      (Runtime.original_lastclass runtime_calls
+                         ~owner:runtime_owner raw) -> (
+              match
+                ( description.result,
+                  description.target_type,
+                  description.operands,
+                  description.payload )
+              with
+              | Some result, Some target_type, [], Some (Sequence.Integer 0L)
+                when description.flags = 0L ->
+                  ignore (checked_reference description target_type);
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  mark_reference description value;
+                  (Load_null_reference value, None)
+              | _ ->
+                  malformed description
+                    "lastclass null requires its original zero record word")
           | Opcode.Ic_rbp -> (
               if is_entry then
                 unsupported description
@@ -12734,9 +12856,10 @@ let compile_program ?status_abi ?(max_stack_bytes = default_stack_bytes)
                       }
               with Rejected error -> Error [ error ])))
 
-let compile_callable_internal ?task_snapshot ?retained_parameter_default
-    ?retained_callback_default ?(capture_callback_default = false)
-    ?capture_data_default ?retained_function_source ?retained_slot_binding
+let compile_callable_internal ?float_entry_source ?task_snapshot
+    ?retained_parameter_default ?retained_callback_default
+    ?(capture_callback_default = false) ?capture_data_default
+    ?retained_function_source ?retained_slot_binding
     ?retained_slot_address_binding ?retained_slot_address_refresh ?status_abi
     ?(max_stack_bytes = default_stack_bytes) ?(max_blocks = 4096)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
@@ -12957,8 +13080,13 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                 not
                   (List.exists
                      (fun instruction ->
-                       (Sequence.description instruction).opcode
-                       = Opcode.Ic_str_const)
+                       let description = Sequence.description instruction in
+                       description.opcode = Opcode.Ic_str_const
+                       || description.opcode = Opcode.Ic_imm_i64
+                          && Option.fold ~none:false
+                               ~some:Ir.Lastclass_argument.has_name
+                               (Runtime.original_lastclass runtime_calls ~owner
+                                  description))
                      instructions)
               then Ok (sources, work)
               else
@@ -13227,8 +13355,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       let indirect_code_edges = ref [] in
       let arena_code_cells = ref Int_map.empty in
       let entry_prepared =
-        preflight_callable_graph ~float_source:None ~runtime_calls
-          ~source_globals:globals
+        preflight_callable_graph ?float_entry_source ~float_source:None
+          ~runtime_calls ~source_globals:globals
           ~allow_retained_functions:(Option.is_some task_snapshot)
           ~task_dynamic_code_words:(Option.is_some task_snapshot)
           ~task_owned_targets ~capture_callback_default ~capture_data_default
@@ -14450,24 +14578,24 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ?max_literal_bytes ?parameter_defaults ?global_initializers
-    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
-    ~functions () =
+    ?float_entry_source ~max_ir_instructions ~max_code_bytes ~runtime_calls
+    ~initialization ~entry ~functions () =
   compile_callable_internal ?status_abi ?max_stack_bytes ?max_blocks
     ?max_global_bytes ?max_literal_bytes ?parameter_defaults
-    ?global_initializers ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~initialization ~entry ~functions ()
+    ?global_initializers ?float_entry_source ~max_ir_instructions
+    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()
 
 let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
-    ?capture_callback_default ?capture_data_default ~task_snapshot
-    ~max_ir_instructions ~max_code_bytes ~runtime_calls
+    ?capture_callback_default ?capture_data_default ?float_entry_source
+    ~task_snapshot ~max_ir_instructions ~max_code_bytes ~runtime_calls
     ~retained_function_source ~retained_slot_binding ~retained_parameter_default
     ~retained_callback_default ~retained_slot_address_binding
     ~retained_slot_address_refresh ~initialization ~entry ~functions () =
-  compile_callable_internal ~task_snapshot ~retained_parameter_default
-    ~retained_callback_default ?capture_callback_default ?capture_data_default
-    ~retained_function_source ~retained_slot_binding
-    ~retained_slot_address_binding ~retained_slot_address_refresh ?status_abi
-    ?max_stack_bytes ?max_blocks
+  compile_callable_internal ?float_entry_source ~task_snapshot
+    ~retained_parameter_default ~retained_callback_default
+    ?capture_callback_default ?capture_data_default ~retained_function_source
+    ~retained_slot_binding ~retained_slot_address_binding
+    ~retained_slot_address_refresh ?status_abi ?max_stack_bytes ?max_blocks
     ~max_global_bytes:Global_storage.hard_max_global_bytes ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()
 

@@ -393,7 +393,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                 in
                 result)
       in
-      let execute ?max_activation_steps ?(arena = arena) kind image =
+      let execute ?after_report ?max_activation_steps ?(arena = arena) kind
+          image =
         let* () = check_storage () in
         let switch_meter = !active_switch_execution in
         let* max_activation_steps =
@@ -476,11 +477,11 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             (Image.generation image)
         in
         let retained =
-          match kind with
-          | Aot_module ->
+          match Image.task_snapshot image with
+          | None ->
               Native.retain ~max_global_bytes ~max_literal_bytes
                 ~max_active_stack_bytes image
-          | _ ->
+          | Some _ ->
               Native.retain_task_fragment ?scope ~max_global_bytes
                 ~max_literal_bytes ~max_active_stack_bytes arena image
         in
@@ -491,6 +492,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             Error (host_error message)
         | Ok retained -> (
             let release_error = ref None in
+            let completion = ref (Ok ()) in
             let source_errors = ref None in
             let source_callback =
               Option.map
@@ -550,10 +552,16 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   | Ok () -> ()
                   | Error message -> release_error := Some message)
                 (fun () ->
-                  Native.execute_retained_budget_report ?scope
-                    ?max_activation_steps ?source_callback ~max_frame_bytes
-                    ~max_call_depth ~max_active_stack_bytes ~max_global_bytes
-                    ~max_literal_bytes budget retained)
+                  let report =
+                    Native.execute_retained_budget_report ?scope
+                      ?max_activation_steps ?source_callback ~max_frame_bytes
+                      ~max_call_depth ~max_active_stack_bytes ~max_global_bytes
+                      ~max_literal_bytes budget retained
+                  in
+                  Option.iter
+                    (fun finish -> completion := finish report)
+                    after_report;
+                  report)
             in
             let native_outcome = Native.outcome execution in
             fragments :=
@@ -561,6 +569,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
               :: !fragments;
             let reached =
               let* () = charge_switch_work () in
+              let* () = !completion in
               match native_outcome with
               | Error message -> Error (host_error message)
               | Ok (Image.Fault fault) ->
@@ -1248,6 +1257,49 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                        expression";
                   ]
         in
+        let native_source_default request =
+          let module Preparation = Driver.Native_default_preparation in
+          let program = Preparation.native_program request in
+          let default_span =
+            Ir.Default_fragment_program.destination program
+            |> Ir.Default_fragment_destination.span
+          in
+          let diagnose result =
+            Result.map_error
+              (fun message ->
+                [
+                  Driver.Integer_source.message_diagnostic ~span:default_span
+                    message;
+                ])
+              result
+          in
+          let allowance = Preparation.native_remaining request in
+          if allowance <= 0 then
+            Error
+              [
+                diagnostic ~span:default_span "HCIRVM0007"
+                  "native source default exhausted its preparation allowance";
+              ]
+          else
+            let* image =
+              remaining (fun ~max_ir_instructions ~max_code_bytes ->
+                  Image.compile_source_default ?status_abi ~max_stack_bytes
+                    ~max_blocks ~max_ir_instructions ~max_code_bytes request)
+            in
+            let before = native_steps () in
+            let* _, _ =
+              execute ~max_activation_steps:allowance
+                ~after_report:(fun report ->
+                  if not (Preparation.native_entered request) then Ok ()
+                  else
+                    Preparation.finish_native request
+                      ~steps:(native_steps () - before)
+                      (Native.source_default_capture report)
+                    |> diagnose)
+                Default image
+            in
+            Ok ()
+        in
         let native_static_allocation request =
           let* _, arena =
             context (Task.Native_static_allocation.context request)
@@ -1415,10 +1467,11 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                 in
                 let* checked =
                   Native_program.compile_with_preparation ~compiler_exception
-                    ~streams ~max_ir_instructions ~max_code_bytes
-                    ~max_stack_bytes ~max_blocks ~max_initializer_steps
-                    ~max_default_bytes ~max_switch_work ~max_dimension_work
-                    ~max_global_bytes ~max_literal_bytes ?status_abi
+                    ~streams ~native_default:native_source_default
+                    ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
+                    ~max_blocks ~max_initializer_steps ~max_default_bytes
+                    ~max_switch_work ~max_dimension_work ~max_global_bytes
+                    ~max_literal_bytes ?status_abi
                     ~preparation_steps:aot_preparation
                     ~switch_work:aot_switch_work
                     ~dimension_work:aot_dimension_work ~default_bytes session

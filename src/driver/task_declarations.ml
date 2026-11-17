@@ -7437,6 +7437,225 @@ let default_fragment_authority ledger ~runtime ~task_view receipt =
         ~namespace:ledger.namespace fragment
       |> checked span)
 
+let source_default_references owner ledger ~mode ~span expression =
+  let module Outer = Sema.Outer_environment in
+  let module Resolution = Sema.Function_resolution in
+  let module Records = Sema.Function_record_classification in
+  let identifiers =
+    Sema.Initializer_source.expression_identifier_nodes expression
+  in
+  let mode =
+    match mode with
+    | Frontend.Preprocessor.Jit -> Resolution.Jit
+    | Frontend.Preprocessor.Aot -> Resolution.Aot
+  in
+  let reference_error () =
+    fail ~code:"HCRUN0006" span
+      "source defaults require closed values or original numeric internal calls"
+  in
+  if identifiers <> [] && owner <> Native_source_default then reference_error ();
+  let selected =
+    List.map
+      (fun (identifier : Ast.identifier) ->
+        match Names.find_opt ledger.references identifier with
+        | Some
+            {
+              target =
+                Selected_source
+                  { publication; stage = Function_selection (header, _); _ };
+              _;
+            }
+          when (find ledger header.function_publication.function_name)
+                 .publication == publication -> (identifier, header)
+        | _ -> reference_error ())
+      identifiers
+  in
+  let selected_names =
+    List.map (fun ((name : Ast.identifier), _) -> name.spelling) selected
+  in
+  let last_ordinal =
+    List.fold_left
+      (fun last (_, header) ->
+        max last
+          (find ledger header.Parser.function_publication.function_name).ordinal)
+      (-1) selected
+  in
+  let history =
+    Names.fold
+      (fun _ (assigned : assigned) result ->
+        match assigned.source with
+        | Function { header = Some header; _ }
+          when assigned.ordinal <= last_ordinal
+               && List.mem header.function_publication.function_name.spelling
+                    selected_names -> (assigned, header) :: result
+        | _ -> result)
+      ledger.names []
+    |> List.sort (fun (left, _) (right, _) ->
+        compare left.ordinal right.ordinal)
+  in
+  let inputs =
+    List.map
+      (fun (assigned, header) ->
+        let source =
+          match assigned.source with
+          | Function
+              { declared_header = Some declaration; header = Some original; _ }
+            when original == header
+                 && Sema.Compiler_record.declared_function_source declaration
+                    == header -> declaration
+          | _ -> reference_error ()
+        in
+        let function_ =
+          match assigned.source with
+          | Function state -> (
+              match state.typed_header with
+              | Some (_, typed) -> typed
+              | None ->
+                  let pair =
+                    Function_type_resolution
+                    .resolve_completed_header_with_collection
+                      ~selected_aggregate:(selected_aggregate_for ledger)
+                      ~table:ledger.table ~namespace:ledger.namespace source
+                    |> checked span
+                  in
+                  state.typed_header <- Some pair;
+                  snd pair)
+          | _ -> reference_error ()
+        in
+        let fact =
+          match header.function_publication.function_header.binding with
+          | Some { Ast.kind = Ast.Intern; _ } ->
+              Resolution.make_numeric_internal_declaration ~table:ledger.table
+                ~namespace:ledger.namespace
+                ~compiler_option_mask:header.header_compiler_options ~source
+                ~function_
+          | Some
+              {
+                Ast.kind = Ast.Extern;
+                spelling = "extern";
+                target = Ast.No_binding_target;
+                _;
+              } ->
+              Resolution.make_pending_declaration ~table:ledger.table
+                ~namespace:ledger.namespace
+                ~compiler_option_mask:header.header_compiler_options ~source
+                ~function_
+          | _ -> reference_error ()
+        in
+        (header, source, fact |> checked span))
+      history
+  in
+  let resolution =
+    Resolution.resolve_numeric_source_headers ~table:ledger.table
+      ~namespace:ledger.namespace ~compilation_mode:mode
+      (List.map (fun (_, _, fact) -> fact) inputs)
+    |> checked span
+  in
+  let records =
+    Function_record_classification.classify_completed_headers ~resolution
+      (List.map (fun (_, source, _) -> source) inputs)
+    |> checked span
+  in
+  let versions =
+    List.map2
+      (fun (header, _, _) classified ->
+        let declaration = Records.classified_declaration_source classified in
+        let metadata =
+          Outer.make_function_metadata ~records ~declaration
+          |> Result.map_error Outer.error_to_string
+          |> checked span
+        in
+        (header, metadata))
+      inputs
+      (Records.declarations records)
+  in
+  let symbol metadata =
+    Outer.function_declaration metadata
+    |> Resolution.resolved_declaration_identity_symbol
+  in
+  let primary =
+    List.fold_left
+      (fun current (_, metadata) ->
+        List.filter (fun previous -> symbol previous != symbol metadata) current
+        @ [ metadata ])
+      [] versions
+  in
+  let entries =
+    List.mapi
+      (fun entry_index function_metadata ->
+        Outer.make_function_entry ~entry_index ~function_metadata
+        |> Result.map_error Outer.error_to_string
+        |> checked span)
+      primary
+  in
+  let table_kind =
+    match mode with
+    | Resolution.Jit -> Outer.Jit_task 0
+    | Resolution.Aot -> Outer.Aot_parent 0
+  in
+  let current =
+    Outer.make_table ~table_kind ~table_index:0 entries
+    |> Result.map_error Outer.error_to_string
+    |> checked span
+  in
+  let assembler =
+    Outer.make_table ~table_kind:Outer.Assembler ~table_index:1 []
+    |> Result.map_error Outer.error_to_string
+    |> checked span
+  in
+  let environment =
+    Outer.create ~table:ledger.table ~compilation_mode:mode
+      [ current; assembler ]
+    |> Result.map_error Outer.error_to_string
+    |> checked span
+  in
+  let historical =
+    List.filter_map
+      (fun (_, metadata) ->
+        if List.exists (( == ) metadata) primary then None else Some metadata)
+      versions
+  in
+  let environment, historical_entries =
+    Outer.with_function_versions environment ~table:current historical
+    |> Result.map_error Outer.error_to_string
+    |> checked span
+  in
+  let references =
+    List.map
+      (fun ((identifier : Ast.identifier), header) ->
+        let metadata =
+          match
+            List.find_opt (fun (original, _) -> original == header) versions
+          with
+          | Some (_, metadata) -> metadata
+          | None -> reference_error ()
+        in
+        let entry =
+          match
+            List.find_opt
+              (fun entry ->
+                Option.fold ~none:false ~some:(( == ) metadata)
+                  (Outer.entry_function_metadata entry))
+              (entries @ historical_entries)
+          with
+          | Some entry -> entry
+          | None -> reference_error ()
+        in
+        let binding =
+          match Outer.binding_for_entry environment entry with
+          | Some binding -> binding
+          | None -> reference_error ()
+        in
+        let selection =
+          Sema.Reference_selection.outer ~table:ledger.table
+            ~name:identifier.spelling ~environment ~binding
+          |> checked span
+        in
+        (identifier, selection))
+      selected
+  in
+  (environment, references)
+
 let begin_source_default_with_owner owner ledger ~runtime receipt =
   protect (fun () ->
       let span = receipt.Parser.default_ast.location.span in
@@ -7496,35 +7715,8 @@ let begin_source_default_with_owner owner ledger ~runtime receipt =
         | Ast.Lastclass_default _ ->
             fail span "lastclass needs separate materialization"
       in
-      if Sema.Initializer_source.expression_identifier_nodes expression <> []
-      then
-        fail ~code:"HCRUN0006" span
-          (match owner with
-          | Output_aot_default ->
-              "AOT default references require proven output relocation and \
-               callable authority"
-          | Native_source_default ->
-              "native defaults require closed expressions without value or \
-               function references");
-      let module Outer = Sema.Outer_environment in
-      let compilation_mode, tables =
-        match mode with
-        | Frontend.Preprocessor.Aot -> (Outer.Aot, [ (Outer.Assembler, 0) ])
-        | Frontend.Preprocessor.Jit ->
-            (Outer.Jit, [ (Outer.Jit_task 0, 0); (Outer.Assembler, 1) ])
-      in
-      let tables =
-        List.map
-          (fun (table_kind, table_index) ->
-            Outer.make_table ~table_kind ~table_index []
-            |> Result.map_error Outer.error_to_string
-            |> checked span)
-          tables
-      in
-      let environment =
-        Outer.create ~table:ledger.table ~compilation_mode tables
-        |> Result.map_error Outer.error_to_string
-        |> checked span
+      let environment, references =
+        source_default_references owner ledger ~mode ~span expression
       in
       let queries =
         Sema.Query_selection.source_queries expression
@@ -7538,7 +7730,7 @@ let begin_source_default_with_owner owner ledger ~runtime receipt =
         Sema.Default_fragment.create_selected ~table:ledger.table
           ?selected_aggregate:
             (selected_aggregate_for ledger receipt.default_type_specifier)
-          ~publication:assigned.publication ~receipt ~environment ~references:[]
+          ~publication:assigned.publication ~receipt ~environment ~references
           ~queries ()
         |> (fun result ->
         Result.bind result
@@ -9169,35 +9361,8 @@ let begin_source_callback_default_with_owner owner ledger ~runtime receipt =
         | Lastclass_default _ ->
             fail span "lastclass needs separate materialization"
       in
-      if Sema.Initializer_source.expression_identifier_nodes expression <> []
-      then
-        fail ~code:"HCRUN0006" span
-          (match owner with
-          | Output_aot_default ->
-              "AOT anonymous default references require output relocation and \
-               callable authority"
-          | Native_source_default ->
-              "native defaults require closed expressions without value or \
-               function references");
-      let module Outer = Sema.Outer_environment in
-      let compilation_mode, tables =
-        match mode with
-        | Frontend.Preprocessor.Aot -> (Outer.Aot, [ (Outer.Assembler, 0) ])
-        | Frontend.Preprocessor.Jit ->
-            (Outer.Jit, [ (Outer.Jit_task 0, 0); (Outer.Assembler, 1) ])
-      in
-      let tables =
-        List.map
-          (fun (table_kind, table_index) ->
-            Outer.make_table ~table_kind ~table_index []
-            |> Result.map_error Outer.error_to_string
-            |> checked span)
-          tables
-      in
-      let environment =
-        Outer.create ~table:ledger.table ~compilation_mode tables
-        |> Result.map_error Outer.error_to_string
-        |> checked span
+      let environment, references =
+        source_default_references owner ledger ~mode ~span expression
       in
       let queries =
         Sema.Query_selection.source_queries expression
@@ -9209,8 +9374,7 @@ let begin_source_callback_default_with_owner owner ledger ~runtime receipt =
       in
       let fragment =
         Sema.Default_fragment.create_callback ~table:ledger.table
-          ~namespace:ledger.namespace ~receipt ~environment ~references:[]
-          ~queries
+          ~namespace:ledger.namespace ~receipt ~environment ~references ~queries
         |> (fun result ->
         Result.bind result
           (Sema.Default_fragment.with_positions

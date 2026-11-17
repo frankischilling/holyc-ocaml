@@ -1,13 +1,15 @@
-# Live native F64 parameter defaults
+# Native F64 parameter defaults
 
 The `host-jit-task` target executes supported F64 and mixed integer/F64
-parameter defaults in the original live JIT task. Named functions and anonymous
-callback headers both evaluate their original expressions when the declaration
-is parsed, even if the function is unused or every call supplies an argument.
-The resulting full 64-bit word belongs to that header; an omitted argument later
-uses the saved word without rerunning its expression. This extends the
-[native default contract](native-defaults.md) under issue #685, alongside the
-related numeric work in #689.
+parameter defaults in the original live JIT task. It also prepares closed numeric
+F64 defaults in ordinary AOT source before executing the outer module. Isolated
+`host-jit` prepares admitted numeric F64 defaults using original native fragments
+in both JIT and AOT modes. Named functions and anonymous callback headers
+evaluate their original expressions when their declarations are parsed, even if
+unused or every call supplies an argument. The resulting full 64-bit word
+belongs to that header; an omitted argument later uses the saved word without
+rerunning its expression. This extends the [native default contract](native-defaults.md)
+under issue #685, alongside the related numeric work in #689.
 
 Run the maintained example on a supported Windows or Linux x86-64 native host:
 
@@ -23,6 +25,31 @@ Separate tests check targets that declare a different default. The final value i
 16 payload bytes. Source tasks execute actual native fragments and report zero
 interpreted task instructions.
 
+For closed numeric F64 defaults, the maintained AOT example runs through either
+native target and either source mode:
+
+```sh
+holyc run --target=host-jit-task --mode=aot --format=json examples/aot-native-defaults.hc
+holyc run --target=host-jit --mode=aot --format=json examples/aot-native-defaults.hc
+```
+
+`examples/aot-native-defaults.hc` has named F64 defaults, an F64-to-I8 default,
+and a selected anonymous callback with its own default. It returns F64 `5.25`
+(`0x4015000000000000`) after preparing four original defaults, or 32 saved bytes.
+The same example is accepted in JIT mode. A limit of 31 saved-default bytes
+rejects the fourth default after nine preparation steps, retaining 24 saved
+bytes. The exact allowance of 12 preparation steps succeeds; an allowance of
+11 fails during the fourth default and retains the same 24 saved bytes.
+
+The anonymous declaration saves `2.75` before the top-level statement
+`Selected=&Target;` assigns the callback. This assignment runs after declaration
+preparation in all four target/mode combinations. The initializer form
+`F64 (*Selected)(F64 value=2.75)=&Target;` still reports `HCRUN0006` in isolated
+JIT: it would need a live executable owner and completed initialization during
+that parser callback. Moving it to final image entry would change reached work
+and failure order when a later declaration fails. The example does not claim
+support for that initializer path.
+
 ## The original declaration-time conversion
 
 At pinned TempleOS revision
@@ -36,11 +63,11 @@ non-F64 parameter, an F64 expression is converted to integer. The
 `Compiler/PrsExp.HC:455-469` then supplies that saved value for an omitted fixed
 argument, retaining its original parameter position and selected header.
 
-The native task preserves the original typed expression program, declaration
-attempt, source scope, task arena, and native step count. The C native
+The native preparation paths preserve the original typed expression program,
+declaration attempt, source scope, retained image and native step count. The C native
 entry creates an opaque scalar capture containing its actual completed word.
 Completion can consume that capture once for its exact program, work, active
-scope and live arena. Only after successful native execution does
+scope and live task arena or private image. Only after successful native execution does
 `Default_fragment_destination.convert_native_word` apply the declared numeric
 conversion. Completion independently converts the captured word and compares
 the exact bits to the submitted saved value before publishing it. Reported bits,
@@ -76,8 +103,17 @@ the full saved default word.
 ## Source modes, evidence and limits
 
 Ordinary `host-jit-task --mode=jit` supports the admitted live named and
-anonymous F64 defaults. A nested JIT `#exe` block retains the same behavior
-even when the enclosing source mode is AOT. For example:
+anonymous F64 defaults. In ordinary `--mode=aot`, supported closed numeric
+defaults run during parser preparation through their own original native images,
+before the outer AOT module is executed. Isolated `host-jit` uses that native
+capture path for admitted F64 defaults in both preprocessing modes. Preparation
+charges actual native execution steps, initializer work, saved payload, IR
+instructions and code bytes cumulatively. It retains reached preparation and
+saved values after later failures, including unused headers and anonymously
+selected defaults.
+
+A nested JIT `#exe` block retains live JIT behavior even when the enclosing
+source mode is AOT. For example:
 
 ```c
 #exe {
@@ -107,12 +143,18 @@ reached effects and failure boundaries. The expected bits are derived from
 the pinned source and architectural conversion behavior; these hosted tests
 are not fresh native TempleOS oracle captures.
 
-The independent integer interpreter does not execute F64 defaults.
-Isolated `host-jit` floating default preparation and ordinary outer AOT F64
-default preparation remain unsupported; a JIT child entered from outer AOT
-does not grant authority to that ordinary AOT route. General pointer and
-aggregate conversions, `lastclass` defaults, variadic F64 arguments, and unproved
-floating normalization or x87 linking remain separate compiler work. Existing
-string-producing defaults retain their [data-pointer contract](data-pointer-defaults.md).
-This support does not establish exported HolyC ABI, object/BIN loader acceptance
-or bootstrap completion.
+The independent integer interpreter does not execute F64 defaults. Original
+literal numeric `_intern` calls use the [source intrinsic path](aot-intrinsic-defaults.md)
+without requiring an output address. Ordinary AOT still lacks the relocation
+or preloaded executable authority needed for defaults that call ordinary
+functions or reference storage in the not-yet-loaded output
+module. For example, `I64 Seed(){return 41;} F64 F(F64 n=Seed()){return n;} F();`
+requires that authority and remains rejected in ordinary AOT. The nested JIT
+`#exe` path has its own live task and does not resolve this outer AOT dependency.
+General pointer and aggregate conversions, variadic F64 arguments, and remaining
+floating normalization or x87 linking questions have separate acceptance criteria.
+[Native `lastclass` defaults](native-lastclass-defaults.md) retain their distinct
+call-time class-name materialization. Existing string-producing defaults retain their
+[data-pointer contract](data-pointer-defaults.md). Issue #685 remains open for
+the full default semantics; #682 still requires exported HolyC ABI, object/BIN
+loader acceptance and bootstrap support.

@@ -553,6 +553,20 @@ val lastclass_previous_result :
   lastclass_substitution -> expression_result option
 
 val lastclass_class_name : lastclass_substitution -> string option
+
+val lastclass_class_type : lastclass_substitution -> Type.t option
+(** Original forwarded base-class identity, without pointer stars. *)
+
+val lastclass_parameter_substitution :
+  Function_call_conversion_policy.t ->
+  before_item_index:int ->
+  expression_result option ->
+  Function_type_resolution.parameter_default ->
+  lastclass_substitution option
+(** Bind an original omitted parameter to the preceding supplied argument. This
+    performs no declaration-time evaluation and does not advance that argument
+    across an omitted slot. *)
+
 val result_id : expression_result -> Id.t
 
 val result_source :

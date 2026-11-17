@@ -19,3 +19,10 @@ val classify_publication :
   resolution:Sema.Function_resolution.t ->
   Frontend.Parser.function_publication ->
   (Sema.Function_record_classification.t, string) result
+
+val classify_completed_headers :
+  resolution:Sema.Function_resolution.t ->
+  Sema.Compiler_record.declared_function list ->
+  (Sema.Function_record_classification.t, string) result
+(** Pair each resolved source-history site with its exact completed header. The
+    batch retains earlier classified records when later AOT headers join. *)

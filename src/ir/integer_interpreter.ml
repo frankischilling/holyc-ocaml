@@ -658,6 +658,8 @@ type default_constant = {
   constant_preparation_before : int;
   mutable constant_state : initializer_attempt_state;
   mutable constant_execution : (X87_stack.t * t) option;
+  constant_native_program : Default_fragment_program.t option;
+  mutable constant_native_bits : int64 option;
   mutable constant_steps : int;
   mutable constant_consumed : bool;
 }
@@ -5537,7 +5539,11 @@ let complete_native_task_dimension task attempt program capture =
       capture ~program
       ~work:(Option.get attempt.dimension_native_work)
   in
-  attempt.dimension_bits <- Some bits;
+  attempt.dimension_bits <-
+    Some
+      (Dimension_fragment_destination.convert_native_word
+         (Dimension_fragment_program.destination program)
+         bits);
   attempt.dimension_work <-
     Some
       (task.resources.initializer_steps - attempt.dimension_preparation_before);
@@ -16748,11 +16754,31 @@ let default_constant_destination value = value.constant_destination
 let default_constant_steps value = value.constant_steps
 
 let default_constant_bits value =
-  let _, execution = Option.get value.constant_execution in
-  (Option.get execution.final_value_).bits
+  match value.constant_native_bits with
+  | Some bits -> bits
+  | None ->
+      let _, execution = Option.get value.constant_execution in
+      (Option.get execution.final_value_).bits
 
 let default_constant_is_consumed value =
   value.constant_state = Successful_initializer && value.constant_consumed
+
+let default_constant_has_closed_source value =
+  let fragment =
+    Sema.Default_fragment.authorized_fragment value.constant_authority
+  in
+  match Sema.Default_fragment.references fragment with
+  | [] -> true
+  | _ -> (
+      match value.constant_native_program with
+      | None -> false
+      | Some program ->
+          Default_fragment_program.source_authority program
+          == value.constant_authority
+          && Default_fragment_program.destination program
+             == value.constant_destination
+          && Default_fragment_program.lowered program == value.constant_lowered
+          && Default_fragment_program.is_closed_native_source program)
 
 let consume_default_constant task value =
   let fragment =
@@ -16764,12 +16790,23 @@ let consume_default_constant task value =
     || (not (List.exists (( == ) value) task.default_constants))
     || value.constant_state <> Successful_initializer
     || value.constant_consumed
-    || (match value.constant_execution with
-      | Some (graph, execution) ->
+    || (match
+          ( value.constant_execution,
+            value.constant_native_program,
+            value.constant_native_bits )
+        with
+      | Some (graph, execution), None, None ->
           graph != Integer_program_lowering.graph value.constant_lowered
           || execution.executed_steps_ <> value.constant_steps
           || Option.is_none execution.final_value_
-      | None -> true)
+      | None, Some program, Some _ ->
+          Default_fragment_program.lowered program != value.constant_lowered
+          || (not (Default_fragment_program.is_closed_native_source program))
+          || Default_fragment_program.destination program
+             != value.constant_destination
+          || Default_fragment_program.source_authority program
+             != value.constant_authority
+      | _ -> true)
     || (not
           (Integer_program_lowering.owns_expression value.constant_lowered
              ~globals:
@@ -17134,6 +17171,7 @@ let execute_task_dimension ?(use_active_stream = true) ?compiler_options
             (Integer_globals.is_dimension_fragment
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
+      || Destination.native_f64_source destination
       || Program.steps execution
          <> task.resources.initializer_steps
             - attempt.dimension_preparation_before
@@ -18173,6 +18211,8 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
         constant_preparation_before = task.resources.initializer_steps;
         constant_state = Executing_initializer;
         constant_execution = None;
+        constant_native_program = None;
+        constant_native_bits = None;
         constant_steps = 0;
         constant_consumed = false;
       }
@@ -18215,6 +18255,115 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
             proof.constant_execution <- Some (graph, result);
             proof.constant_state <- Successful_initializer;
             Ok proof)
+
+let begin_native_source_default task program =
+  let module Program = Default_fragment_program in
+  let destination = Program.destination program in
+  let fragment = Default_fragment_destination.fragment destination in
+  let source = Sema.Default_fragment.source fragment in
+  let globals = Default_fragment_destination.globals destination in
+  if
+    (not (task_owns_table task (Sema.Default_fragment.table fragment)))
+    || (not
+          (Sema.Default_fragment.current_source ~allow_activation:false
+             ~activation:task.source_activation source))
+    || (not (Program.is_closed_native_source program))
+    || (not (Integer_globals.is_isolated_default globals))
+    || Integer_globals.byte_size globals <> 0
+    || Sema.Default_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+  then Error "native source default requires its original closed expression"
+  else if
+    List.exists
+      (fun prior ->
+        Sema.Default_fragment.same_source source
+          (Sema.Default_fragment.source
+             (Sema.Default_fragment.authorized_fragment prior.constant_authority)))
+      task.default_constants
+  then Error "native source default evaluation cannot replay"
+  else
+    let proof =
+      {
+        constant_catalog = task.catalog;
+        constant_authority = Program.source_authority program;
+        constant_destination = destination;
+        constant_lowered = Program.lowered program;
+        constant_preparation_before = task.resources.initializer_steps;
+        constant_state = Preparing_initializer;
+        constant_execution = None;
+        constant_native_program = Some program;
+        constant_native_bits = None;
+        constant_steps = 0;
+        constant_consumed = false;
+      }
+    in
+    task.default_constants <- proof :: task.default_constants;
+    Ok proof
+
+let check_native_source_default task proof program =
+  if
+    proof.constant_catalog != task.catalog
+    || (not (List.exists (( == ) proof) task.default_constants))
+    || proof.constant_state <> Preparing_initializer
+    || (not
+          (Option.fold ~none:false ~some:(( == ) program)
+             proof.constant_native_program))
+    || task.resources.initializer_steps <> proof.constant_preparation_before
+    || not
+         (Sema.Default_fragment.current_source ~allow_activation:false
+            ~activation:task.source_activation
+            (Sema.Default_fragment.source
+               (Sema.Default_fragment.authorized_fragment
+                  proof.constant_authority)))
+  then Error "native source default has another owner or expired source phase"
+  else Ok ()
+
+let claim_native_source_default task proof program =
+  Result.map
+    (fun () -> proof.constant_state <- Executing_initializer)
+    (check_native_source_default task proof program)
+
+let finish_native_source_default task proof program ~steps capture =
+  if
+    proof.constant_catalog != task.catalog
+    || (not (List.exists (( == ) proof) task.default_constants))
+    || proof.constant_state <> Executing_initializer
+    || (not
+          (Option.fold ~none:false ~some:(( == ) program)
+             proof.constant_native_program))
+    || steps < 0
+    || steps > task_initializer_remaining task
+    || task.resources.initializer_steps <> proof.constant_preparation_before
+    || not
+         (Sema.Default_fragment.current_source ~allow_activation:false
+            ~activation:task.source_activation
+            (Sema.Default_fragment.source
+               (Sema.Default_fragment.authorized_fragment
+                  proof.constant_authority)))
+  then Error "native source default completion has another entry or work budget"
+  else (
+    proof.constant_steps <- steps;
+    task.resources.initializer_steps <-
+      proof.constant_preparation_before + steps;
+    proof.constant_state <- Failed_initializer;
+    match capture with
+    | None -> Ok ()
+    | Some capture ->
+        let ( let* ) = Result.bind in
+        let* bits =
+          Native_scalar_capture.consume capture ~program ~work:steps
+        in
+        proof.constant_native_bits <-
+          Some
+            (Default_fragment_destination.convert_native_word
+               proof.constant_destination bits);
+        proof.constant_state <- Successful_initializer;
+        Ok ())
+
+let abandon_native_source_default proof =
+  if proof.constant_state <> Successful_initializer then
+    proof.constant_state <- Failed_initializer
 
 let begin_task_callback_default task ~namespace receipt =
   let ( let* ) = Result.bind in
