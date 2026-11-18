@@ -572,7 +572,8 @@ let original_pointer_difference_divisions context ~owner =
       item.target_type
   in
   let width type_ =
-    if Type.pointer_depth type_ <> 1 then None
+    if not (Type.is_data_pointer type_) then None
+    else if Type.pointer_depth type_ > 1 then Some 8L
     else
       match Type.dereference type_ with
       | Ok pointee -> (

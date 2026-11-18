@@ -171,7 +171,7 @@ let checked_reference description type_ =
       (Type.dereference type_ |> Result.to_option)
   in
   if Type.pointer_depth type_ <> 1 && not pointer_field then
-    unsupported description "native references require one scalar indirection";
+    unsupported description "native reference has an unsupported pointee type";
   match Type.dereference type_ with
   | Ok pointee when pointer_field ->
       (pointee, { word_type = U64; byte_size = 8 })
@@ -190,30 +190,37 @@ let reference_value_scalar type_ =
   else scalar_value ~allow_public:true pointee |> Option.get
 
 let pointer_field_identity type_ =
-  match Type.base type_ with
-  | Type.Aggregate symbol ->
-      Int64.of_int (65536 + Sema.Symbol.execution_identity symbol)
-  | Type.Primitive (form, primitive) ->
-      let identity =
-        match primitive with
-        | Primitive.Bool -> 1
-        | Primitive.I8 -> 2
-        | Primitive.U8 -> 3
-        | Primitive.I16 -> 4
-        | Primitive.U16 -> 5
-        | Primitive.I32 -> 6
-        | Primitive.U32 -> 7
-        | Primitive.I64 -> 8
-        | Primitive.U64 -> 9
-        | Primitive.F64 -> 10
-        | Primitive.I0 | Primitive.U0 -> assert false
-      in
-      Int64.of_int
-        (if
-           form = Type.Internal_storage
-           && primitive <> Primitive.U8 && primitive <> Primitive.I64
-         then identity + 32
-         else identity)
+  let base_identity =
+    match Type.base type_ with
+    | Type.Aggregate symbol ->
+        Int64.of_int (65536 + Sema.Symbol.execution_identity symbol)
+    | Type.Primitive (form, primitive) ->
+        let identity =
+          match primitive with
+          | Primitive.Bool -> 1
+          | Primitive.I8 -> 2
+          | Primitive.U8 -> 3
+          | Primitive.I16 -> 4
+          | Primitive.U16 -> 5
+          | Primitive.I32 -> 6
+          | Primitive.U32 -> 7
+          | Primitive.I64 -> 8
+          | Primitive.U64 -> 9
+          | Primitive.F64 -> 10
+          | Primitive.I0 | Primitive.U0 -> assert false
+        in
+        Int64.of_int
+          (if
+             form = Type.Internal_storage
+             && (Type.pointer_depth type_ > 1
+                || (primitive <> Primitive.U8 && primitive <> Primitive.I64))
+           then identity + 32
+           else identity)
+  in
+  (* TempleOS has four pointer layers. Reserve two bits for their identity. *)
+  Int64.logor
+    (Int64.shift_left base_identity 2)
+    (Int64.of_int (Type.pointer_depth type_ - 1))
 
 let compatible_reference target source =
   Type.equal target source
@@ -6364,17 +6371,9 @@ let source_scalar ?span label type_ =
 
 let source_slot_scalar ?span label type_ =
   if Type.pointer_depth type_ = 0 then source_scalar ?span label type_
-  else if Type.pointer_depth type_ = 1 then
-    match Type.dereference type_ with
-    | Ok _ when Ir.Automatic_aggregate_storage.aggregate_pointer type_ ->
-        { word_type = U64; byte_size = 8 }
-    | Ok pointee ->
-        ignore (source_scalar ?span label pointee);
-        { word_type = U64; byte_size = 8 }
-    | Error message -> reject ?span "HCBACK0002" message
-  else
-    reject ?span "HCBACK0002"
-      "native slots require at most one scalar indirection"
+  else if Ir.Aggregate_member_projection.pointer_member_type type_ then
+    { word_type = U64; byte_size = 8 }
+  else reject ?span "HCBACK0002" (label ^ " has an unsupported pointee type")
 
 let arena_access slot =
   let scalar = Global_storage.scalar slot in
@@ -9431,8 +9430,7 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
               then malformed description "invalid IC_RBP shape";
               match (description.result, description.target_type) with
               | Some result, Some target_type
-                when Type.pointer_depth target_type >= 1
-                     && Type.pointer_depth target_type <= 2 ->
+                when Type.pointer_depth target_type > 0 ->
                   define_frame frame_values values void_values description
                     result (Frame_base target_type);
                   (Frame_tick, None)
@@ -9725,9 +9723,7 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                   malformed description "invalid saved callback-word argument")
           | (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
             when Option.fold ~none:false
-                   ~some:(fun type_ ->
-                     Type.pointer_depth type_ = 1
-                     || Type.pointer_depth type_ = 2)
+                   ~some:(fun type_ -> Type.pointer_depth type_ > 0)
                    description.target_type
                  &&
                  match description.payload with
@@ -9816,9 +9812,7 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                 "native absolute address requires an exact storage symbol"
           | Opcode.Ic_imm_i64
             when Option.fold ~none:false
-                   ~some:(fun type_ ->
-                     Type.pointer_depth type_ = 1
-                     || Type.pointer_depth type_ = 2)
+                   ~some:(fun type_ -> Type.pointer_depth type_ > 0)
                    description.target_type -> (
               if description.flags <> 0L || description.operands <> [] then
                 malformed description "invalid frame displacement immediate";
@@ -9839,9 +9833,7 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                   malformed description "invalid frame displacement immediate")
           | Opcode.Ic_mul
             when Option.fold ~none:false
-                   ~some:(fun type_ ->
-                     Type.pointer_depth type_ = 1
-                     || Type.pointer_depth type_ = 2)
+                   ~some:(fun type_ -> Type.pointer_depth type_ > 0)
                    description.target_type -> (
               if description.flags <> 0L || Option.is_some description.payload
               then malformed description "invalid native index scaling";
@@ -10039,9 +10031,7 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
               | _ -> malformed description "invalid native member projection")
           | (Opcode.Ic_add | Opcode.Ic_sub)
             when Option.fold ~none:false
-                   ~some:(fun type_ ->
-                     Type.pointer_depth type_ = 1
-                     || Type.pointer_depth type_ = 2)
+                   ~some:(fun type_ -> Type.pointer_depth type_ > 0)
                    description.target_type -> (
               if
                 description.flags <> 0L
@@ -10412,6 +10402,10 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                   | Frame_address slot when Option.is_some slot.callback ->
                       unsupported description
                         "native callback cell addresses cannot escape"
+                  | Frame_address slot
+                    when Type.pointer_depth slot.slot_type > 0 ->
+                      unsupported description
+                        "native pointer slot addresses cannot escape"
                   | Frame_address slot when Type.equal pointee slot.slot_type ->
                       materialize
                         (Frame_reference (frame_reference_origin slot))
@@ -10427,7 +10421,8 @@ let preflight_callable_graph ?float_entry_source ~float_source ~runtime_calls
                         (Global_storage.element_count slot)
                         None
                   | Reference_address (access, actual)
-                    when Type.equal pointee actual ->
+                    when Type.equal pointee actual
+                         && Option.is_none access.callback ->
                       (Materialize_existing_reference (access, value), None)
                   | Indexed_address
                       {

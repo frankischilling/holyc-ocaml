@@ -812,6 +812,19 @@ let () =
             Alcotest.test_case name `Quick (case contents expected output))
           (Cases.pointer_values @ Cases.pointer_width_matrix
          @ Persistent.pointer_values) );
+      ( "floating pointer fields",
+        [
+          Alcotest.test_case "native indirect F64 field alias" `Quick (fun () ->
+              let source =
+                {|class Box{F64 *p;F64 **q;};I64 F(){Box o;F64 f=40.0;
+o.p=&f;o.q=&o.p;**o.q+=2.0;if(**o.q==42.0)return 42;return 0;}F();|}
+              in
+              List.iter
+                (fun mode ->
+                  ignore (value 42L "" (run mode source));
+                  task_value 42L "" (run_task ~mode source))
+                modes);
+        ] );
       ( "retained classes",
         List.map
           (fun (name, contents, expected, output) ->

@@ -2511,14 +2511,16 @@ current publication. Native Print emits the shared formatter as a separate
 fixed-scratch entry with bounded runtime argument tables; IR streams use the
 original task contexts. These hosted checks add no TempleOS runtime capture.
 
-IR data pointer fields use `Compiler/PrsLib.HC:40-60`'s eight-byte pointer
+Hosted data pointer fields use `Compiler/PrsLib.HC:40-60`'s eight-byte pointer
 records and `Compiler/PrsExp.HC:960-1115`'s selected member class, offset and
 array dimensions. The complete `PrsAddOp`, `PrsExpression2` and `PrsUnaryTerm`
 producers retain pointed arithmetic, dereferences, updates and destinations.
 `BackLib.HC:445-659,693-708` and `BackC.HC:159-206` supply raw-width movement,
 pointed loads and pointed stores. Hosted pointer shadows retain target ownership
 separately from serialized virtual address bytes; dead targets and overlapping
-numeric stores cannot supply executable pointers. Native fields remain gated.
+numeric stores cannot supply owned pointers. Native field shadows also compare
+the original pointer depth, and `OptFixSizeOf` supplies the eight-byte stride
+for a pointer to a pointer cell.
 See [owned data pointer fields](aggregate-pointer-fields.md) for the execution
 contract and remaining work under issue #686.
 

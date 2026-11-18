@@ -114,7 +114,7 @@ let scalar_f64_type = function
   | _ -> false
 
 let named_pointer type_specifier pointer_layers =
-  List.length pointer_layers = 1
+  pointer_layers <> []
   &&
   match type_specifier with
   | Ast.Named_type_specifier _ -> true
@@ -250,11 +250,9 @@ let function_source_error (definition : Ast.function_definition) =
       | _ -> false)
   then reject "native functions require a scalar integer, F64 or U0 return type"
   else if
-    List.length definition.return_pointer_layers > 1
-    || definition.return_pointer_layers <> []
-       && void_return_type definition.return_type
-  then
-    reject "native functions admit one-level integer or class pointer returns"
+    definition.return_pointer_layers <> []
+    && void_return_type definition.return_type
+  then reject "native functions require a supported data pointer return type"
   else if
     List.exists
       (fun (modifier : Ast.declaration_modifier) ->
@@ -292,15 +290,11 @@ let function_source_error (definition : Ast.function_definition) =
           reject
             "native function parameters require nonzero scalar integer types"
         else if
-          Option.is_none parameter.function_pointer
-          && List.length parameter.pointer_layers > 1
-          || Option.fold ~none:false
-               ~some:(fun pointer ->
-                 List.length pointer.Ast.indirection_layers <> 1)
-               parameter.function_pointer
-        then
-          reject
-            "native functions admit only one-level scalar pointer parameters"
+          Option.fold ~none:false
+            ~some:(fun pointer ->
+              List.length pointer.Ast.indirection_layers <> 1)
+            parameter.function_pointer
+        then reject "native functions admit only one-star callback parameters"
         else if not (bounded_register_qualifiers parameter.register_qualifiers)
         then reject "native functions do not admit explicit parameter registers"
         else None)
@@ -341,8 +335,7 @@ let local_source_error (declaration : Ast.local_declaration) =
       || scalar_f64_type declaration.local_type_specifier
          && List.for_all
               (fun (local : Ast.local_declarator) ->
-                List.length local.local_pointer_layers <= 1
-                && ((not is_static) || local.local_pointer_layers = [])
+                ((not is_static) || local.local_pointer_layers = [])
                 && (local.local_pointer_layers = []
                    || local.local_array_dimensions = [])
                 && Option.is_none local.local_function_pointer)
@@ -363,13 +356,10 @@ let local_source_error (declaration : Ast.local_declaration) =
         if
           match local.local_function_pointer with
           | Some pointer -> List.length pointer.Ast.indirection_layers <> 1
-          | None ->
-              if is_static then local.local_pointer_layers <> []
-              else List.length local.local_pointer_layers > 1
+          | None -> is_static && local.local_pointer_layers <> []
         then
           reject
-            "native locals admit one-star callbacks or automatic one-level \
-             scalar pointers"
+            "native locals admit one-star callbacks or automatic data pointers"
         else if
           local.local_array_dimensions <> []
           && (local.local_pointer_layers <> []

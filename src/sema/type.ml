@@ -53,6 +53,15 @@ let is_f64 type_ =
   | Primitive (_, Primitive_type.F64) -> true
   | _ -> false
 
+let is_data_pointer type_ =
+  type_.pointer_depth > 0
+  &&
+  match type_.base with
+  | Aggregate _ -> true
+  | Primitive (_, primitive) ->
+      Option.is_some (Primitive_type.integer_storage_info primitive)
+      || primitive = Primitive_type.F64
+
 let equal left right =
   left.pointer_depth = right.pointer_depth
   &&

@@ -425,9 +425,7 @@ let scalar_pointer_type type_ =
       || Type.is_f64 pointee
   | Error _ -> false
 
-let data_pointer_type type_ =
-  scalar_pointer_type type_
-  || Automatic_aggregate_storage.aggregate_pointer type_
+let data_pointer_type = Type.is_data_pointer
 
 let callback_word_type type_ =
   Type.pointer_depth type_ = 1
@@ -775,12 +773,13 @@ let checked_integer_or_pointer_type result =
            "typed semantic expression does not have a checked result type")
   | Some type_ -> (
       match (Semantic_result.result_class result, Type.base type_) with
+      | Semantic_result.Integer_result, _ when data_pointer_type type_ ->
+          Ok (Checked_type type_)
       | Semantic_result.Integer_result, Type.Primitive (_, primitive)
-        when Type.pointer_depth type_ = 1
-             && Sema.Primitive_type.equal primitive Sema.Primitive_type.F64
-             || (Sema.Primitive_type.info primitive).category
+        when Type.pointer_depth type_ = 0
+             && (Sema.Primitive_type.info primitive).category
                 <> Sema.Primitive_type.Floating
-                && not (Sema.Primitive_type.is_zero_sized primitive) ->
+             && not (Sema.Primitive_type.is_zero_sized primitive) ->
           Ok (Checked_type type_)
       | Semantic_result.Integer_result, (Type.Primitive _ | Type.Aggregate _)
       | ( (Semantic_result.F64_result | Semantic_result.Unresolved_actual_class),
@@ -3263,6 +3262,12 @@ let plan ?frame ?globals ?root_conversion ~allow_calls root =
                                         prepare_assignment_address ?frame
                                           ?globals operand
                                       with
+                                      | Ok (Some (Direct_address _))
+                                        when Type.pointer_depth type_ > 1 ->
+                                          (* Ordinary pointer slots hold private
+                                             references, unlike fields whose
+                                             bytes have separate ownership. *)
+                                          unsupported := true
                                       | Ok (Some address) ->
                                           address_tasks operand address
                                             [
@@ -3285,7 +3290,7 @@ let plan ?frame ?globals ?root_conversion ~allow_calls root =
                                       checked_frame_value operand )
                                   with
                                   | Ok (Checked_type _), Ok (Checked_type type_)
-                                    when scalar_pointer_type type_ ->
+                                    when array_pointer_type type_ ->
                                       pending :=
                                         Visit
                                           {
@@ -3442,7 +3447,7 @@ let plan ?frame ?globals ?root_conversion ~allow_calls root =
                         | ( Ok (Checked_type pointer),
                             Ok (Checked_type _),
                             Ok (Checked_type target) ) ->
-                            Type.pointer_depth pointer = 1
+                            data_pointer_type pointer
                             && Type.equal pointer target
                             && Option.is_some
                                  (pointer_element_size ?frame ~result pointer)
@@ -3499,9 +3504,7 @@ let plan ?frame ?globals ?root_conversion ~allow_calls root =
                         | ( Ok (Checked_type left_type),
                             Ok (Checked_type right_type),
                             Ok (Checked_type result_type) ) ->
-                            Type.pointer_depth left_type = 1
-                            && Type.pointer_depth right_type = 1
-                            && Type.compatible_u8_pointer left_type right_type
+                            Type.compatible_u8_pointer left_type right_type
                             && data_pointer_type left_type
                             && data_pointer_type right_type
                             && (opcode <> Opcode.Ic_sub

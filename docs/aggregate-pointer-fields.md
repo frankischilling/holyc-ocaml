@@ -6,10 +6,10 @@ lifetime; a persistent field cannot keep a retired activation alive.
 [Aggregate initializer leaves](aggregate-initializers.md#owned-data-pointer-leaves)
 can now initialize these fields from checked data references and strings.
 
-The IR, `host-jit` and `host-jit-task` targets read, assign and update one-level integer or class
-pointers stored in automatic class and union fields. Direct access, inherited
-fields, nested objects and multidimensional pointer member arrays retain their
-selected member types and layouts in JIT and AOT modes.
+The IR, `host-jit` and `host-jit-task` targets read, assign and update integer,
+Bool and class pointers stored in class and union fields. Direct access,
+inherited fields, nested objects and multidimensional pointer member arrays
+retain their selected types and layouts in JIT and AOT modes.
 
 ```c
 class Item { U16 value; };
@@ -27,8 +27,9 @@ F();
 ```
 
 This returns 42 in JIT and AOT mode. The maintained
-`examples/aggregate-pointer-fields.hc` also uses a class pointer member array
-and a string pointer field; it prints `AB` and returns 42. Retained JIT calls
+[`aggregate-pointer-fields.hc` example](../examples/aggregate-pointer-fields.hc)
+returns the address of a class pointer array element from `ItemSlot`. It stores
+through that alias, prints `AB` and returns 42. Retained JIT calls
 preserve the member and pointee identities selected at their original source
 occurrences, including after a same-name class replacement. Layouts of
 [function-local types](function-local-aggregate-objects.md) require their
@@ -59,11 +60,18 @@ have a 64 MiB payload limit and fail with `HCIRVM0016` before writing the field.
 These descriptors and shadows are private execution metadata; source queries
 still report eight-byte pointer storage.
 
-Pointer fields can supply local pointer initializers, further field assignments
-and fixed pointer parameters. Pointer arithmetic and prefix, postfix or compound
-updates use the selected pointee stride. Lowering captures an assignment
-destination before evaluating its RHS, so retargeting a field or its containing
-class pointer cannot move an already selected write.
+Taking `&object.p` needs no initialized bytes in `p`. Dereferencing the
+result selects the original pointer cell, so a typed store through the alias
+initializes the field. A field can hold an alias to another pointer field.
+Fields declared with up to three stars can participate in expressions with
+four pointer layers. Those aliases can flow through automatic locals and
+fixed named function parameters or returns when their bindings fit the checked
+address representation.
+
+Arithmetic over a pointer to a pointer cell uses an eight-byte stride. The
+hosted difference and ordering checks require a shared live allocation.
+Lowering captures an assignment destination before evaluating the RHS, so a
+call that rebinds the alias cannot move an already selected write.
 
 Object bytes and pointer ownership are recorded separately. The interpreter
 serializes a disjoint virtual address token; it does not expose a host machine
@@ -78,9 +86,9 @@ by copying numeric bytes.
 Any scalar store overlapping a pointer field removes that field's ownership,
 even when the stored bits are unchanged. A later typed pointer store restores
 ownership from its owned RHS. Disjoint stores preserve other fields. Same-type
-union pointer fields can share one value; an incompatible pointee type cannot
-reuse its descriptor. Word transport through a class parameter copies the
-scalar prefix and does not copy pointer ownership.
+union pointer fields can share one value. A different pointer depth or an
+incompatible nominal type fails the ownership check. Word transport through
+a class parameter copies the scalar prefix.
 
 Reads first require every address byte to be initialized. Unknown or partly
 initialized fields fail with `HCIRVM0012`. Fully initialized bytes without a
@@ -108,13 +116,14 @@ its declaration and command fragments:
 holyc run --target=host-jit-task --code-byte-limit=524288 examples/aggregate-pointer-fields.hc
 ```
 
-F64, U0 and multiple-layer data pointer fields remain outside this execution
-path. Automatic root pointer arrays, numeric pointer construction, general class
-copies and wider pointer-return domains retain their
-existing gates. Explicit address-taking of a pointer field through `&object.p`
-also needs the general extra-indirection path; member-array indexing retains its
-own authenticated addresses. Full compiler parity remains under
-[issue #682](https://github.com/frankischilling/holyc-ocaml/issues/682).
+The native targets also support F64 field aliases and indirect F64 updates.
+The integer interpreter still excludes F64 pointee execution. U0 pointers,
+numeric pointer construction, general class copies and automatic root arrays
+of data pointers remain open. Ordinary pointer locals and parameters use
+private reference slots, so taking the address of those slots remains gated.
+Track wider pointer support under [#687](https://github.com/frankischilling/holyc-ocaml/issues/687)
+and [#699](https://github.com/frankischilling/holyc-ocaml/issues/699), and full
+compiler parity under [#682](https://github.com/frankischilling/holyc-ocaml/issues/682).
 
 Callback members use their own [executable ownership path](callback-fields.md).
 [Owned reference returns](reference-returns.md) can supply or consume pointer
@@ -126,7 +135,9 @@ The source audit uses TempleOS commit
 - `Compiler/PrsLib.HC:40-60`, `PrsClassNew`, creates adjacent pointer records
   with `RT_PTR` and eight-byte storage.
 - `Compiler/PrsExp.HC:15-63`, `PrsAddOp`, scales pointer arithmetic and compound
-  updates by the pointed class size. `PrsExpression2` at lines 65-262 consumes
+  updates by the pointed class size and divides pointer differences by that
+  size. `Compiler/OptLib.HC:484-505`, `OptFixSizeOf`, resolves scaling from the
+  adjacent pointee record. `PrsExpression2` at lines 65-262 consumes
   dereferences, address-taking, updates and assignment destinations.
 - `Compiler/PrsExp.HC:593-958`, `PrsUnaryTerm`, retains local addresses and
   prefix dereference/update operations. `PrsUnaryModifier` at lines 960-1115

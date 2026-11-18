@@ -977,13 +977,12 @@ host image, private arena and executable owners across activations, including
 reached writes on checked faults. Native JIT execution at original parser
 callbacks and persistent source-task publication/linking remain unfinished.
 
-[Owned data pointer fields](aggregate-pointer-fields.md) execute integer
-and class pointer members, member arrays and pointer updates in automatic
-objects. Typed stores retain the original target allocation and lifetime;
-overlapping scalar stores remove pointer ownership. Numeric bytes and word
-class parameters cannot recreate it. Native descriptors retain activation
-identities, and source-task arenas share their persistent field shadows.
-Expired locals fail before their old stack bytes are read.
+The hosted targets execute integer and class pointer fields in automatic and
+persistent objects, including member arrays and aliases to pointer cells.
+Typed stores retain the original target allocation and lifetime. Overlapping
+scalar stores remove ownership, and native descriptors check the original
+activation before accessing stack storage. The native targets also execute
+indirect F64 field updates. See [owned data pointer fields](aggregate-pointer-fields.md).
 
 Reached partial class bodies now supply original callback field signatures to
 the checked function and top-level call paths. Direct and pointer access,

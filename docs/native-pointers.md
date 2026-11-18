@@ -13,8 +13,9 @@ region and extent; the admitted storage and call paths keep that allocation
 live. [Class pointer operations](class-pointers.md) support indexing, arithmetic,
 comparisons and updates with the selected layout.
 [Data pointer fields](aggregate-pointer-fields.md) retain native ownership
-shadows and activation identities across calls and source fragments. Expired
-locals and numeric reconstructions fail before target storage is read.
+shadows and activation identities across calls and source fragments. Taking
+the address of a pointer field gives an alias that can load or write the
+original cell. Reads through deeper aliases check the declared pointer depth.
 
 Native [owned scalar pointer difference](pointer-difference.md) checks original
 data-base, initialization-region and extent fields, then subtracts offsets.
@@ -72,9 +73,6 @@ argument's original value even though the left argument rebinds `p`.
 Assignment-expression results and indexed bases
 captured before later effects have the same protection.
 
-The accepted language prevents references from escaping their owners. Pointer
-returns, persistent pointer storage, pointer-to-pointer objects and integer/null
-casts all reject before native entry. Owned callback calls have their separate execution path.
 [Scalar pointer addition](pointer-addition.md) and
 [subtraction](pointer-subtraction.md) scale original integer offsets and preserve
 captured objects.
@@ -83,12 +81,10 @@ and logical offset, including valid one-past references, without reading cells.
 [Ordering](pointer-ordering.md) requires the same original live object and
 extent before comparing offsets. Different objects fault with HCIRVM0018;
 native mismatch statuses require sealed ordering sites and attempted work.
-A reference can therefore travel only through the current activation's local
-slots or down its synchronous call chain. Every recursive activation has a
-separate frame and descriptor region. A callee's local reference cannot survive
-its return; no generation counter or host-address lookup is needed for this
-restricted lifetime proof. Broadening those escape paths will require a new
-lifetime mechanism before admission.
+Every recursive activation has a separate frame and descriptor region.
+[Owned reference returns](reference-returns.md) and field stores can preserve
+caller and persistent references across calls. A later dereference of a
+callee-owned reference fails once its activation retires.
 
 Checked indexing and scalar pointer addition/subtraction retain the original
 object range and check signed scaling and offset arithmetic before forming a
@@ -122,10 +118,10 @@ in [SECURITY.md](SECURITY.md).
 Automatic scalar arrays use the same references; see
 [native arrays](native-arrays.md). Global/static arrays and mutable byte literals
 use the [persistent storage](native-persistent-storage.md) path. Persistent
-pointer variables, raw address ordering, null/integer
-conversions, raw pointer difference, deeper indirection, automatic root arrays
-of data pointers, data pointer fields, general aggregate copies, foreign calls
-and the full HolyC ABI remain unfinished native work. Class value operations
+standalone pointer variables, null and integer conversions, automatic root
+arrays of data pointers, addresses of ordinary pointer slots, general
+aggregate copies, foreign calls and the full HolyC ABI remain unfinished.
+Class value operations
 use their selected scalar prefixes and register words, as described in
 [class value returns](class-value-returns.md). This feature does not produce
 object files or BIN files, establish loader acceptance, or complete the compiler.
