@@ -173,7 +173,7 @@ let controls ?(contents = contents) mode =
       when Semantic_type.pointer_depth type_ = 1 ->
         { d with payload = Some (Seq.Integer 4L) }
     | Ir_opcode.Ic_imm_i64, Some (Seq.Integer 24L), Some type_
-      when Semantic_type.pointer_depth type_ = 2 ->
+      when Semantic_type.pointer_depth type_ >= 2 ->
         { d with payload = Some (Seq.Integer 32L) }
     | _ -> d
   in
@@ -330,11 +330,16 @@ let controls ?(contents = contents) mode =
     if
       contents = Aggregate_array_cases.proof_source
       || contents = Aggregate_member_cases.pointer_proof_source
-    then
-      [
-        ( "root array stride differs from selected element",
-          rebuild definition wrong_stride );
-      ]
+    then (
+      let changed = ref false in
+      let altered =
+        rebuild definition (fun item ->
+            let next = wrong_stride item in
+            if next != item then changed := true;
+            next)
+      in
+      if not !changed then failwith "stride mutation did not reach its operand";
+      [ ("root array stride differs from selected element", altered) ])
     else [] )
 
 let empty_frame_controls mode =
