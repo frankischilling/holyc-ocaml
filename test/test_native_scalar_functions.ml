@@ -294,7 +294,7 @@ let unsupported_neighbors_stay_outside_native_gate () =
       "I64 F(){Bool n=42;I8 *p=&n;return *p;} F();";
       "I0 F(I0 n){return n;} F(1);";
       "F64 F(F64 n){return n**2.0;} F(1.0);";
-      "I64 F(I64 **p){return **p;} 42;";
+      "I64 F(){I64 *a[2];return 42;} F();";
       "I64 F(I64 p){static I64 n=p<<2;return n;}42;";
       "I64 F(){static I8 n={42};return n;} F();";
       "I64 F(I64 n,...){return n;} F(42,1.0);";
@@ -423,7 +423,7 @@ let pointer_source_and_authority () =
         [
           "I64 *G;42;";
           "I64 F(){static I64 *p;return 42;}42;";
-          "I64 F(I64 **p){return **p;}42;";
+          "I64 F(I64 **p){return **p;}F(42);";
           "I64 F(I64 *p=0){return *p;}42;";
           "I64 F(){I64 *p=0;return *p;}42;";
           "I64 F(){I64 x=42;I64 *p=&x;return p;}F();";
