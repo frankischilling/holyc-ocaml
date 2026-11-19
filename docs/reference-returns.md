@@ -4,7 +4,8 @@ Functions can return one-level pointers to supported integer, Bool and class
 storage through IR, native programs and native source tasks in JIT and AOT
 modes. Named calls, callback cells and callback fields retain the declaration's
 original return type. Direct caller-pop and callee-pop calls use the same
-descriptor transport.
+descriptor transport. Named calls can also return deeper owned aliases to
+[aggregate pointer fields](aggregate-pointer-fields.md).
 
 The [example](../examples/reference-returns.hc) returns a pointer to the second
 packed class element in the caller's array. It prints `AB` and returns 42:
@@ -52,9 +53,9 @@ callbacks, nested calls, recursion, initialization and expiration. Exact and
 one-below semantic frame, work, physical frame and image limits accompany the
 values. Graph seals and foreign frame controls retain source ownership.
 
-Numeric/null pointer construction, extra indirection, floating and U0 pointee
-execution, code-valued returns and wider ABI families keep their existing
-boundaries. Member metadata consumers, other aggregate backings and general
+Numeric and null pointer construction, general pointer slot addresses, U0
+pointee execution, code-valued returns and wider ABI families remain open.
+Member metadata consumers, other aggregate backings and general
 copies remain under #686. These checks add hosted execution evidence, without
 an original TempleOS runtime capture or emitted machine-byte comparison.
 Lifetime, initialization and invalid-memory faults remain hosted policy.

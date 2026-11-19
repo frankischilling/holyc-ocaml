@@ -20,10 +20,10 @@ callback class parameters still need their own implementation.
 byte roots through the same member and scalar-prefix paths. Defaults containing references remain unsupported in AOT IR
 and ordinary native compilation.
 
-[Data pointer fields](aggregate-pointer-fields.md) add IR and native reads, assignments
-and updates for one-level integer and class pointers, including pointer member
-arrays. Private descriptors and shadows preserve target lifetime across calls
-and retained source fragments.
+[Data pointer fields](aggregate-pointer-fields.md) support reads, assignments,
+updates and aliases to the pointer cells themselves, including member array
+elements. Private descriptors and shadows preserve target lifetime across
+calls and retained source fragments.
 
 The interpreter and native executor read, assign and update integer members of
 nonempty automatic class and union objects. The layout must be complete at the
