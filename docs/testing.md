@@ -315,12 +315,12 @@ Root-array mutation controls reject changed strides and foreign frames before
 IR execution. Pointee proofs also reject missing, foreign, changed and
 other-function layouts before execution; exact quotas cover scalar, array and
 pointer update fixtures.
-Owned integer and class pointer fields execute in IR and native code, including member arrays,
-pointer updates and retained selections. Combined fixtures check function-local
-field proofs and strides, builtin member sizes and type replacement. Faults
-cover expired callee locals, overlapping writes, numeric reconstruction and
-incompatible pointees. Native public and retained targets preserve those
-ownership and activation checks. See [pointer fields](aggregate-pointer-fields.md).
+Pointer field fixtures cover local layouts, type replacement, member arrays,
+four-layer expressions and eight-byte strides through field aliases. Cross-call
+cases check returned aliases, destination capture and retired activations.
+Ownership faults cover overlapping writes, numeric reconstruction, depth
+mismatches and incompatible nominal types. The native suites also exercise
+indirect F64 updates. See [pointer fields](aggregate-pointer-fields.md).
 Callback fixtures also cover direct, inherited and nested fields, full array
 indexing, fixed defaults, variadic calls, callee capture and typed owner copies.
 Numeric updates, signature mismatches, byte overwrites, exact budgets and

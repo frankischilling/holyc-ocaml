@@ -8309,6 +8309,13 @@ let prepared_default_word_type type_ =
           Some I64
       | _ -> None)
 
+let data_pointer_type type_ =
+  Type.is_data_pointer type_
+  &&
+  match Type.base type_ with
+  | Type.Primitive (_, Sema.Primitive_type.F64) -> false
+  | _ -> true
+
 let checked_return_kind type_ =
   match function_return_word_type type_ with
   | Some word -> Some (Word_return word)
@@ -8316,14 +8323,8 @@ let checked_return_kind type_ =
       match Type.base type_ with
       | Type.Primitive (_, Sema.Primitive_type.U0) -> Some Void_return
       | _ -> None)
-  | None -> (
-      match Type.dereference type_ with
-      | Ok pointee
-        when Type.pointer_depth type_ = 1
-             && (Option.is_some (Scalar.of_type pointee)
-                || Automatic_aggregate_storage.aggregate_pointer type_) ->
-          Some (Reference_return type_)
-      | _ -> None)
+  | None when data_pointer_type type_ -> Some (Reference_return type_)
+  | None -> None
 
 let callback_word_type type_ =
   Type.pointer_depth type_ = 1
@@ -8342,10 +8343,6 @@ let scalar_pointer_type type_ =
   | Ok pointee -> Option.is_some (Scalar.of_type pointee)
   | Error _ -> false
 
-let data_pointer_type type_ =
-  scalar_pointer_type type_
-  || Automatic_aggregate_storage.aggregate_pointer type_
-
 let array_pointer_type type_ =
   scalar_pointer_type type_
   || Option.fold ~none:false
@@ -8361,24 +8358,12 @@ let literal_pointer_type type_ =
   | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.U8) -> true
   | _ -> false
 
-let stored_type type_ =
+let frame_stored_type type_ =
   match return_word_type type_ with
   | Some word -> Some (Stored_word word)
-  | None when scalar_pointer_type type_ -> Some (Stored_pointer type_)
+  | None when data_pointer_type type_ -> Some (Stored_pointer type_)
   | None ->
       Option.map (fun scalar -> Stored_narrow scalar) (Scalar.of_type type_)
-
-let frame_stored_type type_ =
-  match stored_type type_ with
-  | Some _ as stored -> stored
-  | None -> (
-      (* A checked aggregate pointer occupies one ordinary pointer slot. The
-         slot retains an owned descriptor; field projection separately requires
-         the exact selected member and layout evidence. *)
-      match Type.base type_ with
-      | Type.Aggregate _ when Type.pointer_depth type_ > 0 ->
-          Some (Stored_pointer type_)
-      | _ -> None)
 
 let stored_bytes = function
   | Stored_narrow scalar -> Scalar.byte_size scalar
@@ -10011,6 +9996,10 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                     storage_operand ~allow_array:true frame initialization types
                       description.instruction_id address
                   with
+                  | Some
+                      ( ((Indexed_slot _ | Indirect_slot _) as location),
+                        pointee,
+                        Stored_pointer _ )
                   | Some (location, pointee, (Stored_word _ | Stored_narrow _))
                     -> (
                       match Type.pointer_to pointee with

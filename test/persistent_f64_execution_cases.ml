@@ -338,7 +338,8 @@ let jit_faults =
 
 let unsupported =
   [
-    ("deeper pointer", "F64 Read(F64 **pointer){return **pointer;}42;");
+    ( "numeric double pointer argument",
+      "F64 Read(F64 **pointer){return **pointer;}Read(42);" );
     ( "unproved suffix bit reinterpretation",
       "F64 Read(I64 word){return word(F64);}Read(3);" );
   ]
@@ -412,4 +413,11 @@ let maintained =
 
 let values =
   storage_values @ conversion_values @ precision_values @ comparison_values
-  @ effect_values @ [ maintained ]
+  @ effect_values
+  @ [
+      floating "persistent field address passed to a double pointer parameter"
+        {|class Box{F64 *cell;};Box b;F64 n=1.5;
+          F64 Read(F64 **p){return **p;}b.cell=&n;Read(&b.cell);|}
+        0x3ff8000000000000L;
+      maintained;
+    ]

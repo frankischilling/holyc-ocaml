@@ -700,6 +700,8 @@ let source_gate_is_compile_only () =
       "I64 values[2]={40,2};values[0]+values[1];";
       "I64 F(I64 n,...){return n;} F(42);";
       "I64 F(...){argc=0;I64 *p=argv;return p[1];}F(20,42);";
+      "class Box{I64 *cell;}; I64 Read(I64 **p){return **p;} I64 Run(){Box \
+       b;I64 n=42;b.cell=&n;return Read(&b.cell);}Run();";
     ]
   in
   List.iter
@@ -764,7 +766,7 @@ let source_gate_is_compile_only () =
            "I64 Bad(){static I64 n={1/0};return 0;}42;";
            "I64 Bad(){static I64 *n;return 0;}42;";
            "I64 Bad(){static I64 reg n;return 0;}42;";
-           "I64 F(I64 **p){return **p;} 42;";
+           "I64 F(I64 **p){return **p;} F(42);";
            "extern I64 F(I64 n); 42;";
            "I64 N=1;I64 F(I64 n=N<<3){return n;} F(1);";
            "I64 Missing(I64 n){if(n)return 42;} Missing(1);";

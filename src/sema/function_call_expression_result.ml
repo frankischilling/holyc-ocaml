@@ -1993,17 +1993,12 @@ let scalar_pointer_integer_arithmetic_type left right =
     when left.result_class = Integer_result
          && right.result_class = Integer_result
          && right.array_rank = 0
-         && Type.pointer_depth pointer = 1
+         && Type.is_data_pointer pointer
          && Type.pointer_depth integer = 0 -> (
-      match (Type.dereference pointer, Type.base integer) with
-      | Ok pointee, Type.Primitive (_, primitive)
-        when Option.is_some (Primitive_type.integer_storage_info primitive) -> (
-          match Type.base pointee with
-          | Type.Primitive (_, primitive)
-            when Option.is_some (Primitive_type.integer_storage_info primitive)
-                 || Type.is_f64 pointee -> Some pointer
-          | Type.Aggregate _ -> Some pointer
-          | _ -> None)
+      match Type.base integer with
+      | Type.Primitive (_, primitive)
+        when Option.is_some (Primitive_type.integer_storage_info primitive) ->
+          Some pointer
       | _ -> None)
   | _ -> None
 
@@ -2019,16 +2014,8 @@ let scalar_pointer_difference left right =
   | Some left_type, Some right_type
     when left.result_class = Integer_result
          && right.result_class = Integer_result
-         && Type.pointer_depth left_type = 1
-         && Type.compatible_u8_pointer left_type right_type -> (
-      match Type.dereference left_type with
-      | Ok pointee -> (
-          match Type.base pointee with
-          | Type.Primitive (_, primitive) ->
-              Option.is_some (Primitive_type.integer_storage_info primitive)
-              || Type.is_f64 pointee
-          | Type.Aggregate _ -> true)
-      | _ -> false)
+         && Type.is_data_pointer left_type
+         && Type.compatible_u8_pointer left_type right_type -> true
   | _ -> false
 
 let is_writable_storage_type = function

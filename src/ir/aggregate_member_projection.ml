@@ -13,15 +13,7 @@ and selection =
   | Field of Members.lookup
   | Backing of Sema.Aggregate_backing_storage.t
 
-let pointer_member_type type_ =
-  Type.pointer_depth type_ = 1
-  &&
-  match Type.dereference type_ with
-  | Ok pointee ->
-      Option.is_some (Integer_scalar_storage.of_type pointee)
-      || Type.is_f64 pointee
-      || Automatic_aggregate_storage.aggregate_pointer type_
-  | Error _ -> false
+let pointer_member_type = Type.is_data_pointer
 
 let supported_member_type type_ =
   pointer_member_type type_

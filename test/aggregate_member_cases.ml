@@ -21,12 +21,12 @@ o.text=text;o.items[1]=&item;Print("%s",o.text);
 Bump(o.items[1]);return Bump(o.items[1]);}F();|}
 
 let pointer_quota_source =
-  {|class Box{U16 *p;};I64 F(){Box o;U16 values[2];values[1]=42;
-o.p=values;o.p++;return *o.p;}F();|}
+  {|class Box{U16 *p;U16 **q;};I64 F(){Box o;U16 values[2];values[1]=42;
+o.q=&o.p;*o.q=values;(*o.q)++;return **o.q;}F();|}
 
 let pointer_proof_source =
-  {|class Box{U8 tag;U8 *p[2][3];};I64 F(){Box o;U8 value=42;
-o.p[1][2]=&value;return *o.p[1][2];}F();|}
+  {|class Box{U8 tag;U8 **p[2][3];U8 *slot;};I64 F(){Box o;U8 value=42;
+o.p[1][2]=&o.slot;*o.p[1][2]=&value;return **o.p[1][2];}F();|}
 
 let pointer_local_proof_source =
   {|I64 F(){class Box{U8 tag;U8 *p[2][3];};Box o;U8 value=42;
@@ -34,6 +34,40 @@ o.p[1][2]=&value;return *o.p[1][2];}F();|}
 
 let pointer_values =
   [
+    ( "address of a pointer field before its first store",
+      {|class Box{U8 *p;}; I64 F(){Box o;U8 v=42;*(&o.p)=&v;
+return **(&o.p);} F();|},
+      42L,
+      "" );
+    ( "four pointer layers preserve the selected packed field addresses",
+      {|class Box{U8 pad;U8 *p;U8 **q;U8 ***r;};I64 F(){Box o;U8 v=42;
+o.r=&o.q;*o.r=&o.p;**o.r=&v;return ****(&o.r);}F();|},
+      42L,
+      "" );
+    ( "pointer field aliases pass to and return from named functions",
+      {|class Item{U8 n;};class Box{Item *p;};Item **Field(Box *o){return &o->p;}
+I64 Read(Item **slot){return (*slot)->n;}
+I64 F(){Box o;Item v;v.n=42;Item **saved=Field(&o);*saved=&v;return Read(saved);}F();|},
+      42L,
+      "" );
+    ( "member array aliases use eight-byte signed strides",
+      {|class Box{U8 *p[3];};I64 F(){Box o;U8 a=18,b=22;U8 **p=&o.p[0];
+p[0]=&a; p+=2;*p=&b;U8 **end=p+1;
+return *p[-2]+**(p--)+(p-&o.p[0])+(end>&o.p[2]);}F();|},
+      42L,
+      "" );
+    ( "top-level writes follow an alias stored in a persistent field",
+      {|class Box{U8 *p;U8 **q;}; Box o; U8 v=42;
+o.q=&o.p;*o.q=&v;**o.q;|},
+      42L,
+      "" );
+    ( "field alias assignment captures the destination before RHS rebinding",
+      {|class Box{U8 *a;U8 *b;U8 **selected;};
+U8 *Retarget(Box *p,U8 *value){p->selected=&p->b;return value;}
+I64 F(){Box o;U8 a=20,b=22;o.selected=&o.a;o.b=&b;
+*o.selected=Retarget(&o,&a);return *o.a+**o.selected;}F();|},
+      42L,
+      "" );
     ( "function-local pointer fields retain their original projection",
       pointer_local_proof_source,
       42L,
@@ -171,6 +205,38 @@ let pointer_width_matrix =
 
 let pointer_faults =
   [
+    ( "reading through a field alias checks initialization",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 **q=&o.p;return **q;}F();|},
+      "HCIRVM0012",
+      "" );
+    ( "retired field aliases stay invalid after stack reuse",
+      {|class Box{U8 *p;};U8 **Save(){Box o;return &o.p;}
+I64 F(){U8 **saved=Save();Save();return **saved;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "union fields with different pointer depths cannot share ownership",
+      {|union Box{U8 *p;U8 **q;};class Owner{U8 *p;};
+I64 F(){Box o;Owner v;U8 x=42;v.p=&x;o.q=&v.p;return *o.p;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "byte writes invalidate the ownership of deeper pointer fields",
+      {|class Box{U8 *p;U8 **q;};I64 F(){Box o;U8 x=42;o.p=&x;o.q=&o.p;
+U8 *bytes=(&o)(U8*);bytes[8]=bytes[8];return **o.q;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "a one-past pointer field alias cannot read a pointer cell",
+      {|class Box{U8 *p[2];};I64 F(){Box o;U8 **p=&o.p[0];return **(p+2);}F();|},
+      "HCIRVM0019",
+      "" );
+    ( "pointer cell scaling checks overflow before a read",
+      {|class Box{U8 *p[2];};I64 F(){Box o;U8 **p=&o.p[0];
+return **(p+0x4000000000000000);}F();|},
+      "HCIRVM0020",
+      "" );
+    ( "pointer-field differences require the same root",
+      {|class Box{U8 *p;};I64 F(){Box a,b;return (&a.p)-(&b.p);}F();|},
+      "HCIRVM0018",
+      "" );
     ( "an earlier retained string consumer rejects a later escaped local",
       {|extern U0 Print(U8 *fmt,...);U0 Show(U8 *p){Print("%s",p);}class Box{U8 *p;};Box saved;U0 Save(){U8 bytes[2];bytes[0]=65;bytes[1]=0;saved.p=bytes;}Save();Print("kept");Show(saved.p);|},
       "HCIRVM0018",
@@ -235,8 +301,11 @@ let pointer_faults =
 
 let pointer_unsupported =
   [
-    ( "explicit address of a pointer field needs another pointer layer",
-      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;*(&o.p)=&value;return **(&o.p);}F();|}
+    ( "ordinary pointer slots retain their private representation",
+      {|I64 F(){U8 value=42;U8 *p=&value;U8 **q=&p;return **q;} F();|} );
+    ( "address of a callback array cell cannot become a data alias",
+      {|I64 Value(){return 42;}class Box{I64 (*fn)()[1];};
+I64 F(){Box o;o.fn[0]=&Value;I64 **p=&o.fn[0];return **p;}F();|}
     );
     ( "numeric null pointer field",
       {|class Box{U8 *p;};I64 F(){Box o;o.p=0;return *o.p;}F();|} );
@@ -245,8 +314,6 @@ let pointer_unsupported =
     );
     ("F64 pointer field", {|class Box{F64 *p;};I64 F(){Box o;return *o.p;}F();|});
     ("U0 pointer field", {|class Box{U0 *p;};I64 F(){Box o;return o.p==0;}F();|});
-    ( "multiple pointer layers in a field",
-      {|class Box{U8 **p;};I64 F(){Box o;return **o.p;}F();|} );
   ]
 
 let pointer_retained_values =

@@ -21,6 +21,11 @@ let pending_prefix_values =
 let pointer_initializer_values =
   pending_prefix_values
   @ [
+      ( "aggregate initializer saves a persistent pointer field address",
+        {|class Box{U8 *p;};Box box;class Alias{U8 **p;};Alias alias={&box.p};
+U8 value=42;*alias.p=&value;**alias.p;|},
+        42L,
+        "" );
       ( "owned pointer initializer width-Bool",
         {|Bool target=42;class Box{U8 tag;Bool *value;};Box object={7,&target};I64 F(){object.tag=9;return *object.value;}F();|},
         42L,

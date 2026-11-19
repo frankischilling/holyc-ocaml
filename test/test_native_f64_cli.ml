@@ -130,6 +130,10 @@ let rejected label report =
 let cases =
   [
     ("literal", "1.5;", 0x3ff8000000000000L);
+    ( "owned double pointer argument",
+      "class Box{F64 *cell;};F64 Read(F64 **p){return **p;}F64 Run(){Box b;F64 \
+       n=1.5;b.cell=&n;return Read(&b.cell);}Run();",
+      0x3ff8000000000000L );
     ( "local copy",
       "F64 Id(F64 x){F64 y=x;return y;}Id(1.5);",
       0x3ff8000000000000L );
@@ -473,7 +477,7 @@ let excluded =
   [
     ( "unproved literal reassociation",
       "F64 F(F64 a){return (a+0.5)+0.5;}F(1.0);" );
-    ("deeper pointer", "F64 F(F64 **x){return **x;}42;");
+    ("numeric double pointer argument", "F64 F(F64 **x){return **x;}F(42);");
     ("pointer array", "F64 F(){F64 *x[2];return 1.0;}42;");
     ("global pointer", "F64 *x;42;");
     ("static pointer", "F64 F(){static F64 *x;return 1.0;}42;");
